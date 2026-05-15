@@ -238,6 +238,27 @@ export class Engine {
     return { values, totalSampled: all.length, nullCount, distinctCount };
   }
 
+  /**
+   * Retrieve the bytes of a file in DuckDB's virtual filesystem. Used by
+   * action sinks (CSV/Parquet) after `COPY ... TO 'name'`.
+   */
+  async exportFileBytes(filename: string): Promise<Uint8Array> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    return await this.db.copyFileToBuffer(filename);
+  }
+
+  /** Remove a file from DuckDB's virtual filesystem (cleanup after export). */
+  async removeFile(filename: string): Promise<void> {
+    if (!this.db) return;
+    try {
+      // Some DuckDB-wasm versions expose dropFile; this is best-effort cleanup.
+      const db = this.db as unknown as { dropFile?: (n: string) => Promise<void> };
+      if (typeof db.dropFile === 'function') await db.dropFile(filename);
+    } catch {
+      // best effort
+    }
+  }
+
   /** Drop a previously registered table/view. */
   async drop(tableName: string): Promise<void> {
     const safe = sanitizeIdent(tableName);

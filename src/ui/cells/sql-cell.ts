@@ -5,9 +5,21 @@
 // Spec §1 recommends CM6; this is intentionally a placeholder.
 
 import { iconSvg } from '../../tokens/icons.ts';
+import type { ColumnAssignment } from '../schema-panel.ts';
+import { SINKS } from '../sinks/sinks.ts';
 import type { CellHandlers, SqlCellState } from './types.ts';
 
-export function renderSqlCell(cell: SqlCellState, handlers: CellHandlers): HTMLElement {
+export interface SqlCellExtra {
+  /** Schema assignments for the columns of this cell's result. */
+  assignmentsFor: (cellId: string) => ColumnAssignment[];
+  onSendTo: (cellId: string, sinkId: string) => void;
+}
+
+export function renderSqlCell(
+  cell: SqlCellState,
+  handlers: CellHandlers,
+  extra?: SqlCellExtra,
+): HTMLElement {
   const el = document.createElement('div');
   el.className = 'cell';
   el.dataset.cellId = cell.id;
@@ -72,7 +84,39 @@ export function renderSqlCell(cell: SqlCellState, handlers: CellHandlers): HTMLE
   const out = el.querySelector<HTMLElement>('[data-region="cell-output"]');
   if (out) renderSqlOutput(out, cell);
 
+  if (cell.lastResult && extra) {
+    el.append(renderSendToBar(cell, extra));
+  }
+
   return el;
+}
+
+function renderSendToBar(cell: SqlCellState, extra: SqlCellExtra): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText =
+    'display:flex;gap:6px;align-items:center;padding:6px 12px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-muted);background:var(--surface);';
+  wrap.innerHTML = '<span>Send result to:</span>';
+  const assignments = extra.assignmentsFor(cell.id);
+  for (const sink of SINKS) {
+    const reason = sink.blockReason(
+      cell.lastResult as NonNullable<typeof cell.lastResult>,
+      assignments,
+    );
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost';
+    btn.style.cssText = 'padding:2px 6px;font-size:11px;';
+    btn.textContent = sink.name;
+    if (reason) {
+      btn.disabled = true;
+      btn.title = reason;
+      btn.style.opacity = '0.5';
+    } else {
+      btn.title = sink.description;
+      btn.addEventListener('click', () => extra.onSendTo(cell.id, sink.id));
+    }
+    wrap.append(btn);
+  }
+  return wrap;
 }
 
 function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {

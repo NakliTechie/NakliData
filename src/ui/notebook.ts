@@ -14,7 +14,7 @@ import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
-import { renderSqlCell } from './cells/sql-cell.ts';
+import { type SqlCellExtra, renderSqlCell } from './cells/sql-cell.ts';
 import type {
   CellHandlers,
   CellState,
@@ -198,7 +198,11 @@ export function injectNotebookCss(): void {
   document.head.appendChild(tag);
 }
 
-export function renderNotebook(mount: HTMLElement, notebook: Notebook): void {
+export function renderNotebook(
+  mount: HTMLElement,
+  notebook: Notebook,
+  sqlExtra?: SqlCellExtra,
+): void {
   injectNotebookCss();
   const cells = notebook.get().cells;
   const sqlCells = cells.filter((c): c is SqlCellState => c.kind === 'sql');
@@ -235,7 +239,7 @@ export function renderNotebook(mount: HTMLElement, notebook: Notebook): void {
   root.append(toolbar);
 
   for (const cell of cells) {
-    if (cell.kind === 'sql') root.append(renderSqlCell(cell, handlers));
+    if (cell.kind === 'sql') root.append(renderSqlCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'markdown') root.append(renderMarkdownCell(cell, handlers));
     else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
   }

@@ -38,7 +38,10 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="spotlight" aria-keyshortcuts="Control+K" title="Search (Ctrl+K)">
         ${iconSvg('search', 14)} <span>Search</span>
       </button>
-      <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklilens (Ctrl+S)" disabled>
+      <button class="btn btn-ghost" data-action="load" title="Open .naklilens">
+        ${iconSvg('folder', 14)} <span>Open</span>
+      </button>
+      <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklilens (Ctrl+S)">
         ${iconSvg('download', 14)} <span>Save</span>
       </button>
     </div>

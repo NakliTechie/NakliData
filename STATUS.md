@@ -1,9 +1,22 @@
-## Last update: 2026-05-15T14:15:00Z
+## Last update: 2026-05-15T14:20:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 281 KB; tsc + biome clean; 11 tests passing
+## Build status: green — `dist/index.html` 293 KB; tsc + biome clean; 11 tests passing
 ## Deploy status: not yet deployed
 
-## What's done since last check-in
+## What's done since last check-in (combined with prior)
+- Build order step 10 (action sinks) and step 8 (.naklilens save/load) done
+- 5 action sinks (`src/ui/sinks/sinks.ts`): CSV, Parquet, KanZen, Bahi proposal, NakliPoster
+  - CSV / Parquet via DuckDB `COPY ... TO` + `db.copyFileToBuffer`
+  - KanZen / Bahi / NakliPoster emit downstream-compatible JSON via FSA `showSaveFilePicker`
+  - Type-gated menu surface inside SQL cells (incompatible sinks shown disabled with reason)
+- `.naklilens` persistence (`src/core/persistence.ts`):
+  - Save: serialize sources + assignments + cells (results stripped) + threshold
+  - Load: re-mount example-bundle sources by ref; flag FSA sources as "Reconnect needed"
+  - Version gate: refuses files newer than 1.0 with a clear message (spec §3.9)
+  - Cmd/Ctrl+S keyboard shortcut wired
+- Header now has Open + Save buttons (Save was previously disabled)
+
+## What's done since the previous check-in
 - Build order step 7 (notebook UI) and step 9 (chart renderer) done as a first cut
 - Cells: SQL / markdown / chart, with a Notebook orchestrator that owns:
   - Run with AbortSignal-aware engine.query
@@ -23,12 +36,11 @@
 - (commit boundary)
 
 ## What's next (in order)
-- Action sinks (build order step 10) — at least CSV/Parquet write to FSA
-- `.naklilens` save/load (step 8)
-- FSA folder mount + IndexedDB handle persistence (step 3)
-- Report templates (step 11) — 6 starter templates
-- Restore CodeMirror 6 as a lazy chunk (decision log)
-- Smoke test (handoff §6)
+- FSA folder mount + IndexedDB handle persistence (build order step 3)
+  — needed so .naklilens round-trip works across full folder re-mounts
+- Report templates (step 11) — 6 starter templates (AR aging, vendor concentration, etc.)
+- Restore CodeMirror 6 as a lazy chunk (decision log 14:10)
+- Smoke test (handoff §6) — currently every step except 9 (FSA folder reconnect) is wireable
 
 ## Known gaps the human should look at
 - 11 agent-seeded taxonomy types in `taxonomy/v0.1/types.jsonl` for review

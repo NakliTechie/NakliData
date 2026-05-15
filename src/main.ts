@@ -1,5 +1,6 @@
 import { type Engine, getEngine } from './core/engine.ts';
 import { MountError, type MountedSource, mountExampleBundle, mountFile } from './core/mount.ts';
+import { type NakliLensFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
@@ -12,6 +13,7 @@ import {
   setHasMounts,
   updateEngineStatus,
 } from './ui/shell.ts';
+import { SINKS, SinkError } from './ui/sinks/sinks.ts';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -92,7 +94,7 @@ async function boot(): Promise<void> {
       if (nb.get().cells.length === 0 && wb.sources.length > 0) {
         nb.addCell('sql'); // seed with one empty SQL cell
       }
-      renderNotebook(notebookMount, nb);
+      renderNotebook(notebookMount, nb, sqlExtra());
     }
   });
 
@@ -100,7 +102,7 @@ async function boot(): Promise<void> {
   const nb = getNotebook(engine);
   nb.subscribe(() => {
     const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
-    if (notebookMount) renderNotebook(notebookMount, nb);
+    if (notebookMount) renderNotebook(notebookMount, nb, sqlExtra());
   });
 
   // Cmd/Ctrl+Shift+Enter → run all cells.
@@ -136,6 +138,10 @@ function wireActions(root: HTMLElement): void {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
       ev.preventDefault();
       void handleAction('spotlight', null);
+    }
+    if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
+      ev.preventDefault();
+      void handleAction('save', null);
     }
   });
 }
@@ -194,16 +200,106 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       workbook.removeSource(id);
       return;
     }
+    case 'save': {
+      const wb = workbook.get();
+      if (wb.sources.length === 0) {
+        toast('Nothing to save yet.');
+        return;
+      }
+      const nb = getNotebook(engine);
+      const file = serialize({
+        notebookName: 'Untitled',
+        sources: wb.sources,
+        assignments: wb.assignments,
+        cells: nb.get().cells,
+        autoAcceptThreshold: wb.autoAcceptThreshold,
+      });
+      try {
+        const res = await saveToFile(file);
+        toast(`Saved ${res.name}.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(`Save failed: ${msg}`, 'error');
+      }
+      return;
+    }
+    case 'load': {
+      try {
+        const file = await loadFromFile();
+        if (!file) return;
+        await applyLoadedFile(engine, file);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(`Load failed: ${msg}`, 'error');
+      }
+      return;
+    }
     case 'mount-folder':
     case 'mount-url':
     case 'add-source':
     case 'spotlight':
-    case 'save':
       console.info(`[naklios] action requested: ${action} (not yet wired)`);
       toast(`${action} is not wired yet.`);
       return;
     default:
       console.warn(`[naklios] unknown action: ${action}`);
+  }
+}
+
+async function applyLoadedFile(engine: Engine, file: NakliLensFile): Promise<void> {
+  const workbook = getWorkbook();
+  const nb = getNotebook(engine);
+  workbook.clear();
+  // Drop any existing classifier state by re-running on the loaded sources.
+  const reconnectNeeded: Array<{ id: string; label: string }> = [];
+  const restoredSources: MountedSource[] = [];
+  for (const ps of file.sources) {
+    if (ps.kind === 'example-bundle') {
+      // Re-mount the bundle and pick the source matching the persisted ref.
+      try {
+        const allBundle = await mountExampleBundle(engine);
+        const match = allBundle.find((s) => s.ref === ps.ref);
+        if (match) {
+          // Preserve the persisted id so assignment keys still resolve.
+          const remapped: MountedSource = { ...match, id: ps.id };
+          for (let i = 0; i < remapped.tables.length; i++) {
+            const persistedTable = ps.tables[i];
+            const t = remapped.tables[i];
+            if (persistedTable && t) {
+              t.id = persistedTable.id;
+              t.sourceId = remapped.id;
+            }
+          }
+          restoredSources.push(remapped);
+        }
+      } catch (err) {
+        console.warn('[naklios] example-bundle re-mount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else {
+      // Single-file or folder FSA sources require user interaction to reopen.
+      reconnectNeeded.push({ id: ps.id, label: ps.label });
+    }
+  }
+  if (restoredSources.length > 0) workbook.addSources(restoredSources);
+  // Restore assignments
+  for (const a of file.assignments) {
+    workbook.setAssignment(a.key, {
+      columnName: a.columnName,
+      sqlType: a.sqlType,
+      candidates: a.candidates,
+      resolution: { kind: a.resolutionKind },
+      assigned: { typeId: a.typeId, origin: a.origin, confidence: a.confidence },
+      status: 'classified',
+    });
+  }
+  workbook.setAutoAcceptThreshold(file.settings.auto_accept_threshold ?? 0.9);
+  // Restore cells (already stripped of lastResult/lastError).
+  nb.load(file.cells);
+  if (reconnectNeeded.length > 0) {
+    toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
+  } else {
+    toast(`Loaded "${file.name}".`);
   }
 }
 
@@ -297,6 +393,70 @@ function overrideAssignment(
       confidence: candidate ? candidate.confidence : 1, // user choice = full
     },
   });
+}
+
+function sqlExtra(): {
+  assignmentsFor: (cellId: string) => ColumnAssignment[];
+  onSendTo: (cellId: string, sinkId: string) => void;
+} {
+  return {
+    assignmentsFor: (cellId) => {
+      // Build a synthetic ColumnAssignment list from the cell's result columns.
+      // We map each column to the global assignment if any table has a column
+      // with that name; otherwise return a minimal stub.
+      const nb = getNotebook(getEngine());
+      const cell = nb.get().cells.find((c) => c.id === cellId);
+      if (!cell || cell.kind !== 'sql' || !cell.lastResult) return [];
+      const all = getWorkbook().get().assignments;
+      const byName = new Map<string, ColumnAssignment>();
+      for (const a of Object.values(all)) byName.set(a.columnName, a);
+      return cell.lastResult.columns.map((c) => {
+        const found = byName.get(c);
+        if (found) return found;
+        return {
+          columnName: c,
+          sqlType: 'VARCHAR',
+          candidates: [],
+          resolution: { kind: 'unknown' as const },
+          assigned: { typeId: null, origin: 'unknown' as const, confidence: 0 },
+          status: 'classified' as const,
+        };
+      });
+    },
+    onSendTo: (cellId, sinkId) => {
+      void runSink(cellId, sinkId);
+    },
+  };
+}
+
+async function runSink(cellId: string, sinkId: string): Promise<void> {
+  const sink = SINKS.find((s) => s.id === sinkId);
+  if (!sink) {
+    toast(`Unknown sink: ${sinkId}`, 'error');
+    return;
+  }
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first.');
+    return;
+  }
+  const extras = sqlExtra();
+  const assignments = extras.assignmentsFor(cellId);
+  try {
+    const outcome = await sink.execute({
+      engine,
+      cellId,
+      cellName: cell.name,
+      result: cell.lastResult,
+      columnAssignments: assignments,
+    });
+    toast(outcome.message);
+  } catch (err) {
+    const msg = err instanceof SinkError || err instanceof Error ? err.message : String(err);
+    toast(msg, 'error');
+  }
 }
 
 function bulkAccept(threshold: number): void {
