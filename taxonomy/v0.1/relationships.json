@@ -1,0 +1,11 @@
+{
+  "relationships": [
+    { "from": "gstin", "to": "vendor_name", "kind": "identifies" },
+    { "from": "gstin", "to": "gst_state_code", "kind": "embeds", "note": "First 2 chars of GSTIN are the state code." },
+    { "from": "pan", "to": "vendor_name", "kind": "identifies" },
+    { "from": "hsn_code", "to": "gst_rate", "kind": "implies" },
+    { "from": "ifsc", "to": "indian_bank_account", "kind": "pairs_with" },
+    { "from": "request_id", "to": "service_name", "kind": "scopes" },
+    { "from": "iso_datetime", "to": "duration_ms", "kind": "contextualizes" }
+  ]
+}

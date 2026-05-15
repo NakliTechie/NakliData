@@ -62,6 +62,10 @@ async function buildShell() {
     if (existsSync('public')) {
       await cp('public', OUT_DIR, { recursive: true });
     }
+    // Copy taxonomy bundle so the runtime loader can fetch /taxonomy/v0.1/*
+    if (existsSync('taxonomy')) {
+      await cp('taxonomy', `${OUT_DIR}/taxonomy`, { recursive: true });
+    }
   } else {
     const shellHtml = await readFile('src/index.html', 'utf8');
     const inlined = shellHtml
@@ -84,10 +88,13 @@ async function serve() {
   const port = 5173;
   createServer(async (req, res) => {
     const url = req.url === '/' ? '/index.html' : req.url;
+    const path = url ?? '/index.html';
     const candidates = [
-      join(OUT_DIR, url ?? '/index.html'),
-      join('public', url ?? '/'),
-    ];
+      join(OUT_DIR, path),
+      join('public', path),
+      // Dev: also serve repo-root taxonomy/ at /taxonomy/...
+      path.startsWith('/taxonomy/') ? path.slice(1) : null,
+    ].filter(Boolean);
     for (const filePath of candidates) {
       try {
         const st = await stat(filePath);

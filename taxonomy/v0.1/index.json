@@ -1,0 +1,27 @@
+{
+  "format": "nakli-taxonomy",
+  "version": "0.1",
+  "released": "2026-05-15",
+  "domains": [
+    {
+      "id": "india-smb-finance",
+      "label": "Indian SMB finance",
+      "description": "GSTIN, PAN, HSN, IFSC, GL accounts and adjacent Indian finance fields.",
+      "domain_file": "domains/india-smb-finance.json"
+    },
+    {
+      "id": "generic-finance",
+      "label": "Generic finance",
+      "description": "Amount, currency, dates, identifiers shared across finance domains.",
+      "domain_file": "domains/generic-finance.json"
+    },
+    {
+      "id": "generic-logs",
+      "label": "Generic logs",
+      "description": "Log levels, services, endpoints, latency, HTTP status, IDs.",
+      "domain_file": "domains/generic-logs.json"
+    }
+  ],
+  "types_file": "types.jsonl",
+  "relationships_file": "relationships.json"
+}

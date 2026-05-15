@@ -192,6 +192,52 @@ export class Engine {
     );
   }
 
+  /** List the column names + DuckDB types for a registered table/view. */
+  async describeColumns(tableName: string): Promise<Array<{ name: string; type: string }>> {
+    const safe = sanitizeIdent(tableName);
+    const rows = await this.query<{ column_name: string; column_type: string }>(
+      `DESCRIBE ${quoteIdent(safe)}`,
+    );
+    return rows.map((r) => ({ name: r.column_name, type: r.column_type }));
+  }
+
+  /**
+   * Sample up to `limit` non-null values from a single column. Returns
+   * stringified values plus stats. Per spec §3.2 sampling = first 100 +
+   * random 100; we approximate with a single sample call for simplicity
+   * and bump default size to 200.
+   */
+  async sampleColumn(
+    tableName: string,
+    columnName: string,
+    limit = 200,
+  ): Promise<{
+    values: string[];
+    totalSampled: number;
+    nullCount: number;
+    distinctCount: number;
+  }> {
+    const safeTable = quoteIdent(sanitizeIdent(tableName));
+    const safeCol = quoteIdent(columnName.replace(/"/g, '""'));
+    const half = Math.max(1, Math.floor(limit / 2));
+    const head = await this.query<{ v: unknown }>(
+      `SELECT ${safeCol}::VARCHAR AS v FROM ${safeTable} LIMIT ${half}`,
+    );
+    const tail = await this.query<{ v: unknown }>(
+      `SELECT ${safeCol}::VARCHAR AS v FROM ${safeTable} USING SAMPLE ${limit - half} ROWS`,
+    );
+    const all = [...head, ...tail];
+    const values: string[] = [];
+    let nullCount = 0;
+    for (const row of all) {
+      const v = row.v;
+      if (v === null || v === undefined || v === '') nullCount++;
+      else values.push(String(v));
+    }
+    const distinctCount = new Set(values).size;
+    return { values, totalSampled: all.length, nullCount, distinctCount };
+  }
+
   /** Drop a previously registered table/view. */
   async drop(tableName: string): Promise<void> {
     const safe = sanitizeIdent(tableName);
