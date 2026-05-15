@@ -3,6 +3,7 @@ import { MountError, type MountedSource, mountExampleBundle, mountFile } from '.
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
 import {
   type ShellState,
@@ -83,6 +84,31 @@ async function boot(): Promise<void> {
         onChangeThreshold: (v) => workbook.setAutoAcceptThreshold(v),
       },
     );
+    // Mount and re-render the notebook into the center region whenever the
+    // mount state changes (so the notebook appears on first mount).
+    const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
+    if (notebookMount) {
+      const nb = getNotebook(engine);
+      if (nb.get().cells.length === 0 && wb.sources.length > 0) {
+        nb.addCell('sql'); // seed with one empty SQL cell
+      }
+      renderNotebook(notebookMount, nb);
+    }
+  });
+
+  // Re-render the notebook on its own state changes.
+  const nb = getNotebook(engine);
+  nb.subscribe(() => {
+    const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
+    if (notebookMount) renderNotebook(notebookMount, nb);
+  });
+
+  // Cmd/Ctrl+Shift+Enter → run all cells.
+  document.addEventListener('keydown', (ev) => {
+    if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && ev.key === 'Enter') {
+      ev.preventDefault();
+      void nb.runAll();
+    }
   });
 
   const offline = new URLSearchParams(location.search).has('offline');

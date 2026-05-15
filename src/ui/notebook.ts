@@ -1,0 +1,260 @@
+// Notebook orchestrator. Renders cells, owns run() per cell against the
+// engine, and resolves @cellName references via DuckDB views.
+//
+// Spec refs:
+//   §3.3 — cell types (SQL / chart / markdown)
+//   §3.8 — keyboard (Cmd/Ctrl+Enter run; Cmd/Ctrl+Shift+Enter run all)
+//   §3.8 — Esc cancel
+//
+// Cells form a DAG by @cellName references; on run we replace @name with
+// the saved view `cell_<id>` for the named cell, having created that view
+// in the previous successful run.
+
+import type { Engine } from '../core/engine.ts';
+import { iconSvg } from '../tokens/icons.ts';
+import { renderChartCell } from './cells/chart-cell.ts';
+import { renderMarkdownCell } from './cells/markdown-cell.ts';
+import { renderSqlCell } from './cells/sql-cell.ts';
+import type {
+  CellHandlers,
+  CellState,
+  ChartCellState,
+  MarkdownCellState,
+  SqlCellState,
+} from './cells/types.ts';
+import { notebookCss } from './notebook.css.ts';
+
+let _idSeq = 1;
+const genCellId = () => `c_${Date.now().toString(36)}_${_idSeq++}`;
+
+export interface NotebookState {
+  cells: CellState[];
+}
+
+export class Notebook {
+  private state: NotebookState = { cells: [] };
+  private engine: Engine;
+  private listeners = new Set<(s: NotebookState) => void>();
+  private aborts = new Map<string, AbortController>();
+
+  constructor(engine: Engine) {
+    this.engine = engine;
+  }
+
+  get(): NotebookState {
+    return this.state;
+  }
+
+  subscribe(fn: (s: NotebookState) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  load(cells: CellState[]): void {
+    this.state = { cells };
+    this.notify();
+  }
+
+  addCell(kind: CellState['kind']): CellState {
+    const order = this.state.cells.length;
+    let cell: CellState;
+    if (kind === 'sql') {
+      cell = {
+        id: genCellId(),
+        kind: 'sql',
+        order,
+        name: null,
+        code: '',
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+        pinned: false,
+      } satisfies SqlCellState;
+    } else if (kind === 'markdown') {
+      cell = {
+        id: genCellId(),
+        kind: 'markdown',
+        order,
+        name: null,
+        code: '',
+      } satisfies MarkdownCellState;
+    } else {
+      cell = {
+        id: genCellId(),
+        kind: 'chart',
+        order,
+        name: null,
+        inputCell: null,
+        chartType: 'bar',
+        x: null,
+        y: null,
+      } satisfies ChartCellState;
+    }
+    this.state = { cells: [...this.state.cells, cell] };
+    this.notify();
+    return cell;
+  }
+
+  deleteCell(id: string): void {
+    this.state = {
+      cells: this.state.cells.filter((c) => c.id !== id),
+    };
+    this.notify();
+  }
+
+  patchCell(id: string, patch: Record<string, unknown>): void {
+    const next = this.state.cells.map((c) => {
+      if (c.id !== id) return c;
+      return { ...c, ...patch } as CellState;
+    });
+    this.state = { cells: next };
+    this.notify();
+  }
+
+  cancel(id: string): void {
+    this.aborts.get(id)?.abort();
+  }
+
+  async runCell(id: string, codeOverride?: string): Promise<void> {
+    const cell = this.state.cells.find((c) => c.id === id);
+    if (!cell || cell.kind !== 'sql') return;
+    const code = codeOverride ?? cell.code;
+    this.patchCell(id, { code, status: 'running', lastError: null });
+    const ac = new AbortController();
+    this.aborts.set(id, ac);
+    const t0 = performance.now();
+    try {
+      const rewritten = this.rewriteReferences(code);
+      const viewName = `cell_${id}`;
+      await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`);
+      const rows = await this.engine.query(`SELECT * FROM "${viewName}"`, { signal: ac.signal });
+      const elapsed = performance.now() - t0;
+      const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
+      this.patchCell(id, {
+        status: 'success',
+        lastResult: {
+          columns,
+          rows: rows as Array<Record<string, unknown>>,
+          rowCount: rows.length,
+          elapsedMs: elapsed,
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.patchCell(id, { status: 'error', lastError: msg, lastResult: null });
+    } finally {
+      this.aborts.delete(id);
+    }
+  }
+
+  async runAll(): Promise<void> {
+    // Topologically sort by @name dependencies — simple version: just run
+    // in document order; cells reference views which are created by prior
+    // cells, so document-order matches DAG order in the common case.
+    for (const c of this.state.cells) {
+      if (c.kind === 'sql') {
+        await this.runCell(c.id);
+      }
+    }
+  }
+
+  /**
+   * Rewrites @name references to the corresponding `cell_<id>` view.
+   * Cycles aren't checked here; a SELECT against a not-yet-existing view
+   * will surface as a DuckDB error inline.
+   */
+  private rewriteReferences(sql: string): string {
+    return sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_m, name) => {
+      const ref = this.state.cells.find(
+        (c): c is SqlCellState => c.kind === 'sql' && c.name === name,
+      );
+      if (!ref) return `"${name}"`;
+      return `"cell_${ref.id}"`;
+    });
+  }
+
+  private notify(): void {
+    for (const fn of this.listeners) {
+      try {
+        fn(this.state);
+      } catch (err) {
+        console.error('[notebook] listener error', err);
+      }
+    }
+  }
+}
+
+let _notebook: Notebook | null = null;
+export function getNotebook(engine: Engine): Notebook {
+  if (!_notebook) _notebook = new Notebook(engine);
+  return _notebook;
+}
+
+export function injectNotebookCss(): void {
+  if (document.getElementById('naklios-notebook-css')) return;
+  const tag = document.createElement('style');
+  tag.id = 'naklios-notebook-css';
+  tag.textContent = notebookCss;
+  document.head.appendChild(tag);
+}
+
+export function renderNotebook(mount: HTMLElement, notebook: Notebook): void {
+  injectNotebookCss();
+  const cells = notebook.get().cells;
+  const sqlCells = cells.filter((c): c is SqlCellState => c.kind === 'sql');
+
+  const handlers: CellHandlers = {
+    onRun: (id, payload) => {
+      void notebook.runCell(id, payload?.code);
+    },
+    onChange: (id, patch) => {
+      notebook.patchCell(id, patch as Partial<CellState>);
+    },
+    onDelete: (id) => {
+      notebook.deleteCell(id);
+    },
+  };
+
+  mount.innerHTML = '';
+  const root = document.createElement('div');
+  root.className = 'notebook';
+  mount.append(root);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'notebook-toolbar';
+  toolbar.innerHTML = `
+    <strong style="font-size:13px;">Notebook</strong>
+    <span style="color: var(--text-muted); font-size:12px;">${cells.length} cell${cells.length === 1 ? '' : 's'}</span>
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <button class="btn" data-nb-action="run-all" title="Run all (Ctrl+Shift+Enter)">${iconSvg('play', 12)} Run all</button>
+    </div>
+  `;
+  toolbar.querySelector('[data-nb-action="run-all"]')?.addEventListener('click', () => {
+    void notebook.runAll();
+  });
+  root.append(toolbar);
+
+  for (const cell of cells) {
+    if (cell.kind === 'sql') root.append(renderSqlCell(cell, handlers));
+    else if (cell.kind === 'markdown') root.append(renderMarkdownCell(cell, handlers));
+    else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
+  }
+
+  const addRow = document.createElement('div');
+  addRow.className = 'cell-add-row';
+  addRow.innerHTML = `
+    <button class="btn" data-nb-action="add-sql">${iconSvg('plus', 12)} SQL</button>
+    <button class="btn" data-nb-action="add-markdown">${iconSvg('plus', 12)} Markdown</button>
+    <button class="btn" data-nb-action="add-chart">${iconSvg('plus', 12)} Chart</button>
+  `;
+  addRow
+    .querySelector('[data-nb-action="add-sql"]')
+    ?.addEventListener('click', () => notebook.addCell('sql'));
+  addRow
+    .querySelector('[data-nb-action="add-markdown"]')
+    ?.addEventListener('click', () => notebook.addCell('markdown'));
+  addRow
+    .querySelector('[data-nb-action="add-chart"]')
+    ?.addEventListener('click', () => notebook.addCell('chart'));
+  root.append(addRow);
+}

@@ -1,36 +1,36 @@
-## Last update: 2026-05-15T14:00:00Z
+## Last update: 2026-05-15T14:15:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 257 KB; tsc + biome clean; 11 tests passing
+## Build status: green — `dist/index.html` 281 KB; tsc + biome clean; 11 tests passing
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in
-- Build order steps 4–6 complete (Phase 1 schema inference, taxonomy, schema panel)
-- Taxonomy v0.1 bundled under `taxonomy/v0.1/`:
-  - 40 semantic types across 3 domains (india-smb-finance, generic-finance, generic-logs)
-  - 11 marked seed_origin: agent_v1.0 — flagged for human review before tagging
-  - GSTIN + IBAN checksum implementations, vendored
-- Detector library: header_match, regex, checksum, value_set, range_numeric, distribution
-- Classification orchestration (Phase 1 + Phase 2 resolution): auto_accept / ambiguous / unknown
-- Taxonomy worker bootstrap + main-thread client (`src/taxonomy/client.ts`)
-- Schema panel UI:
-  - Confidence bar (Monsoon sequential), type pill, origin badge
-  - Expandable evidence block per column
-  - Accept button + override dropdown (with type filter)
-  - Auto-accept threshold slider + bulk accept
-  - A11y labels per spec §3.9
-- Workbook tracks per-column assignments; bulk-accept updates them
-- 11 vitest tests passing (GSTIN/IBAN checksums + classify cases)
+- Build order step 7 (notebook UI) and step 9 (chart renderer) done as a first cut
+- Cells: SQL / markdown / chart, with a Notebook orchestrator that owns:
+  - Run with AbortSignal-aware engine.query
+  - `@cellName` rewrite to `cell_<id>` views for chain composition
+  - Run-all over document order (real topo-sort deferred)
+  - Cmd/Ctrl+Enter (run cell), Cmd/Ctrl+Shift+Enter (run all)
+- SQL cell: tab-aware textarea + run button + paginated result table
+  (CodeMirror 6 deferred — see DECISIONS 14:10)
+- Markdown cell: minimal renderer (headings, paragraphs, bold/italic, code, lists)
+- Chart cell: 7 chart types (bar / line / area / scatter / histogram / stat / table)
+- Chart renderer (`src/charts/render.ts`): pure canvas/SVG, Rangrez palette only,
+  hidden `<table>` mirror per spec §3.9 (a11y / copy-paste)
+- Notebook seeds with one empty SQL cell on first mount; `+ SQL / Markdown / Chart`
+  buttons at the bottom add more
 
 ## What's in progress right now
 - (commit boundary)
 
 ## What's next (in order)
-- Smoke-test end-to-end in a browser: mount examples → verify ≥80% of ~30 columns classified at ≥0.8 confidence
-- FSA folder mount + IndexedDB handle persistence (build order step 3)
-- Notebook UI (step 7): SQL cell + chart cell + markdown cell
+- Action sinks (build order step 10) — at least CSV/Parquet write to FSA
 - `.naklilens` save/load (step 8)
-- SRI-pinning for DuckDB-wasm CDN load (gate artifact in §7.1)
+- FSA folder mount + IndexedDB handle persistence (step 3)
+- Report templates (step 11) — 6 starter templates
+- Restore CodeMirror 6 as a lazy chunk (decision log)
+- Smoke test (handoff §6)
 
-## Anything the human should look at
-- 11 agent-seeded taxonomy types in `taxonomy/v0.1/types.jsonl` (search `seed_origin`): review confidence_floor + detector specs before v1.0 tag.
-- The schema panel is the spec's "most important surface" — disproportionate care went into it but it's a first cut. Expect UX iteration.
+## Known gaps the human should look at
+- 11 agent-seeded taxonomy types in `taxonomy/v0.1/types.jsonl` for review
+- Editor is a textarea, not CodeMirror 6 (see DECISIONS 14:10 — fix planned before v1.0 tag)
+- Build order step 3 (FSA folder mount) not yet built; example-bundle + single-file mount carry the smoke test for now

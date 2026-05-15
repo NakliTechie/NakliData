@@ -79,26 +79,19 @@ function renderCenter(state: ShellState): HTMLElement {
 }
 
 function renderCenterInner(el: HTMLElement, hasMounts: boolean): void {
-  el.innerHTML = '';
+  // Only swap to empty state when there are no mounts. Once mounted, leave
+  // the center alone so the notebook DOM survives subsequent re-renders.
   if (!hasMounts) {
+    el.innerHTML = '';
     el.append(renderEmptyState());
-  } else {
-    el.append(renderNotebookPlaceholder());
+    return;
   }
-}
-
-function renderNotebookPlaceholder(): HTMLElement {
-  const ph = document.createElement('div');
-  ph.style.padding = '24px';
-  ph.style.maxWidth = '760px';
-  ph.style.margin = '0 auto';
-  ph.innerHTML = `
-    <p style="color: var(--text-muted);">
-      Sources mounted. Click <strong>+ SQL</strong> to start a query, or pick a report
-      template from the right panel. (Notebook UI lands in v1.0 build-order step 7.)
-    </p>
-  `;
-  return ph;
+  if (!el.querySelector('[data-region="notebook"]')) {
+    el.innerHTML = '';
+    const mount = document.createElement('div');
+    mount.setAttribute('data-region', 'notebook');
+    el.append(mount);
+  }
 }
 
 function renderEmptyState(): HTMLElement {
