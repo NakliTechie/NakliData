@@ -1,6 +1,9 @@
-import { getEngine } from './core/engine.ts';
-import { MountError, mountExampleBundle, mountFile } from './core/mount.ts';
+import { type Engine, getEngine } from './core/engine.ts';
+import { MountError, type MountedSource, mountExampleBundle, mountFile } from './core/mount.ts';
 import { getWorkbook } from './core/workbook.ts';
+import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
+import type { ClassificationResult } from './taxonomy/types.ts';
+import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
 import {
   type ShellState,
   mountShell,
@@ -65,6 +68,21 @@ async function boot(): Promise<void> {
   workbook.subscribe((wb) => {
     renderSourcesList(root, wb.sources);
     setHasMounts(root, wb.sources.length > 0);
+    renderSchemaPanel(
+      root,
+      {
+        sources: wb.sources,
+        assignments: wb.assignments,
+        bundle: getTaxonomyClient().getBundle(),
+        autoAcceptThreshold: wb.autoAcceptThreshold,
+      },
+      {
+        onAccept: (sId, tId, col) => acceptAssignment(sId, tId, col),
+        onOverride: (sId, tId, col, typeId) => overrideAssignment(sId, tId, col, typeId),
+        onBulkAccept: (threshold) => bulkAccept(threshold),
+        onChangeThreshold: (v) => workbook.setAutoAcceptThreshold(v),
+      },
+    );
   });
 
   const offline = new URLSearchParams(location.search).has('offline');
@@ -83,6 +101,8 @@ function wireActions(root: HTMLElement): void {
     if (!actionEl) return;
     const action = actionEl.dataset.action;
     if (!action) return;
+    // Schema-panel actions wire themselves in renderSchemaPanel().
+    if (['accept', 'evidence', 'threshold-slider', 'bulk-accept'].includes(action)) return;
     void handleAction(action, actionEl);
   });
 
@@ -107,6 +127,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         const sources = await mountExampleBundle(engine);
         workbook.addSources(sources);
         toast(`Loaded ${sources.length} example source${sources.length === 1 ? '' : 's'}.`);
+        void classifyMountedSources(engine, sources);
       } catch (err) {
         const msg = err instanceof MountError || err instanceof Error ? err.message : String(err);
         toast(`Could not mount examples: ${msg}`, 'error');
@@ -124,6 +145,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         const source = await mountFile(engine, file);
         workbook.addSources([source]);
         toast(`Mounted ${file.name}.`);
+        void classifyMountedSources(engine, [source]);
       } catch (err) {
         const msg = err instanceof MountError || err instanceof Error ? err.message : String(err);
         toast(`Mount failed: ${msg}`, 'error');
@@ -133,7 +155,6 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'remove-source': {
       const id = el?.dataset.sourceId;
       if (!id) return;
-      // Drop the views, then forget the source.
       const src = workbook.get().sources.find((s) => s.id === id);
       if (src) {
         for (const t of src.tables) {
@@ -160,9 +181,119 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
   }
 }
 
+async function classifyMountedSources(engine: Engine, sources: MountedSource[]): Promise<void> {
+  const workbook = getWorkbook();
+  const client = getTaxonomyClient();
+  try {
+    await client.ensureReady();
+  } catch (err) {
+    console.error('[naklios] taxonomy boot failed', err);
+    toast(`Classifier failed to start: ${err instanceof Error ? err.message : err}`, 'error');
+    return;
+  }
+  for (const src of sources) {
+    for (const table of src.tables) {
+      try {
+        const results = await classifyTableColumns(engine, client, table.name);
+        for (const r of results) {
+          const key = assignmentKey(src.id, table.id, r.column.columnName);
+          workbook.setAssignment(key, resultToAssignment(r));
+        }
+      } catch (err) {
+        console.error(`[naklios] classify failed for ${table.name}`, err);
+      }
+    }
+  }
+}
+
+function resultToAssignment(r: ClassificationResult): ColumnAssignment {
+  const candidates = r.candidates.map((c) => ({
+    typeId: c.typeId,
+    displayName: c.displayName,
+    confidence: c.confidence,
+    evidence: c.evidence,
+  }));
+  let assigned: ColumnAssignment['assigned'];
+  if (r.resolution.kind === 'auto_accept') {
+    const top = candidates[0];
+    assigned = {
+      typeId: r.resolution.typeId,
+      origin: 'detector',
+      confidence: top ? top.confidence : r.resolution.confidence,
+    };
+  } else if (r.resolution.kind === 'ambiguous') {
+    const top = candidates[0];
+    assigned = {
+      typeId: top ? top.typeId : null,
+      origin: 'detector',
+      confidence: top ? top.confidence : 0,
+    };
+  } else {
+    assigned = { typeId: null, origin: 'unknown', confidence: 0 };
+  }
+  return {
+    columnName: r.column.columnName,
+    sqlType: r.column.sqlType,
+    candidates,
+    resolution: { kind: r.resolution.kind },
+    assigned,
+    status: 'classified',
+  };
+}
+
+function acceptAssignment(sourceId: string, tableId: string, columnName: string): void {
+  const workbook = getWorkbook();
+  const key = assignmentKey(sourceId, tableId, columnName);
+  const a = workbook.get().assignments[key];
+  if (!a) return;
+  workbook.setAssignment(key, {
+    ...a,
+    assigned: { ...a.assigned, origin: 'user_accept' },
+  });
+}
+
+function overrideAssignment(
+  sourceId: string,
+  tableId: string,
+  columnName: string,
+  typeId: string | null,
+): void {
+  const workbook = getWorkbook();
+  const key = assignmentKey(sourceId, tableId, columnName);
+  const a = workbook.get().assignments[key];
+  if (!a) return;
+  const candidate = a.candidates.find((c) => c.typeId === typeId);
+  workbook.setAssignment(key, {
+    ...a,
+    assigned: {
+      typeId,
+      origin: typeId === null ? 'unknown' : 'user_override',
+      confidence: candidate ? candidate.confidence : 1, // user choice = full
+    },
+  });
+}
+
+function bulkAccept(threshold: number): void {
+  const workbook = getWorkbook();
+  const next = { ...workbook.get().assignments };
+  let touched = 0;
+  for (const [key, a] of Object.entries(next)) {
+    if (
+      a.assigned.typeId &&
+      a.assigned.confidence >= threshold &&
+      a.assigned.origin === 'detector'
+    ) {
+      next[key] = { ...a, assigned: { ...a.assigned, origin: 'user_accept' } };
+      touched++;
+    }
+  }
+  for (const [key, a] of Object.entries(next)) {
+    workbook.setAssignment(key, a);
+  }
+  toast(`Accepted ${touched} column${touched === 1 ? '' : 's'} ≥ ${threshold.toFixed(2)}.`);
+}
+
 async function pickSingleFile(): Promise<File | null> {
-  // Prefer FSA showOpenFilePicker for the durable handle path. Fall back to
-  // <input type="file"> in browsers without FSA (Firefox).
   type WindowWithPicker = Window & {
     showOpenFilePicker?: (opts: {
       multiple: boolean;

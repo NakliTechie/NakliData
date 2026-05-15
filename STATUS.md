@@ -1,33 +1,36 @@
-## Last update: 2026-05-15T13:45:00Z
+## Last update: 2026-05-15T14:00:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 241 KB; tsc + biome clean
+## Build status: green — `dist/index.html` 257 KB; tsc + biome clean; 11 tests passing
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in
-- Build order step 2 complete: DuckDB engine end-to-end queryable
-- Bundled example data generator (`scripts/gen-examples.mjs`):
-  - 25 vendors with valid-checksum GSTINs, PANs, IFSCs
-  - 80 invoices with HSN codes, GST rates, payment status
-  - 65 payments
-  - 240 NDJSON access logs (service / endpoint / status / latency)
-  - `public/examples/manifest.json` describes the bundle
-- Mount layer (`src/core/mount.ts`): `mountExampleBundle`, `mountFile`, format detection, table-name sanitization
-- Workbook state container (`src/core/workbook.ts`) with subscribe/notify
-- Sources panel renders mounted sources + tables with row counts
-- "Browse example data" CTA wired end-to-end (fetch → register → list)
-- "Add file" CTA wired with `showOpenFilePicker` (FSA) or `<input type=file>` fallback
-- Toast notifications for transient feedback
-- Dev server now serves `public/` so example data is reachable from `npm run dev`
+- Build order steps 4–6 complete (Phase 1 schema inference, taxonomy, schema panel)
+- Taxonomy v0.1 bundled under `taxonomy/v0.1/`:
+  - 40 semantic types across 3 domains (india-smb-finance, generic-finance, generic-logs)
+  - 11 marked seed_origin: agent_v1.0 — flagged for human review before tagging
+  - GSTIN + IBAN checksum implementations, vendored
+- Detector library: header_match, regex, checksum, value_set, range_numeric, distribution
+- Classification orchestration (Phase 1 + Phase 2 resolution): auto_accept / ambiguous / unknown
+- Taxonomy worker bootstrap + main-thread client (`src/taxonomy/client.ts`)
+- Schema panel UI:
+  - Confidence bar (Monsoon sequential), type pill, origin badge
+  - Expandable evidence block per column
+  - Accept button + override dropdown (with type filter)
+  - Auto-accept threshold slider + bulk accept
+  - A11y labels per spec §3.9
+- Workbook tracks per-column assignments; bulk-accept updates them
+- 11 vitest tests passing (GSTIN/IBAN checksums + classify cases)
 
 ## What's in progress right now
-- (commit boundary; taxonomy next)
+- (commit boundary)
 
 ## What's next (in order)
-- Taxonomy bundle v0.1 vendored under `taxonomy/v0.1/` (types.jsonl + domains + relationships)
-- Phase 1 detectors: header_match / regex / checksum (GSTIN/PAN) / value_set / range
-- Classification orchestration: sample → dispatch → aggregate scores → assign type
-- Schema panel UI: per-column type + confidence + evidence + accept/override
+- Smoke-test end-to-end in a browser: mount examples → verify ≥80% of ~30 columns classified at ≥0.8 confidence
 - FSA folder mount + IndexedDB handle persistence (build order step 3)
+- Notebook UI (step 7): SQL cell + chart cell + markdown cell
+- `.naklilens` save/load (step 8)
+- SRI-pinning for DuckDB-wasm CDN load (gate artifact in §7.1)
 
 ## Anything the human should look at
-- `public/examples/` — sample data is committed (deterministic from seed in `scripts/gen-examples.mjs`); regenerate with `node scripts/gen-examples.mjs`.
+- 11 agent-seeded taxonomy types in `taxonomy/v0.1/types.jsonl` (search `seed_origin`): review confidence_floor + detector specs before v1.0 tag.
+- The schema panel is the spec's "most important surface" — disproportionate care went into it but it's a first cut. Expect UX iteration.
