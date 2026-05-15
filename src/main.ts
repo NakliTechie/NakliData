@@ -14,6 +14,7 @@ import {
   updateEngineStatus,
 } from './ui/shell.ts';
 import { SINKS, SinkError } from './ui/sinks/sinks.ts';
+import { renderTemplatePanel } from './ui/templates/templates-panel.ts';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -84,6 +85,17 @@ async function boot(): Promise<void> {
         onOverride: (sId, tId, col, typeId) => overrideAssignment(sId, tId, col, typeId),
         onBulkAccept: (threshold) => bulkAccept(threshold),
         onChangeThreshold: (v) => workbook.setAutoAcceptThreshold(v),
+      },
+    );
+    renderTemplatePanel(
+      root,
+      { sources: wb.sources, assignments: wb.assignments },
+      {
+        onInstantiate: (cells, templateId) => {
+          const nb = getNotebook(engine);
+          nb.load([...nb.get().cells, ...cells]);
+          toast(`Instantiated "${templateId}" — ${cells.length} cells added.`);
+        },
       },
     );
     // Mount and re-render the notebook into the center region whenever the

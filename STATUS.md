@@ -1,6 +1,6 @@
-## Last update: 2026-05-15T14:20:00Z
+## Last update: 2026-05-15T14:25:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 293 KB; tsc + biome clean; 11 tests passing
+## Build status: green — `dist/index.html` 300 KB; tsc clean; biome clean (14 noNonNullAssertion warnings, all in template code); 11 tests passing
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in (combined with prior)
@@ -37,10 +37,19 @@
 
 ## What's next (in order)
 - FSA folder mount + IndexedDB handle persistence (build order step 3)
-  — needed so .naklilens round-trip works across full folder re-mounts
-- Report templates (step 11) — 6 starter templates (AR aging, vendor concentration, etc.)
+  — required so .naklilens round-trip works across full folder re-mounts
+  — required for smoke test step 9 (disconnect / reconnect banner)
 - Restore CodeMirror 6 as a lazy chunk (decision log 14:10)
-- Smoke test (handoff §6) — currently every step except 9 (FSA folder reconnect) is wireable
+- SRI-pinning for DuckDB-wasm CDN load (gate artifact §7.1)
+- Smoke test pass (handoff §6)
+
+## Just done — report templates (build order step 11)
+- 6 templates surfaced in a type-gated "Suggested reports" panel:
+  AR aging, Vendor concentration, GSTIN spend by state,
+  Error frequency, P95/P99 latency, Column profile
+- Each template = markdown + 1-2 SQL cells + 1-2 chart cells
+- "Add" button instantiates into the current notebook, wiring chart cells
+  to their upstream SQL cells by id (resolved from name during instantiation)
 
 ## Known gaps the human should look at
 - 11 agent-seeded taxonomy types in `taxonomy/v0.1/types.jsonl` for review

@@ -139,6 +139,12 @@ function renderSchemaPanel(): HTMLElement {
     <div class="panel-body" data-region="schema-panel">
       <p style="color: var(--text-muted); font-size: 12px; margin: 0;">Mount a source to see types.</p>
     </div>
+    <div class="templates-panel-header">
+      <span>Suggested reports</span>
+    </div>
+    <div class="panel-body" data-region="templates-panel" style="flex: 0 0 auto;">
+      <p style="color: var(--text-muted); font-size: 12px; margin: 0;">No mounts yet.</p>
+    </div>
   `;
   return el;
 }
