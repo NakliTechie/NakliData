@@ -1,6 +1,6 @@
-## Last update: 2026-05-15T14:25:00Z
+## Last update: 2026-05-15T14:30:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 300 KB; tsc clean; biome clean (14 noNonNullAssertion warnings, all in template code); 11 tests passing
+## Build status: green — `dist/index.html` 303 KB; tsc clean; biome 0 errors / 14 warnings; 11 tests passing
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in (combined with prior)
@@ -36,12 +36,23 @@
 - (commit boundary)
 
 ## What's next (in order)
-- FSA folder mount + IndexedDB handle persistence (build order step 3)
-  — required so .naklilens round-trip works across full folder re-mounts
-  — required for smoke test step 9 (disconnect / reconnect banner)
-- Restore CodeMirror 6 as a lazy chunk (decision log 14:10)
-- SRI-pinning for DuckDB-wasm CDN load (gate artifact §7.1)
-- Smoke test pass (handoff §6)
+- Restore CodeMirror 6 as a lazy chunk (decision log 14:10) — pre-tag gate
+- SRI-pinning for DuckDB-wasm CDN load (gate artifact §7.1) — pre-tag gate
+- Auto-restore workspace on app boot (currently only on .naklilens load)
+- Smoke-test the full flow in a browser (handoff §6)
+  — only one of us can do this; running the smoke test needs a real browser
+- README pass for spec §3.10
+
+## Just done — FSA folder mount + IndexedDB handle persistence (build order step 3)
+- `src/core/handles.ts`: IDB store for FSA `FileSystemDirectoryHandle`
+  objects, with permission re-query / re-request flow per handoff §3.1
+- `mountFolder(engine, dirHandle)` walks the top level, registers each
+  supported file as a table named after the file stem
+- `remountFolderFromHandle()` for the .naklilens load path
+- `applyLoadedFile` now attempts to recover folder sources from the
+  persisted handle and re-mount them in-place; falls back to "Reconnect
+  needed" banner if the handle is gone or permission denied
+- "Add folder" CTA in the empty state is now wired
 
 ## Just done — report templates (build order step 11)
 - 6 templates surfaced in a type-gated "Suggested reports" panel:

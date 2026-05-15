@@ -1,5 +1,13 @@
 import { type Engine, getEngine } from './core/engine.ts';
-import { MountError, type MountedSource, mountExampleBundle, mountFile } from './core/mount.ts';
+import { ensureReadPermission, getHandle } from './core/handles.ts';
+import {
+  MountError,
+  type MountedSource,
+  mountExampleBundle,
+  mountFile,
+  mountFolder,
+  remountFolderFromHandle,
+} from './core/mount.ts';
 import { type NakliLensFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
@@ -246,7 +254,26 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       return;
     }
-    case 'mount-folder':
+    case 'mount-folder': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      try {
+        const dir = await pickDirectory();
+        if (!dir) return;
+        const src = await mountFolder(engine, dir);
+        workbook.addSources([src]);
+        toast(
+          `Mounted folder ${src.label} (${src.tables.length} table${src.tables.length === 1 ? '' : 's'}).`,
+        );
+        void classifyMountedSources(engine, [src]);
+      } catch (err) {
+        const msg = err instanceof MountError || err instanceof Error ? err.message : String(err);
+        toast(`Folder mount failed: ${msg}`, 'error');
+      }
+      return;
+    }
     case 'mount-url':
     case 'add-source':
     case 'spotlight':
@@ -288,8 +315,35 @@ async function applyLoadedFile(engine: Engine, file: NakliLensFile): Promise<voi
         console.warn('[naklios] example-bundle re-mount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
+    } else if (ps.kind === 'fsa-folder' && ps.ref) {
+      // Try to re-attach the stored folder handle. We can only request
+      // permission inside a user activation — but the load flow itself
+      // started from a click, so a fresh prompt is allowed here.
+      try {
+        const handle = await getHandle(ps.ref);
+        if (!handle || handle.kind !== 'directory') {
+          reconnectNeeded.push({ id: ps.id, label: ps.label });
+        } else {
+          const granted = await ensureReadPermission(handle);
+          if (!granted) {
+            reconnectNeeded.push({ id: ps.id, label: ps.label });
+          } else {
+            const remounted = await remountFolderFromHandle(
+              engine,
+              handle as FileSystemDirectoryHandle,
+              ps.ref,
+              ps.label,
+              ps.id,
+            );
+            restoredSources.push(remounted);
+          }
+        }
+      } catch (err) {
+        console.warn('[naklios] folder remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
     } else {
-      // Single-file or folder FSA sources require user interaction to reopen.
+      // Single-file FSA sources require manual re-pick — no handle was stored.
       reconnectNeeded.push({ id: ps.id, label: ps.label });
     }
   }
@@ -489,6 +543,21 @@ function bulkAccept(threshold: number): void {
     workbook.setAssignment(key, a);
   }
   toast(`Accepted ${touched} column${touched === 1 ? '' : 's'} ≥ ${threshold.toFixed(2)}.`);
+}
+
+async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
+  type Picker = (opts?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+  const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
+  if (typeof picker !== 'function') {
+    toast('Folder mount needs Chrome / Edge / Opera 122+.', 'error');
+    return null;
+  }
+  try {
+    return await picker({ mode: 'read' });
+  } catch (err) {
+    if ((err as DOMException)?.name === 'AbortError') return null;
+    throw err;
+  }
 }
 
 async function pickSingleFile(): Promise<File | null> {

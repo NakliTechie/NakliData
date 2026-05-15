@@ -6,6 +6,13 @@
 //   §3.5 — example data bundle ("Browse example data" CTA)
 
 import type { Engine, RegisterFileOptions } from './engine.ts';
+import {
+  type AnyHandle,
+  PermissionLostError,
+  ensureReadPermission,
+  newHandleId,
+  putHandle,
+} from './handles.ts';
 
 export type FileFormat = 'csv' | 'tsv' | 'jsonl' | 'parquet' | 'sqlite' | 'xlsx';
 
@@ -159,6 +166,79 @@ async function getRowCount(engine: Engine, tableName: string): Promise<number> {
   );
   const v = rows[0]?.n;
   return typeof v === 'bigint' ? Number(v) : (v ?? 0);
+}
+
+/**
+ * Mount a directory via FSA. Iterates the supported files at the top level
+ * and registers each as a table. Persists the directory handle in IndexedDB
+ * so a future session can re-attach (subject to permission re-grant).
+ */
+export async function mountFolder(
+  engine: Engine,
+  dirHandle: FileSystemDirectoryHandle,
+  opts: { label?: string } = {},
+): Promise<MountedSource> {
+  const granted = await ensureReadPermission(dirHandle as AnyHandle);
+  if (!granted) throw new MountError('Read permission was not granted on the folder.');
+  const handleId = newHandleId();
+  await putHandle(handleId, dirHandle as AnyHandle);
+  const sourceId = genId('src');
+  const source: MountedSource = {
+    id: sourceId,
+    kind: 'fsa-folder',
+    label: opts.label ?? dirHandle.name,
+    ref: handleId,
+    tables: [],
+  };
+  // Walk the top-level entries; ignore subdirs in v1.0.
+  for await (const [name, entry] of (
+    dirHandle as unknown as { entries(): AsyncIterableIterator<[string, FileSystemHandle]> }
+  ).entries()) {
+    if (entry.kind !== 'file') continue;
+    const format = detectFormat(name);
+    if (!format || format === 'sqlite' || format === 'xlsx') continue;
+    const fileHandle = entry as FileSystemFileHandle;
+    const file = await fileHandle.getFile();
+    const tableName = sanitizeTableName(name);
+    try {
+      await registerFileByFormat(engine, format, { tableName, file });
+      const rowCount = await getRowCount(engine, tableName);
+      source.tables.push({
+        id: genId('tbl'),
+        sourceId,
+        name: tableName,
+        format,
+        origin: `${dirHandle.name}/${name}`,
+        rowCount,
+        registered: true,
+      });
+    } catch (err) {
+      console.warn(`[mount] could not register ${name}:`, err);
+    }
+  }
+  if (source.tables.length === 0) {
+    throw new MountError(`No supported files found in "${dirHandle.name}".`);
+  }
+  return source;
+}
+
+/**
+ * Attempt to re-attach a previously persisted folder handle. Returns null
+ * if the handle is gone or permission was denied — caller surfaces a
+ * "Reconnect needed" banner.
+ */
+export async function remountFolderFromHandle(
+  engine: Engine,
+  handle: FileSystemDirectoryHandle,
+  handleId: string,
+  label: string,
+  sourceId: string,
+): Promise<MountedSource> {
+  const granted = await ensureReadPermission(handle as AnyHandle);
+  if (!granted) throw new PermissionLostError(handleId);
+  const source = await mountFolder(engine, handle, { label });
+  // Preserve the persisted sourceId so assignment keys still resolve.
+  return { ...source, id: sourceId, ref: handleId };
 }
 
 /**
