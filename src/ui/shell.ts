@@ -1,3 +1,4 @@
+import type { MountedSource } from '../core/mount.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { shellCss } from './shell.css.ts';
 
@@ -73,17 +74,31 @@ function renderCenter(state: ShellState): HTMLElement {
   const el = document.createElement('section');
   el.className = 'center';
   el.setAttribute('aria-label', 'Notebook');
-  if (!state.hasMounts) {
+  renderCenterInner(el, state.hasMounts);
+  return el;
+}
+
+function renderCenterInner(el: HTMLElement, hasMounts: boolean): void {
+  el.innerHTML = '';
+  if (!hasMounts) {
     el.append(renderEmptyState());
   } else {
-    const ph = document.createElement('div');
-    ph.style.padding = '24px';
-    ph.innerHTML = `
-      <p style="color: var(--text-muted);">Notebook will appear here. Click "+ SQL" to start, or pick a report template.</p>
-    `;
-    el.append(ph);
+    el.append(renderNotebookPlaceholder());
   }
-  return el;
+}
+
+function renderNotebookPlaceholder(): HTMLElement {
+  const ph = document.createElement('div');
+  ph.style.padding = '24px';
+  ph.style.maxWidth = '760px';
+  ph.style.margin = '0 auto';
+  ph.innerHTML = `
+    <p style="color: var(--text-muted);">
+      Sources mounted. Click <strong>+ SQL</strong> to start a query, or pick a report
+      template from the right panel. (Notebook UI lands in v1.0 build-order step 7.)
+    </p>
+  `;
+  return ph;
 }
 
 function renderEmptyState(): HTMLElement {
@@ -163,6 +178,50 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function renderSourcesList(root: HTMLElement, sources: MountedSource[]): void {
+  const region = root.querySelector<HTMLElement>('[data-region="sources-list"]');
+  if (!region) return;
+  if (sources.length === 0) {
+    region.innerHTML = `<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No sources yet.</p>`;
+    return;
+  }
+  region.innerHTML = '';
+  for (const src of sources) {
+    region.append(renderSourceCard(src));
+  }
+}
+
+function renderSourceCard(src: MountedSource): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'source-card';
+  wrap.dataset.sourceId = src.id;
+  const tableRows = src.tables
+    .map(
+      (t) => `
+        <div class="source-row" data-table-id="${t.id}">
+          <span aria-hidden="true">${iconSvg('table', 14)}</span>
+          <span class="label" title="${escapeHtml(t.origin)}">${escapeHtml(t.name)}</span>
+          <span style="color: var(--text-muted); font-size: 11px;">${t.rowCount.toLocaleString()} row${t.rowCount === 1 ? '' : 's'}</span>
+        </div>`,
+    )
+    .join('');
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+      <span aria-hidden="true" style="color: var(--text-muted);">${iconSvg(src.kind === 'example-bundle' ? 'database' : src.kind === 'fsa-folder' ? 'folder' : 'file', 14)}</span>
+      <strong style="font-size: 12px;">${escapeHtml(src.label)}</strong>
+      <button class="btn btn-ghost" data-action="remove-source" data-source-id="${src.id}" title="Remove source" style="margin-left:auto;padding:2px 4px;">${iconSvg('x', 12)}</button>
+    </div>
+    ${tableRows}
+  `;
+  return wrap;
+}
+
+export function setHasMounts(root: HTMLElement, hasMounts: boolean): void {
+  const center = root.querySelector<HTMLElement>('.center');
+  if (!center) return;
+  renderCenterInner(center, hasMounts);
 }
 
 export function updateEngineStatus(

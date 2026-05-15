@@ -84,26 +84,39 @@ async function serve() {
   const port = 5173;
   createServer(async (req, res) => {
     const url = req.url === '/' ? '/index.html' : req.url;
-    const filePath = join(OUT_DIR, url ?? '/index.html');
-    try {
-      const st = await stat(filePath);
-      if (st.isFile()) {
-        const body = await readFile(filePath);
-        const ext = extname(filePath);
-        const type =
-          ext === '.html'
-            ? 'text/html'
-            : ext === '.js'
-              ? 'application/javascript'
-              : ext === '.css'
-                ? 'text/css'
-                : 'application/octet-stream';
-        res.writeHead(200, { 'content-type': type });
-        res.end(body);
-        return;
+    const candidates = [
+      join(OUT_DIR, url ?? '/index.html'),
+      join('public', url ?? '/'),
+    ];
+    for (const filePath of candidates) {
+      try {
+        const st = await stat(filePath);
+        if (st.isFile()) {
+          const body = await readFile(filePath);
+          const ext = extname(filePath);
+          const type =
+            ext === '.html'
+              ? 'text/html'
+              : ext === '.js'
+                ? 'application/javascript'
+                : ext === '.css'
+                  ? 'text/css'
+                  : ext === '.json'
+                    ? 'application/json'
+                    : ext === '.jsonl'
+                      ? 'application/x-ndjson'
+                      : ext === '.csv'
+                        ? 'text/csv'
+                        : ext === '.parquet'
+                          ? 'application/octet-stream'
+                          : 'application/octet-stream';
+          res.writeHead(200, { 'content-type': type });
+          res.end(body);
+          return;
+        }
+      } catch {
+        // try next
       }
-    } catch {
-      // fallthrough
     }
     res.writeHead(404);
     res.end('not found');

@@ -1,27 +1,33 @@
-## Last update: 2026-05-15T13:10:00Z
+## Last update: 2026-05-15T13:45:00Z
 ## Current milestone: v1.0
-## Build status: green — `npm run build` produces `dist/index.html` (235 KB); `tsc --noEmit` and `biome check` clean
+## Build status: green — `dist/index.html` 241 KB; tsc + biome clean
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in
-- v1.0 build order step 1 complete: shell + design tokens + esbuild pipeline
-- v1.0 build order step 2 in progress: DuckDB engine client (`src/core/engine.ts`)
-  - Bundle selection (MVP / EH) via `@duckdb/duckdb-wasm`'s `selectBundle`
-  - CDN load (jsdelivr) + vendored fallback via `?offline=1`
-  - `query`, `exec`, `registerCsv`/`Tsv`/`Jsonl`/`Parquet`, `drop`, `close`
-  - AbortSignal-aware query with `cancelSent()` on abort (spec §3.8 Esc shortcut)
-  - Status events wired to the footer dot
-- Build pipeline verified end-to-end (npm install → tsc → biome → build)
+- Build order step 2 complete: DuckDB engine end-to-end queryable
+- Bundled example data generator (`scripts/gen-examples.mjs`):
+  - 25 vendors with valid-checksum GSTINs, PANs, IFSCs
+  - 80 invoices with HSN codes, GST rates, payment status
+  - 65 payments
+  - 240 NDJSON access logs (service / endpoint / status / latency)
+  - `public/examples/manifest.json` describes the bundle
+- Mount layer (`src/core/mount.ts`): `mountExampleBundle`, `mountFile`, format detection, table-name sanitization
+- Workbook state container (`src/core/workbook.ts`) with subscribe/notify
+- Sources panel renders mounted sources + tables with row counts
+- "Browse example data" CTA wired end-to-end (fetch → register → list)
+- "Add file" CTA wired with `showOpenFilePicker` (FSA) or `<input type=file>` fallback
+- Toast notifications for transient feedback
+- Dev server now serves `public/` so example data is reachable from `npm run dev`
 
 ## What's in progress right now
-- (nothing mid-flight; engine module ready for sample-data smoke test)
+- (commit boundary; taxonomy next)
 
 ## What's next (in order)
-- Bundled example data under `public/examples/` so we can demo the engine without an FSA mount (helps step 3 too)
-- Wire "Browse example data" CTA: download bundled CSVs as Blobs, registerCsv, list tables in the sources panel
-- SRI-pinning: generate SHA-384 of the duckdb-wasm worker/module via postinstall, verify in engine before `importScripts`
+- Taxonomy bundle v0.1 vendored under `taxonomy/v0.1/` (types.jsonl + domains + relationships)
+- Phase 1 detectors: header_match / regex / checksum (GSTIN/PAN) / value_set / range
+- Classification orchestration: sample → dispatch → aggregate scores → assign type
+- Schema panel UI: per-column type + confidence + evidence + accept/override
 - FSA folder mount + IndexedDB handle persistence (build order step 3)
 
 ## Anything the human should look at
-- `DECISIONS.md` — note the sandbox blocks `cdn.sheetjs.com`. xlsx support is build-order step 12; deferred and logged.
-- DuckDB-wasm pinned to `1.29.0` (latest 1.x line at training-data cutoff). Bump in a follow-up if 1.30+ is available and stable.
+- `public/examples/` — sample data is committed (deterministic from seed in `scripts/gen-examples.mjs`); regenerate with `node scripts/gen-examples.mjs`.

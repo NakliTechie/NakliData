@@ -1,0 +1,40 @@
+{
+  "bundle": "naklios-examples",
+  "version": "0.1",
+  "sources": [
+    {
+      "id": "finance",
+      "label": "SMB Finance",
+      "description": "Synthetic GSTIN-stamped invoice + vendor + payment data.",
+      "files": [
+        {
+          "path": "finance/vendors.csv",
+          "table": "vendors",
+          "format": "csv"
+        },
+        {
+          "path": "finance/invoices.csv",
+          "table": "invoices",
+          "format": "csv"
+        },
+        {
+          "path": "finance/payments.csv",
+          "table": "payments",
+          "format": "csv"
+        }
+      ]
+    },
+    {
+      "id": "logs",
+      "label": "Access logs",
+      "description": "Synthetic NDJSON access logs with service + endpoint + latency.",
+      "files": [
+        {
+          "path": "logs/access.jsonl",
+          "table": "access_logs",
+          "format": "jsonl"
+        }
+      ]
+    }
+  ]
+}
