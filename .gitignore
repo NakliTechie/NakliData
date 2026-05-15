@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.cache/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.vitest-cache/
+public/duckdb-fallback/

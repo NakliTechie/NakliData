@@ -1,0 +1,37 @@
+{
+  "name": "naklios",
+  "version": "0.1.0",
+  "description": "Browser-native semantic data workbench.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --dev",
+    "check": "tsc --noEmit && biome check src tests",
+    "fmt": "biome format --write src tests",
+    "lint": "biome lint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "node scripts/fetch-duckdb-fallback.mjs"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.0",
+    "@codemirror/commands": "^6.7.0",
+    "@codemirror/lang-sql": "^6.8.0",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.0",
+    "@duckdb/duckdb-wasm": "1.29.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "^22.5.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
