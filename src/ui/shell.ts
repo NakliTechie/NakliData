@@ -153,11 +153,11 @@ function engineLabel(state: ShellState): string {
     case 'ready':
       return 'Engine: ready';
     case 'error':
-      return `Engine: error${state.engineMessage ? ` — ${escape(state.engineMessage)}` : ''}`;
+      return `Engine: error${state.engineMessage ? ` — ${escapeHtml(state.engineMessage)}` : ''}`;
   }
 }
 
-function escape(s: string): string {
+function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

@@ -32,12 +32,10 @@ async function buildShell() {
     metafile: true,
   });
 
-  const duckdbWorker = await build({
-    ...COMMON,
-    entryPoints: ['src/workers/duckdb.worker.ts'],
-    outfile: `${OUT_DIR}/duckdb.worker.js`,
-  });
-
+  // Note: DuckDB's own worker is loaded from the @duckdb/duckdb-wasm bundle
+  // via createObjectURL/importScripts at runtime — we don't bundle it.
+  // The taxonomy worker entry below is bundled to its own file (the main
+  // bundle will spawn it via `new Worker('./taxonomy.worker.js', {type:'module'})`).
   const taxonomyWorker = await build({
     ...COMMON,
     entryPoints: ['src/workers/taxonomy.worker.ts'],
@@ -72,7 +70,6 @@ async function buildShell() {
     await writeFile(`${OUT_DIR}/index.html`, inlined);
   }
 
-  void duckdbWorker;
   void taxonomyWorker;
 }
 

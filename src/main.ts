@@ -1,4 +1,5 @@
-import { mountShell, updateEngineStatus, type ShellState } from './ui/shell.ts';
+import { getEngine } from './core/engine.ts';
+import { type ShellState, mountShell, updateEngineStatus } from './ui/shell.ts';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -49,9 +50,16 @@ async function boot(): Promise<void> {
   mountShell(root, state);
   wireActions(root);
 
-  // Engine boot is wired in a later commit (v1.0 step 2). For now, mark idle.
-  // Keeping the dot in "booting" state would be misleading.
-  queueMicrotask(() => updateEngineStatus(root, 'idle'));
+  const engine = getEngine();
+  engine.on('status', ({ status, message }) => updateEngineStatus(root, status, message));
+
+  const offline = new URLSearchParams(location.search).has('offline');
+  try {
+    await engine.boot({ offline });
+  } catch (err) {
+    console.error('[naklios] engine boot failed', err);
+    // The engine itself already emitted 'error'; the footer is up to date.
+  }
 }
 
 function wireActions(root: HTMLElement): void {

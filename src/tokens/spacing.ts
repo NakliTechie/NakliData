@@ -21,10 +21,8 @@ export const Radius = {
 } as const;
 
 export const Type = {
-  family:
-    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  familyMono:
-    "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  familyMono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   size: {
     xs: '11px',
     sm: '12px',
