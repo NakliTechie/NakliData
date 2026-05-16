@@ -13,14 +13,9 @@ Sources for the survey are at the bottom.
 
 ---
 
-## Persistence posture (clarification)
+## Persistence posture
 
-Spec §4 Hard NOT #2 is **specifically about BYOK keys**: "No persistent storage of BYOK keys." It is NOT a blanket "no persistence" rule for workspace state.
-
-- **Workspace state** (sources, column assignments, cells, settings, FSA folder handles) **should persist across tabs via IndexedDB**, plus FSA where the user has granted permission. Starting over each session is a non-starter UX-wise.
-- **BYOK keys** (sidecar / Relay credentials in v1.1) **stay in sessionStorage only**, cleared on tab close. This is the deliberate restriction.
-
-The bits we have today already lean this way (FSA handles in IDB via `src/core/handles.ts`, the orphan `src/core/settings.ts` ready to wire). Theme 3 below is the push that makes it real.
+Workspace state persists across tabs (IndexedDB + FSA where the user has granted permission). BYOK keys (v1.1) have a two-tier opt-in model. Both diverge from the original spec — see [spec-amendments.md](./spec-amendments.md) for the formal amended wording.
 
 ---
 
@@ -277,21 +272,6 @@ Result: spec §3.1 supported formats list grows from 6 → 12.
 - Type override learns: "always treat columns named `vendor_id` as `gstin`" (per-workspace user-type seed)
 - Demo / censor mode (lessons doc item 9): mask user paths and column names in screenshots
 - Spec §3.10 README pass
-
----
-
-## D. Things explicitly NOT on the backlog
-
-For when they come up:
-
-- **AI chat / NL-to-SQL / SQL fix suggestions** — vision §"What it is not". The sidecar Jobs 1–3 (type disambiguation, error explanation, define-new-type assist) are the allowed scope.
-- **Multi-user collab / share-via-link with login** — vision: single-operator. URL-state sharing in Theme 3 is the privacy-preserving alternative.
-- **Hosted / SaaS variant** — never.
-- **Spreadsheet metaphor** — spec §3.3 locks us to a notebook with three cell kinds. Pivot-table cell type (Theme 2) is a notebook cell, not a spreadsheet pivot.
-- **PDF table extraction** — fragile; declined.
-- **Apple Numbers / Lotus 1-2-3 / MS Access** — no clean OSS readers in WASM; not worth original work.
-- **Encrypted-in-IDB BYOK storage** — sessionStorage-only is a deliberate Hard NOT (spec §4 item 2 + §2.3).
-- **Recursive AI sub-agents** (OpenPlanter pattern) — vision forbids auto-execute and narration.
 
 ---
 

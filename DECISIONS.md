@@ -37,6 +37,27 @@ Append-only. Format per AGENTHANDOFF §5.
 **Reasoning:** Excel is step 12 of 16 — we have plenty of v1.0 build runway before it's on the critical path. Avoid blocking step 2 (engine boot) on a tooling issue; revisit when we have a workable path (e.g., the human enables the origin, or we vendor a build).
 **Reversibility:** easy — add the dep back and the engine wiring is straightforward.
 
+## 2026-05-16 04:30 — Planning artifacts moved to `plan/`; backlog split into pending / declined / spec-amendments / product-shape
+**Context:** `BACKLOG.md` at the repo root was conflating forward-looking work, decided non-work, and spec deviations into one file. The agent rules + status + decision-log files at root were also growing crowded.
+**Options considered:** A) Keep one BACKLOG.md, just bigger; B) Move planning artifacts into a `plan/` folder with named files per concern.
+**Decision:** B. New layout: `plan/pending.md`, `plan/declined.md`, `plan/spec-amendments.md`, `plan/product-shape.md`, `plan/README.md`.
+**Reasoning:** Forward-looking content has different read-cadence and audience from the live ledger (STATUS / DECISIONS / CLAUDE). A folder per concern scales better as items accumulate.
+**Reversibility:** easy — git mv anything back at any time.
+
+## 2026-05-16 04:35 — BYOK key persistence: opt-in plaintext in IDB (v1.1 default); passphrase-encrypted variant planned for v1.2
+**Context:** Spec §4 Hard NOT #2 ("no persistent storage of BYOK keys") was too aggressive — re-typing the key every tab is friction users won't tolerate. PondPilot's "encrypted in IDB" is largely security theatre when the encryption key has to live on the same origin to decrypt without user interaction.
+**Options considered:** A) Plaintext-in-IDB, opt-in per key, honest UI labelling. B) Passphrase-unlocked: AES-GCM with PBKDF2-derived key, user enters passphrase per session. C) "Encrypted-in-IDB with on-origin-derived key" (PondPilot's posture, security theatre).
+**Decision:** Default to A for v1.1 (when BYOK enters the product). Plan B as an opt-in v1.2 enhancement. Reject C.
+**Reasoning:** Same-origin JS can always read same-origin storage; encryption-at-rest with an on-origin key gives no meaningful additional safety against the realistic threats. Honest plaintext + a "Forget" button is the most defensible posture for the default. Passphrase-encryption (B) materially helps against the "shared machine" threat and is worth offering — but it adds UX friction (passphrase per session) that not every user wants.
+**Reversibility:** Easy. The amended Hard NOT (see `plan/spec-amendments.md` A2) explicitly preserves sessionStorage as the no-persistence escape hatch.
+
+## 2026-05-16 04:40 — Workspace state persists in IDB by default (amends spec §2.3)
+**Context:** The original spec §2.3 implied workspace state lived only in-memory + in saved `.naklidata` files. Starting from zero each session is hostile UX.
+**Options considered:** A) Continue with no auto-persistence; B) Auto-persist workspace state (sources, assignments, cells, settings, FSA handle refs) to IDB on every change; auto-restore on tab open.
+**Decision:** B.
+**Reasoning:** Privacy posture ("data never leaves the tab") is unchanged — persistence is local-only, same origin. The FSA-folder permission has to be re-verified silently when possible and via a "Reconnect" banner otherwise (which is what spec §3.5 already requires). Scaffolding (`src/core/idb.ts`, `src/core/settings.ts`) is already in place; the wire-up lands in pending.md Theme 3.
+**Reversibility:** Easy — disable the auto-save subscriber.
+
 ## 2026-05-16 03:30 — Project name locked: NakliData; file extension is `.naklidata`
 **Context:** Spec/vision used "naklios" as a working codename ("Final name deferred per standing rule"). The repo is `NakliTechie/NakliData` and the human now treats that as the locked product name — fits the data ingestion / processing posture and aligns with the rest of the NakliTechie portfolio's naming.
 **Options considered:** A) Keep "naklios" internally and only rebrand visibly later; B) Sweep rename `naklios` → `NakliData` and `.naklilens` → `.naklidata` now while the surface area is small.

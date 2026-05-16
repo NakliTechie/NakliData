@@ -1,8 +1,10 @@
 # NakliData — agent rules
 
-Browser-native semantic data workbench. Read `02-SPEC.md` (handoff) for the
-source of truth on what to build; read `STATUS.md` and `DECISIONS.md` for
-where things stand and what's been decided so far.
+Browser-native semantic data workbench. Read `02-SPEC.md` (uploaded with
+the handoff) for the canonical product spec — but check
+`plan/spec-amendments.md` for divergences we've ratified since. Read
+`STATUS.md` for current build state, `DECISIONS.md` for the running
+decision log, and `plan/pending.md` for what's queued next.
 
 ## Stop checklist (read before declaring a task done)
 
