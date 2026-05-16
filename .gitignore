@@ -10,3 +10,4 @@ coverage/
 .vitest-cache/
 public/duckdb-fallback/duckdb-*.wasm
 public/duckdb-fallback/duckdb-browser-*.worker.js
+test-results/
