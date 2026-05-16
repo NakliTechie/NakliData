@@ -116,9 +116,9 @@ function escapeHtml(s: string): string {
 }
 
 function injectCss(): void {
-  if (document.getElementById('naklios-templates-css')) return;
+  if (document.getElementById('naklidata-templates-css')) return;
   const tag = document.createElement('style');
-  tag.id = 'naklios-templates-css';
+  tag.id = 'naklidata-templates-css';
   tag.textContent = `
 .templates-panel-header {
   display: flex; align-items: center; justify-content: space-between;

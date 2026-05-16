@@ -239,7 +239,7 @@ async function main() {
   );
 
   const manifest = {
-    bundle: 'naklios-examples',
+    bundle: 'naklidata-examples',
     version: '0.1',
     sources: [
       {

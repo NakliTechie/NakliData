@@ -191,9 +191,9 @@ export function getNotebook(engine: Engine): Notebook {
 }
 
 export function injectNotebookCss(): void {
-  if (document.getElementById('naklios-notebook-css')) return;
+  if (document.getElementById('naklidata-notebook-css')) return;
   const tag = document.createElement('style');
-  tag.id = 'naklios-notebook-css';
+  tag.id = 'naklidata-notebook-css';
   tag.textContent = notebookCss;
   document.head.appendChild(tag);
 }

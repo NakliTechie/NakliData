@@ -1,4 +1,4 @@
-// Rangrez palette subset vendored for naklios.
+// Rangrez palette subset vendored for NakliData.
 // Source of truth for ALL color values. Do not hardcode hex outside this file.
 //
 // Brickwork — categorical (chart series, type pills)

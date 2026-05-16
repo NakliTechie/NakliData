@@ -1,4 +1,4 @@
-# naklios
+# NakliData
 
 > Browser-native semantic data workbench. Point it at your files, folders, and public data dumps; it tells you what's in them, lets you query and chart, and writes results back into your other tools — without anything leaving the tab.
 
@@ -13,7 +13,7 @@ A single-HTML-shell tool that reads CSV, TSV, JSONL, Parquet, SQLite, and Excel 
 - Not a hosted SaaS. There is no server, no login, no telemetry.
 - Not an ingestion pipeline. Data stays where it is on your disk.
 - Not an "AI insights" generator. The LLM sidecar (v1.1) does narrow column disambiguation, never prose narration.
-- Not multi-user. The `.naklilens` save file is the sharing primitive.
+- Not multi-user. The `.naklidata` save file is the sharing primitive.
 
 ## Browser support
 
@@ -35,7 +35,7 @@ npm run build    # → dist/index.html (single file)
 
 ## Privacy
 
-Your data never leaves the tab. The shell HTML is static. DuckDB-wasm loads from jsDelivr with subresource integrity, or from a vendored copy. Action sinks write to local folders you explicitly choose. The `.naklilens` file is a description of your work — sources, types, queries — never a copy of your data.
+Your data never leaves the tab. The shell HTML is static. DuckDB-wasm loads from jsDelivr with subresource integrity, or from a vendored copy. Action sinks write to local folders you explicitly choose. The `.naklidata` file is a description of your work — sources, types, queries — never a copy of your data.
 
 ## License
 

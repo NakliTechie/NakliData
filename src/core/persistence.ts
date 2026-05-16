@@ -1,4 +1,4 @@
-// `.naklilens` save/load. Spec §5 + handoff §3.9.
+// `.naklidata` save/load. Spec §5 + handoff §3.9.
 //
 // JSON-on-disk via FSA. Contains source mounts, schema assignments, notebook
 // cells. Never source data. On load, sources are re-attempted; failures show
@@ -13,10 +13,10 @@ import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { MountedSource } from './mount.ts';
 
-export const NAKLILENS_VERSION = '1.0';
+export const NAKLIDATA_VERSION = '1.0';
 
-export interface NakliLensFile {
-  format: 'naklilens';
+export interface NakliDataFile {
+  format: 'naklidata';
   version: string;
   created: string;
   modified: string;
@@ -58,11 +58,11 @@ export interface SerializeInput {
   autoAcceptThreshold: number;
 }
 
-export function serialize(input: SerializeInput): NakliLensFile {
+export function serialize(input: SerializeInput): NakliDataFile {
   const now = new Date().toISOString();
   return {
-    format: 'naklilens',
-    version: NAKLILENS_VERSION,
+    format: 'naklidata',
+    version: NAKLIDATA_VERSION,
     created: now,
     modified: now,
     name: input.notebookName,
@@ -108,17 +108,17 @@ function cellWithoutResults(c: CellState): CellState {
   return c;
 }
 
-export function parse(text: string): NakliLensFile {
-  const obj = JSON.parse(text) as Partial<NakliLensFile>;
-  if (obj.format !== 'naklilens') throw new Error('Not a .naklilens file.');
+export function parse(text: string): NakliDataFile {
+  const obj = JSON.parse(text) as Partial<NakliDataFile>;
+  if (obj.format !== 'naklidata') throw new Error('Not a .naklidata file.');
   if (!obj.version) throw new Error('Missing version.');
-  if (compareVersion(obj.version, NAKLILENS_VERSION) > 0) {
+  if (compareVersion(obj.version, NAKLIDATA_VERSION) > 0) {
     throw new Error(
-      `This notebook was saved with a newer version of naklios (${obj.version}). Please update.`,
+      `This notebook was saved with a newer version of NakliData (${obj.version}). Please update.`,
     );
   }
   // Trivial migration path for v1.0 — just trust the shape.
-  return obj as NakliLensFile;
+  return obj as NakliDataFile;
 }
 
 function compareVersion(a: string, b: string): number {
@@ -137,10 +137,10 @@ export function defaultFilename(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return `${slug || 'naklios'}.naklilens`;
+  return `${slug || 'NakliData'}.naklidata`;
 }
 
-export async function saveToFile(file: NakliLensFile): Promise<{ name: string }> {
+export async function saveToFile(file: NakliDataFile): Promise<{ name: string }> {
   const json = JSON.stringify(file, null, 2);
   const bytes = new TextEncoder().encode(json);
   const suggested = defaultFilename(file.name);
@@ -154,8 +154,8 @@ export async function saveToFile(file: NakliLensFile): Promise<{ name: string }>
       suggestedName: suggested,
       types: [
         {
-          description: '.naklilens file',
-          accept: { 'application/json': ['.naklilens', '.json'] },
+          description: '.naklidata file',
+          accept: { 'application/json': ['.naklidata', '.json'] },
         },
       ],
     });
@@ -177,7 +177,7 @@ export async function saveToFile(file: NakliLensFile): Promise<{ name: string }>
   return { name: suggested };
 }
 
-export async function loadFromFile(): Promise<NakliLensFile | null> {
+export async function loadFromFile(): Promise<NakliDataFile | null> {
   type Picker = (opts: {
     multiple: boolean;
     types: { description: string; accept: Record<string, string[]> }[];
@@ -189,8 +189,8 @@ export async function loadFromFile(): Promise<NakliLensFile | null> {
         multiple: false,
         types: [
           {
-            description: '.naklilens',
-            accept: { 'application/json': ['.naklilens', '.json'] },
+            description: '.naklidata',
+            accept: { 'application/json': ['.naklidata', '.json'] },
           },
         ],
       });
@@ -203,10 +203,10 @@ export async function loadFromFile(): Promise<NakliLensFile | null> {
       throw err;
     }
   }
-  return await new Promise<NakliLensFile | null>((resolve) => {
+  return await new Promise<NakliDataFile | null>((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.naklilens,.json,application/json';
+    input.accept = '.naklidata,.json,application/json';
     input.onchange = async () => {
       const f = input.files?.[0];
       if (!f) {

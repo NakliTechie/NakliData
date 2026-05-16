@@ -7,7 +7,7 @@
 // Browser dialogs (FSA pickers) are not exercised — those require a real
 // user gesture in a real browser. We exercise everything else: engine
 // boot, example-bundle mount, schema panel render, classifier results,
-// notebook seed, SQL run, chart cell, template instantiation, .naklilens
+// notebook seed, SQL run, chart cell, template instantiation, .naklidata
 // serialize round-trip.
 
 import { createServer } from 'node:http';
@@ -105,7 +105,7 @@ async function main() {
   // 1. The shell mounted.
   await page.waitForSelector('.shell-header', { timeout: 5000 });
   const brand = await page.textContent('.brand');
-  if (!brand || !brand.includes('naklios')) fail(`brand not found: ${brand}`);
+  if (!brand || !brand.includes('NakliData')) fail(`brand not found: ${brand}`);
   log('✓ shell mounted');
 
   // 2. Engine boots — wait for the footer to read "ready". This pulls

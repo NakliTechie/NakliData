@@ -36,16 +36,16 @@ async function alreadyVendored() {
 
 async function main() {
   if (process.env.SKIP_DUCKDB_FETCH === '1') {
-    console.log('[naklios] SKIP_DUCKDB_FETCH=1 — skipping vendored DuckDB fetch');
+    console.log('[naklidata] SKIP_DUCKDB_FETCH=1 — skipping vendored DuckDB fetch');
     return;
   }
   if (!existsSync('public')) await mkdir('public', { recursive: true });
   await mkdir(DEST, { recursive: true });
   if (await alreadyVendored()) {
-    console.log('[naklios] vendored DuckDB-wasm already present');
+    console.log('[naklidata] vendored DuckDB-wasm already present');
     return;
   }
-  console.log(`[naklios] vendoring DuckDB-wasm ${PINNED} into ${DEST}`);
+  console.log(`[naklidata] vendoring DuckDB-wasm ${PINNED} into ${DEST}`);
   try {
     for (const f of FILES) {
       const url = `${CDN}/${f}`;
@@ -56,12 +56,12 @@ async function main() {
       console.log(`  ✓ ${f} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
     }
   } catch (err) {
-    console.warn(`[naklios] could not vendor DuckDB fallback (continuing): ${err.message}`);
+    console.warn(`[naklidata] could not vendor DuckDB fallback (continuing): ${err.message}`);
     console.warn('         Re-run `npm run postinstall` after restoring network.');
   }
 }
 
 main().catch((err) => {
-  console.warn(`[naklios] vendoring failed: ${err.message}`);
+  console.warn(`[naklidata] vendoring failed: ${err.message}`);
   process.exit(0);
 });

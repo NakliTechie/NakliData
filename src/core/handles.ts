@@ -7,7 +7,7 @@
 //   §3.5 (handoff) — re-request permission; reverify in the UI banner flow
 //   §2.3 — IndexedDB holds FSA handles
 
-const DB_NAME = 'naklios';
+const DB_NAME = 'NakliData';
 const DB_VERSION = 1;
 const STORE = 'fsa-handles';
 

@@ -17,9 +17,9 @@ export function mountShell(root: HTMLElement, state: ShellState): void {
 }
 
 function injectStyles(): void {
-  if (document.getElementById('naklios-shell-css')) return;
+  if (document.getElementById('naklidata-shell-css')) return;
   const tag = document.createElement('style');
-  tag.id = 'naklios-shell-css';
+  tag.id = 'naklidata-shell-css';
   tag.textContent = shellCss;
   document.head.appendChild(tag);
 }
@@ -31,17 +31,17 @@ function renderHeader(state: ShellState): HTMLElement {
   el.innerHTML = `
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">${iconSvg('search', 18)}</span>
-      <span>naklios</span>
+      <span>NakliData</span>
       <span class="crumb">v${state.buildVersion}</span>
     </div>
     <div class="right">
       <button class="btn btn-ghost" data-action="spotlight" aria-keyshortcuts="Control+K" title="Search (Ctrl+K)">
         ${iconSvg('search', 14)} <span>Search</span>
       </button>
-      <button class="btn btn-ghost" data-action="load" title="Open .naklilens">
+      <button class="btn btn-ghost" data-action="load" title="Open .naklidata">
         ${iconSvg('folder', 14)} <span>Open</span>
       </button>
-      <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklilens (Ctrl+S)">
+      <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklidata (Ctrl+S)">
         ${iconSvg('download', 14)} <span>Save</span>
       </button>
     </div>
@@ -103,7 +103,7 @@ function renderEmptyState(): HTMLElement {
   el.innerHTML = `
     <span aria-hidden="true" style="color: var(--accent);">${iconSvg('search', 36)}</span>
     <h1>What do you have?</h1>
-    <p>Point naklios at a folder, a file, or paste a public data URL. Your data never leaves the tab.</p>
+    <p>Point NakliData at a folder, a file, or paste a public data URL. Your data never leaves the tab.</p>
     <div class="options">
       <button class="opt" data-action="mount-folder">
         ${iconSvg('folder', 28)}

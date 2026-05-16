@@ -8,7 +8,7 @@ import {
   mountFolder,
   remountFolderFromHandle,
 } from './core/mount.ts';
-import { type NakliLensFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
@@ -41,11 +41,11 @@ function bootUnsupported(reason: string): void {
   if (!root) return;
   root.innerHTML = `
     <div style="max-width: 520px; margin: 80px auto; padding: 32px; text-align: center; font-family: system-ui, sans-serif;">
-      <h1 style="font-size: 22px;">naklios isn't supported here yet</h1>
+      <h1 style="font-size: 22px;">NakliData isn't supported here yet</h1>
       <p style="color: #6B6358;">
         ${
           reason === 'safari'
-            ? 'naklios uses File System Access and OPFS APIs that Safari does not yet implement. Try Chrome, Edge, or Opera 122+.'
+            ? 'NakliData uses File System Access and OPFS APIs that Safari does not yet implement. Try Chrome, Edge, or Opera 122+.'
             : 'Your browser is missing required capabilities. Try a recent Chrome, Edge, or Opera build.'
         }
       </p>
@@ -137,7 +137,7 @@ async function boot(): Promise<void> {
   try {
     await engine.boot({ offline });
   } catch (err) {
-    console.error('[naklios] engine boot failed', err);
+    console.error('[naklidata] engine boot failed', err);
   }
 }
 
@@ -227,7 +227,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
           try {
             await engine.drop(t.name);
           } catch (err) {
-            console.warn(`[naklios] drop view failed for ${t.name}`, err);
+            console.warn(`[naklidata] drop view failed for ${t.name}`, err);
           }
         }
       }
@@ -291,15 +291,15 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'mount-url':
     case 'add-source':
     case 'spotlight':
-      console.info(`[naklios] action requested: ${action} (not yet wired)`);
+      console.info(`[naklidata] action requested: ${action} (not yet wired)`);
       toast(`${action} is not wired yet.`);
       return;
     default:
-      console.warn(`[naklios] unknown action: ${action}`);
+      console.warn(`[naklidata] unknown action: ${action}`);
   }
 }
 
-async function applyLoadedFile(engine: Engine, file: NakliLensFile): Promise<void> {
+async function applyLoadedFile(engine: Engine, file: NakliDataFile): Promise<void> {
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
   workbook.clear();
@@ -326,7 +326,7 @@ async function applyLoadedFile(engine: Engine, file: NakliLensFile): Promise<voi
           restoredSources.push(remapped);
         }
       } catch (err) {
-        console.warn('[naklios] example-bundle re-mount failed', err);
+        console.warn('[naklidata] example-bundle re-mount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else if (ps.kind === 'fsa-folder' && ps.ref) {
@@ -353,7 +353,7 @@ async function applyLoadedFile(engine: Engine, file: NakliLensFile): Promise<voi
           }
         }
       } catch (err) {
-        console.warn('[naklios] folder remount failed', err);
+        console.warn('[naklidata] folder remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else {
@@ -389,7 +389,7 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
   try {
     await client.ensureReady();
   } catch (err) {
-    console.error('[naklios] taxonomy boot failed', err);
+    console.error('[naklidata] taxonomy boot failed', err);
     toast(`Classifier failed to start: ${err instanceof Error ? err.message : err}`, 'error');
     return;
   }
@@ -402,7 +402,7 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
           workbook.setAssignment(key, resultToAssignment(r));
         }
       } catch (err) {
-        console.error(`[naklios] classify failed for ${table.name}`, err);
+        console.error(`[naklidata] classify failed for ${table.name}`, err);
       }
     }
   }
@@ -615,10 +615,10 @@ async function pickSingleFile(): Promise<File | null> {
 
 let toastTimer: number | null = null;
 function toast(message: string, kind: 'info' | 'error' = 'info'): void {
-  let el = document.getElementById('naklios-toast');
+  let el = document.getElementById('naklidata-toast');
   if (!el) {
     el = document.createElement('div');
-    el.id = 'naklios-toast';
+    el.id = 'naklidata-toast';
     el.style.cssText =
       'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:#1F1B16;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;max-width:520px;';
     el.setAttribute('role', 'status');
@@ -635,5 +635,5 @@ function toast(message: string, kind: 'info' | 'error' = 'info'): void {
 }
 
 boot().catch((err) => {
-  console.error('[naklios] boot failed', err);
+  console.error('[naklidata] boot failed', err);
 });

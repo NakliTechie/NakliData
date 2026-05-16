@@ -353,9 +353,9 @@ function escapeHtml(s: string): string {
 }
 
 function injectSchemaCss(): void {
-  if (document.getElementById('naklios-schema-css')) return;
+  if (document.getElementById('naklidata-schema-css')) return;
   const tag = document.createElement('style');
-  tag.id = 'naklios-schema-css';
+  tag.id = 'naklidata-schema-css';
   tag.textContent = SCHEMA_CSS;
   document.head.appendChild(tag);
 }
