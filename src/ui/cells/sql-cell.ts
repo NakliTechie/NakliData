@@ -6,7 +6,7 @@
 
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
-import { SINKS } from '../sinks/sinks.ts';
+import { SINKS, blockReasonFor } from '../sinks/sinks.ts';
 import type { CellHandlers, SqlCellState } from './types.ts';
 
 export interface SqlCellExtra {
@@ -98,7 +98,8 @@ function renderSendToBar(cell: SqlCellState, extra: SqlCellExtra): HTMLElement {
   wrap.innerHTML = '<span>Send result to:</span>';
   const assignments = extra.assignmentsFor(cell.id);
   for (const sink of SINKS) {
-    const reason = sink.blockReason(
+    const reason = blockReasonFor(
+      sink,
       cell.lastResult as NonNullable<typeof cell.lastResult>,
       assignments,
     );

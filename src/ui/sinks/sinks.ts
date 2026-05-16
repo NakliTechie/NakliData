@@ -10,13 +10,12 @@
 import type { Engine } from '../../core/engine.ts';
 import type { SqlResult } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
+import type { GatedSink } from './gating.ts';
 
-export interface SinkDescriptor {
-  id: string;
-  name: string;
-  description: string;
-  /** Returns null if compatible; returns a human-readable reason if blocked. */
-  blockReason: (result: SqlResult, columnAssignments: ColumnAssignment[]) => string | null;
+export type { GatedSink, Requirement } from './gating.ts';
+export { blockReasonFor, evaluateRequirements } from './gating.ts';
+
+export interface SinkDescriptor extends GatedSink {
   /** Run the sink. The function is responsible for any UI prompts. */
   execute: (ctx: SinkContext) => Promise<SinkOutcome>;
 }
@@ -45,7 +44,6 @@ export const CSV_SINK: SinkDescriptor = {
   id: 'csv',
   name: 'Write CSV to folder',
   description: 'Save the result as a .csv file in a folder you choose.',
-  blockReason: () => null,
   async execute({ engine, cellId, cellName, result }) {
     const suggested = `${cellName ?? `cell-${cellId}`}-${stamp()}.csv`;
     const file = await pickSaveFile(suggested, '.csv', 'text/csv');
@@ -63,7 +61,6 @@ export const PARQUET_SINK: SinkDescriptor = {
   id: 'parquet',
   name: 'Write Parquet to folder',
   description: 'Save the result as a Parquet file in a folder you choose.',
-  blockReason: () => null,
   async execute({ engine, cellId, cellName }) {
     const suggested = `${cellName ?? `cell-${cellId}`}-${stamp()}.parquet`;
     const file = await pickSaveFile(suggested, '.parquet', 'application/octet-stream');
@@ -81,9 +78,11 @@ export const KANZEN_SINK: SinkDescriptor = {
   id: 'kanzen',
   name: 'Push to KanZen board',
   description: 'Generate a KanZen import JSON: each row → one card.',
-  blockReason: (_result, assignments) => {
+  // No typeId-based requires here: KanZen needs a "title-class" string,
+  // which isn't a semantic type. Custom check covers it.
+  customBlockReason: (_result, assignments) => {
     const hasTitle = assignments.some((a) => isTitleClass(a));
-    if (!hasTitle) return 'Need a title-class string column (3-200 chars).';
+    if (!hasTitle) return 'Need a string column for the card title (3–200 chars).';
     return null;
   },
   async execute({ engine, cellId, cellName, result, columnAssignments }) {
@@ -108,15 +107,11 @@ export const BAHI_SINK: SinkDescriptor = {
   id: 'bahi',
   name: 'Push to Bahi journal proposal',
   description: 'Generate a Bahi journal proposal (auto_post: false).',
-  blockReason: (_result, assignments) => {
-    const hasDate = assignments.some((a) => isDate(a));
-    const hasAmount = assignments.some((a) => isAmount(a));
-    const hasParty = assignments.some((a) => isParty(a));
-    if (!hasDate) return 'Need a date-typed column.';
-    if (!hasAmount) return 'Need an amount column.';
-    if (!hasParty) return 'Need a vendor / account column.';
-    return null;
-  },
+  requires: [
+    { any: ['iso_date'], label: 'date' },
+    { any: ['amount'], label: 'amount' },
+    { any: ['vendor_name', 'gl_account'], label: 'vendor or account' },
+  ],
   async execute({ cellId, cellName, result, columnAssignments }) {
     const entries = mapToBahiJournal(result, columnAssignments);
     const json = JSON.stringify(
@@ -143,7 +138,6 @@ export const NAKLIPOSTER_SINK: SinkDescriptor = {
   id: 'nakliposter',
   name: 'Push to NakliPoster collection',
   description: 'Parametrize a template per row (you provide the template JSON).',
-  blockReason: () => null,
   async execute({ cellId, cellName, result }) {
     const templateText = window.prompt(
       'Paste a NakliPoster request template JSON. Use ${col_name} for row values.',
