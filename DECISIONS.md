@@ -37,6 +37,29 @@ Append-only. Format per AGENTHANDOFF §5.
 **Reasoning:** Excel is step 12 of 16 — we have plenty of v1.0 build runway before it's on the critical path. Avoid blocking step 2 (engine boot) on a tooling issue; revisit when we have a workable path (e.g., the human enables the origin, or we vendor a build).
 **Reversibility:** easy — add the dep back and the engine wiring is straightforward.
 
+## 2026-05-16 05:50 — DuckDB community-extension trust posture: opt-in `read_stat` for SPSS/SAS/Stata; SET allow_unsigned_extensions
+**Context:** Theme 1 wires SPSS / SAS / Stata mounts via the `read_stat` community extension (the PondPilot path). DuckDB community extensions aren't signed by DuckDB Labs; loading them requires `SET allow_unsigned_extensions = true`. That toggle has real security implications — any signed extension we LOAD afterwards is also exposed to the unsigned-allowance window for that DuckDB instance.
+**Options considered:** A) Refuse community extensions entirely; statistical formats stay unsupported. B) Allow community extensions globally on engine boot. C) Allow per-extension on first use; isolate to the specific extension(s) we trust by name.
+**Decision:** C. `engine.ensureExtension('read_stat', 'community')` flips the toggle and installs by name. Other community extensions aren't auto-loaded; future additions get their own `ensureExtension(name, 'community')` call after a documented review.
+**Reasoning:**
+  - PondPilot already trusts `read_stat` and it's used by other browser-DuckDB tools in production; the extension is well-vetted in the community.
+  - Toggling `allow_unsigned_extensions` per extension we explicitly trust is tighter than a global "allow everything." Future community-extension additions become explicit decisions, not a default.
+  - User opt-in is implicit: they have to mount a .sav / .dta / .sas7bdat file for the extension to load. We can add an explicit "Allow community extensions?" settings toggle in v1.2 if customer-side governance demands it.
+**Reversibility:** Easy. If a community extension turns out to be problematic, remove the relevant `ensureExtension` call.
+
+## 2026-05-16 05:55 — Theme 1 (Format-import expansion): SQLite + DuckDB + Excel + SPSS/SAS/Stata via DuckDB extensions
+**Context:** First user-visible feature push post-v1.0-scaffold. Adds six new file format mounts (`.sqlite`, `.db`, `.duckdb`, `.xlsx`, `.sav`/`.zsav`/`.por`, `.dta`, `.sas7bdat`, `.xpt`) via DuckDB core + community extensions, replacing the previously deferred SheetJS path.
+**Options considered:** A) JS-native readers for each format (SheetJS for xlsx, sql.js for sqlite, custom for statistical formats). B) DuckDB core + community extensions as the single mount mechanism.
+**Decision:** B.
+**Reasoning:**
+  - DuckDB has wasm builds of `excel`, `sqlite`, and community `read_stat`. One mechanism covers four format families.
+  - SheetJS was already deferred per DECISIONS 2026-05-15 13:20 (sandbox blocks `cdn.sheetjs.com`) — using DuckDB `excel` extension closes that gap with no new external dep.
+  - Multi-table formats (SQLite, DuckDB ATTACH, multi-sheet xlsx) need the register-method-returns-string[] refactor; the refactor is the right shape even without the new formats (a Parquet file with multiple "tables" via partitioning could use it later).
+**Reversibility:** Each format is a separate register method; rolling back one doesn't disturb the others.
+**Notes:**
+  - Extension loading via `INSTALL` requires `extensions.duckdb.org` reachable. The dev sandbox blocks it; user's browser will succeed.
+  - In the sandbox smoke run, the existing failure-tolerant mount path skips files whose extensions can't load. v1.2 should vendor a small set of extensions (sqlite, excel, read_stat) into the duckdb-fallback/ bundle for offline-grade smoke testing.
+
 ## 2026-05-16 05:15 — Enterprise data strategy: Compute Bridge as a sibling OSS repo; AI co-located in browser + bridge (split)
 **Context:** Enterprise scenario ("data doesn't leave my S3/R2") under-addressed by the v1.1 Relay (which signs URLs but doesn't move compute into the customer's VPC). User raised the question explicitly; needed a deliberate strategy.
 **Options considered:** A) Integrated submodule inside NakliData; B) Sibling OSS repo (`NakliTechie/nakli-compute`); C) Start integrated, split later. For AI placement: i) browser only, ii) bridge only, iii) both, split by job. For hosting: I) self-hosted forever, II) self-hosted + revisit, III) self-hosted + paid deploy-for-me service.

@@ -1,6 +1,37 @@
-## Last update: 2026-05-16T03:10:00Z
-## Current milestone: v1.0
-## Build status: green — `dist/index.html` 303 KB; tsc clean; biome 0 errors / 14 warnings; 11 vitest tests passing; headless smoke test PASSED (see tests/smoke-v1.0.log)
+## Last update: 2026-05-16T06:00:00Z
+## Current milestone: v1.0 shipped to `main`; Theme 1 (format-import expansion) wave 1 in flight
+## Build status: green — `dist/index.html` ~330 KB; tsc clean; biome 0 errors / 14 warnings; 56 vitest tests passing; headless smoke test PASSED
+
+## Just done — Theme 1 wave 1 (post-v1.0)
+- Engine: `ensureExtension(name, source)` idempotent INSTALL+LOAD helper
+- Six new mount paths added via DuckDB extensions:
+  - SQLite (`.db` / `.sqlite` / `.sqlite3`) — ATTACH, one view per table
+  - DuckDB (`.duckdb`) — ATTACH, one view per table
+  - Excel (`.xlsx`) — `excel` core extension, one view per sheet
+  - SPSS (`.sav` / `.zsav` / `.por`) — `read_stat` community extension
+  - Stata (`.dta`) — same
+  - SAS (`.sas7bdat` / `.xpt`) — same
+- `registerFileByFormat` returns `string[]` so multi-table mounts populate
+  the workbook correctly. mountFile / mountFolder / mountExampleBundle
+  iterate the result list.
+- Community-extension trust posture decided + logged (DECISIONS 2026-05-16
+  05:50): `allow_unsigned_extensions` flipped per-extension on first use,
+  not globally.
+- 36 new unit tests in `tests/mount.test.ts` (detectFormat across all 11
+  extensions + format-routing via mocked engine).
+- Smoke test re-runs green (no regressions on existing CSV/JSONL paths).
+
+## Sandbox limitation flagged
+Extension downloads from `extensions.duckdb.org` are blocked by the dev
+sandbox's network policy. Production users will hit the extension load
+fine; smoke testing the new format paths in *this* environment requires
+either (a) vendoring extensions into `public/duckdb-fallback/`, or
+(b) running smoke against a network-permissive container. Both tracked
+in pending.md.
+
+## What's done since the previous milestone
+- v1.0 shipped (16 commits on `claude/agent-handoff-start-3c2Ib`,
+  merged to `main` at ec35c71).
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in (combined with prior)

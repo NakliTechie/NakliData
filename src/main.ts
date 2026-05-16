@@ -593,7 +593,21 @@ async function pickSingleFile(): Promise<File | null> {
               'text/csv': ['.csv'],
               'text/tab-separated-values': ['.tsv'],
               'application/x-ndjson': ['.jsonl', '.ndjson'],
-              'application/octet-stream': ['.parquet', '.pq'],
+              'application/octet-stream': [
+                '.parquet',
+                '.pq',
+                '.duckdb',
+                '.db',
+                '.sqlite',
+                '.sqlite3',
+                '.sav',
+                '.zsav',
+                '.por',
+                '.dta',
+                '.sas7bdat',
+                '.xpt',
+              ],
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
             },
           },
         ],
@@ -607,7 +621,8 @@ async function pickSingleFile(): Promise<File | null> {
   return await new Promise<File | null>((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq';
+    input.accept =
+      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.click();
   });

@@ -58,12 +58,28 @@ export class EngineError extends Error {
   }
 }
 
+/** Source repository for an extension install. */
+export type ExtensionSource = 'core' | 'community';
+
+export class ExtensionLoadError extends Error {
+  constructor(
+    public readonly extensionName: string,
+    cause: unknown,
+  ) {
+    super(
+      `Could not load DuckDB extension "${extensionName}": ${cause instanceof Error ? cause.message : cause}`,
+    );
+    this.name = 'ExtensionLoadError';
+  }
+}
+
 export class Engine {
   private db: duckdb.AsyncDuckDB | null = null;
   private conn: duckdb.AsyncDuckDBConnection | null = null;
   private worker: Worker | null = null;
   private status: EngineStatus = 'idle';
   private listeners = new Map<EngineEventName, Set<(payload: unknown) => void>>();
+  private loadedExtensions = new Set<string>();
 
   on<E extends EngineEventName>(event: E, fn: (payload: EngineEvents[E]) => void): () => void {
     let set = this.listeners.get(event);
@@ -198,6 +214,144 @@ export class Engine {
       `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS
        SELECT * FROM read_parquet('${escapeLiteral(fname)}')`,
     );
+  }
+
+  /**
+   * Idempotently install + load a DuckDB extension. The first call to a
+   * given extension fetches it from the DuckDB extension registry (core)
+   * or the community-extensions registry; subsequent calls are no-ops.
+   *
+   * For community extensions we also flip `allow_unsigned_extensions`
+   * (community extensions aren't signed by DuckDB Labs).
+   *
+   * Throws ExtensionLoadError if INSTALL or LOAD fail. Callers in the
+   * mount layer wrap this and surface a useful message to the user
+   * (e.g. when offline + extension not vendored).
+   */
+  async ensureExtension(name: string, source: ExtensionSource = 'core'): Promise<void> {
+    if (this.loadedExtensions.has(name)) return;
+    const safe = sanitizeIdent(name);
+    try {
+      if (source === 'community') {
+        await this.exec('SET allow_unsigned_extensions = true');
+        await this.exec(`INSTALL ${safe} FROM community`);
+      } else {
+        // INSTALL is idempotent in DuckDB; safe to call repeatedly.
+        try {
+          await this.exec(`INSTALL ${safe}`);
+        } catch {
+          // Some core extensions are statically linked into the wasm
+          // bundle and INSTALL is a no-op / errors. LOAD will still work.
+        }
+      }
+      await this.exec(`LOAD ${safe}`);
+      this.loadedExtensions.add(name);
+    } catch (err) {
+      throw new ExtensionLoadError(name, err);
+    }
+  }
+
+  /**
+   * Mount a SQLite database file. ATTACHes the file as a virtual
+   * database, then exposes each user table as its own NakliData view
+   * named `<sourceLabel>__<tableName>`. Returns the list of view names
+   * created — mount.ts iterates them to populate MountedSource.tables.
+   */
+  async registerSqlite({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    await this.ensureExtension('sqlite');
+    const fname = sanitizeFileName(file.name);
+    await this.registerFile(fname, file);
+    return await this.attachDatabase(fname, tableName, 'sqlite');
+  }
+
+  /** Mount a native DuckDB database file via ATTACH. Multi-table. */
+  async registerDuckdb({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    const fname = sanitizeFileName(file.name);
+    await this.registerFile(fname, file);
+    return await this.attachDatabase(fname, tableName, 'duckdb');
+  }
+
+  /**
+   * Mount an Excel `.xlsx` file via DuckDB's `excel` core extension.
+   * `read_xlsx` returns one table per sheet; we discover the sheets
+   * and create one NakliData view per sheet.
+   */
+  async registerXlsx({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    await this.ensureExtension('excel');
+    const fname = sanitizeFileName(file.name);
+    await this.registerFile(fname, file);
+    // Probe sheet names; fall back to a single all_sheets=false call if probing fails.
+    let sheets: string[] = [];
+    try {
+      const rows = await this.query<{ name: string }>(
+        `SELECT name FROM excel_sheets('${escapeLiteral(fname)}')`,
+      );
+      sheets = rows.map((r) => r.name);
+    } catch {
+      sheets = [];
+    }
+    const created: string[] = [];
+    if (sheets.length === 0) {
+      // No sheets discovered — fall back to the default read_xlsx call.
+      const view = sanitizeIdent(tableName);
+      await this.exec(
+        `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM read_xlsx('${escapeLiteral(fname)}')`,
+      );
+      created.push(view);
+    } else {
+      for (const sheet of sheets) {
+        const view = sanitizeIdent(sheets.length === 1 ? tableName : `${tableName}__${sheet}`);
+        await this.exec(
+          `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
+           SELECT * FROM read_xlsx('${escapeLiteral(fname)}', sheet = '${escapeLiteral(sheet)}')`,
+        );
+        created.push(view);
+      }
+    }
+    return created;
+  }
+
+  /**
+   * Mount a statistical-format file (SPSS `.sav` / `.zsav` / `.por`,
+   * Stata `.dta`, SAS `.sas7bdat` / `.xpt`) via the `read_stat`
+   * community extension. Single-table per file.
+   */
+  async registerReadStat({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    await this.ensureExtension('read_stat', 'community');
+    const fname = sanitizeFileName(file.name);
+    await this.registerFile(fname, file);
+    const view = sanitizeIdent(tableName);
+    await this.exec(
+      `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM read_stat('${escapeLiteral(fname)}')`,
+    );
+    return [view];
+  }
+
+  /** Shared ATTACH path for SQLite + DuckDB file mounts. */
+  private async attachDatabase(
+    filename: string,
+    tableLabel: string,
+    type: 'sqlite' | 'duckdb',
+  ): Promise<string[]> {
+    const attachName = sanitizeIdent(`attached_${tableLabel}_${Date.now().toString(36)}`);
+    const typeClause = type === 'sqlite' ? ' (TYPE sqlite, READ_ONLY)' : ' (READ_ONLY)';
+    await this.exec(
+      `ATTACH '${escapeLiteral(filename)}' AS ${quoteIdent(attachName)}${typeClause}`,
+    );
+    const tables = await this.query<{ table_name: string; schema_name: string }>(
+      `SELECT table_name, schema_name
+         FROM duckdb_tables()
+        WHERE database_name = '${escapeLiteral(attachName)}'
+          AND schema_name NOT IN ('information_schema', 'pg_catalog')`,
+    );
+    const created: string[] = [];
+    for (const { table_name, schema_name } of tables) {
+      const view = sanitizeIdent(tables.length === 1 ? tableLabel : `${tableLabel}__${table_name}`);
+      const qualified = `${quoteIdent(attachName)}.${quoteIdent(schema_name)}.${quoteIdent(table_name)}`;
+      await this.exec(`CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM ${qualified}`);
+      created.push(view);
+    }
+    return created;
   }
 
   /** List the column names + DuckDB types for a registered table/view. */

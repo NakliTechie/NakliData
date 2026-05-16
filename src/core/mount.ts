@@ -14,7 +14,18 @@ import {
   putHandle,
 } from './handles.ts';
 
-export type FileFormat = 'csv' | 'tsv' | 'jsonl' | 'parquet' | 'sqlite' | 'xlsx';
+export type FileFormat =
+  | 'csv'
+  | 'tsv'
+  | 'jsonl'
+  | 'parquet'
+  | 'sqlite'
+  | 'duckdb'
+  | 'xlsx'
+  | 'sav'
+  | 'dta'
+  | 'sas7bdat'
+  | 'xpt';
 
 export type SourceKind = 'example-bundle' | 'fsa-folder' | 'fsa-file' | 'http';
 
@@ -58,9 +69,14 @@ export function detectFormat(filename: string): FileFormat | null {
   if (lower.endsWith('.tsv')) return 'tsv';
   if (lower.endsWith('.jsonl') || lower.endsWith('.ndjson')) return 'jsonl';
   if (lower.endsWith('.parquet') || lower.endsWith('.pq')) return 'parquet';
+  if (lower.endsWith('.duckdb')) return 'duckdb';
   if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3'))
     return 'sqlite';
   if (lower.endsWith('.xlsx')) return 'xlsx';
+  if (lower.endsWith('.sav') || lower.endsWith('.zsav') || lower.endsWith('.por')) return 'sav';
+  if (lower.endsWith('.dta')) return 'dta';
+  if (lower.endsWith('.sas7bdat')) return 'sas7bdat';
+  if (lower.endsWith('.xpt')) return 'xpt';
   return null;
 }
 
@@ -77,27 +93,41 @@ export function sanitizeTableName(filenameOrStem: string): string {
   return out;
 }
 
+/**
+ * Register a file with DuckDB and return the list of table/view names
+ * that resulted. Single-file formats return a 1-element array; multi-table
+ * formats (SQLite, DuckDB attach, multi-sheet xlsx) return one entry per
+ * table.
+ */
 async function registerFileByFormat(
   engine: Engine,
   format: FileFormat,
   opts: RegisterFileOptions,
-): Promise<void> {
+): Promise<string[]> {
   switch (format) {
     case 'csv':
       await engine.registerCsv(opts);
-      return;
+      return [opts.tableName];
     case 'tsv':
       await engine.registerTsv(opts);
-      return;
+      return [opts.tableName];
     case 'jsonl':
       await engine.registerJsonl(opts);
-      return;
+      return [opts.tableName];
     case 'parquet':
       await engine.registerParquet(opts);
-      return;
+      return [opts.tableName];
     case 'sqlite':
+      return await engine.registerSqlite(opts);
+    case 'duckdb':
+      return await engine.registerDuckdb(opts);
     case 'xlsx':
-      throw new MountError(`Format ${format} not yet supported in v1.0 (build-order steps 12+)`);
+      return await engine.registerXlsx(opts);
+    case 'sav':
+    case 'dta':
+    case 'sas7bdat':
+    case 'xpt':
+      return await engine.registerReadStat(opts);
   }
 }
 
@@ -143,18 +173,23 @@ export async function mountExampleBundle(
         const blob = await fileRes.blob();
         const filename = f.path.split('/').pop() ?? 'data';
         const file = new File([blob], filename, { type: blob.type });
-        const tableName = sanitizeTableName(f.table);
-        await registerFileByFormat(engine, f.format, { tableName, file });
-        const rowCount = await getRowCount(engine, tableName);
-        source.tables.push({
-          id: genId('tbl'),
-          sourceId: source.id,
-          name: tableName,
-          format: f.format,
-          origin: `examples/${f.path}`,
-          rowCount,
-          registered: true,
+        const tableLabel = sanitizeTableName(f.table);
+        const registered = await registerFileByFormat(engine, f.format, {
+          tableName: tableLabel,
+          file,
         });
+        for (const tableName of registered) {
+          const rowCount = await getRowCount(engine, tableName);
+          source.tables.push({
+            id: genId('tbl'),
+            sourceId: source.id,
+            name: tableName,
+            format: f.format,
+            origin: `examples/${f.path}`,
+            rowCount,
+            registered: true,
+          });
+        }
       } catch (err) {
         // A single failing file shouldn't abort the whole bundle — log it
         // and continue so the user still gets the rest. Common cause: the
@@ -208,22 +243,27 @@ export async function mountFolder(
   ).entries()) {
     if (entry.kind !== 'file') continue;
     const format = detectFormat(name);
-    if (!format || format === 'sqlite' || format === 'xlsx') continue;
+    if (!format) continue;
     const fileHandle = entry as FileSystemFileHandle;
     const file = await fileHandle.getFile();
-    const tableName = sanitizeTableName(name);
+    const tableLabel = sanitizeTableName(name);
     try {
-      await registerFileByFormat(engine, format, { tableName, file });
-      const rowCount = await getRowCount(engine, tableName);
-      source.tables.push({
-        id: genId('tbl'),
-        sourceId,
-        name: tableName,
-        format,
-        origin: `${dirHandle.name}/${name}`,
-        rowCount,
-        registered: true,
+      const registered = await registerFileByFormat(engine, format, {
+        tableName: tableLabel,
+        file,
       });
+      for (const tableName of registered) {
+        const rowCount = await getRowCount(engine, tableName);
+        source.tables.push({
+          id: genId('tbl'),
+          sourceId,
+          name: tableName,
+          format,
+          origin: `${dirHandle.name}/${name}`,
+          rowCount,
+          registered: true,
+        });
+      }
     } catch (err) {
       console.warn(`[mount] could not register ${name}:`, err);
     }
@@ -266,24 +306,32 @@ export async function mountFile(
   if (!format) {
     throw new MountError(`Unsupported file extension: ${file.name}`);
   }
-  const tableName = opts.tableName ?? sanitizeTableName(file.name);
-  await registerFileByFormat(engine, format, { tableName, file });
-  const rowCount = await getRowCount(engine, tableName);
+  const tableLabel = opts.tableName ?? sanitizeTableName(file.name);
+  const registered = await registerFileByFormat(engine, format, {
+    tableName: tableLabel,
+    file,
+  });
   const sourceId = genId('src');
+  const tables: MountedTable[] = [];
+  for (const tableName of registered) {
+    const rowCount = await getRowCount(engine, tableName);
+    tables.push({
+      id: genId('tbl'),
+      sourceId,
+      name: tableName,
+      format,
+      origin: file.name,
+      rowCount,
+      registered: true,
+    });
+  }
+  if (tables.length === 0) {
+    throw new MountError(`No tables found in ${file.name}.`);
+  }
   return {
     id: sourceId,
     kind: 'fsa-file',
     label: opts.sourceLabel ?? file.name,
-    tables: [
-      {
-        id: genId('tbl'),
-        sourceId,
-        name: tableName,
-        format,
-        origin: file.name,
-        rowCount,
-        registered: true,
-      },
-    ],
+    tables,
   };
 }

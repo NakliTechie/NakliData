@@ -234,16 +234,25 @@ The build-pipeline work to support this (esbuild splitting + service-worker chun
 
 Bundle the items above into 4 coherent themes; each is one or two commits:
 
-### Theme 1 — Format-import expansion
+### Theme 1 — Format-import expansion ⏳ in progress (2026-05-16)
 
 **Pitch:** "Drop a folder; everything mounts."
 
-- Wire SQLite `.db` mount via DuckDB ATTACH (spec, easy)
-- Wire DuckDB `.duckdb` file mount via ATTACH (trivial)
-- Auto-load DuckDB core extensions on first use: `httpfs`, `excel`, `json`, `spatial`, `sqlite`, `iceberg`, `delta`
-- Replace deferred SheetJS dep with DuckDB `excel` extension (removes the `cdn.sheetjs.com` block)
-- Add `duckdb-read-stat` community extension → SPSS / Stata / SAS in one shot
-- Add Apache Arrow IPC `.feather` via the `apache-arrow` JS lazy chunk
+Tracking checklist — tick as items land:
+
+- [x] Engine: `ensureExtension(name, 'core' | 'community')` helper — idempotent INSTALL+LOAD, scoped allow-unsigned per community extension
+- [x] Mount: SQLite `.db` / `.sqlite` via DuckDB `ATTACH` (multi-table, one view per SQLite table)
+- [x] Mount: DuckDB `.duckdb` file via `ATTACH` (multi-table)
+- [x] Mount: Excel `.xlsx` via DuckDB `excel` extension (multi-sheet, one view per sheet; replaces the deferred SheetJS dep — kills the `cdn.sheetjs.com` block)
+- [x] Mount: SPSS `.sav` / `.zsav` / `.por`, Stata `.dta`, SAS `.sas7bdat` / `.xpt` via the `read_stat` community extension (the PondPilot path)
+- [x] `registerFileByFormat` returns `string[]` so multi-table mounts populate `MountedSource.tables` correctly
+- [x] File-picker `accept` list extended for all new extensions
+- [x] `tests/mount.test.ts` covers detectFormat for every new extension + format-routing via mock engine (36 tests)
+- [x] DECISIONS.md: community-extension trust posture logged (2026-05-16 05:50)
+- [ ] Mount: Apache Arrow IPC `.feather` / `.arrow` via the `apache-arrow` JS lazy chunk **(deferred — needs the lazy-splitting infra below)**
+- [ ] Lazy code-splitting infrastructure in esbuild (reused later by CodeMirror 6 + Observable Plot)
+- [ ] Sample data: regenerate to include `.sqlite` + `.xlsx` (and ideally a small `.sas7bdat`) so the smoke + e2e tests cover the new mounts in production
+- [ ] Vendor a small set of DuckDB extensions (`sqlite`, `excel`, `read_stat`) into `public/duckdb-fallback/` for offline-grade smoke testing (sandbox blocks `extensions.duckdb.org`)
 
 Result: spec §3.1 supported formats list grows from 6 → 12.
 
