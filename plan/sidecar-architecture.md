@@ -144,6 +144,58 @@ A new §4.3a clause to the spec:
 
 ---
 
+## AI in the browser vs AI in the bridge
+
+The enterprise Compute Bridge ([enterprise-strategy.md](./enterprise-strategy.md)) changes the sidecar story by introducing a second place AI can run. The split is deliberate:
+
+### Browser-side sidecar — baseline (always present)
+
+Per spec §4.3 + the planned Job 4 (report-template recommendation). Small model (Phi-3-mini-class, 4-bit quantized, ~150 MB in OPFS). Runs in every NakliData session. **Critical reasoning:** most users will never deploy a Compute Bridge. The baseline AI must work standalone — anything that depends on bridge-side compute is a feature for a subset of users, not the default.
+
+### Bridge-side sidecar — enhancement layer (when bridge is connected)
+
+Heavier LoRA-tuned model (Gemma 4 E4B at 4-bit, ~2.5 GB cached on bridge disk). The OPFS budget that constrains the browser doesn't apply: the bridge runs on real hardware in the customer's VPC, and 2.5 GB on disk is unremarkable.
+
+The bridge-side sidecar takes on jobs the browser-side can't reasonably do:
+
+| Job | Why it needs the bridge |
+| --- | --- |
+| Auto-classify 10k+ columns in a batch | Throughput. Browser-side at Phi-3-mini-class doing 10k inferences serially is hours; bridge with batched GPU/CPU inference is minutes. |
+| AI-assisted join inference | Needs the full schema context across all mounted tables; bridge already has bridge-local catalog state. |
+| Scheduled enrichment runs | Long-running background work doesn't belong in a browser tab the user closes. |
+| Multi-table relationship hinting | Same context-window argument as join inference. |
+| Higher-quality variants of the four browser jobs | When latency tolerance allows, route to the bigger model for better accuracy. |
+
+### Routing
+
+When both are present, the control plane (browser) routes each job to the appropriate side:
+
+```ts
+// Pseudocode in the sidecar client
+function dispatchSidecarJob(job: SidecarJob): SidecarTarget {
+  if (job.kind === 'auto_classify_batch' || job.kind === 'join_inference'
+      || job.kind === 'scheduled_enrichment') {
+    return 'bridge_required';
+  }
+  if (bridge.isConnected() && job.latencyToleranceMs > 500) {
+    return 'bridge_preferred'; // bigger model, more accurate
+  }
+  return 'browser';
+}
+```
+
+The browser-side sidecar stays the offline-capable fallback. If the bridge is connected when a job dispatches, the bridge takes the heavier work; if not, the browser handles what it can and the bridge-exclusive jobs are simply unavailable (with clear UI messaging).
+
+### Same eval harness, same training data pipeline
+
+The phasing in this doc still applies — v1.2 builds the eval harness, v1.3 trains the first LoRA for Job 1, v1.4 extends to other jobs. The only differences for bridge-side:
+
+- The eval set for bridge-exclusive jobs (batch classification, join inference) is more synthetic data work in v1.2.
+- The LoRA weights ship in the bridge image rather than the browser.
+- Update cadence is per-bridge-release, not per-NakliData-release. The bridge's OPFS-equivalent (its on-disk model cache) is decoupled from the browser's.
+
+---
+
 ## TL;DR
 
 - Yes, LoRA-Gemma 4 E2B/E4B is a real upgrade path for the sidecar's narrow jobs.

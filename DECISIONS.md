@@ -37,6 +37,24 @@ Append-only. Format per AGENTHANDOFF §5.
 **Reasoning:** Excel is step 12 of 16 — we have plenty of v1.0 build runway before it's on the critical path. Avoid blocking step 2 (engine boot) on a tooling issue; revisit when we have a workable path (e.g., the human enables the origin, or we vendor a build).
 **Reversibility:** easy — add the dep back and the engine wiring is straightforward.
 
+## 2026-05-16 05:15 — Enterprise data strategy: Compute Bridge as a sibling OSS repo; AI co-located in browser + bridge (split)
+**Context:** Enterprise scenario ("data doesn't leave my S3/R2") under-addressed by the v1.1 Relay (which signs URLs but doesn't move compute into the customer's VPC). User raised the question explicitly; needed a deliberate strategy.
+**Options considered:** A) Integrated submodule inside NakliData; B) Sibling OSS repo (`NakliTechie/nakli-compute`); C) Start integrated, split later. For AI placement: i) browser only, ii) bridge only, iii) both, split by job. For hosting: I) self-hosted forever, II) self-hosted + revisit, III) self-hosted + paid deploy-for-me service.
+**Decision:** B (sibling OSS repo) + iii (split AI: browser baseline, bridge enhancement) + III (self-hosted + paid deploy-for-me later). Final license, wire-protocol nuances, and Tailscale-style overlay deferred to v1.3 MVP scoping.
+**Reasoning:**
+  - Sibling repo gives clean separation; users without enterprise needs never see the bridge code. Cleaner OSS distribution path.
+  - Split AI is the correct posture because most users will never run a bridge — browser sidecar must work standalone. Bridge-side AI is enhancement, not replacement. Bigger models become feasible on bridge hardware where OPFS budget doesn't apply.
+  - "Deploy for me" professional services preserves the no-SaaS posture while creating a path for customers who can't deploy themselves. Not multi-tenant, not recurring.
+**Reversibility:** Easy for B (can absorb back into NakliData if it doesn't fit). Easy for iii (collapse to browser-only if bridge usage stays low). Hard to walk back from "paid services" once advertised, but easy to never start.
+
+## 2026-05-16 05:20 — AI sidecar + BYOK is a NakliTechie-portfolio hard requirement (not just NakliData)
+**Context:** User directive: every NakliTechie project — one-page apps and enterprise tools alike — must include an AI sidecar with BYOK. Projects without a credible AI role aren't worth building; older projects must be retrofitted or deprecated.
+**Options considered:** A) Project-by-project decision; B) Portfolio-wide hard rule with retrofit obligation.
+**Decision:** B.
+**Reasoning:** Three threads converge: (1) the portfolio's compounding thesis — tools that can recognize each other's outputs reduce per-tool config; (2) the curated-taxonomy moat (NakliData's non-copyable asset) needs cross-tool AI hooks to compound; (3) the interface trend — tools without AI surfaces feel dated within 12 months.
+**Reversibility:** Easy to relax; harder to retroactively add for projects already shipped without it. Hence the "retrofit or deprecate" framing.
+**Storage:** Locked in `~/.claude/CLAUDE.md` (user-level memory across all sessions) and referenced from this repo's `CLAUDE.md` "Portfolio rules" section. Future NakliTechie projects: when starting a new repo, the FIRST question to answer is "what's the AI sidecar role here?"
+
 ## 2026-05-16 04:30 — Planning artifacts moved to `plan/`; backlog split into pending / declined / spec-amendments / product-shape
 **Context:** `BACKLOG.md` at the repo root was conflating forward-looking work, decided non-work, and spec deviations into one file. The agent rules + status + decision-log files at root were also growing crowded.
 **Options considered:** A) Keep one BACKLOG.md, just bigger; B) Move planning artifacts into a `plan/` folder with named files per concern.

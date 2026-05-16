@@ -280,6 +280,18 @@ Result: spec §3.1 supported formats list grows from 6 → 12.
 - Demo / censor mode (lessons doc item 9): mask user paths and column names in screenshots
 - Spec §3.10 README pass
 
+### Theme 6 — Enterprise / Compute Bridge
+
+**Pitch:** "Filestores-as-database for organizations that can't ship 500 GB to a browser."
+
+Full writeup in [enterprise-strategy.md](./enterprise-strategy.md). Phased:
+
+- **v1.2 (precursors).** Iceberg REST Catalog + OAuth2/Bearer/SigV4 auth. S3-compatible custom endpoints (MinIO, R2, B2, Wasabi). Cheap, high-leverage; closes the gap for lakehouse customers who don't need a bridge yet.
+- **v1.3 (MVP).** Compute Bridge as a sibling OSS project (`NakliTechie/nakli-compute`, Apache-2.0 lean). Single binary + Docker image. Arrow Flight + HTTP wire protocol. Bearer-token auth. `compute-bridge` source kind added to the mount layer. Bridge-side AI sidecar with heavier LoRA-Gemma weights (see [sidecar-architecture.md](./sidecar-architecture.md) "AI in the browser vs AI in the bridge").
+- **v1.4 (multi-team).** OAuth2 against customer IdP. Shared-taxonomy hub: browsers fetch from the bridge, accept/override changes proposed back. Helm + Terraform deployment paths. Audit log.
+- **v2.0 (DB Relay + governance).** Postgres / MySQL / Snowflake / BigQuery via stateless user-deployed proxy. Role-based auth + review queues for taxonomy changes.
+- **v2.x (edge).** Cloudflare Worker / AWS Lambda DuckDB deployment for users who don't want a long-running instance.
+
 ---
 
 ## Sources

@@ -63,24 +63,14 @@ Let the Relay (and direct httpfs) sign against MinIO, R2, B2, Wasabi, etc. by ac
 
 ### 3. Compute Bridge — user-deployed DuckDB server
 
-A small open-source binary (Rust, ~10–20 MB) the user runs inside their own VPC / network. Speaks Arrow over WebSocket or HTTP. NakliData browser submits SQL queries; results come back as Arrow batches.
+A small open-source binary (Rust, ~10–20 MB) the user runs inside their own VPC. Speaks Arrow over Flight / HTTP. Bytes never cross from the bucket to the browser — only SQL goes in, result rows come out.
 
-```
-   Browser (NakliData control plane)
-     │ ws://compute-bridge.internal:8080
-     ▼
-   Compute Bridge                   ← user runs this, in their network
-     │ s3:// (in-VPC, no egress)
-     ▼
-   S3 / R2 / Iceberg / Delta        ← data never leaves
-```
+**This is the genuinely zero-egress option** for enterprises that say "compute stays in my VPC."
 
-**Crucially:** bytes never cross the network from the bucket. Only the SQL goes in and result rows come out. This is the genuinely zero-egress option for enterprises that say "compute stays in my VPC."
+> **Full writeup in [enterprise-strategy.md](./enterprise-strategy.md).** That doc covers: sibling-OSS-repo posture (`NakliTechie/nakli-compute`), the three buyer profiles, deployment paths (binary → Docker → Helm → Terraform), auth model (bearer token / mTLS / OAuth2 + IdP), AI co-location ([sidecar-architecture.md](./sidecar-architecture.md) — bridge-side enhancement layer), multi-team taxonomy hub, and v1.3 → v2.0 phasing.
 
-The Compute Bridge is the user's responsibility to deploy and maintain. We ship a tiny binary, a docker compose, and a `helm` chart — the user runs them. No NakliData-operated infrastructure touches their data.
-
-**Lift:** medium — there's existing precedent (DuckDB itself ships an HTTP API; `cargo install duckdb-server` is close). Wiring the browser client + the auth handshake is the work.
-**Payoff:** very high. This is the answer for the enterprise compliance / TB-scale / VPC-locked cases.
+**Lift:** medium — DuckDB-server precedent exists; bridge client + auth handshake is the new work.
+**Payoff:** very high. The enterprise compliance / TB-scale / VPC-locked answer.
 
 ### 4. DB Relay — Postgres / MySQL / Snowflake / BigQuery via stateless proxy
 

@@ -75,3 +75,17 @@ move. Stop and write a `BLOCKER.md` only for the four cases in
 handoff §5: spec-vs-spec contradiction, genuinely-required new
 runtime dep, materially-changed downstream sink format, or a feature
 that conflicts with a Hard NOT.
+
+## Portfolio rules — non-negotiable
+
+NakliTechie-wide rules live in `~/.claude/CLAUDE.md` (user-level memory).
+This project must honor them. The big one:
+
+- **AI sidecar with BYOK is a hard requirement** for every NakliTechie
+  project. NakliData satisfies this via spec §4.3 (v1.1 sidecar with
+  three narrow jobs + BYOK fallback) plus the planned report-recommendation
+  job (see `plan/sidecar-architecture.md`). Older NakliTechie projects
+  must be retrofitted; projects that can't be must be deprecated.
+- Persistence: workspace state in IDB; BYOK keys session-default with
+  opt-in plaintext persistence (option A) and v1.2 passphrase-encrypted
+  variant (option B). See `plan/spec-amendments.md`.
