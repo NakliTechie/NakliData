@@ -13,6 +13,17 @@ Sources for the survey are at the bottom.
 
 ---
 
+## Persistence posture (clarification)
+
+Spec §4 Hard NOT #2 is **specifically about BYOK keys**: "No persistent storage of BYOK keys." It is NOT a blanket "no persistence" rule for workspace state.
+
+- **Workspace state** (sources, column assignments, cells, settings, FSA folder handles) **should persist across tabs via IndexedDB**, plus FSA where the user has granted permission. Starting over each session is a non-starter UX-wise.
+- **BYOK keys** (sidecar / Relay credentials in v1.1) **stay in sessionStorage only**, cleared on tab close. This is the deliberate restriction.
+
+The bits we have today already lean this way (FSA handles in IDB via `src/core/handles.ts`, the orphan `src/core/settings.ts` ready to wire). Theme 3 below is the push that makes it real.
+
+---
+
 ## A. PondPilot feature parity
 
 [PondPilot](https://github.com/pondpilot/pondpilot) is our most direct competitor (AGPL-3.0, 100% client-side, DuckDB-wasm). Their feature surface, mapped to ours:
@@ -111,6 +122,81 @@ Sources for the survey are at the bottom.
 | Cmd+S save | ✅ | — |
 | Ctrl+F add file | 🆕 | Trivial |
 | Ctrl+I SQL import | 🆕 | — |
+
+---
+
+## A.5 Second wave of contemporaries
+
+Survey beyond the immediate DuckDB-wasm neighborhood. Each entry: what they do that's worth pulling into NakliData's thinking.
+
+### [Frictionless Data — Table Schema](https://specs.frictionlessdata.io/table-schema/)
+
+Published, language-agnostic standard for describing tabular data: per-field `type` (string/number/integer/date/boolean/object/array/...), constraints (range, regex, enum), and `primaryKey` / `foreignKeys` for cross-table relationships. EU Commission uses it.
+
+**For NakliData:**
+- 🆕 Align our taxonomy types' shape with Table Schema so a `.naklidata` file can also be exported as a Frictionless `datapackage.json`. Interop with R `frictionless`, Python `tableschema`, etc.
+- 🆕 Import Table Schema descriptors as taxonomy seeds (each `field.type` + constraints becomes a user-defined type).
+
+### [Cube.dev](https://github.com/cube-js/cube) — open-source semantic layer
+
+JavaScript-based data-modeling language defining "cubes" (entities) with measures + dimensions + relationships. Reactive — model mutates at runtime. APIs: REST, GraphQL, SQL. Apache 2.0.
+
+**For NakliData:**
+- 🆕 Pattern for taxonomy v2 evolution: cubes-as-code, version-controlled, reviewable. Our `taxonomy/v0.1/types.jsonl` is a precursor to this; the next iteration could borrow Cube's measure/dimension distinction (which columns are aggregatable vs which are categorical) — already implicit in our typeIds but not first-class.
+- 🚫 Cube's actual code-base requires a server runtime; not adoptable. Pattern only.
+
+### [OpenRefine](https://openrefine.org/) — the legacy elephant for data cleanup
+
+Desktop Java tool, but the *features* are gold standard for messy data:
+- **Clustering** — fuzzy matching across column values (Key Collision, Nearest Neighbor methods) to dedup "Sharma Trading Co" vs "Sharma Trading Co." vs "SHARMA TRADING CO".
+- **Faceting** — interactive subset filtering by column value, with live histograms.
+- **Reconciling** — match values against an external authoritative database (Wikidata, custom).
+- **Infinite undo/redo** of every transform.
+
+**For NakliData:**
+- 🆕 Clustering as a transform suggestion in the schema panel: "Detected 5 spelling variants of `vendor_name`. Merge?" — fits perfectly with our "schema panel is the most important surface" thesis. Use [`fastest-levenshtein`](https://www.npmjs.com/package/fastest-levenshtein) or [`string-similarity`](https://www.npmjs.com/package/string-similarity) (both MIT, small).
+- 🆕 Faceting as a fourth cell type — pick a column, get an interactive filter UI with live value-count histogram. Auto-applies as a `WHERE` on downstream cells.
+- 🆕 Reconciliation against the taxonomy: for `gstin` columns, optionally check the [GSTN portal status API](https://services.gst.gov.in/) (browser-restricted; via Relay in v1.2). For `hsn_code`, check against the CBIC HSN list (vendored JSON).
+- 🚫 Don't borrow OpenRefine's UI — its 2010-era Java applet aesthetic is dated. The features, not the look.
+
+### [Datasette Lite](https://github.com/simonw/datasette-lite) — pyodide-in-browser precedent
+
+Simon Willison runs full server-side Datasette inside Pyodide in a Web Worker. CSV/JSON/SQL/Parquet load from URLs. Plugin install via `?install=plugin-name`. Self-hostable NPM package.
+
+**For NakliData:**
+- 🆕 Plugin model — `?install=...` URL param could install community extensions or user-defined types into a session at boot. Lightweight precedent.
+- 🚫 We don't need Pyodide — DuckDB-wasm gives us the same query power at a fraction of the bundle.
+
+### [Datasette enrichments framework](https://simonwillison.net/2023/Dec/1/datasette-enrichments/)
+
+Code that runs against rows in a table, transforming or augmenting them. Examples: jinja template per row, regex extraction per row, fetch external data per row.
+
+**For NakliData:**
+- 🆕 A **transform cell** as a fifth cell type: takes an upstream cell, applies a per-row JS function, emits a new view. Deterministic, user-triggered (not auto). Aligns with vision's "no auto-execute" — user clicks Run.
+- Useful for: extract domain from email, parse date strings, derive `gst_state_code` from `gstin[0..2]`, etc.
+
+### [Briefer](https://github.com/briefercloud/briefer) — notebook BI with interactive inputs
+
+Notebook + dashboard hybrid. AGPL-3.0. SQL + Python + Markdown cells. Key UX move: **interactive inputs** (dropdowns, date pickers) turn notebooks into lightweight data apps.
+
+**For NakliData:**
+- 🆕 Interactive-input cells: parameterize an SQL cell with a value picker, runs reactively when the input changes. Composes cleanly with `@cellName` references. (Vision's "no narration" doesn't prohibit user-driven interactivity.)
+- 🚫 Don't borrow the multiplayer / scheduling / writeback features — out of scope.
+
+### [Evidence Dev](https://github.com/evidence-dev/evidence) — BI-as-code with markdown
+
+MIT. Static-site generator: SQL + Markdown → polished HTML reports. Components for charts/tables embedded as simple syntax. Auto-chart-type selection.
+
+**For NakliData:**
+- 🆕 Static export of a `.naklidata` notebook to a self-contained HTML report (no engine needed for the read-only published view — pre-rendered chart SVGs + tables). Closes the loop: "describe → query → publish."
+- 🆕 Markdown cell shortcodes: `{{vendor_spend.row_count}}` references upstream cell results inline. Spec §3.3 already mentions this in passing.
+
+### [Recap](https://recap.build/) — multi-format schema extraction
+
+Python lib + HTTP gateway. Extracts schemas from Postgres / Avro / Parquet / Protobuf / JSON Schema files and converts between them.
+
+**For NakliData:**
+- 🆕 "Save my taxonomy as JSON Schema" / "Export my workbook's column types as Avro schema" → interop with other tools' schema-management workflows. Cheap feature with high "did not expect this" value for the data-engineering audience.
 
 ---
 
