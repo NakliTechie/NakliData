@@ -20,6 +20,7 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 ## Sidekicks to read alongside this file
 
 - [remote-sources.md](./remote-sources.md) — the filestores-as-database question: what v1.1 Relay covers, where it falls short, and the five options (lakehouse catalogs, S3-compatible endpoints, Compute Bridge, DB Relay, edge compute) for closing the gap.
+- [sidecar-architecture.md](./sidecar-architecture.md) — base model vs LoRA-tuned specialist: when (and when not) to ship LoRA-finetuned Gemma 4 as the sidecar; the eval-harness foundation; the new report-recommendation job.
 - [product-shape.md](./product-shape.md) — the seven-axis view of the product, used for scoping.
 - [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
 
