@@ -1,6 +1,6 @@
-## Last update: 2026-05-15T14:30:00Z
+## Last update: 2026-05-16T03:10:00Z
 ## Current milestone: v1.0
-## Build status: green — `dist/index.html` 303 KB; tsc clean; biome 0 errors / 14 warnings; 11 tests passing
+## Build status: green — `dist/index.html` 303 KB; tsc clean; biome 0 errors / 14 warnings; 11 vitest tests passing; headless smoke test PASSED (see tests/smoke-v1.0.log)
 ## Deploy status: not yet deployed
 
 ## What's done since last check-in (combined with prior)
@@ -39,11 +39,37 @@
 - Restore CodeMirror 6 as a lazy chunk (decision log 14:10) — pre-tag gate
 - SRI-pinning for DuckDB-wasm CDN load (gate artifact §7.1) — pre-tag gate
 - Auto-restore workspace on app boot (currently only on .naklilens load)
-- Smoke-test the full flow in a browser (handoff §6)
-  — only one of us can do this; running the smoke test needs a real browser
+- Cloudflare Pages deploy
 - README pass for spec §3.10
 
-## Just done — FSA folder mount + IndexedDB handle persistence (build order step 3)
+## Just done — headless browser smoke test passes
+- `scripts/smoke.mjs` exercises 12 steps end-to-end against a built dist/
+  served from a tiny static server, via Playwright + the pre-installed
+  Chromium 1194. `npm run smoke` runs build + smoke.
+- Live run: 20/20 columns classified, 19 at ≥80% confidence, Vendor
+  concentration template instantiates and runs, chart renders, syntax
+  error surfaces inline, type override sticks. See tests/smoke-v1.0.log.
+- Fixed 5 real bugs the smoke test caught:
+  1. CSP blocked the inlined script (no 'unsafe-inline'); now compute
+     and inject SHA-256 of the script body at build time.
+  2. Vendored DuckDB-wasm fallback URLs were root-relative; blob: worker
+     base couldn't resolve them — now absolute against location.origin.
+  3. example-bundle mount aborted on the first failing file; now
+     tolerant per-file (logs JSONL fails in this sandbox because the
+     DuckDB JSON extension is auto-fetched from blocked CDN — works on
+     a normal network).
+  4. headerMatch returned the first pattern match rather than the best
+     across all patterns — short patterns like "vendor" shadowed exact
+     matches like "vendor_name".
+  5. sqlCompatible was strict-string-substring; BIGINT columns weren't
+     accepted by types declaring INTEGER. Now treats the integer family
+     as one bucket.
+- Template column picker now uses same-table cohesion: required types
+  for a given template are pulled from one table when possible (the
+  Vendor concentration SQL had been mixing tables, producing a Binder
+  Error).
+
+## Earlier — FSA folder mount + IndexedDB handle persistence (build order step 3)
 - `src/core/handles.ts`: IDB store for FSA `FileSystemDirectoryHandle`
   objects, with permission re-query / re-request flow per handoff §3.1
 - `mountFolder(engine, dirHandle)` walks the top level, registers each

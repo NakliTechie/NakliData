@@ -9,7 +9,7 @@ import {
   type ColumnRef,
   type Template,
   findApplicableTemplates,
-  indexByType,
+  indexByTypeWithCandidates,
 } from './templates.ts';
 
 export interface TemplatePanelState {
@@ -34,8 +34,8 @@ export function renderTemplatePanel(
   if (!region) return;
   region.innerHTML = '';
 
-  const byType = indexByType(state.assignments, state.sources);
-  const applicable = findApplicableTemplates(ALL_TEMPLATES, byType);
+  const { byType, perType } = indexByTypeWithCandidates(state.assignments, state.sources);
+  const applicable = findApplicableTemplates(ALL_TEMPLATES, byType, perType);
 
   if (applicable.length === 0) {
     region.innerHTML = `<p style="color: var(--text-muted); font-size: 12px; margin: 0;">

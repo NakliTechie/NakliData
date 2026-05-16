@@ -27,46 +27,90 @@ export interface ColumnRef {
   column: string;
 }
 
-/** Find the "best" assignment per typeId across all column assignments. */
+/** Find the "best" assignment per typeId across all column assignments.
+ *  Now considers same-table cohesion so a template's required types end up
+ *  bound to columns from one consistent table whenever possible.
+ */
 export function indexByType(
   assignments: Record<string, ColumnAssignment>,
   sources: Array<{ tables: Array<{ id: string; name: string }> }>,
 ): Record<string, ColumnRef> {
-  const out: Record<string, ColumnRef> = {};
   const tableNameById: Record<string, string> = {};
   for (const s of sources) {
     for (const t of s.tables) tableNameById[t.id] = t.name;
   }
-  // Score: prefer user_accept > detector > unknown; higher confidence first.
   const score = (a: ColumnAssignment): number => {
     let s = a.assigned.confidence;
     if (a.assigned.origin === 'user_accept' || a.assigned.origin === 'user_override') s += 0.5;
     return s;
   };
-  const best: Record<string, { ref: ColumnRef; score: number }> = {};
+  // Build candidates: typeId -> [{tableName, column, score}]
+  const candidates: Record<string, Array<{ table: string; column: string; score: number }>> = {};
   for (const [key, a] of Object.entries(assignments)) {
     if (!a.assigned.typeId) continue;
     const [, tableId] = key.split('::');
     const tableName = tableId ? tableNameById[tableId] : undefined;
     if (!tableName) continue;
-    const ref: ColumnRef = { table: tableName, column: a.columnName };
-    const sc = score(a);
-    const existing = best[a.assigned.typeId];
-    if (!existing || sc > existing.score) {
-      best[a.assigned.typeId] = { ref, score: sc };
+    const list = candidates[a.assigned.typeId] ?? [];
+    list.push({ table: tableName, column: a.columnName, score: score(a) });
+    candidates[a.assigned.typeId] = list;
+  }
+  // Score each table by how many distinct types it can cover. Pick types
+  // greedily, preferring the table currently winning the most type coverage.
+  const tableCoverage: Record<string, number> = {};
+  for (const list of Object.values(candidates)) {
+    const seenTables = new Set<string>();
+    for (const c of list) {
+      if (!seenTables.has(c.table)) {
+        tableCoverage[c.table] = (tableCoverage[c.table] ?? 0) + 1;
+        seenTables.add(c.table);
+      }
     }
   }
-  for (const [typeId, entry] of Object.entries(best)) out[typeId] = entry.ref;
+  const out: Record<string, ColumnRef> = {};
+  for (const [typeId, list] of Object.entries(candidates)) {
+    // Pick the candidate with the highest (score, table-coverage,
+    // column-name-length) — longer column names tend to be the "primary"
+    // representative (e.g. total_amount beats cgst when both score 1.0).
+    list.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const tcA = tableCoverage[a.table] ?? 0;
+      const tcB = tableCoverage[b.table] ?? 0;
+      if (tcB !== tcA) return tcB - tcA;
+      return b.column.length - a.column.length;
+    });
+    const pick = list[0];
+    if (pick) out[typeId] = { table: pick.table, column: pick.column };
+  }
   return out;
 }
 
-/** Returns the list of templates whose required types are all matched. */
+/** Returns the list of templates whose required types are all matched.
+ *  For each template, the matched columns are picked from a single source
+ *  table when possible (so the generated SQL's FROM clause is consistent
+ *  across the template's required types).
+ */
 export function findApplicableTemplates(
   templates: Template[],
   byType: Record<string, ColumnRef>,
+  perType?: Record<string, Array<{ table: string; column: string; score: number }>>,
 ): Array<{ template: Template; matched: Record<string, ColumnRef | undefined> }> {
   const out: Array<{ template: Template; matched: Record<string, ColumnRef | undefined> }> = [];
   for (const t of templates) {
+    if (t.requiredTypes.length === 0) {
+      // No required types — pass through with whatever optionals are present.
+      const matched: Record<string, ColumnRef | undefined> = {};
+      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      out.push({ template: t, matched });
+      continue;
+    }
+    const tableMatched = perType ? pickCohesiveTable(t.requiredTypes, perType) : null;
+    if (tableMatched) {
+      const matched: Record<string, ColumnRef | undefined> = { ...tableMatched };
+      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      out.push({ template: t, matched });
+      continue;
+    }
     const ok = t.requiredTypes.every((req) => byType[req] !== undefined);
     if (!ok) continue;
     const matched: Record<string, ColumnRef | undefined> = {};
@@ -75,6 +119,71 @@ export function findApplicableTemplates(
     out.push({ template: t, matched });
   }
   return out;
+}
+
+/** Find the single table that covers all required types with the highest
+ *  combined confidence. Returns null if no single table covers them. */
+function pickCohesiveTable(
+  requiredTypes: string[],
+  perType: Record<string, Array<{ table: string; column: string; score: number }>>,
+): Record<string, ColumnRef> | null {
+  const tableScores: Record<string, { total: number; picks: Record<string, ColumnRef> }> = {};
+  for (const reqType of requiredTypes) {
+    const candidates = perType[reqType] ?? [];
+    for (const cand of candidates) {
+      const entry = tableScores[cand.table] ?? { total: 0, picks: {} };
+      const existing = entry.picks[reqType];
+      // Keep the highest-scoring column per (table, reqType).
+      const prev = candidates.find((c) => c.table === cand.table && c.column === existing?.column);
+      const prevScore = prev?.score ?? -1;
+      if (cand.score > prevScore) {
+        entry.picks[reqType] = { table: cand.table, column: cand.column };
+        entry.total = Object.values(entry.picks)
+          .map(
+            (p) => candidates.find((c) => c.table === p.table && c.column === p.column)?.score ?? 0,
+          )
+          .reduce((s, n) => s + n, 0);
+      }
+      tableScores[cand.table] = entry;
+    }
+  }
+  let best: { table: string; total: number; picks: Record<string, ColumnRef> } | null = null;
+  for (const [table, entry] of Object.entries(tableScores)) {
+    if (Object.keys(entry.picks).length !== requiredTypes.length) continue;
+    if (!best || entry.total > best.total) {
+      best = { table, total: entry.total, picks: entry.picks };
+    }
+  }
+  return best ? best.picks : null;
+}
+
+/** Variant of indexByType that also returns the per-type candidate list. */
+export function indexByTypeWithCandidates(
+  assignments: Record<string, ColumnAssignment>,
+  sources: Array<{ tables: Array<{ id: string; name: string }> }>,
+): {
+  byType: Record<string, ColumnRef>;
+  perType: Record<string, Array<{ table: string; column: string; score: number }>>;
+} {
+  const tableNameById: Record<string, string> = {};
+  for (const s of sources) for (const t of s.tables) tableNameById[t.id] = t.name;
+  const score = (a: ColumnAssignment): number => {
+    let s = a.assigned.confidence;
+    if (a.assigned.origin === 'user_accept' || a.assigned.origin === 'user_override') s += 0.5;
+    return s;
+  };
+  const perType: Record<string, Array<{ table: string; column: string; score: number }>> = {};
+  for (const [key, a] of Object.entries(assignments)) {
+    if (!a.assigned.typeId) continue;
+    const [, tableId] = key.split('::');
+    const tableName = tableId ? tableNameById[tableId] : undefined;
+    if (!tableName) continue;
+    const list = perType[a.assigned.typeId] ?? [];
+    list.push({ table: tableName, column: a.columnName, score: score(a) });
+    perType[a.assigned.typeId] = list;
+  }
+  const byType = indexByType(assignments, sources);
+  return { byType, perType };
 }
 
 function q(s: string): string {

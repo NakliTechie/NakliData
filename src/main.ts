@@ -149,8 +149,22 @@ function wireActions(root: HTMLElement): void {
     if (!actionEl) return;
     const action = actionEl.dataset.action;
     if (!action) return;
-    // Schema-panel actions wire themselves in renderSchemaPanel().
-    if (['accept', 'evidence', 'threshold-slider', 'bulk-accept'].includes(action)) return;
+    // Some sub-components attach their own click handlers; let those bubble
+    // through without our default dispatch.
+    if (
+      [
+        'accept',
+        'evidence',
+        'threshold-slider',
+        'bulk-accept',
+        'instantiate',
+        'cell-run',
+        'cell-delete',
+        'cell-toggle',
+      ].includes(action)
+    ) {
+      return;
+    }
     void handleAction(action, actionEl);
   });
 

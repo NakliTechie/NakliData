@@ -35,7 +35,20 @@ export function classifyColumn(bundle: TaxonomyBundle, sample: ColumnSample): Cl
 function sqlCompatible(typeSpec: TypeSpec, sqlType: string): boolean {
   if (typeSpec.sql_compat.length === 0) return true;
   const norm = sqlType.toUpperCase();
-  return typeSpec.sql_compat.some((t) => norm.includes(t.toUpperCase()));
+  // Treat the integer family as one bucket — taxonomy types that list
+  // INTEGER should also accept BIGINT / SMALLINT / TINYINT and vice versa.
+  const isIntegerActual =
+    norm.includes('INT') ||
+    norm.includes('BIGINT') ||
+    norm.includes('SMALLINT') ||
+    norm.includes('TINYINT');
+  return typeSpec.sql_compat.some((t) => {
+    const u = t.toUpperCase();
+    if (norm.includes(u)) return true;
+    const isIntegerCompat =
+      u === 'INTEGER' || u === 'BIGINT' || u === 'SMALLINT' || u === 'TINYINT' || u === 'INT';
+    return isIntegerCompat && isIntegerActual;
+  });
 }
 
 function scoreType(typeSpec: TypeSpec, sample: ColumnSample): TypeCandidate | null {

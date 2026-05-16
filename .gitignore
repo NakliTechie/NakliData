@@ -8,4 +8,5 @@ dist/
 !.env.example
 coverage/
 .vitest-cache/
-public/duckdb-fallback/
+public/duckdb-fallback/duckdb-*.wasm
+public/duckdb-fallback/duckdb-browser-*.worker.js

@@ -124,6 +124,7 @@ export async function mountExampleBundle(
   const base = manifestUrl.replace(/[^/]+$/, '');
 
   const out: MountedSource[] = [];
+  const failed: string[] = [];
   for (const src of manifest.sources) {
     const source: MountedSource = {
       id: genId('src'),
@@ -133,28 +134,39 @@ export async function mountExampleBundle(
       tables: [],
     };
     for (const f of src.files) {
-      const fileUrl = `${base}${f.path}`;
-      const fileRes = await fetch(fileUrl);
-      if (!fileRes.ok) {
-        throw new MountError(`Example file fetch failed: ${fileUrl} → HTTP ${fileRes.status}`);
+      try {
+        const fileUrl = `${base}${f.path}`;
+        const fileRes = await fetch(fileUrl);
+        if (!fileRes.ok) {
+          throw new MountError(`Example file fetch failed: ${fileUrl} → HTTP ${fileRes.status}`);
+        }
+        const blob = await fileRes.blob();
+        const filename = f.path.split('/').pop() ?? 'data';
+        const file = new File([blob], filename, { type: blob.type });
+        const tableName = sanitizeTableName(f.table);
+        await registerFileByFormat(engine, f.format, { tableName, file });
+        const rowCount = await getRowCount(engine, tableName);
+        source.tables.push({
+          id: genId('tbl'),
+          sourceId: source.id,
+          name: tableName,
+          format: f.format,
+          origin: `examples/${f.path}`,
+          rowCount,
+          registered: true,
+        });
+      } catch (err) {
+        // A single failing file shouldn't abort the whole bundle — log it
+        // and continue so the user still gets the rest. Common cause: the
+        // DuckDB JSON extension can't be fetched (extensions.duckdb.org).
+        console.warn(`[mount] failed to register ${f.path}:`, err);
+        failed.push(f.path);
       }
-      const blob = await fileRes.blob();
-      const filename = f.path.split('/').pop() ?? 'data';
-      const file = new File([blob], filename, { type: blob.type });
-      const tableName = sanitizeTableName(f.table);
-      await registerFileByFormat(engine, f.format, { tableName, file });
-      const rowCount = await getRowCount(engine, tableName);
-      source.tables.push({
-        id: genId('tbl'),
-        sourceId: source.id,
-        name: tableName,
-        format: f.format,
-        origin: `examples/${f.path}`,
-        rowCount,
-        registered: true,
-      });
     }
-    out.push(source);
+    if (source.tables.length > 0) out.push(source);
+  }
+  if (failed.length > 0) {
+    console.warn(`[mount] ${failed.length} example file(s) skipped: ${failed.join(', ')}`);
   }
   return out;
 }

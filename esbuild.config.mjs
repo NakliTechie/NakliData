@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, cp, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { build, context } from 'esbuild';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
@@ -43,18 +44,29 @@ async function buildShell() {
   });
 
   if (!DEV) {
-    // Inline main.js + CSS into a single dist/index.html.
+    // Inline main.js + CSS into a single dist/index.html. Compute an SHA-256
+    // of the script body so we can include it in the CSP script-src and
+    // avoid needing 'unsafe-inline'.
     const jsBundle = main.outputFiles.find((f) => f.path.endsWith('main.js'));
     const cssBundle = main.outputFiles.find((f) => f.path.endsWith('main.css'));
+    const scriptBody = jsBundle ? jsBundle.text : '';
+    const scriptHash = createHash('sha256').update(scriptBody, 'utf8').digest('base64');
+    const csp = [
+      "default-src 'self'",
+      `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}'`,
+      "worker-src 'self' blob:",
+      "connect-src 'self' https://cdn.jsdelivr.net https://extensions.duckdb.org https://*.naklitechie.com",
+      "img-src 'self' data: blob:",
+      "style-src 'self' 'unsafe-inline'",
+    ].join('; ');
     const shellHtml = await readFile('src/index.html', 'utf8');
     const inlined = shellHtml
-      .replace(
-        '<!-- INLINE_CSS -->',
-        cssBundle ? `<style>${cssBundle.text}</style>` : '',
-      )
+      .replace(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]*>/i,
+        `<meta http-equiv="Content-Security-Policy" content="${csp}">`)
+      .replace('<!-- INLINE_CSS -->', cssBundle ? `<style>${cssBundle.text}</style>` : '')
       .replace(
         '<!-- INLINE_JS -->',
-        jsBundle ? `<script type="module">${jsBundle.text}</script>` : '',
+        scriptBody ? `<script type="module">${scriptBody}</script>` : '',
       );
     await writeFile(`${OUT_DIR}/index.html`, inlined);
 

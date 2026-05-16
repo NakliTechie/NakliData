@@ -1,0 +1,25 @@
+[smoke] launching headless chromium
+[smoke] loading http://127.0.0.1:37895/index.html?offline=1
+[smoke] ✓ shell mounted
+[smoke] waiting for engine boot (CDN load)
+[smoke] ✓ engine ready
+[smoke] ✓ empty state visible
+[smoke] clicked browse-examples
+[smoke] console warning: [mount] failed to register logs/access.jsonl: RuntimeError: table index is out of bounds
+    at Vc.onMessage (http://127.0.0.1:37895/index.html?offline=1:28:57911)
+[smoke] console warning: [mount] 1 example file(s) skipped: logs/access.jsonl
+[smoke] ✓ sources mounted (3 tables in sources panel)
+[smoke] waiting for classification
+[smoke] ✓ schema panel rendered 20 column rows
+[smoke] classification: typed=20 highConf(≥80%)=19 unknown=0 total=20
+[smoke] ✓ ≥15 columns assigned a semantic type
+[smoke] ✓ "Vendor concentration" template is applicable
+[smoke] instantiated Vendor concentration template
+[smoke] ✓ template cells inserted
+[smoke] clicked run-all
+[smoke] ✓ SQL cell ran (20 result rows visible)
+[smoke] ✓ chart cell rendered SVG
+[smoke] ✓ syntax error surfaced inline: "Parser Error: syntax error at end of input…"
+[smoke] ✓ overrode "vendor_id" → gstin
+[smoke] ✓ no console errors
+[smoke] SMOKE TEST PASSED

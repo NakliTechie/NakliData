@@ -37,20 +37,35 @@ function headerMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
   if (patterns.length === 0) return inapplicable();
   const header = sample.columnName.toLowerCase();
   const headerTokens = new Set(tokenize(sample.columnName));
+  // Scan all patterns and return the best (highest-score) match so a
+  // generic short pattern doesn't shadow a more specific one (e.g. "vendor"
+  // shouldn't beat "vendor_name" when the column is literally "vendor_name").
+  let bestScore = 0;
+  let bestEvidence = '';
   for (const p of patterns) {
     const pLower = p.toLowerCase();
+    let score = 0;
+    let evidence = '';
     if (header === pLower) {
-      return { score: 1, applicable: true, evidence: `header == "${p}"` };
+      score = 1;
+      evidence = `header == "${p}"`;
+    } else {
+      const pTokens = tokenize(p);
+      if (pTokens.length > 0 && pTokens.every((t) => headerTokens.has(t))) {
+        score = 0.85;
+        evidence = `header contains "${p}"`;
+      } else if (header.includes(pLower)) {
+        score = 0.65;
+        evidence = `header substring "${p}"`;
+      }
     }
-    const pTokens = tokenize(p);
-    if (pTokens.every((t) => headerTokens.has(t))) {
-      return { score: 0.85, applicable: true, evidence: `header contains "${p}"` };
+    if (score > bestScore) {
+      bestScore = score;
+      bestEvidence = evidence;
     }
-    if (header.includes(pLower)) {
-      return { score: 0.65, applicable: true, evidence: `header substring "${p}"` };
-    }
+    if (bestScore >= 1) break; // can't do better
   }
-  return { score: 0, applicable: true, evidence: '' };
+  return { score: bestScore, applicable: true, evidence: bestEvidence };
 }
 
 function regexMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {

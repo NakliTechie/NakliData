@@ -40,6 +40,14 @@ export interface QueryOptions {
 const DEFAULT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
 const FALLBACK_BASE = '/duckdb-fallback/';
 
+function fallbackOrigin(): string {
+  // The worker is created from a blob: URL whose base is opaque, so
+  // importScripts can't resolve a root-relative path. Resolve it against
+  // the page's origin instead.
+  if (typeof location !== 'undefined' && location.origin) return location.origin;
+  return '';
+}
+
 export class EngineError extends Error {
   constructor(
     message: string,
@@ -290,14 +298,15 @@ export class Engine {
 
 function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {
   if (opts.offline) {
+    const origin = fallbackOrigin();
     return {
       mvp: {
-        mainModule: `${FALLBACK_BASE}duckdb-mvp.wasm`,
-        mainWorker: `${FALLBACK_BASE}duckdb-browser-mvp.worker.js`,
+        mainModule: `${origin}${FALLBACK_BASE}duckdb-mvp.wasm`,
+        mainWorker: `${origin}${FALLBACK_BASE}duckdb-browser-mvp.worker.js`,
       },
       eh: {
-        mainModule: `${FALLBACK_BASE}duckdb-eh.wasm`,
-        mainWorker: `${FALLBACK_BASE}duckdb-browser-eh.worker.js`,
+        mainModule: `${origin}${FALLBACK_BASE}duckdb-eh.wasm`,
+        mainWorker: `${origin}${FALLBACK_BASE}duckdb-browser-eh.worker.js`,
       },
     };
   }

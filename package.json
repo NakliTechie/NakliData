@@ -12,6 +12,7 @@
     "fmt": "biome format --write src tests",
     "lint": "biome lint src tests",
     "test": "vitest run",
+    "smoke": "npm run build && node scripts/smoke.mjs",
     "test:watch": "vitest",
     "postinstall": "node scripts/fetch-duckdb-fallback.mjs"
   },
@@ -22,6 +23,7 @@
     "@biomejs/biome": "1.9.4",
     "@types/node": "^22.5.0",
     "esbuild": "^0.24.0",
+    "playwright": "^1.60.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   },
