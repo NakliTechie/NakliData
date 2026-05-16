@@ -17,6 +17,12 @@ Sources for the survey are at the bottom.
 
 Workspace state persists across tabs (IndexedDB + FSA where the user has granted permission). BYOK keys (v1.1) have a two-tier opt-in model. Both diverge from the original spec — see [spec-amendments.md](./spec-amendments.md) for the formal amended wording.
 
+## Sidekicks to read alongside this file
+
+- [remote-sources.md](./remote-sources.md) — the filestores-as-database question: what v1.1 Relay covers, where it falls short, and the five options (lakehouse catalogs, S3-compatible endpoints, Compute Bridge, DB Relay, edge compute) for closing the gap.
+- [product-shape.md](./product-shape.md) — the seven-axis view of the product, used for scoping.
+- [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
+
 ---
 
 ## A. PondPilot feature parity
