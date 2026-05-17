@@ -4,6 +4,36 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (later) — Theme 1 wave 2 shipped.
+
+### What landed
+
+- **Lazy code-splitting infrastructure.** New `src/lazy/<name>.ts` entries are built standalone into `dist/chunks/<name>.js` by an added esbuild pass. New `src/core/lazy-loader.ts` exposes a typed `loadChunk(name)` that dynamic-imports at runtime — the URL is constructed from a runtime variable so esbuild doesn't inline. Tiny `_demo.ts` chunk verifies the pipeline end-to-end via an e2e spec. Ready for CodeMirror 6 (next push) and Observable Plot / MapLibre (Theme 2).
+- **Apache Arrow IPC mount.** `.arrow` / `.feather` files mount via DuckDB-wasm's `insertArrowFromIPCStream` — turns out the `apache-arrow` JS lib isn't needed, DuckDB reads IPC bytes directly. ~30 lines added. `Engine.drop()` is now dual-mode (DROP VIEW then DROP TABLE) since Arrow files become TABLEs while CSV/Parquet/Excel are VIEWs.
+- **File picker accept list** extended for `.arrow` / `.feather`.
+- **5 new tests** (mount routing for Arrow, lazy-chunk e2e); totals now 60 vitest + 4 e2e.
+
+### Quality
+
+- `dist/index.html` 312 KB (under 600 KB shell budget); `dist/chunks/_demo.js` 126 bytes (tiny demo).
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 60 vitest + 4 Playwright e2e + headless smoke all green.
+
+### Deferred
+
+- Sample-data regen (`.sqlite`, `.xlsx`, `.sas7bdat`) — needs node-sqlite / exceljs / readstat deps; defer to when offline-extension vendoring is also addressed.
+- Vendor DuckDB extensions (`sqlite`, `excel`, `read_stat`) into `public/duckdb-fallback/` — needs sandbox-permitted access to community-extensions.duckdb.org which is blocked here.
+
+Both items are testing infrastructure (let the smoke test exercise the new format paths in this sandbox) — production users hit extensions.duckdb.org just fine.
+
+### What's next
+
+1. **Pre-v1.0-tag gates** — first user of the new lazy-splitting infra. CodeMirror 6 as a chunk in `src/lazy/codemirror.ts`, then SRI pinning for DuckDB-wasm, README pass per spec §3.10, tag `v1.0.0`.
+2. **Theme 3 wave 2** — URL-state sharing + PWA install.
+3. **Theme 2** — visualization upgrade (Observable Plot + MapLibre + pivot table).
+
+---
+
 ## 2026-05-17 — Theme 3 wave 1 shipped (persistence wire-up).
 
 ### What landed today

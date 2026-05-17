@@ -22,6 +22,7 @@ export type FileFormat =
   | 'sqlite'
   | 'duckdb'
   | 'xlsx'
+  | 'arrow'
   | 'sav'
   | 'dta'
   | 'sas7bdat'
@@ -69,6 +70,7 @@ export function detectFormat(filename: string): FileFormat | null {
   if (lower.endsWith('.tsv')) return 'tsv';
   if (lower.endsWith('.jsonl') || lower.endsWith('.ndjson')) return 'jsonl';
   if (lower.endsWith('.parquet') || lower.endsWith('.pq')) return 'parquet';
+  if (lower.endsWith('.arrow') || lower.endsWith('.feather')) return 'arrow';
   if (lower.endsWith('.duckdb')) return 'duckdb';
   if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3'))
     return 'sqlite';
@@ -123,6 +125,8 @@ async function registerFileByFormat(
       return await engine.registerDuckdb(opts);
     case 'xlsx':
       return await engine.registerXlsx(opts);
+    case 'arrow':
+      return await engine.registerArrow(opts);
     case 'sav':
     case 'dta':
     case 'sas7bdat':

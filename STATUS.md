@@ -1,15 +1,15 @@
-## Last update: 2026-05-17T02:20:00Z
-## Current milestone: Theme 3 wave 1 (persistence) shipped; Theme 1 wave 1 + v1.0 already on `main`
-## Build status: green — `dist/index.html` 310 KB; tsc clean; biome 0 errors / 14 warnings; 56 vitest + 3 e2e tests passing; headless smoke green
+## Last update: 2026-05-17T02:40:00Z
+## Current milestone: Theme 1 wave 2 (lazy splitting + Arrow IPC) shipped; v1.0 + Theme 1 wave 1 + Theme 3 wave 1 already on `main`
+## Build status: green — `dist/index.html` 312 KB; tsc clean; biome 0 errors / 14 warnings; 60 vitest + 4 e2e tests passing; headless smoke green
 ## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` aligned; pushed
 ## Deploy status: not yet deployed
 
 ## Pick-up next session — see `plan/progress.md` for the full checkpoint
 
 Recommended order:
-  1. **Theme 1 wave 2** — esbuild lazy code-splitting infra; Arrow IPC; vendor DuckDB extensions for offline smoke. Closes Theme 1 + unblocks viz themes.
-  2. **Pre-v1.0-tag gates** — CodeMirror 6 lazy chunk (uses wave 2 infra) + SRI pinning + README pass + tag `v1.0.0`.
-  3. **Theme 3 wave 2** — URL-state sharing + PWA install + multi-session sidebar.
+  1. **Pre-v1.0-tag gates** — first real user of the new lazy-splitting infra. CodeMirror 6 in `src/lazy/codemirror.ts` + SRI pinning for DuckDB-wasm + README pass per spec §3.10 + tag `v1.0.0`.
+  2. **Theme 3 wave 2** — URL-state sharing + PWA install + multi-session sidebar.
+  3. **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
 
 ## Session highlights — 2026-05-16
 

@@ -312,6 +312,22 @@ export class Engine {
   }
 
   /**
+   * Mount an Apache Arrow IPC file (`.arrow` / `.feather` v2). DuckDB-wasm's
+   * `insertArrowFromIPCStream` reads the bytes directly into a DuckDB table —
+   * no `apache-arrow` JS dep needed. Creates a TABLE (not a view), so
+   * `drop()` is dual-mode: tries DROP VIEW, then DROP TABLE.
+   */
+  async registerArrow({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    const conn = this.requireConn();
+    const safeTable = sanitizeIdent(tableName);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // create:true → CREATE TABLE; replaces if exists via prior DROP.
+    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(safeTable)}`);
+    await conn.insertArrowFromIPCStream(bytes, { name: safeTable, create: true });
+    return [safeTable];
+  }
+
+  /**
    * Mount a statistical-format file (SPSS `.sav` / `.zsav` / `.por`,
    * Stata `.dta`, SAS `.sas7bdat` / `.xpt`) via the `read_stat`
    * community extension. Single-table per file.
@@ -421,10 +437,21 @@ export class Engine {
     }
   }
 
-  /** Drop a previously registered table/view. */
+  /** Drop a previously registered table/view. Some register paths
+   *  produce TABLEs (Arrow IPC via insertArrowFromIPCStream) and others
+   *  produce VIEWs (the CSV/Parquet/Excel/SQLite paths); try both. */
   async drop(tableName: string): Promise<void> {
     const safe = sanitizeIdent(tableName);
-    await this.exec(`DROP VIEW IF EXISTS ${quoteIdent(safe)}`);
+    try {
+      await this.exec(`DROP VIEW IF EXISTS ${quoteIdent(safe)}`);
+    } catch {
+      // VIEW with the name may not exist (it's a TABLE); fall through.
+    }
+    try {
+      await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(safe)}`);
+    } catch {
+      // best effort
+    }
   }
 
   /** Execute a statement, discarding the result rows. */

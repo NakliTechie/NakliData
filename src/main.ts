@@ -708,6 +708,8 @@ async function pickSingleFile(): Promise<File | null> {
               'application/octet-stream': [
                 '.parquet',
                 '.pq',
+                '.arrow',
+                '.feather',
                 '.duckdb',
                 '.db',
                 '.sqlite',
@@ -734,7 +736,7 @@ async function pickSingleFile(): Promise<File | null> {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept =
-      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt';
+      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.click();
   });

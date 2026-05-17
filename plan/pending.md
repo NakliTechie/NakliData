@@ -247,14 +247,14 @@ Tracking checklist — tick as items land:
 - [x] Mount: SPSS `.sav` / `.zsav` / `.por`, Stata `.dta`, SAS `.sas7bdat` / `.xpt` via the `read_stat` community extension (the PondPilot path)
 - [x] `registerFileByFormat` returns `string[]` so multi-table mounts populate `MountedSource.tables` correctly
 - [x] File-picker `accept` list extended for all new extensions
-- [x] `tests/mount.test.ts` covers detectFormat for every new extension + format-routing via mock engine (36 tests)
+- [x] `tests/mount.test.ts` covers detectFormat for every new extension + format-routing via mock engine (36 → 40 tests)
 - [x] DECISIONS.md: community-extension trust posture logged (2026-05-16 05:50)
-- [ ] Mount: Apache Arrow IPC `.feather` / `.arrow` via the `apache-arrow` JS lazy chunk **(deferred — needs the lazy-splitting infra below)**
-- [ ] Lazy code-splitting infrastructure in esbuild (reused later by CodeMirror 6 + Observable Plot)
+- [x] **Lazy code-splitting infrastructure in esbuild** — `src/lazy/<name>.ts` → `dist/chunks/<name>.js`; `src/core/lazy-loader.ts` with typed `loadChunk(name)`; demo chunk `_demo.ts` verifies end-to-end via e2e. Ready for CodeMirror 6 + Observable Plot + future chunks.
+- [x] **Mount: Apache Arrow IPC** (`.arrow` / `.feather`) — turns out `apache-arrow` JS isn't needed; DuckDB-wasm's `insertArrowFromIPCStream` reads IPC bytes directly. Creates a TABLE (not a view), so `drop()` is now dual-mode (DROP VIEW then DROP TABLE). No new dep, ~30 lines.
 - [ ] Sample data: regenerate to include `.sqlite` + `.xlsx` (and ideally a small `.sas7bdat`) so the smoke + e2e tests cover the new mounts in production
 - [ ] Vendor a small set of DuckDB extensions (`sqlite`, `excel`, `read_stat`) into `public/duckdb-fallback/` for offline-grade smoke testing (sandbox blocks `extensions.duckdb.org`)
 
-Result: spec §3.1 supported formats list grows from 6 → 12.
+Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet, Arrow IPC × 2 exts, SQLite × 3 exts, DuckDB, Excel, SPSS × 3 exts, Stata, SAS × 2 exts). The two remaining items are testing-infrastructure work, not new features.
 
 ### Theme 2 — Visualization upgrade
 

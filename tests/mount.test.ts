@@ -10,6 +10,8 @@ describe('detectFormat', () => {
     ['data.ndjson', 'jsonl'],
     ['data.parquet', 'parquet'],
     ['data.pq', 'parquet'],
+    ['data.arrow', 'arrow'],
+    ['data.feather', 'arrow'],
     ['data.duckdb', 'duckdb'],
     ['data.db', 'sqlite'],
     ['data.sqlite', 'sqlite'],
@@ -70,6 +72,7 @@ function mockEngine(overrides: Record<string, unknown> = {}) {
     registerSqlite: vi.fn().mockResolvedValue(['vendors', 'invoices']),
     registerDuckdb: vi.fn().mockResolvedValue(['t1', 't2']),
     registerXlsx: vi.fn().mockResolvedValue(['sheet1']),
+    registerArrow: vi.fn().mockResolvedValue(['observations']),
     registerReadStat: vi.fn().mockResolvedValue(['data']),
     query: vi.fn().mockResolvedValue([{ n: 42n }]),
     ...overrides,
@@ -109,6 +112,17 @@ describe('mountFile routes formats to the right engine method', () => {
     const src = await mountFile(engine as never, fakeFile('Q1.xlsx'));
     expect(engine.registerXlsx).toHaveBeenCalledOnce();
     expect(src.tables).toHaveLength(1);
+  });
+
+  it.each([
+    ['data.arrow', 'arrow'],
+    ['cohort.feather', 'arrow'],
+  ])('arrow IPC %s → registerArrow', async (filename, expectedFormat) => {
+    const engine = mockEngine();
+    const src = await mountFile(engine as never, fakeFile(filename));
+    expect(engine.registerArrow).toHaveBeenCalledOnce();
+    expect(src.tables[0]?.format).toBe(expectedFormat);
+    expect(src.tables[0]?.name).toBe('observations');
   });
 
   it.each([

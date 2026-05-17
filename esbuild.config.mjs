@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, cp, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, cp, stat, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { build, context } from 'esbuild';
@@ -7,6 +7,8 @@ import { extname, join } from 'node:path';
 
 const DEV = process.argv.includes('--dev');
 const OUT_DIR = 'dist';
+const LAZY_DIR = 'src/lazy';
+const CHUNKS_OUT = `${OUT_DIR}/chunks`;
 
 const COMMON = {
   bundle: true,
@@ -21,6 +23,28 @@ const COMMON = {
     'process.env.NODE_ENV': DEV ? '"development"' : '"production"',
   },
 };
+
+/**
+ * Build each `src/lazy/<name>.ts` into `dist/chunks/<name>.js` as a
+ * standalone ESM module. The main bundle uses `loadChunk(name)` from
+ * `src/core/lazy-loader.ts` to dynamically import these at runtime —
+ * keeping heavy deps (CodeMirror 6 in a future push, Apache Arrow JS
+ * if we ever need it, Observable Plot, etc.) out of the inlined shell.
+ */
+async function buildLazyChunks() {
+  if (!existsSync(LAZY_DIR)) return;
+  const files = (await readdir(LAZY_DIR)).filter(
+    (f) => f.endsWith('.ts') && !f.endsWith('.d.ts') && !f.endsWith('.test.ts'),
+  );
+  if (files.length === 0) return;
+  await mkdir(CHUNKS_OUT, { recursive: true });
+  await build({
+    ...COMMON,
+    entryPoints: files.map((f) => `${LAZY_DIR}/${f}`),
+    outdir: CHUNKS_OUT,
+    splitting: false, // each entry is its own self-contained chunk
+  });
+}
 
 async function buildShell() {
   await mkdir(OUT_DIR, { recursive: true });
@@ -42,6 +66,9 @@ async function buildShell() {
     entryPoints: ['src/workers/taxonomy.worker.ts'],
     outfile: `${OUT_DIR}/taxonomy.worker.js`,
   });
+
+  // Lazy chunks: standalone ESM modules dynamically imported at runtime.
+  await buildLazyChunks();
 
   if (!DEV) {
     // Inline main.js + CSS into a single dist/index.html. Compute an SHA-256
@@ -97,6 +124,7 @@ async function serve() {
   });
   await ctx.watch();
   await buildShell();
+  await buildLazyChunks();
   const port = 5173;
   createServer(async (req, res) => {
     const url = req.url === '/' ? '/index.html' : req.url;
