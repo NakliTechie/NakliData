@@ -11,6 +11,7 @@
 
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
+import { kvDelete, kvGet, kvPut } from './idb.ts';
 import type { MountedSource } from './mount.ts';
 
 export const NAKLIDATA_VERSION = '1.0';
@@ -218,4 +219,34 @@ export async function loadFromFile(): Promise<NakliDataFile | null> {
     };
     input.click();
   });
+}
+
+// ---- IDB workbook snapshot (auto-save / auto-restore) --------------------
+//
+// Independent of explicit `.naklidata` files. The browser keeps the last
+// workbook state in IndexedDB so a tab reload restores rather than
+// requiring the user to re-mount everything. Same JSON shape as a
+// `.naklidata` file — we reuse serialize/parse for fidelity.
+
+const SNAPSHOT_KEY = 'workbook/current';
+
+export async function saveWorkbookSnapshot(input: SerializeInput): Promise<void> {
+  const file = serialize(input);
+  await kvPut(SNAPSHOT_KEY, file);
+}
+
+export async function loadWorkbookSnapshot(): Promise<NakliDataFile | null> {
+  const raw = await kvGet<NakliDataFile>(SNAPSHOT_KEY);
+  if (!raw) return null;
+  // Run through the same validation parse() does (version check, format
+  // string check), but skip the JSON.parse step since IDB returns the
+  // structured-clone of the object directly.
+  if (raw.format !== 'naklidata' || !raw.version) {
+    return null;
+  }
+  return raw;
+}
+
+export async function clearWorkbookSnapshot(): Promise<void> {
+  await kvDelete(SNAPSHOT_KEY);
 }

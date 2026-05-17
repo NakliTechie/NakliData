@@ -4,7 +4,42 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
-## 2026-05-16 — Session winding down. Theme 1 wave 1 shipped.
+## 2026-05-17 — Theme 3 wave 1 shipped (persistence wire-up).
+
+### What landed today
+
+- **Unified IDB connection.** `handles.ts` was writing to a different IDB database (`'NakliData'`, case-sensitive) than `idb.ts` (`'naklidata'`). Both now share `openNakliDataDb()` from `idb.ts`. Latent bug fixed before it hurt anyone.
+- **Settings persistence.** `loadSettings()` + `saveSettings()` (already in `src/core/settings.ts` as orphan code) are now wired into boot. `autoAcceptThreshold` survives a reload.
+- **Workbook auto-save / auto-restore.** New `saveWorkbookSnapshot()` / `loadWorkbookSnapshot()` / `clearWorkbookSnapshot()` in `persistence.ts`. Boot-time `restoreFromIdb()` runs before any auto-save subscriber is installed (avoids race). Snapshot keyed at `workbook/current` in the shared kv store. Same JSON shape as `.naklidata` files; we reuse `serialize()` for fidelity.
+- **Silent boot-time restore.** `applyLoadedFile()` got a `{ silent }` option. Boot path uses `queryReadPermissionQuiet` for FSA folder handles (no prompt without user activation); explicit `.naklidata` load still uses `ensureReadPermission`.
+- **Debounced auto-save.** 300 ms debounce on workbook + notebook changes. Empty state doesn't write (avoids stale empty snapshots).
+- **Two new e2e tests** in `tests/e2e/auto-restore.spec.ts`:
+  1. Mount example bundle → reload tab → workbook + assignments restored automatically.
+  2. Slider threshold change → reload → restored value present.
+  - Plus a `waitForClassificationStable()` helper that polls until the schema-panel column count stops growing (replaces fragile fixed sleeps).
+
+### Quality
+
+- `dist/index.html` 310 KB (under 600 KB shell budget).
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 56 vitest tests + **3 e2e tests** (was 1) all green.
+- Headless smoke test green.
+
+### What's next
+
+Theme 3 wave 2 (lower priority):
+- URL-encoded query state for sharing
+- PWA installability
+- Multi-session sidebar
+
+Other open work, in suggested order:
+1. **Theme 1 wave 2** — esbuild lazy code-splitting infra, then Apache Arrow IPC via lazy chunk, then vendor DuckDB extensions for offline-grade smoke.
+2. **Pre-v1.0-tag gates** — CodeMirror 6 lazy chunk (uses wave 2 splitting), SRI pinning, README pass, tag `v1.0.0`.
+3. **Theme 3 wave 2** — URL-state sharing + PWA install.
+
+---
+
+## 2026-05-16 — Theme 1 wave 1 shipped.
 
 ### Where things stand
 

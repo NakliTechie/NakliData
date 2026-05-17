@@ -1,5 +1,5 @@
 import { type Engine, getEngine } from './core/engine.ts';
-import { ensureReadPermission, getHandle } from './core/handles.ts';
+import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
 import {
   MountError,
   type MountedSource,
@@ -8,7 +8,15 @@ import {
   mountFolder,
   remountFolderFromHandle,
 } from './core/mount.ts';
-import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import {
+  type NakliDataFile,
+  loadFromFile,
+  loadWorkbookSnapshot,
+  saveToFile,
+  saveWorkbookSnapshot,
+  serialize,
+} from './core/persistence.ts';
+import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
@@ -138,6 +146,93 @@ async function boot(): Promise<void> {
     await engine.boot({ offline });
   } catch (err) {
     console.error('[naklidata] engine boot failed', err);
+    return;
+  }
+
+  // Engine is ready. Restore prior session from IDB (settings + workbook
+  // snapshot) before installing auto-save subscribers — otherwise the
+  // restore would race against an empty-state save.
+  await restoreFromIdb(engine);
+  installAutoSave(engine);
+}
+
+/**
+ * Boot-time IDB restore. Reads settings + the last workbook snapshot;
+ * applies them. Failures are logged and otherwise silent — fresh users
+ * have nothing to restore and that's normal.
+ */
+async function restoreFromIdb(engine: Engine): Promise<void> {
+  // 1. Settings (small; just the threshold for now).
+  try {
+    const settings = await loadSettings();
+    getWorkbook().setAutoAcceptThreshold(settings.autoAcceptThreshold);
+  } catch (err) {
+    console.warn('[naklidata] settings load failed', err);
+  }
+  // 2. Workbook snapshot.
+  try {
+    const snapshot = await loadWorkbookSnapshot();
+    if (snapshot) {
+      await applyLoadedFile(engine, snapshot, { silent: true });
+    }
+  } catch (err) {
+    console.warn('[naklidata] snapshot restore failed', err);
+  }
+}
+
+let _autoSaveTimer: number | null = null;
+const AUTOSAVE_DEBOUNCE_MS = 300;
+
+/**
+ * Install debounced auto-save subscribers on the workbook + notebook.
+ * Every state change resets a 300ms timer; the timer fires
+ * saveWorkbookSnapshot + saveSettings against the current state.
+ *
+ * Must be called AFTER restoreFromIdb finishes so we don't race the
+ * restore with an empty-state save.
+ */
+function installAutoSave(engine: Engine): void {
+  const workbook = getWorkbook();
+  const nb = getNotebook(engine);
+  const scheduleSave = () => {
+    if (_autoSaveTimer !== null) window.clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = window.setTimeout(() => {
+      _autoSaveTimer = null;
+      void persistSnapshot(engine);
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+  workbook.subscribe(scheduleSave);
+  nb.subscribe(scheduleSave);
+}
+
+async function persistSnapshot(engine: Engine): Promise<void> {
+  const wb = getWorkbook().get();
+  const nb = getNotebook(engine);
+  // Skip the no-state case — clear the snapshot instead so a fresh boot
+  // doesn't find a stale "empty" record.
+  if (wb.sources.length === 0 && nb.get().cells.length === 0) return;
+  try {
+    await saveWorkbookSnapshot({
+      notebookName: 'Untitled',
+      sources: wb.sources,
+      assignments: wb.assignments,
+      cells: nb.get().cells,
+      autoAcceptThreshold: wb.autoAcceptThreshold,
+    });
+  } catch (err) {
+    console.warn('[naklidata] snapshot save failed', err);
+  }
+  // Persist settings on the same beat — autoAcceptThreshold lives in
+  // both the workbook (in-memory + snapshot) and Settings (cross-session
+  // default for fresh sessions).
+  try {
+    const settings: Settings = {
+      autoAcceptThreshold: wb.autoAcceptThreshold,
+      sidecarEnabled: false, // v1.1 placeholder; settings UI lands later
+    };
+    await saveSettings(settings);
+  } catch (err) {
+    console.warn('[naklidata] settings save failed', err);
   }
 }
 
@@ -299,11 +394,24 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
   }
 }
 
-async function applyLoadedFile(engine: Engine, file: NakliDataFile): Promise<void> {
+interface ApplyLoadedOptions {
+  /**
+   * Silent restore mode — used by boot-time IDB snapshot restore.
+   * Suppresses the success toast (the user didn't ask), and uses
+   * queryPermission (not requestPermission) for FSA folder handles
+   * since no user activation is available at boot.
+   */
+  silent?: boolean;
+}
+
+async function applyLoadedFile(
+  engine: Engine,
+  file: NakliDataFile,
+  opts: ApplyLoadedOptions = {},
+): Promise<void> {
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
   workbook.clear();
-  // Drop any existing classifier state by re-running on the loaded sources.
   const reconnectNeeded: Array<{ id: string; label: string }> = [];
   const restoredSources: MountedSource[] = [];
   for (const ps of file.sources) {
@@ -330,15 +438,19 @@ async function applyLoadedFile(engine: Engine, file: NakliDataFile): Promise<voi
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else if (ps.kind === 'fsa-folder' && ps.ref) {
-      // Try to re-attach the stored folder handle. We can only request
-      // permission inside a user activation — but the load flow itself
-      // started from a click, so a fresh prompt is allowed here.
+      // Try to re-attach the stored folder handle.
+      //   - silent mode (boot-time auto-restore): use queryPermission only;
+      //     no user activation available so we can't prompt.
+      //   - non-silent mode (user clicked Open): ensureReadPermission can
+      //     prompt and re-grant.
       try {
         const handle = await getHandle(ps.ref);
         if (!handle || handle.kind !== 'directory') {
           reconnectNeeded.push({ id: ps.id, label: ps.label });
         } else {
-          const granted = await ensureReadPermission(handle);
+          const granted = opts.silent
+            ? (await queryReadPermissionQuiet(handle)) === 'granted'
+            : await ensureReadPermission(handle);
           if (!granted) {
             reconnectNeeded.push({ id: ps.id, label: ps.label });
           } else {
@@ -378,7 +490,7 @@ async function applyLoadedFile(engine: Engine, file: NakliDataFile): Promise<voi
   nb.load(file.cells);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
-  } else {
+  } else if (!opts.silent) {
     toast(`Loaded "${file.name}".`);
   }
 }

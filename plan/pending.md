@@ -267,16 +267,26 @@ Result: spec §3.1 supported formats list grows from 6 → 12.
 - Pivot-table cell type (custom over DuckDB CUBE/ROLLUP)
 - Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`
 
-### Theme 3 — Shareability + persistence
+### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)
 
 **Pitch:** "Save my session. Share my analysis without my data."
 
-- Wire `src/core/settings.ts` into boot (the orphan from action 4) — persist `autoAcceptThreshold`, `sidecarEnabled`
-- Auto-save workbook (sources + assignments + cells) to IDB on every change; auto-restore on tab open. Folder-handle reconnect on user click.
-- URL-encoded query state: `?lens=<base64>` round-trips the `.naklidata` JSON without sending data
-- PWA installability: `manifest.webmanifest` + service worker caches shell + DuckDB-fallback for offline use
-- Multi-session sidebar (à la OpenPlanter's `.openplanter/sessions/<id>/`)
-- Embeddable `<nakli-data-widget>` (v2.1 roadmap, pre-work)
+Tracking checklist:
+
+- [x] Unify IDB connections — `handles.ts` now uses the shared `openNakliDataDb()` / `withStore()` from `idb.ts` (was a latent bug: handles wrote to DB `'NakliData'`, settings wrote to DB `'naklidata'`)
+- [x] `loadSettings()` + `saveSettings()` wired into boot — autoAcceptThreshold persists across tabs
+- [x] `saveWorkbookSnapshot()` / `loadWorkbookSnapshot()` / `clearWorkbookSnapshot()` in `persistence.ts`, IDB-keyed at `workbook/current` (same JSON shape as `.naklidata` files)
+- [x] Boot-time auto-restore: `restoreFromIdb()` applies settings + workbook snapshot before installing auto-save subscribers
+- [x] Debounced auto-save (300 ms) subscribers on workbook + notebook
+- [x] `applyLoadedFile({ silent })` option: boot-time restore uses `queryReadPermissionQuiet` for FSA folder handles (no prompt without user activation); explicit `.naklidata` load keeps the existing `ensureReadPermission` (can prompt)
+- [x] `tests/e2e/auto-restore.spec.ts` — two specs verifying (i) mount-bundle → reload → restored without click; (ii) threshold slider value persists across reload
+- [x] `waitForClassificationStable()` helper for e2e — polls until column count stops growing
+- [ ] URL-encoded query state: `?lens=<base64>` round-trips the `.naklidata` JSON without sending data
+- [ ] PWA installability: `manifest.webmanifest` + service worker caches shell + DuckDB-fallback for offline use
+- [ ] Multi-session sidebar (à la OpenPlanter's `.openplanter/sessions/<id>/`)
+- [ ] Embeddable `<nakli-data-widget>` (v2.1 roadmap, pre-work)
+
+Wave 1 result: workspace state persists across tabs (per `plan/spec-amendments.md` A1). The user no longer starts over each session.
 
 ### Theme 4 — Schema + data quality polish
 

@@ -1,7 +1,7 @@
-## Last update: 2026-05-16T06:30:00Z (session winding down)
-## Current milestone: v1.0 shipped to `main`; Theme 1 wave 1 (format-import expansion) done
-## Build status: green — `dist/index.html` 308 KB; tsc clean; biome 0 errors / 14 warnings; 56 vitest tests passing; headless smoke + Playwright e2e green
-## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at `25ebe14`, pushed
+## Last update: 2026-05-17T02:20:00Z
+## Current milestone: Theme 3 wave 1 (persistence) shipped; Theme 1 wave 1 + v1.0 already on `main`
+## Build status: green — `dist/index.html` 310 KB; tsc clean; biome 0 errors / 14 warnings; 56 vitest + 3 e2e tests passing; headless smoke green
+## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` aligned; pushed
 ## Deploy status: not yet deployed
 
 ## Pick-up next session — see `plan/progress.md` for the full checkpoint
@@ -9,7 +9,7 @@
 Recommended order:
   1. **Theme 1 wave 2** — esbuild lazy code-splitting infra; Arrow IPC; vendor DuckDB extensions for offline smoke. Closes Theme 1 + unblocks viz themes.
   2. **Pre-v1.0-tag gates** — CodeMirror 6 lazy chunk (uses wave 2 infra) + SRI pinning + README pass + tag `v1.0.0`.
-  3. **Theme 3 — Persistence wire-up** — connect orphan `src/core/settings.ts` + `src/core/idb.ts`; auto-save workbook to IDB; auto-restore on tab open.
+  3. **Theme 3 wave 2** — URL-state sharing + PWA install + multi-session sidebar.
 
 ## Session highlights — 2026-05-16
 

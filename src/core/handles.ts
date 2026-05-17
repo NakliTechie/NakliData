@@ -7,9 +7,7 @@
 //   §3.5 (handoff) — re-request permission; reverify in the UI banner flow
 //   §2.3 — IndexedDB holds FSA handles
 
-const DB_NAME = 'NakliData';
-const DB_VERSION = 1;
-const STORE = 'fsa-handles';
+import { HANDLES_STORE, withStore } from './idb.ts';
 
 interface DirHandle extends FileSystemDirectoryHandle {
   queryPermission?: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
@@ -29,50 +27,14 @@ export class PermissionLostError extends Error {
   }
 }
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function withStore<T>(
-  mode: IDBTransactionMode,
-  fn: (store: IDBObjectStore) => T | Promise<T>,
-): Promise<T> {
-  const db = await openDb();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const store = tx.objectStore(STORE);
-      let value: T;
-      Promise.resolve(fn(store))
-        .then((v) => {
-          value = v;
-        })
-        .catch(reject);
-      tx.oncomplete = () => resolve(value);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
 export async function putHandle(id: string, handle: AnyHandle): Promise<void> {
-  await withStore('readwrite', (store) => {
+  await withStore(HANDLES_STORE, 'readwrite', (store) => {
     store.put(handle, id);
   });
 }
 
 export async function getHandle(id: string): Promise<AnyHandle | null> {
-  return await withStore('readonly', (store) => {
+  return await withStore(HANDLES_STORE, 'readonly', (store) => {
     return new Promise<AnyHandle | null>((resolve) => {
       const req = store.get(id);
       req.onsuccess = () => resolve((req.result as AnyHandle | undefined) ?? null);
@@ -82,13 +44,13 @@ export async function getHandle(id: string): Promise<AnyHandle | null> {
 }
 
 export async function deleteHandle(id: string): Promise<void> {
-  await withStore('readwrite', (store) => {
+  await withStore(HANDLES_STORE, 'readwrite', (store) => {
     store.delete(id);
   });
 }
 
 export async function listHandles(): Promise<Array<{ id: string; handle: AnyHandle }>> {
-  return await withStore('readonly', (store) => {
+  return await withStore(HANDLES_STORE, 'readonly', (store) => {
     return new Promise<Array<{ id: string; handle: AnyHandle }>>((resolve) => {
       const req = store.openCursor();
       const out: Array<{ id: string; handle: AnyHandle }> = [];
@@ -123,6 +85,19 @@ export async function ensureReadPermission(handle: AnyHandle): Promise<boolean> 
     return false;
   }
   return true; // older browsers without the API behave as already-granted
+}
+
+/**
+ * Quietly query (without user activation) whether we already have
+ * permission. Useful during boot-time auto-restore — we re-mount sources
+ * whose permission is still `granted`, and leave the rest for an explicit
+ * user-initiated reconnect.
+ */
+export async function queryReadPermissionQuiet(handle: AnyHandle): Promise<PermissionState> {
+  if (typeof handle.queryPermission === 'function') {
+    return await handle.queryPermission({ mode: 'read' });
+  }
+  return 'granted';
 }
 
 let _idSeq = 1;
