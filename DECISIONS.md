@@ -2,6 +2,14 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-17 11:50 — PWA: lite cache (shell + chunks), not full (incl. DuckDB-fallback)
+**Context:** Theme 3 wave 2 calls for PWA installability — `manifest.webmanifest` + a service worker. The DuckDB-wasm vendored fallback at `public/duckdb-fallback/` is 74 MB (38 MB MVP wasm + 33 MB EH wasm + ~1.5 MB workers). Precaching that lets a PWA install boot fully offline; not precaching keeps the install lean.
+**Options considered:** A) **Lite** — precache the shell (index.html), chunks (`codemirror.js`), `taxonomy.worker.js`, manifest, icon. ~680 KB total. DuckDB-wasm still fetches from CDN on first run (or from `public/duckdb-fallback/` if `?offline=1`, getting cached opportunistically by the SW). B) **Full** — additionally precache the DuckDB-fallback bytes. ~75 MB cache footprint on install. C) **Tiered** — precache the EH wasm + worker (~34 MB), skip MVP. ~35 MB.
+**Decision:** A.
+**Reasoning:** A 75 MB cache install is hostile to users' device storage and bandwidth, especially for users who try the install and bounce. Most users never need true-offline DuckDB; they have network when they open the app. The opportunistic-caching path (SWR for same-origin GETs) means a user who *does* boot with `?offline=1` once gets the wasm cached for next time, free. C is a middle ground but adds complexity for marginal benefit. A keeps the install proposition simple: "installs as an app, offline shell, automatic updates." Users wanting hard offline can use `?offline=1` once to seed the wasm cache.
+**Reversibility:** Trivial. The PRECACHE_PATHS array in `public/sw.js` can be expanded with the duckdb-fallback paths in one edit; bump CACHE_VERSION to force re-install. No code architecture change needed.
+**Verification:** `tests/e2e/pwa.spec.ts` — 2 specs: manifest is linked + parseable + declares maskable icon; SW registers + precaches the shell + chunks + manifest, and serves the cached shell when `context.setOffline(true)` + reload. SW skipped in DEV (`process.env.NODE_ENV !== 'production'`) to avoid stale-asset surprises during esbuild watch.
+
 ## 2026-05-17 11:30 — URL-state sharing: gzip + base64url in `?lens=`
 **Context:** `plan/pending.md` Theme 3 wave 2 calls for `?lens=<base64>` round-tripping the `.naklidata` description (no data) so a user can share a workbook layout via URL. `.naklidata` JSON for a realistic workbook (e.g., the 4-source example bundle + 20 classified columns + 50 cells) is 5–50 KB. Naive base64 of that easily blows past common URL limits (~8 KB).
 **Options considered:** A) Plain base64 of the JSON — simple, but realistic workbooks won't fit in URL. B) Gzip-compress, then base64url-encode — same browser-floor APIs we already require (`CompressionStream`/`DecompressionStream` since Chrome/Edge/Opera 122+), no new deps, 3–5× smaller payloads on JSON. C) Bring in a JSON minifier + dictionary compression library — heavier, more code, marginal gain over gzip on JSON.

@@ -812,6 +812,17 @@ function toast(message: string, kind: 'info' | 'error' = 'info'): void {
   }, 3200);
 }
 
+// Register the service worker (PWA + offline shell). Skipped in DEV
+// because esbuild watch mode + SW caching is a recipe for stale assets.
+// process.env.NODE_ENV is replaced at build time by esbuild.
+if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.warn('[naklidata] SW registration failed', err);
+    });
+  });
+}
+
 boot().catch((err) => {
   console.error('[naklidata] boot failed', err);
 });

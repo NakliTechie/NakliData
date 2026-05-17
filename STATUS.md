@@ -1,6 +1,6 @@
-## Last update: 2026-05-17T06:00:00Z
-## Current milestone: **Theme 3 wave 2 — item 1 (URL-state sharing) shipped.** `?lens=<base64>` round-trips the `.naklidata` description (no data); Share button in header; boot prefers URL state over IDB snapshot. v1.0.0 tag landed earlier this session. Next: PWA installability, then multi-session sidebar.
-## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; tsc clean; biome 0 errors / 14 warnings; **64 vitest + 6 Playwright e2e** passing; headless smoke green.
+## Last update: 2026-05-17T06:15:00Z
+## Current milestone: **Theme 3 wave 2 — items 1 + 2 shipped.** URL-state sharing (`?lens=<base64>`) and PWA installability (`manifest.webmanifest` + lite SW caching shell + chunks; opportunistic SWR for DuckDB-fallback). v1.0.0 tag landed earlier this session. Next: multi-session sidebar.
+## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/sw.js` 2.7 KB; `dist/manifest.webmanifest` 438 B; tsc clean; biome 0 errors / 14 warnings; **64 vitest + 8 Playwright e2e** passing; headless smoke green.
 ## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
@@ -8,12 +8,21 @@
 
 Remaining in this push:
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
-  2. PWA installability (`manifest.webmanifest` + service worker caching the shell + DuckDB-fallback).
+  2. ✅ PWA installability — shipped (lite cache, not full; see DECISIONS 11:50).
   3. Multi-session sidebar (OpenPlanter-style per-session workspaces).
 
 After Theme 3 wave 2:
   - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
   - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+
+## Session highlights — 2026-05-17 (Theme 3 wave 2, item 2: PWA installability)
+
+- **`public/manifest.webmanifest`** declares `name`, `start_url: ./`, `display: standalone`, theme/background colors, single icon with `any maskable` purpose.
+- **`public/icon.svg`** — 256×256 brand-mark on accent background, 20% inset for the maskable safe area.
+- **`public/sw.js`** (~85 lines, vanilla): precache shell + chunks + manifest + icon + taxonomy worker on `install`; cleanup stale caches on `activate`; SWR for same-origin GETs at runtime; cross-origin pass-through; navigation requests offline → cached `index.html`. DuckDB-fallback bytes (~74 MB) NOT precached — opportunistically cached if the user boots with `?offline=1` once. See DECISIONS 11:50 for why lite-not-full.
+- `src/index.html` adds the manifest link, theme-color, application-name. `src/main.ts` registers the SW at window `load` only when `process.env.NODE_ENV === 'production'` (esbuild replaces at build time; DEV skips registration to avoid stale-asset surprises during watch).
+- `.webmanifest` (→ `application/manifest+json`) + `.svg` MIME mappings added to both `scripts/smoke.mjs` and the e2e fixture server.
+- 2 new Playwright specs in `tests/e2e/pwa.spec.ts` (manifest fetch + parse + maskable icon; SW registers + precaches + serves cached shell when `context.setOffline(true)` + reload).
 
 ## Session highlights — 2026-05-17 (Theme 3 wave 2, item 1: URL-state sharing)
 

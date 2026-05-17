@@ -14,6 +14,8 @@ const MIME: Record<string, string> = {
   '.csv': 'text/csv',
   '.parquet': 'application/octet-stream',
   '.wasm': 'application/wasm',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
 };
 
 export interface StaticServer {

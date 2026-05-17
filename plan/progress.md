@@ -4,6 +4,36 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 3 wave 2, item 2) — PWA installability.
+
+### What landed
+
+- **`public/manifest.webmanifest`** — `name`, `short_name`, `start_url: './'`, `scope: './'`, `display: standalone`, `theme_color: #B5371C`, `background_color: #FAF7F0`. One icon entry advertising both `any` and `maskable` purposes.
+- **`public/icon.svg`** — 256×256 brand-mark on accent background. Search-glass path (matches the inline favicon already in `src/index.html`), inset 20% so the maskable safe area is honored.
+- **`public/sw.js`** (~85 lines, vanilla — easier than wiring a third esbuild entrypoint). Strategy: precache shell + chunks + manifest + icon + taxonomy worker on `install`; activate-time stale-cache cleanup; fetch handler is SWR for same-origin GETs; cross-origin passes through; navigation requests offline → cached `index.html`. DuckDB-fallback bytes are NOT precached (74 MB — see DECISIONS 11:50).
+- **`src/index.html`** — `<link rel="manifest">`, `<meta name="theme-color">`, `<meta name="application-name">`, `<meta name="mobile-web-app-capable">`.
+- **`src/main.ts`** — gates `navigator.serviceWorker.register('./sw.js')` on `process.env.NODE_ENV === 'production'` (esbuild replaces this at build time). DEV skips registration to avoid stale assets during watch.
+- **`scripts/smoke.mjs` + `tests/e2e/fixtures/server.ts`** — `.webmanifest` MIME (`application/manifest+json`) and `.svg` MIME so the SW + manifest fetches don't pick up `application/octet-stream`.
+
+### Tests
+
+- **`tests/e2e/pwa.spec.ts`** (new, 2 Playwright specs):
+  1. Manifest is linked from `index.html` with the right `theme-color`, fetches with the right `content-type`, parses, has `display: standalone` and at least one icon with the `maskable` purpose.
+  2. SW registers + reports an active `controller`, precaches `/index.html` + `/manifest.webmanifest` + at least one `/chunks/*`, then `context.setOffline(true)` + reload still mounts the shell from the cached `index.html`.
+
+### Quality
+
+- `dist/index.html` 316 KB (was 316 KB; few-hundred-byte growth from manifest link + theme-color + SW registration). `dist/sw.js` 2.7 KB. `dist/manifest.webmanifest` 438 B. `dist/icon.svg` 350 B.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 64 vitest + **8 Playwright e2e** (was 6, +2 from pwa.spec.ts) + smoke green.
+
+### What's next
+
+Theme 3 wave 2 remaining:
+1. **Multi-session sidebar** — OpenPlanter-style per-session workspaces. IDB keyspace per session + UI to switch.
+
+---
+
 ## 2026-05-17 (Theme 3 wave 2, item 1) — URL-state sharing (`?lens=<base64>`).
 
 ### What landed
