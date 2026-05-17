@@ -4,6 +4,43 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 3 wave 2, item 3) — Multi-session sidebar. **Wave 2 complete.**
+
+### What landed
+
+- **`src/core/sessions.ts`** (new, ~170 lines). `SessionMeta` + `SessionsIndex` types. CRUD: `createSession`, `setActiveSession`, `renameSession`, `deleteSession`. Snapshot ops keyed by session id: `loadSnapshot(id)`, `saveSnapshot(id, file)`, `clearSnapshot(id)`. The first call to `ensureActiveSession()` handles three startup states cleanly: brand-new (creates Untitled seed), upgrade from pre-session storage (migrates `workbook/current` into the seed session and deletes the legacy key), or returns the existing active.
+- **`src/core/persistence.ts`**: removed the now-superseded `saveWorkbookSnapshot` / `loadWorkbookSnapshot` / `clearWorkbookSnapshot` functions (they wrote to the single-key `workbook/current`). Kept all `.naklidata` file save/load surface intact.
+- **`src/main.ts`**: boot now ends with `ensureActiveSession()` → `refreshSessionSwitcher()` → either `decodeLensParam` (URL state) or `restoreFromActiveSession()` (IDB). `persistSnapshot` writes to the active session's key. New `switchToSession(engine, root, id)` flushes-then-flips, so an in-flight debounced save lands on the OUTGOING session (not the incoming one). Handlers added for `session-menu` / `session-new` / `session-switch` / `session-rename` / `session-delete`. Outside-click closes the dropdown.
+- **`src/ui/shell.ts`**: new `renderSessionSwitcher(root, idx)`. Header now has a `[data-region="session-switcher"]` slot between brand and the right-button group. Active session name + caret in the trigger; popup lists every session with a checkmark on the active one, a rename button, a delete button, and a "New session" action at the top.
+- **`src/ui/shell.css.ts`**: styles for `.session-switcher`, `.session-trigger`, `.session-menu`, `.session-row`. Popup uses `[data-open]` attribute for show/hide.
+
+### Why header dropdown not a literal sidebar
+
+Schema panel is the spec's most important surface (handoff §9). The 3-panel layout — Sources / Notebook / Schema — reinforces that. Adding a 4th column for session navigation would crowd the 1280–1440 viewport sizes most users have. Sessions are low-frequency; a dropdown is the right affordance density. Full writeup at DECISIONS 2026-05-17 12:10.
+
+### Tests
+
+- **`tests/sessions.test.ts`** (new, 13 vitest specs). In-memory IDB shim via `vi.mock` of `./idb.ts`. Covers: brand-new boot creates Untitled; legacy `workbook/current` migration; existing-index re-activation + stale-activeId fallback; createSession defaulting + active-pointer flip; rename + reject-empty-name; delete + can't-drop-last + active-pivot-on-delete; snapshot save/load round-trip; loadSnapshot rejects non-naklidata stored value.
+- **`tests/e2e/sessions.spec.ts`** (new, 2 Playwright specs). Full UI flow: mount example data → header switcher reads "Untitled" → New session → workbook empties + name becomes "Session 2" → switch back via dropdown → sources + classifications restored. Second spec: delete on the only session is rejected (no-op).
+
+### Quality
+
+- `dist/index.html` 324 KB (was 316 KB; ~8 KB growth from sessions module + switcher UI + CSS). `dist/chunks/codemirror.js` 364 KB lazy unchanged.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 77 vitest (was 64; +13) + **10 Playwright e2e** (was 8; +2) + smoke green. All auto-restore + save-load + url-state + PWA + lazy-chunk specs still pass — the snapshot-storage change is transparent to them because they use `browser.newContext()` (clean IDB) and the new boot path always ensures a seed session before any restore attempt.
+
+### What's next
+
+Theme 3 wave 2 is complete. Recommended next themes from `plan/progress.md` 2026-05-16 entry:
+
+1. **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table + Cytoscape schema-relationship view). Heaviest of the remaining themes; biggest UX dividend.
+2. **Theme 1 wave 3** — sample-data regen (`.sqlite`, `.xlsx`, `.sas7bdat`) + vendor DuckDB extensions into `public/duckdb-fallback/` for offline-grade smoke. Testing-infrastructure work; closes the local sandbox gap.
+3. **Theme 4** — schema + data quality polish (column statistics panel; side-by-side data compare; type-override learns; demo/censor mode).
+
+Open decisions still queued (from 2026-05-16): `nakli-compute` bridge repo license, bridge wire protocol, agent-seeded taxonomy types review.
+
+---
+
 ## 2026-05-17 (Theme 3 wave 2, item 2) — PWA installability.
 
 ### What landed

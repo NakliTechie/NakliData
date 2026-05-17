@@ -288,4 +288,92 @@ button {
 }
 .banner.danger { background: #F6D6D3; }
 .banner button { margin-left: auto; }
+
+/* Session switcher (header dropdown) */
+.session-switcher {
+  position: relative;
+}
+.session-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+}
+.session-trigger .session-name {
+  font-weight: ${Type.weight.semibold};
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-2);
+  display: none;
+  z-index: 50;
+}
+.session-menu[data-open] { display: block; }
+.session-menu .session-new {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: var(--accent);
+}
+.session-menu .session-new:hover { background: var(--surface-alt); }
+.session-menu ul {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) 0 0;
+  border-top: 1px solid var(--border);
+}
+.session-menu .session-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.session-menu .session-row.active .name { font-weight: ${Type.weight.semibold}; }
+.session-menu .session-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  min-width: 0;
+}
+.session-menu .session-pick:hover { background: var(--surface-alt); }
+.session-menu .session-pick .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-menu .session-pick .dot { color: var(--success); display: inline-flex; }
+.session-menu .session-pick .dot-empty { width: 12px; height: 12px; }
+.session-menu .session-row-action {
+  padding: var(--space-1);
+  color: var(--text-muted);
+}
+.session-menu .session-row-action:hover { color: var(--text); }
 `;

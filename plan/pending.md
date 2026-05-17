@@ -283,7 +283,7 @@ Tracking checklist:
 - [x] `waitForClassificationStable()` helper for e2e — polls until column count stops growing
 - [x] URL-encoded query state: `?lens=<base64>` round-trips the `.naklidata` JSON without sending data — gzip + base64url via `src/core/url-state.ts`; Share button in header; boot prefers `?lens=` over IDB snapshot; URL stripped after applying. DECISIONS 2026-05-17 11:30.
 - [x] PWA installability: `public/manifest.webmanifest` + `public/sw.js` (lite — precache shell + chunks + manifest + icon; SWR for same-origin GETs; navigation fallback to cached index.html offline). Decision was lite-not-full (DuckDB-fallback bytes are 74 MB — opportunistically cached if a `?offline=1` boot fetches them, but not precached). DECISIONS 2026-05-17 11:50.
-- [ ] Multi-session sidebar (à la OpenPlanter's `.openplanter/sessions/<id>/`)
+- [x] Multi-session sidebar — header dropdown (chose dropdown over a 4th sidebar column to keep the 3-panel layout; see DECISIONS 2026-05-17 12:10). New `src/core/sessions.ts` (CRUD + migration from legacy `workbook/current`); header switcher in `src/ui/shell.ts` with new / switch / rename / delete; auto-save now writes to active session's snapshot key. **Theme 3 wave 2 complete.**
 - [ ] Embeddable `<nakli-data-widget>` (v2.1 roadmap, pre-work)
 
 Wave 1 result: workspace state persists across tabs (per `plan/spec-amendments.md` A1). The user no longer starts over each session.

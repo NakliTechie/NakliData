@@ -1,19 +1,27 @@
-## Last update: 2026-05-17T06:15:00Z
-## Current milestone: **Theme 3 wave 2 — items 1 + 2 shipped.** URL-state sharing (`?lens=<base64>`) and PWA installability (`manifest.webmanifest` + lite SW caching shell + chunks; opportunistic SWR for DuckDB-fallback). v1.0.0 tag landed earlier this session. Next: multi-session sidebar.
-## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/sw.js` 2.7 KB; `dist/manifest.webmanifest` 438 B; tsc clean; biome 0 errors / 14 warnings; **64 vitest + 8 Playwright e2e** passing; headless smoke green.
+## Last update: 2026-05-17T06:30:00Z
+## Current milestone: **Theme 3 wave 2 complete.** Three items shipped today: URL-state sharing (`?lens=<base64>`), PWA installability (manifest + lite SW), multi-session sidebar (header dropdown — see DECISIONS 12:10 for why dropdown not a 4th panel column). v1.0.0 tag landed earlier in the session. Next push: Theme 2 (visualization upgrade) or Theme 1 wave 3 (sample-data regen + vendored extensions).
+## Build status: green — `dist/index.html` 324 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **77 vitest + 10 Playwright e2e** passing; headless smoke green.
 ## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
-## Active work — Theme 3 wave 2
+## Theme 3 wave 2 — complete
 
-Remaining in this push:
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
-  2. ✅ PWA installability — shipped (lite cache, not full; see DECISIONS 11:50).
-  3. Multi-session sidebar (OpenPlanter-style per-session workspaces).
+  2. ✅ PWA installability — shipped (lite cache, not full; DECISIONS 11:50).
+  3. ✅ Multi-session sidebar — shipped as a header dropdown (DECISIONS 12:10).
 
-After Theme 3 wave 2:
-  - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
+Next push, in suggested order:
+  - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table + Cytoscape schema-graph).
   - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+  - **Theme 4** — schema + data quality polish (column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode).
+
+## Session highlights — 2026-05-17 (Theme 3 wave 2, item 3: multi-session sidebar)
+
+- **`src/core/sessions.ts`** (new) owns the multi-session storage. CRUD over `sessions/index` + per-session snapshot at `sessions/<id>/snapshot`. First-boot migration adopts the legacy `workbook/current` value as the seed session and deletes the old key.
+- **`src/main.ts`** boot ends with `ensureActiveSession()` → `refreshSessionSwitcher()` → restore (either `decodeLensParam` or active-session snapshot). New `switchToSession(engine, root, id)` flushes-then-flips so in-flight debounced saves land on the outgoing session. New handlers: `session-menu` / `session-new` / `session-switch` / `session-rename` / `session-delete`. Outside-click closes the dropdown.
+- **`src/ui/shell.ts`** + **`src/ui/shell.css.ts`** add the header switcher: trigger chip (active session name + caret) → popup with "New session" + per-session row (switch / rename / delete).
+- **`src/core/persistence.ts`** trimmed: removed `saveWorkbookSnapshot` / `loadWorkbookSnapshot` / `clearWorkbookSnapshot` (sessions.ts replaces them). `.naklidata` file save/load surface untouched.
+- 13 new vitest specs in `tests/sessions.test.ts` (in-memory IDB shim via `vi.mock`; CRUD + migration + snapshot round-trip). 2 new Playwright specs in `tests/e2e/sessions.spec.ts` (full UI flow + last-session-deletion guard).
 
 ## Session highlights — 2026-05-17 (Theme 3 wave 2, item 2: PWA installability)
 

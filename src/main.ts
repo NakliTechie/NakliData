@@ -8,14 +8,18 @@ import {
   mountFolder,
   remountFolderFromHandle,
 } from './core/mount.ts';
+import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
 import {
-  type NakliDataFile,
-  loadFromFile,
-  loadWorkbookSnapshot,
-  saveToFile,
-  saveWorkbookSnapshot,
-  serialize,
-} from './core/persistence.ts';
+  type SessionMeta,
+  createSession,
+  deleteSession,
+  ensureActiveSession,
+  loadIndex,
+  loadSnapshot,
+  renameSession,
+  saveSnapshot,
+  setActiveSession,
+} from './core/sessions.ts';
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
 import {
   buildShareUrl,
@@ -31,6 +35,7 @@ import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/sc
 import {
   type ShellState,
   mountShell,
+  renderSessionSwitcher,
   renderSourcesList,
   setHasMounts,
   updateEngineStatus,
@@ -155,10 +160,16 @@ async function boot(): Promise<void> {
     return;
   }
 
-  // Engine is ready. A `?lens=<base64>` shared link takes precedence over
-  // the IDB workbook snapshot — the user explicitly opened a link to a
-  // particular state, so honor that. On bad/corrupted lens we fall back to
-  // IDB rather than empty state (less surprising than wiping their work).
+  // Engine is ready. Ensure a session exists (migration from the legacy
+  // single-snapshot key happens here on first multi-session boot), then:
+  //
+  // - If `?lens=<base64>` is present, decode and apply over the active
+  //   session (treat the shared state as the new active state). On bad
+  //   lens, fall back to the session's IDB snapshot.
+  // - Otherwise, restore the active session's snapshot from IDB.
+  _activeSession = await ensureActiveSession();
+  await refreshSessionSwitcher(root);
+
   const lensParam = readLensFromLocation();
   if (lensParam) {
     try {
@@ -169,20 +180,53 @@ async function boot(): Promise<void> {
     } catch (err) {
       console.warn('[naklidata] lens param decode failed', err);
       toast('Shared link is invalid or corrupted — using saved state instead.', 'error');
-      await restoreFromIdb(engine);
+      await restoreFromActiveSession(engine);
     }
   } else {
-    await restoreFromIdb(engine);
+    await restoreFromActiveSession(engine);
   }
   installAutoSave(engine);
 }
 
+let _activeSession: SessionMeta | null = null;
+
+function getActiveSessionId(): string {
+  if (!_activeSession) throw new Error('No active session');
+  return _activeSession.id;
+}
+
+async function refreshSessionSwitcher(root: HTMLElement): Promise<void> {
+  const idx = await loadIndex();
+  renderSessionSwitcher(root, idx);
+}
+
+async function switchToSession(engine: Engine, root: HTMLElement, id: string): Promise<void> {
+  // Persist current state to the OUTGOING session before flipping the
+  // active pointer — otherwise the in-flight debounced save would land
+  // on the wrong session.
+  await persistSnapshot(engine);
+  try {
+    await setActiveSession(id);
+  } catch (err) {
+    toast(err instanceof Error ? err.message : String(err), 'error');
+    return;
+  }
+  const idx = await loadIndex();
+  const meta = idx.sessions.find((s) => s.id === id) ?? null;
+  _activeSession = meta;
+  getWorkbook().clear();
+  getNotebook(engine).load([]);
+  await restoreFromActiveSession(engine);
+  await refreshSessionSwitcher(root);
+  toast(`Switched to "${meta?.name ?? '…'}".`);
+}
+
 /**
- * Boot-time IDB restore. Reads settings + the last workbook snapshot;
+ * Boot-time IDB restore. Reads settings + the active session's snapshot;
  * applies them. Failures are logged and otherwise silent — fresh users
  * have nothing to restore and that's normal.
  */
-async function restoreFromIdb(engine: Engine): Promise<void> {
+async function restoreFromActiveSession(engine: Engine): Promise<void> {
   // 1. Settings (small; just the threshold for now).
   try {
     const settings = await loadSettings();
@@ -190,9 +234,9 @@ async function restoreFromIdb(engine: Engine): Promise<void> {
   } catch (err) {
     console.warn('[naklidata] settings load failed', err);
   }
-  // 2. Workbook snapshot.
+  // 2. Active session snapshot.
   try {
-    const snapshot = await loadWorkbookSnapshot();
+    const snapshot = await loadSnapshot(getActiveSessionId());
     if (snapshot) {
       await applyLoadedFile(engine, snapshot, { silent: true });
     }
@@ -206,11 +250,12 @@ const AUTOSAVE_DEBOUNCE_MS = 300;
 
 /**
  * Install debounced auto-save subscribers on the workbook + notebook.
- * Every state change resets a 300ms timer; the timer fires
- * saveWorkbookSnapshot + saveSettings against the current state.
+ * Every state change resets a 300 ms timer; the timer fires
+ * persistSnapshot (which writes to the active session's IDB key) +
+ * saveSettings against the current state.
  *
- * Must be called AFTER restoreFromIdb finishes so we don't race the
- * restore with an empty-state save.
+ * Must be called AFTER restoreFromActiveSession finishes so we don't
+ * race the restore with an empty-state save.
  */
 function installAutoSave(engine: Engine): void {
   const workbook = getWorkbook();
@@ -229,23 +274,25 @@ function installAutoSave(engine: Engine): void {
 async function persistSnapshot(engine: Engine): Promise<void> {
   const wb = getWorkbook().get();
   const nb = getNotebook(engine);
-  // Skip the no-state case — clear the snapshot instead so a fresh boot
-  // doesn't find a stale "empty" record.
+  // Skip the no-state case — leave the active session's stored snapshot
+  // alone so a fresh boot doesn't find a stale "empty" record.
   if (wb.sources.length === 0 && nb.get().cells.length === 0) return;
   try {
-    await saveWorkbookSnapshot({
-      notebookName: 'Untitled',
+    const sessionName = _activeSession?.name ?? 'Untitled';
+    const file = serialize({
+      notebookName: sessionName,
       sources: wb.sources,
       assignments: wb.assignments,
       cells: nb.get().cells,
       autoAcceptThreshold: wb.autoAcceptThreshold,
     });
+    await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
     console.warn('[naklidata] snapshot save failed', err);
   }
-  // Persist settings on the same beat — autoAcceptThreshold lives in
-  // both the workbook (in-memory + snapshot) and Settings (cross-session
-  // default for fresh sessions).
+  // Persist settings on the same beat — autoAcceptThreshold is the
+  // cross-session default (each session also persists its own value via
+  // the snapshot, but a fresh session reads from settings).
   try {
     const settings: Settings = {
       autoAcceptThreshold: wb.autoAcceptThreshold,
@@ -293,6 +340,14 @@ function wireActions(root: HTMLElement): void {
       ev.preventDefault();
       void handleAction('save', null);
     }
+  });
+
+  // Close the session-switcher dropdown when clicking outside it.
+  document.addEventListener('click', (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target || target.closest('.session-switcher')) return;
+    const menu = document.querySelector<HTMLElement>('[data-region="session-menu"]');
+    if (menu) menu.removeAttribute('data-open');
   });
 }
 
@@ -382,6 +437,85 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         const msg = err instanceof Error ? err.message : String(err);
         toast(`Load failed: ${msg}`, 'error');
       }
+      return;
+    }
+    case 'session-menu': {
+      const menu = document.querySelector<HTMLElement>('[data-region="session-menu"]');
+      if (menu) {
+        const open = menu.hasAttribute('data-open');
+        if (open) menu.removeAttribute('data-open');
+        else menu.setAttribute('data-open', '');
+      }
+      return;
+    }
+    case 'session-new': {
+      const root = document.getElementById('app');
+      if (!root) return;
+      await persistSnapshot(engine); // flush current
+      const meta = await createSession();
+      _activeSession = meta;
+      getWorkbook().clear();
+      getNotebook(engine).load([]);
+      await refreshSessionSwitcher(root);
+      toast(`Started new session "${meta.name}".`);
+      return;
+    }
+    case 'session-switch': {
+      const root = document.getElementById('app');
+      const id = el?.dataset.sessionId;
+      if (!root || !id || id === _activeSession?.id) return;
+      await switchToSession(engine, root, id);
+      return;
+    }
+    case 'session-rename': {
+      const root = document.getElementById('app');
+      const id = el?.dataset.sessionId ?? _activeSession?.id ?? null;
+      if (!root || !id) return;
+      const current = (await loadIndex()).sessions.find((s) => s.id === id)?.name ?? 'Untitled';
+      const next = window.prompt('Rename session:', current);
+      if (next === null) return; // cancelled
+      try {
+        await renameSession(id, next);
+        if (_activeSession?.id === id) _activeSession.name = next.trim() || _activeSession.name;
+        await refreshSessionSwitcher(root);
+        toast(`Renamed to "${next.trim()}".`);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+      }
+      return;
+    }
+    case 'session-delete': {
+      const root = document.getElementById('app');
+      const id = el?.dataset.sessionId;
+      if (!root || !id) return;
+      const idx = await loadIndex();
+      if (idx.sessions.length <= 1) {
+        toast('Cannot delete the last session.', 'error');
+        return;
+      }
+      const meta = idx.sessions.find((s) => s.id === id);
+      if (!meta) return;
+      const ok = window.confirm(`Delete session "${meta.name}"? This can't be undone.`);
+      if (!ok) return;
+      const wasActive = _activeSession?.id === id;
+      try {
+        await deleteSession(id);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+        return;
+      }
+      if (wasActive) {
+        const fresh = await loadIndex();
+        const nextActive = fresh.sessions.find((s) => s.id === fresh.activeId);
+        if (nextActive) {
+          _activeSession = nextActive;
+          getWorkbook().clear();
+          getNotebook(engine).load([]);
+          await restoreFromActiveSession(engine);
+        }
+      }
+      await refreshSessionSwitcher(root);
+      toast(`Deleted "${meta.name}".`);
       return;
     }
     case 'share-link': {

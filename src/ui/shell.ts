@@ -1,4 +1,5 @@
 import type { MountedSource } from '../core/mount.ts';
+import type { SessionsIndex } from '../core/sessions.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { shellCss } from './shell.css.ts';
 
@@ -34,6 +35,7 @@ function renderHeader(state: ShellState): HTMLElement {
       <span>NakliData</span>
       <span class="crumb">v${state.buildVersion}</span>
     </div>
+    <div class="session-switcher" data-region="session-switcher"></div>
     <div class="right">
       <button class="btn btn-ghost" data-action="spotlight" aria-keyshortcuts="Control+K" title="Search (Ctrl+K)">
         ${iconSvg('search', 14)} <span>Search</span>
@@ -50,6 +52,45 @@ function renderHeader(state: ShellState): HTMLElement {
     </div>
   `;
   return el;
+}
+
+export function renderSessionSwitcher(root: HTMLElement, idx: SessionsIndex): void {
+  const mount = root.querySelector<HTMLElement>('[data-region="session-switcher"]');
+  if (!mount) return;
+  const active = idx.sessions.find((s) => s.id === idx.activeId);
+  const sorted = [...idx.sessions].sort((a, b) =>
+    a.id === idx.activeId ? -1 : b.id === idx.activeId ? 1 : b.modified.localeCompare(a.modified),
+  );
+  const items = sorted
+    .map((s) => {
+      const isActive = s.id === idx.activeId;
+      return `
+        <li class="session-row ${isActive ? 'active' : ''}">
+          <button class="session-pick" data-action="session-switch" data-session-id="${s.id}" title="Switch to this session">
+            ${isActive ? `<span class="dot" aria-hidden="true">${iconSvg('check', 12)}</span>` : '<span class="dot dot-empty" aria-hidden="true"></span>'}
+            <span class="name">${escapeHtml(s.name)}</span>
+          </button>
+          <button class="btn btn-ghost session-row-action" data-action="session-rename" data-session-id="${s.id}" title="Rename" aria-label="Rename">
+            ${iconSvg('file', 12)}
+          </button>
+          <button class="btn btn-ghost session-row-action" data-action="session-delete" data-session-id="${s.id}" title="Delete" aria-label="Delete">
+            ${iconSvg('x', 12)}
+          </button>
+        </li>`;
+    })
+    .join('');
+  mount.innerHTML = `
+    <button class="btn btn-ghost session-trigger" data-action="session-menu" aria-haspopup="menu" title="Switch session">
+      <span class="session-name">${escapeHtml(active?.name ?? 'Untitled')}</span>
+      ${iconSvg('caret', 12)}
+    </button>
+    <div class="session-menu" data-region="session-menu" role="menu">
+      <button class="session-new" data-action="session-new">
+        ${iconSvg('plus', 12)} <span>New session</span>
+      </button>
+      <ul>${items}</ul>
+    </div>
+  `;
 }
 
 function renderBody(state: ShellState): HTMLElement {
