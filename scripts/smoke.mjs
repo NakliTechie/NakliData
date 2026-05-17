@@ -16,7 +16,7 @@ import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
 const ROOT = resolve('dist');
-const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 
 const MIME = {
   '.html': 'text/html',
@@ -75,7 +75,7 @@ async function main() {
 
   log('launching headless chromium');
   const browser = await chromium.launch({
-    executablePath: CHROME,
+    ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const context = await browser.newContext();

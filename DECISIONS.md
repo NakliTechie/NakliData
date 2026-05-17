@@ -2,6 +2,14 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-17 11:10 — Smoke script: env-var override for chromium path
+**Context:** `scripts/smoke.mjs` hardcoded `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (the web-sandbox path). Fresh clone on the user's desktop (macOS, Playwright installs to `~/Library/Caches/ms-playwright/`) fails immediately with "executable doesn't exist".
+**Options considered:** A) Always use Playwright's default `chromium.launch()` — works on desktop but breaks on the sandbox; B) Env-var override (`PLAYWRIGHT_CHROMIUM_PATH`) with Playwright's default when unset — works on both; C) Detect OS and branch.
+**Decision:** B.
+**Reasoning:** Single env var keeps the script portable. Sandbox can export `PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/...` in its harness setup; desktop runs `npm run smoke` and Playwright finds the bundled chromium itself. No OS-specific branching, no failure modes from auto-detect heuristics.
+**Reversibility:** Trivial. Single conditional in `scripts/smoke.mjs`.
+**Verification:** `npm run smoke` green on desktop with no env var set — all 12 assertions pass, including ≥15 typed columns + chart SVG render + override sticks + zero console errors.
+
 ## 2026-05-17 03:50 — CodeMirror 6 returns as a lazy chunk (closes the 14:10 spec tension)
 **Context:** Spec §7.1 gate "shell ≤ 600 KB" vs spec §1 + handoff §1 calling CM6 a recommended stack dep. DECISIONS 2026-05-15 14:10 deferred CM6 to a textarea for v1.0 with intent to restore as a lazy chunk before tagging. Theme 1 wave 2 added the lazy-splitting infra (`src/lazy/<name>.ts` → `dist/chunks/<name>.js` via esbuild), making this fix mechanical.
 **Options considered:** A) Mount CM6 directly on first SQL-cell render (simple but blocks UI on the chunk load); B) Render textarea first, swap to CM6 once the chunk lands (no perceived wait); C) Defer further and ship v1.0 with textarea.
