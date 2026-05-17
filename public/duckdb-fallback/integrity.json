@@ -1,0 +1,10 @@
+{
+  "version": "1.29.0",
+  "generated": "2026-05-17T03:38:21.161Z",
+  "files": {
+    "duckdb-mvp.wasm": "sha384-SRMI3LFyELhfS8s/8ue8Y4bZBM0Vc1W9DaYQBrP2JE9jm2rQt9bUCZcp4mbazBdh",
+    "duckdb-eh.wasm": "sha384-ekT25swCnwgfFwq7uAzOb2b6N/al/zIGZvHRY559inETROKvAynBTZNLLIOA9lMQ",
+    "duckdb-browser-mvp.worker.js": "sha384-L2W9raaNudYsNAE2St5PcIXN96okBznXoQxXVNd1AHNNfz6Yg3BJejmmb41KrUQQ",
+    "duckdb-browser-eh.worker.js": "sha384-U96HuXJO7UGKNzXh+gipzT6Qg7laT/KfFEOoDgl0fidBTKmUOY0PJoxqYEpFNWc8"
+  }
+}

@@ -1,9 +1,9 @@
-// SQL cell: a tab-aware monospace textarea + run button + result preview.
-//
-// First-cut editor — a CodeMirror 6 integration is pending and tracked in
-// DECISIONS.md (lazy-loaded so it doesn't blow the 600 KB shell budget).
-// Spec §1 recommends CM6; this is intentionally a placeholder.
+// SQL cell. Renders an instant tab-aware textarea, then asynchronously
+// upgrades to CodeMirror 6 (loaded as a lazy chunk; spec §1 recommends
+// CM6). The upgrade preserves the current doc + cursor and survives
+// notebook re-renders via a per-cell-id registry of mounted CM6 views.
 
+import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { SINKS, blockReasonFor } from '../sinks/sinks.ts';
@@ -13,6 +13,29 @@ export interface SqlCellExtra {
   /** Schema assignments for the columns of this cell's result. */
   assignmentsFor: (cellId: string) => ColumnAssignment[];
   onSendTo: (cellId: string, sinkId: string) => void;
+}
+
+// Per-cell-id registry of CM6 editor instances. Notebook re-renders
+// blow away the cell DOM on every workbook tick; without this registry
+// we'd destroy and re-mount CM6 dozens of times per session (expensive).
+interface CmEntry {
+  dispose(): void;
+  domNode(): HTMLElement;
+  getDoc(): string;
+  setDoc(doc: string): void;
+}
+const cmInstances = new Map<string, CmEntry>();
+/** Whether the codemirror chunk has finished loading at least once. After
+ *  the first load all subsequent SQL cells render straight into CM6
+ *  (skipping the textarea flash). */
+let codemirrorReady = false;
+
+export function disposeSqlCellEditor(cellId: string): void {
+  const inst = cmInstances.get(cellId);
+  if (inst) {
+    inst.dispose();
+    cmInstances.delete(cellId);
+  }
 }
 
 export function renderSqlCell(
@@ -46,27 +69,50 @@ export function renderSqlCell(
   `;
 
   const editorMount = el.querySelector<HTMLElement>('[data-region="cell-editor"]');
-  const ta = document.createElement('textarea');
-  ta.value = cell.code;
-  ta.placeholder = 'SELECT * FROM invoices LIMIT 10';
-  ta.spellcheck = false;
-  ta.setAttribute('aria-label', 'SQL editor');
-  ta.addEventListener('input', () => handlers.onChange(cell.id, { code: ta.value }));
-  ta.addEventListener('keydown', (ev) => {
-    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
-      ev.preventDefault();
-      handlers.onRun(cell.id, { code: ta.value });
+  // currentDoc lives outside both editor implementations so the Run +
+  // Send-to buttons can read the latest value regardless of which
+  // editor is currently mounted.
+  let currentDoc = cell.code;
+
+  // If we already have a CM6 instance for this cell from a prior render,
+  // reattach its DOM node and skip the textarea entirely.
+  const existing = cmInstances.get(cell.id);
+  if (existing && editorMount) {
+    editorMount.append(existing.domNode());
+    currentDoc = existing.getDoc();
+    if (currentDoc !== cell.code) {
+      existing.setDoc(cell.code);
+      currentDoc = cell.code;
     }
-    if (ev.key === 'Tab') {
-      ev.preventDefault();
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      ta.value = `${ta.value.slice(0, start)}  ${ta.value.slice(end)}`;
-      ta.selectionStart = ta.selectionEnd = start + 2;
-      handlers.onChange(cell.id, { code: ta.value });
-    }
-  });
-  editorMount?.append(ta);
+  } else if (codemirrorReady && editorMount) {
+    // CM6 already loaded → render straight into CM6 (no textarea flash).
+    void mountCodeMirrorOnto(editorMount, cell, handlers, (doc) => {
+      currentDoc = doc;
+    });
+  } else if (editorMount) {
+    // First time before CM6 has loaded: render the textarea immediately
+    // so the user can type; kick off the chunk load in the background;
+    // swap when ready.
+    const ta = makeTextarea(cell, handlers, (doc) => {
+      currentDoc = doc;
+    });
+    editorMount.append(ta);
+    void loadChunk('codemirror')
+      .then(() => {
+        codemirrorReady = true;
+        // If the cell is still mounted at the same place, swap.
+        if (editorMount.isConnected && editorMount.contains(ta)) {
+          ta.remove();
+          mountCodeMirrorOnto(editorMount, cell, handlers, (doc) => {
+            currentDoc = doc;
+          });
+        }
+      })
+      .catch((err) => {
+        // Chunk load failed (offline, blocked, etc.) — textarea stays.
+        console.warn('[sql-cell] CodeMirror chunk load failed; staying with textarea', err);
+      });
+  }
 
   const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
   nameInput?.addEventListener('change', () => {
@@ -75,11 +121,12 @@ export function renderSqlCell(
   });
 
   el.querySelector('[data-action="cell-run"]')?.addEventListener('click', () =>
-    handlers.onRun(cell.id, { code: ta.value }),
+    handlers.onRun(cell.id, { code: currentDoc }),
   );
-  el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () =>
-    handlers.onDelete(cell.id),
-  );
+  el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () => {
+    disposeSqlCellEditor(cell.id);
+    handlers.onDelete(cell.id);
+  });
 
   const out = el.querySelector<HTMLElement>('[data-region="cell-output"]');
   if (out) renderSqlOutput(out, cell);
@@ -196,4 +243,54 @@ function formatCell(v: unknown): { text: string; numeric: boolean } {
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function makeTextarea(
+  cell: SqlCellState,
+  handlers: CellHandlers,
+  onDoc: (doc: string) => void,
+): HTMLTextAreaElement {
+  const ta = document.createElement('textarea');
+  ta.value = cell.code;
+  ta.placeholder = 'SELECT * FROM invoices LIMIT 10';
+  ta.spellcheck = false;
+  ta.setAttribute('aria-label', 'SQL editor');
+  ta.addEventListener('input', () => {
+    onDoc(ta.value);
+    handlers.onChange(cell.id, { code: ta.value });
+  });
+  ta.addEventListener('keydown', (ev) => {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+      ev.preventDefault();
+      handlers.onRun(cell.id, { code: ta.value });
+    }
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      ta.value = `${ta.value.slice(0, start)}  ${ta.value.slice(end)}`;
+      ta.selectionStart = ta.selectionEnd = start + 2;
+      onDoc(ta.value);
+      handlers.onChange(cell.id, { code: ta.value });
+    }
+  });
+  return ta;
+}
+
+async function mountCodeMirrorOnto(
+  host: HTMLElement,
+  cell: SqlCellState,
+  handlers: CellHandlers,
+  onDoc: (doc: string) => void,
+): Promise<void> {
+  const cm = await loadChunk('codemirror');
+  const editor = cm.mountSqlEditor(host, {
+    initialDoc: cell.code,
+    onChange: (doc) => {
+      onDoc(doc);
+      handlers.onChange(cell.id, { code: doc });
+    },
+    onRun: (doc) => handlers.onRun(cell.id, { code: doc }),
+  });
+  cmInstances.set(cell.id, editor);
 }

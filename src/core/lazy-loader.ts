@@ -17,6 +17,7 @@ export interface LazyChunkRegistry {
   // Add entries here as chunks ship. The string keys must match the
   // basename of files in `src/lazy/<name>.ts` (without the `.ts`).
   _demo: typeof import('../lazy/_demo.ts');
+  codemirror: typeof import('../lazy/codemirror.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;

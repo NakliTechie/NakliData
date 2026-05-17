@@ -4,6 +4,31 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (pre-tag bundle) — CodeMirror 6 lazy chunk + DuckDB-wasm SRI pinning + README pass; ready to tag v1.0.0.
+
+### What landed
+
+- **CodeMirror 6 as a lazy chunk.** `src/lazy/codemirror.ts` exports `mountSqlEditor(host, opts)` returning `{ getDoc, setDoc, focus, dispose, domNode }`. Pulls in `@codemirror/{state,view,commands,autocomplete}` + `@codemirror/lang-sql` + `@codemirror/view`'s `lineNumbers`. `src/ui/cells/sql-cell.ts` now renders a textarea first, then async-swaps to CM6 once the chunk lands; per-cell-id `cmInstances` map keeps the editor + its state across notebook re-renders. `disposeSqlCellEditor(cellId)` is called from `Notebook.deleteCell()` for cleanup. Three render paths: existing CM6 instance (reuse), CM6 module already loaded (mount synchronously), first-ever render (textarea + async upgrade). Closes the spec §7.1-vs-§1 tension recorded in DECISIONS 2026-05-15 14:10.
+- **DuckDB-wasm SRI pinning** (§7.1 gate "DuckDB-wasm boots from CDN with SRI"). `scripts/fetch-duckdb-fallback.mjs` now sources from `node_modules/@duckdb/duckdb-wasm/dist/` first (CDN fallback when missing) and writes `public/duckdb-fallback/integrity.json` with SHA-384 hashes per file. `src/core/engine.ts` imports the integrity manifest (typed as `Record<string, string | undefined>`); on the CDN path (`!opts.offline`), `fetchWithSri(url, integrity)` fetches the worker JS + wasm bytes with the `integrity` attribute and creates blob URLs. Offline path skips since vendored bytes are trusted (came from the postinstall hook that wrote the manifest).
+- **README pass per spec §3.10.** Full rewrite covering: what it is (with full 12-format list); what it isn't; browser support (Chrome / Edge / Opera 122+, Firefox partial, Safari unsupported); quick start (end-user + dev); example data; `.naklidata` file format; taxonomy contribution flow; privacy posture (mentioning SRI verification + workspace IDB persistence + BYOK sessionStorage default with opt-in IDB); license; links to STATUS / DECISIONS / plan / CLAUDE.md.
+- **Smoke test updated for CM6.** `scripts/smoke.mjs` now checks both `<textarea>` and `.cm-content` for SQL text, accommodating the lazy-upgrade timing.
+
+### Quality
+
+- `dist/index.html` 320 KB (under 600 KB shell budget); `dist/chunks/codemirror.js` 370 KB lazy; `dist/chunks/_demo.js` 126 bytes.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing noNonNullAssertion in templates).
+- 60 vitest + 4 Playwright e2e + headless smoke all green.
+
+### What's next
+
+After tagging v1.0.0:
+
+1. **Theme 3 wave 2** — URL-state sharing (`?lens=<base64>`) + PWA installability + multi-session sidebar.
+2. **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
+3. **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+
+---
+
 ## 2026-05-17 (later) — Theme 1 wave 2 shipped.
 
 ### What landed

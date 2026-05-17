@@ -201,17 +201,21 @@ async function main() {
   log('instantiated Vendor concentration template');
 
   // Wait for the SQL cell to appear with code (the template adds an MD + SQL + chart).
+  // The editor may be a textarea (initial render) OR CodeMirror 6 (after the
+  // lazy chunk loads); look for the SQL text in either.
   await page.waitForFunction(
     () => {
       const sqlCells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
-      // Look for one whose textarea contains "vendor"
       return Array.from(sqlCells).some((c) => {
         const ta = c.querySelector('textarea');
-        return ta && /vendor/i.test(ta.value);
+        if (ta && /vendor/i.test(ta.value)) return true;
+        const cm = c.querySelector('.cm-content');
+        if (cm && /vendor/i.test(cm.textContent ?? '')) return true;
+        return false;
       });
     },
     null,
-    { timeout: 5000 },
+    { timeout: 10000 },
   );
   log('✓ template cells inserted');
 
@@ -254,12 +258,22 @@ async function main() {
   await page.evaluate(() => {
     const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
     const last = cells[cells.length - 1];
-    const ta = last?.querySelector('textarea');
+    if (!last) return;
+    // Two paths: textarea (no CM6 yet) OR CM6 contenteditable. For CM6 we
+    // dispatch a beforeinput event with the typo SQL — closest equivalent
+    // to programmatic typing.
+    const ta = last.querySelector('textarea');
     if (ta) {
       ta.value = 'SELEKT * FROM invoices LIMIT 1';
       ta.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      const cm = last.querySelector('.cm-content');
+      if (cm) {
+        cm.textContent = 'SELEKT * FROM invoices LIMIT 1';
+        cm.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
-    last?.querySelector('[data-action="cell-run"]')?.click();
+    last.querySelector('[data-action="cell-run"]')?.click();
   });
   await page.waitForFunction(
     () => document.querySelector('.cell.errored .cell-output-error') !== null,

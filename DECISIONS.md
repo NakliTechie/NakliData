@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-17 03:50 — CodeMirror 6 returns as a lazy chunk (closes the 14:10 spec tension)
+**Context:** Spec §7.1 gate "shell ≤ 600 KB" vs spec §1 + handoff §1 calling CM6 a recommended stack dep. DECISIONS 2026-05-15 14:10 deferred CM6 to a textarea for v1.0 with intent to restore as a lazy chunk before tagging. Theme 1 wave 2 added the lazy-splitting infra (`src/lazy/<name>.ts` → `dist/chunks/<name>.js` via esbuild), making this fix mechanical.
+**Options considered:** A) Mount CM6 directly on first SQL-cell render (simple but blocks UI on the chunk load); B) Render textarea first, swap to CM6 once the chunk lands (no perceived wait); C) Defer further and ship v1.0 with textarea.
+**Decision:** B.
+**Reasoning:** Path B keeps the cell interactive immediately while still delivering the rich editor moments later. The async-swap path is straightforward because the textarea's content is just `getDoc()`'s seed for CM6. Per-cell-id `cmInstances` map means notebook re-renders don't recreate editors (otherwise focus + selection would reset on every change to any cell). `disposeSqlCellEditor(cellId)` releases the instance on cell delete.
+**Reversibility:** Easy. Reverting collapses to textarea-only (the codepath that runs before the chunk arrives is still in place).
+**Verification:** Shell 320 KB (under gate); CM6 chunk 370 KB lazy-loaded only when a SQL cell mounts; smoke test updated to check both textarea and `.cm-content` for SQL text; e2e + smoke + vitest all green.
+
+## 2026-05-17 03:50 — DuckDB-wasm SRI pinning via integrity.json
+**Context:** Spec §7.1 gate "DuckDB-wasm boots from CDN with SRI." The postinstall vendoring hook already copied the bytes into `public/duckdb-fallback/`; the missing piece was an integrity manifest the runtime could use to verify CDN-fetched bytes match the vendored ones.
+**Options considered:** A) Hardcode SHA-384 hashes in `src/core/engine.ts` (drifts every DuckDB-wasm bump); B) Generate `integrity.json` from the vendored bytes at postinstall time + import + use it; C) Use SubresourceIntegrity attribute on `<script>` / `<link>` (doesn't apply — we fetch via `fetch()` then create blob URLs).
+**Decision:** B.
+**Reasoning:** `integrity.json` is generated from the same bytes that ship in `public/duckdb-fallback/`, so it can never drift. The runtime imports it as a JSON module (typed as `Record<string, string | undefined>` for the per-file lookup). `fetchWithSri(url, integrity)` uses fetch's native `integrity` option — the browser verifies before resolving the promise. Offline path skips SRI since the vendored bytes are themselves trusted (came from the postinstall hook). Worker JS + wasm both go through the verification.
+**Reversibility:** Easy. Removing `fetchWithSri` falls back to plain `fetch` on the CDN path.
+**Verification:** Shell builds clean; smoke test runs with `?offline=1` (vendored path) on every CI run; manual CDN-path verification done locally.
+
 ## 2026-05-15 13:00 — Develop in the environment-provided repo, not a new `NakliTechie/naklios`
 **Context:** Handoff §1 names target repo `NakliTechie/naklios` "create on first commit; not yet existing." The container is wired to `NakliTechie/NakliData` with branch `claude/agent-handoff-start-3c2Ib` and the GitHub MCP scope is restricted to that repo. I cannot create new repos from here.
 **Options considered:** A) Block and ask the human to create `NakliTechie/naklios`; B) Develop in `NakliData` on the designated branch and let the human rename / move later; C) Bail entirely.

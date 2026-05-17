@@ -14,7 +14,7 @@ import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
-import { type SqlCellExtra, renderSqlCell } from './cells/sql-cell.ts';
+import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import type {
   CellHandlers,
   CellState,
@@ -96,6 +96,8 @@ export class Notebook {
   }
 
   deleteCell(id: string): void {
+    // Release the CM6 editor instance if any (the registry is per-cell-id).
+    disposeSqlCellEditor(id);
     this.state = {
       cells: this.state.cells.filter((c) => c.id !== id),
     };

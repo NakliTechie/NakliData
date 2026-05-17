@@ -9,6 +9,13 @@
 //   §3.7 — CSP allows wasm-unsafe-eval and the jsdelivr CDN origin
 
 import * as duckdb from '@duckdb/duckdb-wasm';
+// Subresource-integrity hashes for the DuckDB-wasm CDN bundle, generated
+// at install time from the same bytes the vendored fallback contains.
+// Spec §7.1 gate: "DuckDB-wasm boots from CDN with SRI; vendored fallback
+// verified offline." When the CDN serves different bytes (mirror swap,
+// cache corruption, MITM), the fetch fails closed and we fall back to
+// the vendored copy.
+import duckdbIntegrity from '../../public/duckdb-fallback/integrity.json';
 
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'error';
 
@@ -121,14 +128,45 @@ export class Engine {
       if (!bundle.mainWorker) {
         throw new EngineError('DuckDB bundle did not include a mainWorker URL');
       }
-      const workerUrl = URL.createObjectURL(
-        new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' }),
+
+      // For the CDN path, SRI-verify the worker JS + wasm before letting
+      // DuckDB load them. For the offline (vendored) path, the bytes
+      // are already same-origin and trusted by transitive trust of the
+      // build pipeline — skip the extra fetch.
+      let workerScriptUrl = bundle.mainWorker;
+      let mainModuleUrl = bundle.mainModule;
+      if (!opts.offline) {
+        const variant = (bundle.mainWorker.includes('-eh.worker') ? 'eh' : 'mvp') as 'eh' | 'mvp';
+        const wasmFile = `duckdb-${variant}.wasm`;
+        const workerFile = `duckdb-browser-${variant}.worker.js`;
+        const integrityFiles = duckdbIntegrity.files as Record<string, string | undefined>;
+        const workerHash = integrityFiles[workerFile];
+        const wasmHash = integrityFiles[wasmFile];
+        if (!workerHash || !wasmHash) {
+          throw new EngineError(
+            `Missing SRI hash for ${variant} bundle (expected ${workerFile} + ${wasmFile} in integrity.json)`,
+          );
+        }
+        const [workerBytes, wasmBytes] = await Promise.all([
+          fetchWithSri(bundle.mainWorker, workerHash),
+          fetchWithSri(bundle.mainModule, wasmHash),
+        ]);
+        workerScriptUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(workerBytes)], { type: 'text/javascript' }),
+        );
+        mainModuleUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(wasmBytes)], { type: 'application/wasm' }),
+        );
+      }
+
+      const workerBootstrapUrl = URL.createObjectURL(
+        new Blob([`importScripts("${workerScriptUrl}");`], { type: 'text/javascript' }),
       );
-      const worker = new Worker(workerUrl);
+      const worker = new Worker(workerBootstrapUrl);
       const logger = new duckdb.ConsoleLogger();
       const db = new duckdb.AsyncDuckDB(logger, worker);
-      await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
-      URL.revokeObjectURL(workerUrl);
+      await db.instantiate(mainModuleUrl, bundle.pthreadWorker ?? null);
+      URL.revokeObjectURL(workerBootstrapUrl);
 
       this.db = db;
       this.worker = worker;
@@ -475,6 +513,19 @@ export class Engine {
       }
     }
   }
+}
+
+/**
+ * Fetch a URL with subresource-integrity verification. Returns the bytes
+ * once the browser has confirmed the SHA-384 matches. Throws on hash
+ * mismatch or HTTP error.
+ */
+async function fetchWithSri(url: string, integrity: string): Promise<Uint8Array> {
+  const res = await fetch(url, { integrity, mode: 'cors' });
+  if (!res.ok) {
+    throw new EngineError(`SRI fetch failed: ${url} → HTTP ${res.status}`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {

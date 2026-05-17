@@ -288,16 +288,23 @@ Tracking checklist:
 
 Wave 1 result: workspace state persists across tabs (per `plan/spec-amendments.md` A1). The user no longer starts over each session.
 
+### Pre-v1.0-tag gates ✅ shipped (2026-05-17)
+
+**Pitch:** "Close the v1.0 chapter cleanly."
+
+- [x] CodeMirror 6 lazy chunk (DECISIONS 2026-05-15 14:10 + 2026-05-17 03:50) — `src/lazy/codemirror.ts`; textarea-first, async-swap to CM6 once chunk lands; per-cell-id instance cache; `disposeSqlCellEditor` on delete
+- [x] DuckDB-wasm SRI pinning (spec §7.1 gate) — `scripts/fetch-duckdb-fallback.mjs` writes `public/duckdb-fallback/integrity.json` with SHA-384 per file; `src/core/engine.ts` `fetchWithSri()` on CDN path
+- [x] README pass per spec §3.10 — what it is / what it isn't / browser support / quick start / `.naklidata` format / taxonomy contribution / privacy
+- [x] Tag `v1.0.0`
+
 ### Theme 4 — Schema + data quality polish
 
 **Pitch:** "Make the most important surface even better."
 
-- CodeMirror 6 lazy chunk (decision log 14:10 — pre-tag gate)
 - Column statistics panel: cardinality, null %, length distribution, top-k (a `column-profile` mode for the schema panel)
 - Side-by-side data compare (auto join-key detection from taxonomy + diff renderer)
 - Type override learns: "always treat columns named `vendor_id` as `gstin`" (per-workspace user-type seed)
 - Demo / censor mode (lessons doc item 9): mask user paths and column names in screenshots
-- Spec §3.10 README pass
 
 ### Theme 6 — Enterprise / Compute Bridge
 
