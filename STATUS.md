@@ -1,6 +1,6 @@
-## Last update: 2026-05-17T12:00:00Z
-## Current milestone: **Theme 2 wave 2 shipped — pivot-table cell** (new cell kind alongside SQL/chart/markdown; in-memory pivot over upstream `lastResult.rows`; sum/avg/min/max/count with row + col + grand totals for sum/count; DECISIONS 17:30). Theme 2 wave 1 (Observable Plot) shipped earlier. Theme 3 wave 2 complete; v1.0.0 tagged. Plan/checkpoint-2026-05-17.md captures the synthesis at end-of-session. Next push: schema-relationship diagram (Cytoscape, smallest remaining Theme 2 item) or map cell (MapLibre + spatial, heaviest).
-## Build status: green — `dist/index.html` 332 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **84 vitest + 13 Playwright e2e** passing; headless smoke green.
+## Last update: 2026-05-17T12:30:00Z
+## Current milestone: **Theme 2 wave 3 shipped — schema-graph modal** via Cytoscape.js lazy chunk; renders the taxonomy's type-relationship graph (`taxonomy/v0.1/relationships.json`). Button in the Schema panel header opens it; backdrop/Escape/close-icon all dismiss. DECISIONS 18:00 covers modal-vs-inline + lazy-vs-bundled + taxonomy-graph-vs-workbook-ER. Theme 2 progress: 3/5 done — Observable Plot ✓, pivot-table ✓, schema-graph ✓. Remaining: map cell + DuckDB spatial extension.
+## Build status: green — `dist/index.html` 336 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/chunks/cytoscape-graph.js` 436 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **84 vitest + 15 Playwright e2e** passing; headless smoke green.
 ## Branch state: single `main` branch. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
@@ -8,8 +8,8 @@
 
   1. ✅ Observable Plot lazy chunk → stacked-bar / area-stacked / heatmap (DECISIONS 13:00). Pie + faceted small-multiples deferred.
   2. ✅ Pivot-table cell — new cell kind, in-memory pivot, sum/avg/min/max/count (DECISIONS 17:30).
-  3. Schema-relationship-diagram via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`. Smallest remaining; recommended next.
-  4. MapLibre GL JS + deck.gl lazy chunk → new map cell type. Heaviest remaining; pair with the spatial extension in one push.
+  3. ✅ Schema-graph modal via Cytoscape.js lazy chunk; taxonomy-type relationships (DECISIONS 18:00).
+  4. MapLibre GL JS + deck.gl lazy chunk → new map cell type. Largest remaining Theme 2 item.
   5. DuckDB spatial extension → GeoJSON / Shapefile / KML mount (pairs with the map cell).
 
 After Theme 2:
@@ -21,6 +21,14 @@ After Theme 2:
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
   2. ✅ PWA installability — shipped (lite cache, not full; DECISIONS 11:50).
   3. ✅ Multi-session sidebar — shipped as a header dropdown (DECISIONS 12:10).
+
+## Session highlights — 2026-05-17 (Theme 2 wave 3: schema-graph modal)
+
+- **`src/lazy/cytoscape-graph.ts`** (new, ~100 lines) wraps Cytoscape with a Rangrez-palette stylesheet + cose layout. Lazy-loaded; never touches the shell.
+- **`src/ui/schema-graph.ts`** (new, ~100 lines) owns the modal: open/close, fetch taxonomy bundle (reuses `getTaxonomyClient().ensureReady`), filter types to those participating in relationships, lazy-load Cytoscape, render. Backdrop click, close icon, and Escape all dismiss.
+- **Taxonomy bundle** now optionally carries `relationships: TypeRelationship[]`. `src/taxonomy/load.ts` fetches `relationships.json` best-effort (failure doesn't break the classifier path).
+- **Schema panel header** gets a small chart-icon button → `data-action="open-schema-graph"`. Discoverable even before sources are mounted.
+- 2 new Playwright specs (`tests/e2e/schema-graph.spec.ts`): button → overlay → chunk fetched → `<canvas>` appears → Escape closes; backdrop closes; close-icon closes.
 
 ## Session highlights — 2026-05-17 (Theme 2 wave 2: pivot-table cell)
 

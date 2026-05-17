@@ -52,6 +52,18 @@ export interface TaxonomyBundle {
   released: string;
   domains: DomainSpec[];
   types: TypeSpec[];
+  /** Optional. Present when the bundle ships `relationships.json`. */
+  relationships?: TypeRelationship[];
+}
+
+/** Edge in the taxonomy's type-relationship graph. */
+export interface TypeRelationship {
+  from: string;
+  to: string;
+  /** Free-text relationship kind: 'identifies', 'embeds', 'pairs_with', etc. */
+  kind: string;
+  /** Optional human note explaining the relationship. */
+  note?: string;
 }
 
 /** Sample of one column passed into the detector pipeline. */

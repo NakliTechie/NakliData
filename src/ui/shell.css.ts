@@ -376,4 +376,47 @@ button {
   color: var(--text-muted);
 }
 .session-menu .session-row-action:hover { color: var(--text); }
+
+/* Schema-graph modal (Cytoscape-rendered type relationships) */
+.schema-graph-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 27, 22, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: var(--space-5);
+}
+.schema-graph-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(1080px, 100%);
+  height: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.schema-graph-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.schema-graph-status {
+  color: var(--text-muted);
+  font-size: ${Type.size.sm};
+  margin-right: auto;
+}
+.schema-graph-close {
+  padding: var(--space-1);
+}
+.schema-graph-canvas {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
 `;

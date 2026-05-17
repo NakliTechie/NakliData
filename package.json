@@ -24,11 +24,13 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.34.0",
     "@duckdb/duckdb-wasm": "1.29.0",
-    "@observablehq/plot": "^0.6.17"
+    "@observablehq/plot": "^0.6.17",
+    "cytoscape": "^3.33.3"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.60.0",
+    "@types/cytoscape": "^3.21.9",
     "@types/node": "^22.5.0",
     "esbuild": "^0.24.0",
     "playwright": "^1.60.0",

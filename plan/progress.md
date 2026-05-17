@@ -4,6 +4,51 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 2 wave 3) — Schema-graph modal (Cytoscape lazy chunk).
+
+### What landed
+
+- **`src/lazy/cytoscape-graph.ts`** (new, ~100 lines). `mountGraph({container, nodes, edges, onNodeClick})` renders Cytoscape with a Rangrez-palette-styled node/edge stylesheet, `cose` (force-directed) layout, target-arrow edges with rotating labels. Returns a `GraphHandle` with `destroy()` + `refit()`.
+- **`src/ui/schema-graph.ts`** (new, ~100 lines). `openSchemaGraph()` mounts a singleton modal overlay, fetches the taxonomy bundle (via the existing `getTaxonomyClient().ensureReady()`), filters types to those that appear in any relationship, lazy-loads the Cytoscape chunk, and renders. `closeSchemaGraph()` destroys the cy instance and removes the overlay. Backdrop click, close icon, and `Escape` all dismiss.
+- **`src/taxonomy/types.ts`**: `TaxonomyBundle` gains an optional `relationships?: TypeRelationship[]` field. New `TypeRelationship` interface (`from`, `to`, `kind`, optional `note`).
+- **`src/taxonomy/load.ts`**: when the bundle's `index.json` includes a `relationships_file`, fetch it (best-effort — failures don't fail the whole bundle since classifier doesn't read relationships). Bundle is built with `...(relationships ? { relationships } : {})` so exactOptionalPropertyTypes is honored.
+- **`src/ui/shell.ts`**: Schema panel header gets a chart-icon button next to the "Schema" label, `data-action="open-schema-graph"`. Present even before any sources are mounted — discoverable.
+- **`src/main.ts`**: new `open-schema-graph` action case calls `openSchemaGraph()`.
+- **`src/ui/shell.css.ts`**: `.schema-graph-overlay` (fixed, full-viewport, semi-transparent backdrop), `.schema-graph-modal` (centered, max ~1080×720), `.schema-graph-header` (title + status line + close), `.schema-graph-canvas` (flex-1 region for cytoscape).
+- **`src/core/lazy-loader.ts`**: `'cytoscape-graph'` added to `LazyChunkRegistry`.
+- **`package.json`**: `cytoscape` ^3.33.3 + `@types/cytoscape` dev-dep.
+
+### Why modal + lazy chunk + taxonomy-type graph
+
+A modal is the right affordance density for a low-frequency exploratory
+view; it preserves the 3-panel layout. Lazy-loaded Cytoscape (436 KB)
+keeps the shell at 336 KB. Taxonomy-type relationships are the
+immediately-shippable scope — already curated in
+`taxonomy/v0.1/relationships.json` (7 edges: identifies, embeds,
+implies, pairs_with, scopes, contextualizes). Workbook-level ER
+discovery from column names + taxonomy assignments is a richer feature
+but speculative — defer. Full rationale at DECISIONS 2026-05-17 18:00.
+
+### Tests
+
+- **`tests/e2e/schema-graph.spec.ts`** (new, 2 Playwright specs):
+  1. Click the graph button → overlay appears → `/chunks/cytoscape-graph.js` is fetched (asserted via both `page.on('request')` and `performance.getEntriesByType('resource')`) → a `<canvas>` element appears inside the graph region → status line reports `N types, M relationships` → Escape dismisses cleanly.
+  2. Reopen → click the backdrop → modal closes. Reopen → click the close icon → modal closes.
+
+### Quality
+
+- `dist/index.html` 336 KB (was 332 KB; +4 KB for modal + button wiring + relationships type/loader. Well under the 600 KB shell budget). `dist/chunks/cytoscape-graph.js` 436 KB lazy. `dist/chunks/observable-plot.js` 273 KB lazy unchanged. `dist/chunks/codemirror.js` 364 KB lazy unchanged.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 84 vitest + **15 Playwright e2e** (was 13; +2) + smoke green.
+
+### What's next (rest of Theme 2)
+
+1. **Map cell** (MapLibre GL JS + deck.gl as a lazy chunk). New cell kind alongside SQL/chart/markdown/pivot. Largest remaining Theme 2 item; needs a geometry-column picker on the cell.
+2. **DuckDB spatial extension** — GeoJSON / Shapefile / KML mount. Pairs naturally with the map cell.
+3. **Plot pie + faceted small-multiples** — pair with the map cell's UI pass (faceted needs a third "facet-by" picker on the chart cell).
+
+---
+
 ## 2026-05-17 (Theme 2 wave 2) — Pivot-table cell.
 
 ### What landed

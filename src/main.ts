@@ -31,6 +31,7 @@ import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
+import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
 import {
   type ShellState,
@@ -516,6 +517,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       await refreshSessionSwitcher(root);
       toast(`Deleted "${meta.name}".`);
+      return;
+    }
+    case 'open-schema-graph': {
+      void openSchemaGraph();
       return;
     }
     case 'share-link': {

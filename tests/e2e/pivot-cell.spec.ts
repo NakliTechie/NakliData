@@ -67,9 +67,7 @@ test.describe('pivot-table cell (Theme 2 wave 2)', () => {
     await page.waitForSelector('.cell[data-cell-kind="pivot"]', { timeout: 5_000 });
 
     // Initial state: "Pick a SQL cell that has been run."
-    const initialEmpty = await page.textContent(
-      '.cell[data-cell-kind="pivot"] .cell-output-empty',
-    );
+    const initialEmpty = await page.textContent('.cell[data-cell-kind="pivot"] .cell-output-empty');
     expect(initialEmpty).toContain('Pick a SQL cell');
 
     // Pick the upstream SQL cell. The select offers every SQL cell by id;

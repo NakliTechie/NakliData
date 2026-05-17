@@ -179,6 +179,9 @@ function renderSchemaPanel(): HTMLElement {
   el.innerHTML = `
     <div class="panel-header">
       <span>Schema</span>
+      <button class="btn btn-ghost" data-action="open-schema-graph" title="Show type relationships graph" aria-label="Show type relationships graph">
+        ${iconSvg('chart', 12)}
+      </button>
     </div>
     <div class="panel-body" data-region="schema-panel">
       <p style="color: var(--text-muted); font-size: 12px; margin: 0;">Mount a source to see types.</p>

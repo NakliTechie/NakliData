@@ -93,16 +93,10 @@ describe('computePivot', () => {
 
   it('returns null when rowCol or colCol is unset', () => {
     expect(
-      computePivot(
-        { rowCol: null, colCol: 'status', valueCol: 'amount', agg: 'sum' },
-        VENDOR_DATA,
-      ),
+      computePivot({ rowCol: null, colCol: 'status', valueCol: 'amount', agg: 'sum' }, VENDOR_DATA),
     ).toBeNull();
     expect(
-      computePivot(
-        { rowCol: 'vendor', colCol: null, valueCol: 'amount', agg: 'sum' },
-        VENDOR_DATA,
-      ),
+      computePivot({ rowCol: 'vendor', colCol: null, valueCol: 'amount', agg: 'sum' }, VENDOR_DATA),
     ).toBeNull();
   });
 

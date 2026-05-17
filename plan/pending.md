@@ -265,7 +265,7 @@ Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet
 - [ ] MapLibre GL JS + deck.gl lazy chunk → new map cell type
 - [ ] DuckDB spatial extension → GeoJSON / Shapefile / KML mount
 - [x] Pivot-table cell type — new cell kind alongside SQL/chart/markdown, in-memory pivot over the upstream SQL cell's `lastResult.rows` (no extra DuckDB query needed). Row × col × value with sum/avg/min/max/count; row + column + grand totals for sum/count. DECISIONS 2026-05-17 17:30. (Decided against the "custom over CUBE/ROLLUP" path the original bullet suggested — see entry for rationale.)
-- [ ] Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`
+- [x] Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json` — modal (button in the Schema panel header), Cytoscape as a lazy chunk so the shell stays small. Taxonomy-type graph (not workbook-table ER). DECISIONS 2026-05-17 18:00.
 
 ### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)
 

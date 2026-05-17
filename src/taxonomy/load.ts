@@ -2,7 +2,7 @@
 // The bundle ships in public/taxonomy/v0.1/ so it's reachable at runtime
 // via a relative URL.
 
-import type { DomainSpec, TaxonomyBundle, TypeSpec } from './types.ts';
+import type { DomainSpec, TaxonomyBundle, TypeRelationship, TypeSpec } from './types.ts';
 
 interface IndexJson {
   format: string;
@@ -44,11 +44,30 @@ export async function loadTaxonomy(base = '/taxonomy/v0.1/'): Promise<TaxonomyBu
     domains.push(dSpec);
   }
 
+  // Relationships are optional metadata — used by the schema-graph view
+  // but not by classification. Don't fail the whole bundle load if the
+  // file is missing or malformed; just leave the field undefined.
+  let relationships: TypeRelationship[] | undefined;
+  if (index.relationships_file) {
+    try {
+      const rRes = await fetch(`${base}${index.relationships_file}`);
+      if (rRes.ok) {
+        const rJson = (await rRes.json()) as { relationships?: TypeRelationship[] };
+        relationships = rJson.relationships;
+      } else {
+        console.warn(`[taxonomy] relationships fetch failed: ${rRes.status}`);
+      }
+    } catch (err) {
+      console.warn('[taxonomy] relationships parse failed', err);
+    }
+  }
+
   cache = {
     version: index.version,
     released: index.released,
     domains,
     types,
+    ...(relationships ? { relationships } : {}),
   };
   return cache;
 }
