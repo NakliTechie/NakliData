@@ -28,7 +28,17 @@ export interface ChartCellState {
   order: number;
   name: string | null;
   inputCell: string | null;
-  chartType: 'bar' | 'line' | 'area' | 'scatter' | 'table' | 'stat' | 'histogram';
+  chartType:
+    | 'bar'
+    | 'line'
+    | 'area'
+    | 'scatter'
+    | 'table'
+    | 'stat'
+    | 'histogram'
+    | 'stacked-bar'
+    | 'area-stacked'
+    | 'heatmap';
   x: string | null;
   y: string | null;
 }

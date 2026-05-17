@@ -4,6 +4,43 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 2 wave 1) — Observable Plot lazy chunk: stacked-bar, area-stacked, heatmap.
+
+### What landed
+
+- **`src/lazy/observable-plot.ts`** (new, ~130 lines). `mountPlotChart({mount, cell, result})` dispatches by `chartType`: `stacked-bar` → `Plot.barX` + stack; `area-stacked` → `Plot.areaY` + stack; `heatmap` → `Plot.cell` (auto-picks a numeric value column or falls back to `Plot.group({fill: 'count'})`). BIGINT-from-DuckDB on the y channel is coerced to Number so Plot's stack math doesn't choke. `pickCategory` heuristic picks a non-x/y, non-id categorical column for the fill channel.
+- **`src/core/lazy-loader.ts`**: `'observable-plot'` added to `LazyChunkRegistry`. Existing `loadChunk('observable-plot')` machinery (cache, runtime URL, no esbuild inlining) reused as-is.
+- **`src/charts/render.ts`**: new `PLOT_TYPES` set for the three new types; existing switch unchanged for the original 7 types. When the type is Plot-handled, show "Loading chart…" then fire-and-forget `loadChunk(...).then(mod => mod.mountPlotChart(...))`. The custom-rendered types continue to use the hand-rolled canvas+SVG path with the Rangrez palette.
+- **`src/ui/cells/types.ts`**: `ChartCellState.chartType` union extended with `'stacked-bar' | 'area-stacked' | 'heatmap'`.
+- **`src/ui/cells/chart-cell.ts`**: chart-type picker options extended with the three new types.
+- **`package.json`**: `@observablehq/plot` ^0.6.17 added to dependencies.
+
+### Tests
+
+- **`tests/e2e/plot-chart-types.spec.ts`** (new, 2 Playwright specs):
+  1. Switching a chart cell to `stacked-bar` fetches `/chunks/observable-plot.js` (asserted via `page.on('request')`) and renders an SVG containing real mark elements (`rect`/`path`/`circle`/`g`). The chunk is NOT loaded for the initial bar chart (custom canvas+SVG path).
+  2. Heatmap on inappropriate single-axis data falls back without throwing — Plot may show its own "no data" or an empty SVG; the contract is "no uncaught error."
+
+### Quality
+
+- `dist/index.html` 324 KB (unchanged from Theme 3 wave 2 close — Plot stayed out of the shell). `dist/chunks/codemirror.js` 364 KB lazy unchanged. `dist/chunks/observable-plot.js` **273 KB lazy** (Plot + d3 internals; loaded only when a chart cell picks a Plot-rendered type).
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 77 vitest + **12 Playwright e2e** (was 10; +2) + smoke green. Pre-existing save-load e2e is flaky under high parallel pressure (uses count-based wait instead of `waitForClassificationStable`) — passes consistently in isolation and at the current `workers: 2` config but worth a future cleanup.
+
+### Why these three (and not pie / faceted)
+
+- **Pie**: Plot deliberately doesn't ship a pie mark (the team's stance on quantitative-comparison ergonomics). We'd need a custom arc adapter; defer.
+- **Faceted small-multiples**: Needs a third "facet-by" column picker on the chart cell (alongside x/y). Defer to the same UI pass as the map cell (which also needs new pickers).
+
+### What's next (rest of Theme 2)
+
+1. **MapLibre GL JS + deck.gl lazy chunk** — new map cell type. Largest remaining UX change in Theme 2; new cell kind in `src/ui/cells/`.
+2. **DuckDB spatial extension** — GeoJSON / Shapefile / KML mount. Pairs naturally with the map cell.
+3. **Pivot-table cell** — custom over DuckDB `GROUP BY CUBE` / `ROLLUP`. Self-contained, lower-cost ship.
+4. **Schema-relationship-diagram via Cytoscape.js** — fed by `taxonomy/v0.1/relationships.json`. Standalone view.
+
+---
+
 ## 2026-05-17 (Theme 3 wave 2, item 3) — Multi-session sidebar. **Wave 2 complete.**
 
 ### What landed

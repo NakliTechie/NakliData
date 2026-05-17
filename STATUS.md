@@ -1,19 +1,35 @@
-## Last update: 2026-05-17T06:30:00Z
-## Current milestone: **Theme 3 wave 2 complete.** Three items shipped today: URL-state sharing (`?lens=<base64>`), PWA installability (manifest + lite SW), multi-session sidebar (header dropdown — see DECISIONS 12:10 for why dropdown not a 4th panel column). v1.0.0 tag landed earlier in the session. Next push: Theme 2 (visualization upgrade) or Theme 1 wave 3 (sample-data regen + vendored extensions).
-## Build status: green — `dist/index.html` 324 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **77 vitest + 10 Playwright e2e** passing; headless smoke green.
-## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit. `v1.0.0` tag pushed.
+## Last update: 2026-05-17T06:45:00Z
+## Current milestone: **Theme 2 wave 1 shipped — Observable Plot lazy chunk.** Three new chart types — `stacked-bar`, `area-stacked`, `heatmap` — via a lazy chunk (Plot stays out of the shell). Pie + faceted deferred (see DECISIONS 13:00). Earlier today: Theme 3 wave 2 complete (URL-state sharing + PWA + multi-session sidebar) and v1.0.0 tag landed. Next: rest of Theme 2 — map cell (MapLibre + DuckDB spatial), pivot-table cell, schema-relationship diagram (Cytoscape).
+## Build status: green — `dist/index.html` 324 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **77 vitest + 12 Playwright e2e** passing; headless smoke green.
+## Branch state: single `main` branch (the bootstrap `claude/agent-handoff-start-3c2Ib` was deleted local + remote after the v1.0 tag landed). `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
-## Theme 3 wave 2 — complete
+## Theme 2 — wave 1 complete
+
+  1. ✅ Observable Plot lazy chunk → stacked-bar / area-stacked / heatmap (DECISIONS 13:00). Pie + faceted small-multiples deferred (see DECISIONS for reasons).
+  2. MapLibre GL JS + deck.gl lazy chunk → new map cell type.
+  3. DuckDB spatial extension → GeoJSON / Shapefile / KML mount (pairs with the map cell).
+  4. Pivot-table cell (custom over DuckDB CUBE/ROLLUP).
+  5. Schema-relationship-diagram via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`.
+
+After Theme 2:
+  - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+  - **Theme 4** — schema + data quality polish (column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode).
+
+## Theme 3 wave 2 — complete (earlier today)
 
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
   2. ✅ PWA installability — shipped (lite cache, not full; DECISIONS 11:50).
   3. ✅ Multi-session sidebar — shipped as a header dropdown (DECISIONS 12:10).
 
-Next push, in suggested order:
-  - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table + Cytoscape schema-graph).
-  - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
-  - **Theme 4** — schema + data quality polish (column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode).
+## Session highlights — 2026-05-17 (Theme 2 wave 1: Observable Plot lazy chunk)
+
+- New `src/lazy/observable-plot.ts` (~130 lines) dispatches `stacked-bar` / `area-stacked` / `heatmap` to Plot marks. Reuses the existing lazy-loading infra from Theme 1 wave 2 — Plot lives at `dist/chunks/observable-plot.js` (273 KB lazy) and never touches the shell.
+- `src/charts/render.ts` gets a `PLOT_TYPES` set + fire-and-forget `loadChunk('observable-plot')` for the new types. Existing 7 hand-rolled chart types unchanged.
+- ChartCellState union + chart-cell picker extended with the three new types.
+- Heuristics in `mountPlotChart`: `pickCategory` finds a categorical column for the fill channel; BIGINT-from-DuckDB on the y channel coerced to Number so Plot's stack math doesn't choke.
+- 2 new Playwright specs in `tests/e2e/plot-chart-types.spec.ts` — chunk-load assertion via `page.on('request')` + SVG-with-marks check after switching chart type; heatmap on bad data falls back without throwing.
+- **Single `main` branch now**: the bootstrap `claude/agent-handoff-start-3c2Ib` branch was deleted local + remote after the v1.0 tag pushed.
 
 ## Session highlights — 2026-05-17 (Theme 3 wave 2, item 3: multi-session sidebar)
 

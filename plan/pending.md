@@ -256,16 +256,16 @@ Tracking checklist — tick as items land:
 
 Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet, Arrow IPC × 2 exts, SQLite × 3 exts, DuckDB, Excel, SPSS × 3 exts, Stata, SAS × 2 exts). The two remaining items are testing-infrastructure work, not new features.
 
-### Theme 2 — Visualization upgrade
+### Theme 2 — Visualization upgrade ⏳ wave 1 done (2026-05-17)
 
 **Pitch:** "From 7 chart types to 14, plus a map cell."
 
-- Lazy code-splitting infrastructure in esbuild
-- Observable Plot lazy chunk → adds pie, stacked bar, area-stacked, heatmap, faceted small-multiples
-- MapLibre GL JS + deck.gl lazy chunk → new map cell type
-- DuckDB spatial extension → GeoJSON / Shapefile / KML mount
-- Pivot-table cell type (custom over DuckDB CUBE/ROLLUP)
-- Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`
+- [x] Lazy code-splitting infrastructure in esbuild (shipped 2026-05-17 as part of Theme 1 wave 2).
+- [x] Observable Plot lazy chunk — adds **stacked-bar**, **area-stacked**, **heatmap** (shipped 2026-05-17; DECISIONS 13:00). Pie + faceted small-multiples deferred — Plot doesn't ship a pie mark by design; faceting needs a third "facet-by" column picker on the chart cell.
+- [ ] MapLibre GL JS + deck.gl lazy chunk → new map cell type
+- [ ] DuckDB spatial extension → GeoJSON / Shapefile / KML mount
+- [ ] Pivot-table cell type (custom over DuckDB CUBE/ROLLUP)
+- [ ] Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`
 
 ### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)
 

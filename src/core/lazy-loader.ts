@@ -18,6 +18,7 @@ export interface LazyChunkRegistry {
   // basename of files in `src/lazy/<name>.ts` (without the `.ts`).
   _demo: typeof import('../lazy/_demo.ts');
   codemirror: typeof import('../lazy/codemirror.ts');
+  'observable-plot': typeof import('../lazy/observable-plot.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;

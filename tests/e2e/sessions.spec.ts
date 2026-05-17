@@ -47,9 +47,7 @@ test.describe('multi-session sidebar', () => {
     await waitForEngineReady(page);
 
     // Header switcher should show the seed session "Untitled".
-    const initialName = await page.textContent(
-      '.session-switcher .session-trigger .session-name',
-    );
+    const initialName = await page.textContent('.session-switcher .session-trigger .session-name');
     expect(initialName?.trim()).toBe('Untitled');
 
     // Mount example data in session 1.
@@ -74,9 +72,7 @@ test.describe('multi-session sidebar', () => {
       () => document.querySelectorAll('.source-card').length,
     );
     expect(session2Cards).toBe(0);
-    const session2Name = await page.textContent(
-      '.session-switcher .session-trigger .session-name',
-    );
+    const session2Name = await page.textContent('.session-switcher .session-trigger .session-name');
     // Default name for the second session is "Session 2".
     expect(session2Name?.trim()).toBe('Session 2');
 
@@ -146,9 +142,7 @@ test.describe('multi-session sidebar', () => {
     await page.waitForTimeout(400);
     const stillThere = await page.evaluate(() =>
       Array.from(
-        document.querySelectorAll<HTMLElement>(
-          '.session-switcher [data-action="session-switch"]',
-        ),
+        document.querySelectorAll<HTMLElement>('.session-switcher [data-action="session-switch"]'),
       ).map((b) => b.dataset.sessionId),
     );
     expect(stillThere).toContain(onlyId);

@@ -33,7 +33,18 @@ export function renderChartCell(
           .join('')}
       </select>
       <select data-action="chart-type" aria-label="Chart type" style="font-size:12px;">
-        ${['bar', 'line', 'area', 'scatter', 'histogram', 'stat', 'table']
+        ${[
+          'bar',
+          'line',
+          'area',
+          'scatter',
+          'histogram',
+          'stacked-bar',
+          'area-stacked',
+          'heatmap',
+          'stat',
+          'table',
+        ]
           .map(
             (k) => `<option value="${k}" ${cell.chartType === k ? 'selected' : ''}>${k}</option>`,
           )

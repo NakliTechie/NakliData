@@ -1,14 +1,20 @@
-// Custom canvas + SVG chart renderer. Seven chart types in v1.0:
-// bar / line / area / scatter / histogram / stat / table.
+// Chart renderer. v1.0 ships 7 hand-rolled types (bar / line / area /
+// scatter / histogram / stat / table) using canvas+SVG with the Rangrez
+// palette. Theme 2 (v1.1) adds Plot-rendered types (stacked-bar /
+// area-stacked / heatmap) via a lazy chunk so Observable Plot stays
+// out of the inlined shell.
 //
-// Colors are sourced exclusively from src/tokens/colors.ts (Rangrez subset).
-// No D3, no Plotly.
+// Colors for the custom types are sourced exclusively from
+// src/tokens/colors.ts (Rangrez subset). No D3, no Plotly.
 //
 // Per spec §3.9: chart cells render a hidden <table> sibling for screen
 // readers / copy-paste.
 
+import { loadChunk } from '../core/lazy-loader.ts';
 import { Brickwork, Monsoon, Neutral, categorical } from '../tokens/colors.ts';
 import type { ChartCellState, SqlResult } from '../ui/cells/types.ts';
+
+const PLOT_TYPES = new Set<ChartCellState['chartType']>(['stacked-bar', 'area-stacked', 'heatmap']);
 
 export function renderChart(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
   mount.innerHTML = '';
@@ -23,26 +29,36 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
   wrap.style.cssText = 'position:relative;';
   mount.append(wrap);
 
-  switch (cell.chartType) {
-    case 'table':
-      renderTable(wrap, result);
-      break;
-    case 'stat':
-      renderStat(wrap, cell, result);
-      break;
-    case 'bar':
-      renderBarOrColumn(wrap, cell, result);
-      break;
-    case 'line':
-    case 'area':
-      renderLine(wrap, cell, result);
-      break;
-    case 'scatter':
-      renderScatter(wrap, cell, result);
-      break;
-    case 'histogram':
-      renderHistogram(wrap, cell, result);
-      break;
+  if (PLOT_TYPES.has(cell.chartType)) {
+    wrap.innerHTML = '<div class="cell-output-empty">Loading chart…</div>';
+    // Fire-and-forget the lazy chunk load. Plot is heavy enough that
+    // pulling it into the main bundle would push us past the 600 KB
+    // shell budget; we accept a brief loading flash on first use.
+    void loadChunk('observable-plot').then((mod) => {
+      mod.mountPlotChart({ mount: wrap, cell, result });
+    });
+  } else {
+    switch (cell.chartType) {
+      case 'table':
+        renderTable(wrap, result);
+        break;
+      case 'stat':
+        renderStat(wrap, cell, result);
+        break;
+      case 'bar':
+        renderBarOrColumn(wrap, cell, result);
+        break;
+      case 'line':
+      case 'area':
+        renderLine(wrap, cell, result);
+        break;
+      case 'scatter':
+        renderScatter(wrap, cell, result);
+        break;
+      case 'histogram':
+        renderHistogram(wrap, cell, result);
+        break;
+    }
   }
 
   // Accessible table mirror (spec §3.9).
