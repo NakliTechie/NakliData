@@ -1,15 +1,26 @@
-## Last update: 2026-05-17T04:40:00Z
-## Current milestone: Pre-v1.0-tag gates complete; `main` fast-forwarded to `5b10b93`; `v1.0.0` tag created locally but NOT pushed (harness git proxy returns 403). Desktop session needs to land the tag — see `plan/v1.0-handoff-notes.md`.
-## Build status: green — `dist/index.html` 320 KB; `dist/chunks/codemirror.js` 370 KB lazy; tsc clean; biome 0 errors / 14 warnings; 60 vitest + 4 e2e tests passing; headless smoke green
-## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at `5b10b93` (pushed). `v1.0.0` annotated tag is local-only.
-## Deploy status: not yet deployed; tag push pending desktop session
+## Last update: 2026-05-17T05:45:00Z
+## Current milestone: **v1.0.0 tag landed on origin.** Annotated tag points at `5b10b93` per the handoff notes; pushed from desktop session. GitHub default branch switched to `main` (was the leftover `claude/agent-handoff-start-3c2Ib`). Now opening Theme 3 wave 2.
+## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; tsc clean; biome 0 errors / 14 warnings; 60 vitest + 4 e2e tests passing; headless smoke green on desktop (4 source tables mounted vs the sandbox's 3 — desktop reaches `extensions.duckdb.org` for the JSONL extension).
+## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit (smoke-script portability fix on top of the handoff-notes commit). `v1.0.0` tag pushed.
+## Deploy status: not yet deployed; tag is the release source-of-truth.
 
-## Pick-up next session — see `plan/progress.md` for the full checkpoint
+## Active work — Theme 3 wave 2
 
-Recommended order:
-  1. **Theme 3 wave 2** — URL-state sharing + PWA install + multi-session sidebar.
-  2. **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
-  3. **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+Order in this push:
+  1. URL-state sharing (`?lens=<base64>` round-trip of the `.naklidata` JSON, no data).
+  2. PWA installability (`manifest.webmanifest` + service worker caching the shell + DuckDB-fallback).
+  3. Multi-session sidebar (OpenPlanter-style per-session workspaces).
+
+After Theme 3 wave 2:
+  - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
+  - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+
+## Session highlights — 2026-05-17 (desktop pickup, tag landed)
+
+- **v1.0.0 tag pushed** — annotated tag at `5b10b93` per `plan/v1.0-handoff-notes.md`. Web session created the tag locally but couldn't push (sandbox 403 on tag pushes); desktop session landed it cleanly.
+- **GitHub default branch switched to `main`** — was the bootstrap leftover `claude/agent-handoff-start-3c2Ib`. Both branches stay tracked.
+- **Smoke script made portable** — `scripts/smoke.mjs` no longer hardcodes the sandbox chromium path. Uses `PLAYWRIGHT_CHROMIUM_PATH` env var if set; otherwise lets Playwright pick the bundled chromium. DECISIONS entry at 2026-05-17 11:10.
+- Desktop-handoff checklist passed end-to-end: install (postinstall vendored DuckDB + integrity.json), check (clean, 14 expected biome warnings), test (60/60), smoke (all 12 assertions; mounted 4 source tables = sandbox's 3 + the JSONL log that needs `extensions.duckdb.org`), build size under budget.
 
 ## Session highlights — 2026-05-17 (pre-tag bundle)
 

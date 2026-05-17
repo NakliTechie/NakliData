@@ -4,6 +4,30 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (desktop pickup) — v1.0.0 tag landed; opening Theme 3 wave 2.
+
+### What landed
+
+- **`v1.0.0` tag pushed to origin.** Annotated tag at `5b10b93` (the pre-tag-bundle commit) per `plan/v1.0-handoff-notes.md`. Web session created it locally; desktop session pushed.
+- **GitHub default branch switched from `claude/agent-handoff-start-3c2Ib` → `main`.** The handoff branch was set as default by the web-session bootstrap; main is the right default for a public repo.
+- **Smoke script portability** (`scripts/smoke.mjs`): no longer hardcodes `/opt/pw-browsers/...`. Uses `PLAYWRIGHT_CHROMIUM_PATH` env var if set; otherwise lets Playwright pick its bundled chromium. DECISIONS entry at 11:10.
+
+### Quality
+
+- Desktop-handoff checklist (`plan/v1.0-handoff-notes.md` §"Testing / review checklist before next development") run end-to-end on a fresh clone: `npm install` (postinstall vendored DuckDB-wasm + wrote `integrity.json`), `npm run check` clean (0 errors / 14 expected biome warnings), `npm run test` 60/60 green, `npm run smoke` all 12 assertions pass (4 source tables mounted — desktop reaches `extensions.duckdb.org` for the JSONL extension that the web sandbox blocks), `dist/index.html` 316 KB / `dist/chunks/codemirror.js` 364 KB.
+- Manual schema-panel pass (CLAUDE.md stop-checklist item 5) covered by the smoke test's override step ("overrode vendor_id → gstin" + origin assertion). A naked-eye browser pass is still worth a moment when the user is at the screen.
+
+### What's next
+
+Theme 3 wave 2 in order:
+1. **URL-state sharing** — `?lens=<base64>` round-trips the `.naklidata` JSON (no data, only the description). Pattern from Huey; honors the no-server / no-account vision. Self-contained, no service-worker complexity. Starting first.
+2. **PWA installability** — `manifest.webmanifest` + service worker caching the shell + `public/duckdb-fallback/`. Enables offline use after first load.
+3. **Multi-session sidebar** — OpenPlanter-style per-session workspaces. IDB keyspace per session + UI to switch.
+
+After Theme 3 wave 2: Theme 2 (visualization upgrade), then Theme 1 wave 3 (sample-data regen + vendored DuckDB extensions for offline-grade smoke).
+
+---
+
 ## 2026-05-17 (pre-tag bundle) — CodeMirror 6 lazy chunk + DuckDB-wasm SRI pinning + README pass; ready to tag v1.0.0.
 
 ### What landed
