@@ -13,6 +13,7 @@ Planning artifacts. Not source; not status. **What we want to build next, what w
 | `enterprise-strategy.md` | Compute Bridge phasing, buyer profiles, deployment paths. v1.2+ work. |
 | `sidecar-architecture.md` | LoRA-Gemma vs prompted-base sidecar; the eval harness; report-recommendation job. |
 | `v1.0-handoff-notes.md` | Web-session → desktop-session handoff for the v1.0 tag. Historical now. |
-| `checkpoint-2026-05-17.md` | Synthesis snapshot at end of the 2026-05-17 desktop session — what's done, what's not, choices made, pick-up paths. Read when a future agent needs a one-stop orientation. |
+| `checkpoint-2026-05-17.md` | Midday synthesis snapshot (before Theme 2 + Theme 3 wave 2 finished). Substantively superseded by the eod file below; kept for historical context. |
+| `checkpoint-2026-05-17-eod.md` | **End-of-day** snapshot. Theme 2 + Theme 3 wave 2 complete; v1.0.0 tagged. Includes the resume-tomorrow bring-up sequence. Read this first when picking back up. |
 
 `STATUS.md`, `DECISIONS.md`, and `CLAUDE.md` (all at repo root) cover the orthogonal axes: what state we're in, what we decided and why, how the agent should operate. The split is intentional: this folder is forward-looking; those three are the live ledger.
