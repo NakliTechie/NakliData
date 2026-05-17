@@ -20,6 +20,7 @@ export interface LazyChunkRegistry {
   codemirror: typeof import('../lazy/codemirror.ts');
   'observable-plot': typeof import('../lazy/observable-plot.ts');
   'cytoscape-graph': typeof import('../lazy/cytoscape-graph.ts');
+  'maplibre-map': typeof import('../lazy/maplibre-map.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;

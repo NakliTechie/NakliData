@@ -910,6 +910,8 @@ async function pickSingleFile(): Promise<File | null> {
                 '.xpt',
               ],
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+              'application/geo+json': ['.geojson'],
+              'application/vnd.google-earth.kml+xml': ['.kml'],
             },
           },
         ],
@@ -924,7 +926,7 @@ async function pickSingleFile(): Promise<File | null> {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept =
-      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt';
+      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt,.geojson,.kml';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.click();
   });

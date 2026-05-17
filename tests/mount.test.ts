@@ -23,6 +23,9 @@ describe('detectFormat', () => {
     ['data.dta', 'dta'],
     ['data.sas7bdat', 'sas7bdat'],
     ['data.xpt', 'xpt'],
+    ['shape.geojson', 'geojson'],
+    ['shape.geo.json', 'geojson'],
+    ['MAP.KML', 'kml'],
   ])('classifies %s as %s', (filename, expected) => {
     expect(detectFormat(filename)).toBe(expected);
   });

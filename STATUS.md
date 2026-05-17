@@ -1,16 +1,21 @@
-## Last update: 2026-05-17T12:30:00Z
-## Current milestone: **Theme 2 wave 3 shipped — schema-graph modal** via Cytoscape.js lazy chunk; renders the taxonomy's type-relationship graph (`taxonomy/v0.1/relationships.json`). Button in the Schema panel header opens it; backdrop/Escape/close-icon all dismiss. DECISIONS 18:00 covers modal-vs-inline + lazy-vs-bundled + taxonomy-graph-vs-workbook-ER. Theme 2 progress: 3/5 done — Observable Plot ✓, pivot-table ✓, schema-graph ✓. Remaining: map cell + DuckDB spatial extension.
-## Build status: green — `dist/index.html` 336 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/chunks/cytoscape-graph.js` 436 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **84 vitest + 15 Playwright e2e** passing; headless smoke green.
+## Last update: 2026-05-17T13:00:00Z
+## Current milestone: **Theme 2 complete** — wave 4 shipped: map cell (MapLibre lazy chunk; no basemap; DECISIONS 18:30) + GeoJSON/KML mount via DuckDB spatial extension. Theme 2 totals: 5/5 sub-items shipped today (Observable Plot ✓, pivot-table ✓, schema-graph ✓, map cell ✓, spatial mount ✓). Spec §3.1 supported formats: 13 → 15. Earlier today: Theme 3 wave 2 (URL-state + PWA + multi-session) + v1.0.0 tag landed. Next push: Theme 1 wave 3 (sample-data regen + vendored extensions for offline smoke), Theme 4 (quality polish), or AI sidecar (spec §4.3 + portfolio mandate).
+## Build status: green — `dist/index.html` 340 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/chunks/cytoscape-graph.js` 436 KB lazy; `dist/chunks/maplibre-map.js` 1.0 MB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **87 vitest + 17 Playwright e2e** passing; headless smoke green.
 ## Branch state: single `main` branch. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
-## Theme 2 progress
+## Theme 2 — complete ✅
 
   1. ✅ Observable Plot lazy chunk → stacked-bar / area-stacked / heatmap (DECISIONS 13:00). Pie + faceted small-multiples deferred.
   2. ✅ Pivot-table cell — new cell kind, in-memory pivot, sum/avg/min/max/count (DECISIONS 17:30).
   3. ✅ Schema-graph modal via Cytoscape.js lazy chunk; taxonomy-type relationships (DECISIONS 18:00).
-  4. MapLibre GL JS + deck.gl lazy chunk → new map cell type. Largest remaining Theme 2 item.
-  5. DuckDB spatial extension → GeoJSON / Shapefile / KML mount (pairs with the map cell).
+  4. ✅ Map cell via MapLibre GL JS lazy chunk; no basemap (CSP + privacy clean); deck.gl deferred (DECISIONS 18:30).
+  5. ✅ DuckDB spatial extension via `ST_Read` → `.geojson` / `.kml` mounts (Shapefile deferred — needs multi-file FSA picker).
+
+Next push, in suggested order (from `plan/checkpoint-2026-05-17.md`):
+  - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline-grade smoke.
+  - **Theme 4** — schema + data quality polish (column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode).
+  - **AI sidecar** — v1.1 spec §4.3 + portfolio mandate. Three jobs (explain-this-query / explain-this-error / recommend-a-template) + BYOK plumbing.
 
 After Theme 2:
   - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
@@ -21,6 +26,14 @@ After Theme 2:
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
   2. ✅ PWA installability — shipped (lite cache, not full; DECISIONS 11:50).
   3. ✅ Multi-session sidebar — shipped as a header dropdown (DECISIONS 12:10).
+
+## Session highlights — 2026-05-17 (Theme 2 wave 4: map cell + GeoJSON/KML mount)
+
+- **New cell kind** `'map'` alongside SQL / chart / markdown / pivot. `MapCellState` in `src/ui/cells/types.ts` with input + geometry + optional color-by pickers. `renderMapCell` in `src/ui/cells/map-cell.ts` (~140 lines) handles both string- and object-shaped GeoJSON values; lazy-loads MapLibre on first render.
+- **`src/lazy/maplibre-map.ts`** (~170 lines) renders a FeatureCollection on a tile-less MapLibre canvas (no basemap — CSP/privacy clean). Three layers: polygons (+ outline), lines, points. Optional categorical color via `match` expression. Auto-fit bounds. MapLibre CSS skipped (only matters for popups/controls we don't use).
+- **`src/core/engine.ts`** new `registerSpatial` uses `ensureExtension('spatial')` then `ST_Read(...)` with `ST_AsGeoJSON(geom) AS geometry, * EXCLUDE (geom)` so the JS side gets a clean GeoJSON-string column.
+- **Mount layer**: `'geojson' | 'kml'` in `FileFormat`; `detectFormat` recognises `.geojson`/`.geo.json`/`.kml` (case-insensitive); file-picker accept list extended. Spec §3.1 supported formats: 13 → 15.
+- 3 new vitest specs (format detection) + 2 new Playwright e2e specs (literal-GeoJSON SQL → map renders; non-GeoJSON → friendly fallback).
 
 ## Session highlights — 2026-05-17 (Theme 2 wave 3: schema-graph modal)
 

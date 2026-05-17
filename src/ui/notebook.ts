@@ -13,6 +13,7 @@
 import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
+import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
@@ -20,6 +21,7 @@ import type {
   CellHandlers,
   CellState,
   ChartCellState,
+  MapCellState,
   MarkdownCellState,
   PivotCellState,
   SqlCellState,
@@ -92,6 +94,16 @@ export class Notebook {
         valueCol: null,
         agg: 'sum',
       } satisfies PivotCellState;
+    } else if (kind === 'map') {
+      cell = {
+        id: genCellId(),
+        kind: 'map',
+        order,
+        name: null,
+        inputCell: null,
+        geometryCol: null,
+        colorBy: null,
+      } satisfies MapCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -259,6 +271,7 @@ export function renderNotebook(
     else if (cell.kind === 'markdown') root.append(renderMarkdownCell(cell, handlers));
     else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
     else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
   }
 
   const addRow = document.createElement('div');
@@ -268,6 +281,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-markdown">${iconSvg('plus', 12)} Markdown</button>
     <button class="btn" data-nb-action="add-chart">${iconSvg('plus', 12)} Chart</button>
     <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
+    <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')
@@ -281,5 +295,8 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-pivot"]')
     ?.addEventListener('click', () => notebook.addCell('pivot'));
+  addRow
+    .querySelector('[data-nb-action="add-map"]')
+    ?.addEventListener('click', () => notebook.addCell('map'));
   root.append(addRow);
 }

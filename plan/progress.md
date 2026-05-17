@@ -4,6 +4,55 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 2 wave 4) — Map cell + GeoJSON/KML mount. **Theme 2 complete.**
+
+### What landed
+
+- **`src/lazy/maplibre-map.ts`** (new, ~170 lines). `mountMap({container, data, colorBy})` renders a GeoJSON FeatureCollection on a tile-less MapLibre canvas. Empty style (no basemap) so geometry layers sit on the project background color — keeps CSP + privacy clean. Three render layers: polygons (fill + outline), lines, points (circles with dark stroke). Optional categorical color via a `match` expression on a property; falls back to the accent. Auto-fits bounds to the data on load. Skips MapLibre's own CSS — only matters for popups + controls we don't use.
+- **`src/ui/cells/map-cell.ts`** (new, ~140 lines). `renderMapCell` mirrors the chart-cell / pivot-cell shape: header has input + geometry + optional color-by pickers + delete; output region is a 420px-tall map canvas. Parses geometry values at the cell boundary — handles both objects (when upstream selects from a JSON column) and strings (when upstream uses `ST_AsGeoJSON(geom)`). Lazy-loads `maplibre-map` chunk only when ready to render. Invalid geometries → friendly "No valid GeoJSON…" message.
+- **`src/ui/cells/types.ts`**: new `MapCellState` (id / kind / order / name / inputCell / geometryCol / colorBy) + `'map'` added to `CellKind` and `CellState` union.
+- **`src/ui/notebook.ts`**: addCell('map') seeds defaults (everything null); renderNotebook dispatches to renderMapCell; new "+ Map" toolbar button.
+- **`src/core/engine.ts`**: new `registerSpatial({tableName, file})` uses `ensureExtension('spatial')` then creates a view with `ST_AsGeoJSON(geom) AS geometry, * EXCLUDE (geom) FROM ST_Read(...)`. JS side never has to touch the DuckDB `GEOMETRY` logical type.
+- **`src/core/mount.ts`**: `'geojson' | 'kml'` added to `FileFormat`. `detectFormat` recognises `.geojson`, `.geo.json`, `.kml` (case-insensitive). `registerFileByFormat` routes both to `registerSpatial`.
+- **`src/main.ts`**: file-picker accept list extended with `.geojson` + `.kml` (and `application/geo+json` + `application/vnd.google-earth.kml+xml` MIMEs for FSA). Fallback `<input type="file">` accept string also extended.
+- **`src/core/lazy-loader.ts`**: `'maplibre-map'` added to `LazyChunkRegistry`.
+- **`package.json`**: `maplibre-gl` ^5.24.0 added.
+
+### Why no basemap; why no deck.gl; why spatial extension
+
+- **No basemap.** Vendor tiles or OSM tiles would require a CSP `connect-src` exception and break "your data never leaves the tab" (tile requests carry referer + viewport coords to a third party). Geometry-on-background is sufficient for v1.1 and keeps the privacy posture clean.
+- **No deck.gl.** deck.gl is for >10k-point rendering. Ship it later when real workloads need it; today we don't.
+- **DuckDB spatial extension** (not `read_json_auto` + `UNNEST`). `ST_Read` produces a clean view; users also get the full `ST_*` function library for downstream filtering / transforming. Spatial is a core extension, no community-trust posture needed. Network for first load — same caveat as Excel/SQLite/read_stat mounts.
+
+### Tests
+
+- **`tests/mount.test.ts`** (3 new vitest specs): `.geojson` / `.geo.json` / `.kml` recognized; case-insensitive (`MAP.KML` → `'kml'`).
+- **`tests/e2e/map-cell.spec.ts`** (2 new Playwright specs):
+  1. SQL cell with three literal-GeoJSON `SELECT … UNION ALL` rows → "+ Map" → pick input + geometry column → MapLibre chunk fetched (asserted via `page.on('request')`) → `<canvas>` appears inside the map cell → no page errors.
+  2. SQL cell with `'not-a-geometry' AS geometry` → map cell shows a "No valid GeoJSON…" message and doesn't throw.
+
+### Quality
+
+- `dist/index.html` 340 KB (was 336 KB; +4 KB for map cell + types + spatial mount + accept-list extensions). Well under the 600 KB shell budget.
+- `dist/chunks/maplibre-map.js` 1.0 MB lazy (sizeable but loads only when a map cell renders).
+- `dist/chunks/cytoscape-graph.js` 436 KB lazy unchanged. `dist/chunks/observable-plot.js` 273 KB lazy unchanged. `dist/chunks/codemirror.js` 364 KB lazy unchanged.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **87 vitest** (was 84; +3) + **17 Playwright e2e** (was 15; +2) + smoke green.
+
+### Theme 2 totals
+
+5/5 sub-items shipped (lazy splitting infra was already in place from Theme 1 wave 2). Stacked-bar / area-stacked / heatmap charts (Plot), pivot-table cell, schema-relationship graph (Cytoscape), map cell (MapLibre), GeoJSON + KML mounts (spatial). Bundle stayed comfortably within budget despite adding 4 lazy chunks. **Spec §3.1 supported formats: 13 → 15.**
+
+### What's next
+
+Theme 2 is closed. The natural next pushes from `plan/checkpoint-2026-05-17.md` Tier 2 and 3:
+
+1. **Theme 1 wave 3** — sample-data regen (`.sqlite`, `.xlsx`, `.geojson`, `.sas7bdat`) + vendor DuckDB extensions into `public/duckdb-fallback/` for offline-grade smoke. Testing-infra work; closes the local sandbox gap.
+2. **Theme 4** — schema + data quality polish (column-statistics panel; side-by-side data compare; type-override learns; demo/censor mode).
+3. **AI sidecar (v1.1 spec §4.3 + portfolio mandate)** — explain-this-query / explain-this-error / recommend-a-template + BYOK plumbing. Largest remaining product-shape work.
+
+---
+
 ## 2026-05-17 (Theme 2 wave 3) — Schema-graph modal (Cytoscape lazy chunk).
 
 ### What landed

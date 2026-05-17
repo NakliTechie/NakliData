@@ -26,7 +26,9 @@ export type FileFormat =
   | 'sav'
   | 'dta'
   | 'sas7bdat'
-  | 'xpt';
+  | 'xpt'
+  | 'geojson'
+  | 'kml';
 
 export type SourceKind = 'example-bundle' | 'fsa-folder' | 'fsa-file' | 'http';
 
@@ -79,6 +81,8 @@ export function detectFormat(filename: string): FileFormat | null {
   if (lower.endsWith('.dta')) return 'dta';
   if (lower.endsWith('.sas7bdat')) return 'sas7bdat';
   if (lower.endsWith('.xpt')) return 'xpt';
+  if (lower.endsWith('.geojson') || lower.endsWith('.geo.json')) return 'geojson';
+  if (lower.endsWith('.kml')) return 'kml';
   return null;
 }
 
@@ -132,6 +136,9 @@ async function registerFileByFormat(
     case 'sas7bdat':
     case 'xpt':
       return await engine.registerReadStat(opts);
+    case 'geojson':
+    case 'kml':
+      return await engine.registerSpatial(opts);
   }
 }
 

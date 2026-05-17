@@ -1,6 +1,6 @@
 // Cell state types used by the notebook UI.
 
-export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot';
+export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map';
 
 export interface SqlCellState {
   id: string;
@@ -59,7 +59,25 @@ export interface PivotCellState {
   agg: 'sum' | 'avg' | 'min' | 'max' | 'count';
 }
 
-export type CellState = SqlCellState | MarkdownCellState | ChartCellState | PivotCellState;
+export interface MapCellState {
+  id: string;
+  kind: 'map';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose lastResult provides the rows. */
+  inputCell: string | null;
+  /** Column containing GeoJSON geometries (object or string). */
+  geometryCol: string | null;
+  /** Optional categorical property to drive feature colors. */
+  colorBy: string | null;
+}
+
+export type CellState =
+  | SqlCellState
+  | MarkdownCellState
+  | ChartCellState
+  | PivotCellState
+  | MapCellState;
 
 export interface SqlResult {
   columns: string[];

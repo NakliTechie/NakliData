@@ -381,6 +381,26 @@ export class Engine {
     return [view];
   }
 
+  /**
+   * Mount a spatial vector file (`.geojson` / `.kml`) via DuckDB's
+   * `spatial` core extension's `ST_Read`. The geometry column is
+   * converted to a GeoJSON string (`geometry`) so the JS side can
+   * `JSON.parse` it directly — keeps the JS DuckDB-wasm binding free
+   * of having to support the GEOMETRY logical type.
+   */
+  async registerSpatial({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    await this.ensureExtension('spatial');
+    const fname = sanitizeFileName(file.name);
+    await this.registerFile(fname, file);
+    const view = sanitizeIdent(tableName);
+    await this.exec(
+      `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
+       SELECT ST_AsGeoJSON(geom) AS geometry, * EXCLUDE (geom)
+       FROM ST_Read('${escapeLiteral(fname)}')`,
+    );
+    return [view];
+  }
+
   /** Shared ATTACH path for SQLite + DuckDB file mounts. */
   private async attachDatabase(
     filename: string,

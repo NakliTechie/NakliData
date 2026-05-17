@@ -256,16 +256,24 @@ Tracking checklist — tick as items land:
 
 Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet, Arrow IPC × 2 exts, SQLite × 3 exts, DuckDB, Excel, SPSS × 3 exts, Stata, SAS × 2 exts). The two remaining items are testing-infrastructure work, not new features.
 
-### Theme 2 — Visualization upgrade ⏳ wave 1 done (2026-05-17)
+### Theme 2 — Visualization upgrade ✅ complete (2026-05-17)
 
 **Pitch:** "From 7 chart types to 14, plus a map cell."
 
 - [x] Lazy code-splitting infrastructure in esbuild (shipped 2026-05-17 as part of Theme 1 wave 2).
 - [x] Observable Plot lazy chunk — adds **stacked-bar**, **area-stacked**, **heatmap** (shipped 2026-05-17; DECISIONS 13:00). Pie + faceted small-multiples deferred — Plot doesn't ship a pie mark by design; faceting needs a third "facet-by" column picker on the chart cell.
-- [ ] MapLibre GL JS + deck.gl lazy chunk → new map cell type
-- [ ] DuckDB spatial extension → GeoJSON / Shapefile / KML mount
+- [x] MapLibre GL JS lazy chunk → new map cell type. No basemap (CSP-clean, privacy-clean); deck.gl pairing deferred until point-density work appears. DECISIONS 2026-05-17 18:30.
+- [x] DuckDB spatial extension → GeoJSON + KML mount via `ST_Read`. Shapefile deferred (needs the multi-file `.shp + .dbf + .shx` bundling which the FSA single-file picker can't deliver cleanly).
 - [x] Pivot-table cell type — new cell kind alongside SQL/chart/markdown, in-memory pivot over the upstream SQL cell's `lastResult.rows` (no extra DuckDB query needed). Row × col × value with sum/avg/min/max/count; row + column + grand totals for sum/count. DECISIONS 2026-05-17 17:30. (Decided against the "custom over CUBE/ROLLUP" path the original bullet suggested — see entry for rationale.)
 - [x] Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json` — modal (button in the Schema panel header), Cytoscape as a lazy chunk so the shell stays small. Taxonomy-type graph (not workbook-table ER). DECISIONS 2026-05-17 18:00.
+
+**Deferred Theme 2 sub-items** (for a follow-up "viz polish" pass):
+- Plot pie chart (custom arc adapter — Plot doesn't ship pie).
+- Plot faceted small-multiples (needs a third "facet-by" picker on the chart cell).
+- Map cell basemap (vendor tiles or OSM via CSP `connect-src` exception + UI to pick the basemap).
+- Map cell deck.gl pairing (for >10k-point rendering).
+- Shapefile (`.shp`) mount (requires multi-file FSA picker; not currently supported).
+- Spec §3.1 supported-formats list bumps from 13 → 15 with this wave (+geojson, +kml).
 
 ### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)
 
