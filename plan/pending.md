@@ -281,7 +281,7 @@ Tracking checklist:
 - [x] `applyLoadedFile({ silent })` option: boot-time restore uses `queryReadPermissionQuiet` for FSA folder handles (no prompt without user activation); explicit `.naklidata` load keeps the existing `ensureReadPermission` (can prompt)
 - [x] `tests/e2e/auto-restore.spec.ts` — two specs verifying (i) mount-bundle → reload → restored without click; (ii) threshold slider value persists across reload
 - [x] `waitForClassificationStable()` helper for e2e — polls until column count stops growing
-- [ ] URL-encoded query state: `?lens=<base64>` round-trips the `.naklidata` JSON without sending data
+- [x] URL-encoded query state: `?lens=<base64>` round-trips the `.naklidata` JSON without sending data — gzip + base64url via `src/core/url-state.ts`; Share button in header; boot prefers `?lens=` over IDB snapshot; URL stripped after applying. DECISIONS 2026-05-17 11:30.
 - [ ] PWA installability: `manifest.webmanifest` + service worker caches shell + DuckDB-fallback for offline use
 - [ ] Multi-session sidebar (à la OpenPlanter's `.openplanter/sessions/<id>/`)
 - [ ] Embeddable `<nakli-data-widget>` (v2.1 roadmap, pre-work)

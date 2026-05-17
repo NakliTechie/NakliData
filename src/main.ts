@@ -17,6 +17,12 @@ import {
   serialize,
 } from './core/persistence.ts';
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
+import {
+  buildShareUrl,
+  clearLensFromLocation,
+  decodeLensParam,
+  readLensFromLocation,
+} from './core/url-state.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
@@ -149,10 +155,25 @@ async function boot(): Promise<void> {
     return;
   }
 
-  // Engine is ready. Restore prior session from IDB (settings + workbook
-  // snapshot) before installing auto-save subscribers — otherwise the
-  // restore would race against an empty-state save.
-  await restoreFromIdb(engine);
+  // Engine is ready. A `?lens=<base64>` shared link takes precedence over
+  // the IDB workbook snapshot — the user explicitly opened a link to a
+  // particular state, so honor that. On bad/corrupted lens we fall back to
+  // IDB rather than empty state (less surprising than wiping their work).
+  const lensParam = readLensFromLocation();
+  if (lensParam) {
+    try {
+      const file = await decodeLensParam(lensParam);
+      await applyLoadedFile(engine, file);
+      clearLensFromLocation();
+      toast(`Loaded shared notebook "${file.name}".`);
+    } catch (err) {
+      console.warn('[naklidata] lens param decode failed', err);
+      toast('Shared link is invalid or corrupted — using saved state instead.', 'error');
+      await restoreFromIdb(engine);
+    }
+  } else {
+    await restoreFromIdb(engine);
+  }
   installAutoSave(engine);
 }
 
@@ -360,6 +381,34 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         toast(`Load failed: ${msg}`, 'error');
+      }
+      return;
+    }
+    case 'share-link': {
+      const wb = workbook.get();
+      if (wb.sources.length === 0) {
+        toast('Mount a source first — nothing to share yet.');
+        return;
+      }
+      const nb = getNotebook(engine);
+      const file = serialize({
+        notebookName: 'Untitled',
+        sources: wb.sources,
+        assignments: wb.assignments,
+        cells: nb.get().cells,
+        autoAcceptThreshold: wb.autoAcceptThreshold,
+      });
+      try {
+        const { url, tooLong } = await buildShareUrl(file);
+        await navigator.clipboard.writeText(url);
+        toast(
+          tooLong
+            ? `Link copied (${url.length.toLocaleString()} chars — some chat tools may truncate).`
+            : 'Share link copied to clipboard.',
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(`Could not build share link: ${msg}`, 'error');
       }
       return;
     }

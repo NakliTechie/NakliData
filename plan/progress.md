@@ -4,6 +4,32 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 3 wave 2, item 1) — URL-state sharing (`?lens=<base64>`).
+
+### What landed
+
+- **`src/core/url-state.ts`** (new, ~85 lines). `encodeLensParam(file)` → gzip + base64url. `decodeLensParam(s)` → base64url + gunzip + reuse `persistence.parse()` for validation. `readLensFromLocation()`, `clearLensFromLocation()`, `buildShareUrl(file)`. Uses browser-native `CompressionStream('gzip')` and `DecompressionStream('gzip')` (no new deps; both are in the spec's browser floor).
+- **`src/main.ts` boot**: `?lens=` takes precedence over the IDB workbook snapshot. On bad lens, fall back to IDB rather than empty state. URL is stripped via `replaceState` after the file is applied so refresh doesn't re-trigger the load.
+- **`src/main.ts` action**: new `share-link` case. Calls `serialize()`, `buildShareUrl()`, writes the URL to clipboard. Toast tells user if the URL is longer than `SOFT_URL_LIMIT` (7800 chars) and may be truncated by some chat tools.
+- **`src/ui/shell.ts`**: new "Share" button in the header (next to Save), using the existing `link` icon and `data-action="share-link"`.
+- **`tests/url-state.test.ts`** (new, 4 specs): round-trip preserves shape; compression ratio better than 0.6× naive base64; malformed base64 rejected; non-`.naklidata` payload rejected with `parse()`'s "Not a .naklidata file" error.
+- **`tests/e2e/url-state-share.spec.ts`** (new, 2 specs): producer-mounts-example → click Share (clipboard `writeText` stubbed for headless determinism) → consumer-context-opens-link → workbook + classified columns match producer + URL stripped via replaceState. Corrupted lens → empty state without page errors.
+
+### Quality
+
+- **`tests/e2e/playwright.config.ts`** aligned with the smoke-script env-var convention: `PLAYWRIGHT_CHROMIUM_PATH` first, falls back to legacy `CHROMIUM_PATH`, otherwise lets Playwright pick its bundled chromium. Also capped `workers: 2` — `--workers=4` (Playwright default = N cores) caused intermittent "Engine: ready" timeouts on parallel DuckDB-wasm boots. Override on a beefier box with `--workers=N`.
+- `dist/index.html` 316 KB (was 316 KB — url-state.ts adds ~2 KB code, no new deps). `dist/chunks/codemirror.js` 364 KB lazy unchanged.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- 64 vitest tests (was 60, +4 from url-state.test.ts), 6 Playwright e2e (was 4, +2 from url-state-share.spec.ts), smoke green.
+
+### What's next
+
+Theme 3 wave 2 remaining:
+1. **PWA installability** — `manifest.webmanifest` + service worker caching shell + `public/duckdb-fallback/`. Enables offline use after first load.
+2. **Multi-session sidebar** — OpenPlanter-style per-session workspaces. IDB keyspace per session + UI to switch.
+
+---
+
 ## 2026-05-17 (desktop pickup) — v1.0.0 tag landed; opening Theme 3 wave 2.
 
 ### What landed

@@ -1,19 +1,27 @@
-## Last update: 2026-05-17T05:45:00Z
-## Current milestone: **v1.0.0 tag landed on origin.** Annotated tag points at `5b10b93` per the handoff notes; pushed from desktop session. GitHub default branch switched to `main` (was the leftover `claude/agent-handoff-start-3c2Ib`). Now opening Theme 3 wave 2.
-## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; tsc clean; biome 0 errors / 14 warnings; 60 vitest + 4 e2e tests passing; headless smoke green on desktop (4 source tables mounted vs the sandbox's 3 — desktop reaches `extensions.duckdb.org` for the JSONL extension).
-## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit (smoke-script portability fix on top of the handoff-notes commit). `v1.0.0` tag pushed.
+## Last update: 2026-05-17T06:00:00Z
+## Current milestone: **Theme 3 wave 2 — item 1 (URL-state sharing) shipped.** `?lens=<base64>` round-trips the `.naklidata` description (no data); Share button in header; boot prefers URL state over IDB snapshot. v1.0.0 tag landed earlier this session. Next: PWA installability, then multi-session sidebar.
+## Build status: green — `dist/index.html` 316 KB; `dist/chunks/codemirror.js` 364 KB lazy; tsc clean; biome 0 errors / 14 warnings; **64 vitest + 6 Playwright e2e** passing; headless smoke green.
+## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at the latest desktop commit. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
 ## Active work — Theme 3 wave 2
 
-Order in this push:
-  1. URL-state sharing (`?lens=<base64>` round-trip of the `.naklidata` JSON, no data).
+Remaining in this push:
+  1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
   2. PWA installability (`manifest.webmanifest` + service worker caching the shell + DuckDB-fallback).
   3. Multi-session sidebar (OpenPlanter-style per-session workspaces).
 
 After Theme 3 wave 2:
   - **Theme 2** — visualization upgrade (Observable Plot lazy chunk + MapLibre map cell + pivot table).
   - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
+
+## Session highlights — 2026-05-17 (Theme 3 wave 2, item 1: URL-state sharing)
+
+- **New `src/core/url-state.ts`** — `encodeLensParam` / `decodeLensParam` via browser-native `CompressionStream('gzip')` + base64url. `buildShareUrl()`, `readLensFromLocation()`, `clearLensFromLocation()` complete the surface. No new dependencies.
+- **Boot precedence**: `?lens=` overrides the IDB workbook snapshot. On bad lens, fall back to IDB (not empty state) so a malformed link doesn't wipe the user's work. URL is stripped via `replaceState` after applying — refresh doesn't re-trigger.
+- **Share button** in the shell header (next to Save). Action `share-link` serializes the workbook, encodes, copies to clipboard. Soft warning when URL > 7.8 KB (some chat tools truncate).
+- 4 new vitest specs in `tests/url-state.test.ts` (round-trip, compression ratio, malformed-base64, non-`.naklidata` payload). 2 new Playwright specs in `tests/e2e/url-state-share.spec.ts` (Share-and-load round-trip with clipboard.writeText stubbed for headless determinism; corrupted-lens fallback).
+- `tests/e2e/playwright.config.ts`: env-var aligned with `scripts/smoke.mjs` convention (`PLAYWRIGHT_CHROMIUM_PATH`, fallback to legacy `CHROMIUM_PATH`, fallback to Playwright bundled chromium). Capped at `workers: 2` — default `workers: N-cores` caused intermittent engine-boot timeouts from parallel DuckDB-wasm boots.
 
 ## Session highlights — 2026-05-17 (desktop pickup, tag landed)
 

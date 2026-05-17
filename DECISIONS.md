@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-17 11:30 — URL-state sharing: gzip + base64url in `?lens=`
+**Context:** `plan/pending.md` Theme 3 wave 2 calls for `?lens=<base64>` round-tripping the `.naklidata` description (no data) so a user can share a workbook layout via URL. `.naklidata` JSON for a realistic workbook (e.g., the 4-source example bundle + 20 classified columns + 50 cells) is 5–50 KB. Naive base64 of that easily blows past common URL limits (~8 KB).
+**Options considered:** A) Plain base64 of the JSON — simple, but realistic workbooks won't fit in URL. B) Gzip-compress, then base64url-encode — same browser-floor APIs we already require (`CompressionStream`/`DecompressionStream` since Chrome/Edge/Opera 122+), no new deps, 3–5× smaller payloads on JSON. C) Bring in a JSON minifier + dictionary compression library — heavier, more code, marginal gain over gzip on JSON.
+**Decision:** B.
+**Reasoning:** `CompressionStream('gzip')` is exactly what the spec's browser floor already mandates, so no new capability requirement. Base64url (rather than plain base64) means the encoded string is URL-safe out of the box — no `encodeURIComponent` wrapping needed. New `src/core/url-state.ts` is ~85 lines; no dependencies. Reused `persistence.ts` `parse()` for decode-side validation so version checks + format check are honored exactly the same as a `.naklidata` file load. Soft warning at ~7.8 KB URL length (still copies; user gets a hint). On bad lens, fall back to the IDB snapshot rather than empty state — less surprising than wiping the user's work because someone sent them a malformed link.
+**Reversibility:** Easy. Remove `?lens=` handling in `main.ts` boot block + the `share-link` action + the Share button in `shell.ts`; `url-state.ts` becomes dead code that can be deleted.
+**Verification:** New `tests/url-state.test.ts` (4 vitest specs — round-trip, compression ratio, malformed-base64 rejection, non-`.naklidata`-payload rejection). New `tests/e2e/url-state-share.spec.ts` (2 Playwright specs — Share button → opening the link in a fresh context restores the workbook + URL is cleaned via replaceState; corrupted lens falls back to empty state without throwing). Bundle: 316 KB → 316 KB (url-state.ts adds ~2 KB code, no new dependencies). All 64 vitest + 6 e2e + smoke green.
+
+## 2026-05-17 11:30 — Playwright config: align env-var convention + cap workers at 2
+**Context:** `tests/e2e/playwright.config.ts` had the same web-sandbox hardcoded chromium path as `scripts/smoke.mjs` (under a `CHROMIUM_PATH` env var) and let Playwright fan out to N-CPU workers. On desktop with a fresh `npx playwright install chromium`, the hardcoded path doesn't exist; on a 4+ core machine, 4 parallel chromium processes booting DuckDB-wasm in parallel triggered "Engine: ready" timeouts on the slower workers.
+**Options considered:** A) Same env-var fallback pattern smoke.mjs uses (`PLAYWRIGHT_CHROMIUM_PATH`); B) Auto-detect via Playwright's default `executablePath` heuristic only; C) Set workers=1 to fully serialize.
+**Decision:** A + cap workers at 2.
+**Reasoning:** A keeps the sandbox harness working (it can export `PLAYWRIGHT_CHROMIUM_PATH` to override) without breaking on a vanilla desktop install. Falls through to the existing `CHROMIUM_PATH` env var for back-compat with anything already setting it. `workers: 2` is a middle ground — full speed-up over serial, but doesn't fight DuckDB-wasm boot for CPU/memory on typical dev laptops. Override at the command line with `--workers=N` on beefier boxes.
+**Reversibility:** Trivial — one file.
+**Verification:** All 6 e2e tests green with `--workers=2` (was 4 failing intermittently on `--workers=4` due to engine-boot timeouts).
+
 ## 2026-05-17 11:10 — Smoke script: env-var override for chromium path
 **Context:** `scripts/smoke.mjs` hardcoded `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (the web-sandbox path). Fresh clone on the user's desktop (macOS, Playwright installs to `~/Library/Caches/ms-playwright/`) fails immediately with "executable doesn't exist".
 **Options considered:** A) Always use Playwright's default `chromium.launch()` — works on desktop but breaks on the sandbox; B) Env-var override (`PLAYWRIGHT_CHROMIUM_PATH`) with Playwright's default when unset — works on both; C) Detect OS and branch.
