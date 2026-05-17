@@ -264,7 +264,7 @@ Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet
 - [x] Observable Plot lazy chunk — adds **stacked-bar**, **area-stacked**, **heatmap** (shipped 2026-05-17; DECISIONS 13:00). Pie + faceted small-multiples deferred — Plot doesn't ship a pie mark by design; faceting needs a third "facet-by" column picker on the chart cell.
 - [ ] MapLibre GL JS + deck.gl lazy chunk → new map cell type
 - [ ] DuckDB spatial extension → GeoJSON / Shapefile / KML mount
-- [ ] Pivot-table cell type (custom over DuckDB CUBE/ROLLUP)
+- [x] Pivot-table cell type — new cell kind alongside SQL/chart/markdown, in-memory pivot over the upstream SQL cell's `lastResult.rows` (no extra DuckDB query needed). Row × col × value with sum/avg/min/max/count; row + column + grand totals for sum/count. DECISIONS 2026-05-17 17:30. (Decided against the "custom over CUBE/ROLLUP" path the original bullet suggested — see entry for rationale.)
 - [ ] Schema-relationship-diagram view via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`
 
 ### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)

@@ -1,16 +1,16 @@
-## Last update: 2026-05-17T06:45:00Z
-## Current milestone: **Theme 2 wave 1 shipped — Observable Plot lazy chunk.** Three new chart types — `stacked-bar`, `area-stacked`, `heatmap` — via a lazy chunk (Plot stays out of the shell). Pie + faceted deferred (see DECISIONS 13:00). Earlier today: Theme 3 wave 2 complete (URL-state sharing + PWA + multi-session sidebar) and v1.0.0 tag landed. Next: rest of Theme 2 — map cell (MapLibre + DuckDB spatial), pivot-table cell, schema-relationship diagram (Cytoscape).
-## Build status: green — `dist/index.html` 324 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **77 vitest + 12 Playwright e2e** passing; headless smoke green.
-## Branch state: single `main` branch (the bootstrap `claude/agent-handoff-start-3c2Ib` was deleted local + remote after the v1.0 tag landed). `v1.0.0` tag pushed.
+## Last update: 2026-05-17T12:00:00Z
+## Current milestone: **Theme 2 wave 2 shipped — pivot-table cell** (new cell kind alongside SQL/chart/markdown; in-memory pivot over upstream `lastResult.rows`; sum/avg/min/max/count with row + col + grand totals for sum/count; DECISIONS 17:30). Theme 2 wave 1 (Observable Plot) shipped earlier. Theme 3 wave 2 complete; v1.0.0 tagged. Plan/checkpoint-2026-05-17.md captures the synthesis at end-of-session. Next push: schema-relationship diagram (Cytoscape, smallest remaining Theme 2 item) or map cell (MapLibre + spatial, heaviest).
+## Build status: green — `dist/index.html` 332 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **84 vitest + 13 Playwright e2e** passing; headless smoke green.
+## Branch state: single `main` branch. `v1.0.0` tag pushed.
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
-## Theme 2 — wave 1 complete
+## Theme 2 progress
 
-  1. ✅ Observable Plot lazy chunk → stacked-bar / area-stacked / heatmap (DECISIONS 13:00). Pie + faceted small-multiples deferred (see DECISIONS for reasons).
-  2. MapLibre GL JS + deck.gl lazy chunk → new map cell type.
-  3. DuckDB spatial extension → GeoJSON / Shapefile / KML mount (pairs with the map cell).
-  4. Pivot-table cell (custom over DuckDB CUBE/ROLLUP).
-  5. Schema-relationship-diagram via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`.
+  1. ✅ Observable Plot lazy chunk → stacked-bar / area-stacked / heatmap (DECISIONS 13:00). Pie + faceted small-multiples deferred.
+  2. ✅ Pivot-table cell — new cell kind, in-memory pivot, sum/avg/min/max/count (DECISIONS 17:30).
+  3. Schema-relationship-diagram via Cytoscape.js, fed by `taxonomy/v0.1/relationships.json`. Smallest remaining; recommended next.
+  4. MapLibre GL JS + deck.gl lazy chunk → new map cell type. Heaviest remaining; pair with the spatial extension in one push.
+  5. DuckDB spatial extension → GeoJSON / Shapefile / KML mount (pairs with the map cell).
 
 After Theme 2:
   - **Theme 1 wave 3** — sample-data regen + vendor DuckDB extensions for offline smoke.
@@ -21,6 +21,15 @@ After Theme 2:
   1. ✅ URL-state sharing (`?lens=<base64>`) — shipped.
   2. ✅ PWA installability — shipped (lite cache, not full; DECISIONS 11:50).
   3. ✅ Multi-session sidebar — shipped as a header dropdown (DECISIONS 12:10).
+
+## Session highlights — 2026-05-17 (Theme 2 wave 2: pivot-table cell)
+
+- **New cell kind** `'pivot'` alongside SQL / chart / markdown. `PivotCellState` in `src/ui/cells/types.ts` with input/row/col/value/agg pickers. `renderPivotCell` in `src/ui/cells/pivot-cell.ts` (~290 lines).
+- **In-memory pivot** over the upstream SQL cell's `lastResult.rows` — same pattern as chart-cell. No extra DuckDB query. `computePivot` is exported pure-function for unit testing.
+- **Aggregations**: sum / avg / min / max / count. `count` works without a value column. Row + column + grand totals shown only when totals are semantically meaningful (sum, count) — `hasMeaningfulTotals` flag gates the `<tfoot>` render.
+- **Display cap** 200 rows × 50 cols with a "more hidden" footnote. BIGINT + numeric-string coercion; non-numeric values silently dropped for sum/avg/min/max.
+- **Notebook** gets a "+ Pivot" toolbar button. `addCell('pivot')` seeds defaults.
+- 7 new vitest specs (pure-function pivot logic) + 1 new Playwright e2e (full UI flow: mount → SQL → run → add pivot → pick pickers → assert numeric cells + grand-total tfoot).
 
 ## Session highlights — 2026-05-17 (Theme 2 wave 1: Observable Plot lazy chunk)
 

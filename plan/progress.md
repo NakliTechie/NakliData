@@ -4,6 +4,46 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-17 (Theme 2 wave 2) — Pivot-table cell.
+
+### What landed
+
+- **`src/ui/cells/types.ts`**: new `PivotCellState` interface and `'pivot'` added to the `CellKind` union. Fields: `inputCell`, `rowCol`, `colCol`, `valueCol`, `agg`. Agg ∈ `'sum' | 'avg' | 'min' | 'max' | 'count'`.
+- **`src/ui/cells/pivot-cell.ts`** (new, ~290 lines). `renderPivotCell(cell, upstreamCells, handlers)` mirrors the chart-cell pattern: header has input + row/col/value/agg pickers + delete; output region renders a 2D table with row labels left, column labels top, aggregated cells inside, plus row totals, column totals, and a grand-total tfoot — gated by `hasMeaningfulTotals` (only sum + count). `computePivot(cell, rows)` is exported pure-function for unit testing. Display cap: 200 rows × 50 cols with a "more hidden" footnote. BIGINT + numeric-string coercion; non-numeric silently dropped for sum/avg/min/max.
+- **`src/ui/notebook.ts`**: `addCell('pivot')` seeds a new `PivotCellState` (defaults: agg=`sum`, everything else null). `renderNotebook` dispatches to `renderPivotCell`. Toolbar add row gets a "+ Pivot" button (alongside SQL / Markdown / Chart).
+
+### Why new cell kind, not chart-type variant; why in-memory, not extra query
+
+A pivot's output is structurally different from any chart type (2D
+table with margins, not a single SVG). Forcing it through the chart
+cell would mean the chart-cell renderer becomes a "pivot OR chart"
+dispatcher with no shared code — the wrong abstraction. In-memory
+compute over `upstream.lastResult.rows` reuses what's already on
+screen, no engine round-trip, instant re-render on picker changes.
+The "what if user needs more rows" case is handled by editing the
+upstream SQL, not by the pivot silently issuing a different query
+(consistent with the chart cell's behavior). Full reasoning at
+DECISIONS 2026-05-17 17:30.
+
+### Tests
+
+- **`tests/pivot.test.ts`** (new, 7 vitest specs). Pure-function `computePivot`: sum across 2×2 grid + row/col/grand totals; count without value column; avg/min/max; numeric coercion (string `'50'` + bigint `50n`, with `'oops'` + null dropped); null `rowCol` or `colCol` returns null; null `valueCol` with non-count agg returns null; empty input → empty grid.
+- **`tests/e2e/pivot-cell.spec.ts`** (new, 1 Playwright spec). End-to-end UI flow: mount example data → seeded SQL cell gets `SELECT vendor_name, payment_status, total_amount FROM invoices LIMIT 100` → run-all → click "+ Pivot" → pick input + row=vendor_name, col=payment_status, value=total_amount, agg=sum → assert the pivot table renders with numeric cells, header includes the col-value labels, and a `<tfoot>` row exists (grand-total path). The SQL-cell setter handles both the textarea and the post-CM6 `.cm-content` paths.
+
+### Quality
+
+- `dist/index.html` 332 KB (was 324 KB; +8 KB for the pivot cell + types + notebook plumbing). Well under the 600 KB shell budget. `dist/chunks/observable-plot.js` 273 KB lazy unchanged. `dist/chunks/codemirror.js` 364 KB lazy unchanged.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **84 vitest** (was 77; +7) + **13 Playwright e2e** (was 12; +1) + smoke green.
+
+### What's next (rest of Theme 2)
+
+1. **Schema-relationship-diagram via Cytoscape.js** — standalone view fed by `taxonomy/v0.1/relationships.json`. Smallest remaining Theme 2 item; lazy chunk to keep the shell budget intact.
+2. **Map cell** (MapLibre GL JS + deck.gl) + DuckDB spatial extension (GeoJSON / Shapefile / KML). Heaviest remaining; pair the cell and the mount path in one push.
+3. **Plot pie + faceted small-multiples** (still deferred from Theme 2 wave 1) — pair with the map cell's UI pass.
+
+---
+
 ## 2026-05-17 (Theme 2 wave 1) — Observable Plot lazy chunk: stacked-bar, area-stacked, heatmap.
 
 ### What landed

@@ -14,12 +14,14 @@ import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
+import { renderPivotCell } from './cells/pivot-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import type {
   CellHandlers,
   CellState,
   ChartCellState,
   MarkdownCellState,
+  PivotCellState,
   SqlCellState,
 } from './cells/types.ts';
 import { notebookCss } from './notebook.css.ts';
@@ -78,6 +80,18 @@ export class Notebook {
         name: null,
         code: '',
       } satisfies MarkdownCellState;
+    } else if (kind === 'pivot') {
+      cell = {
+        id: genCellId(),
+        kind: 'pivot',
+        order,
+        name: null,
+        inputCell: null,
+        rowCol: null,
+        colCol: null,
+        valueCol: null,
+        agg: 'sum',
+      } satisfies PivotCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -244,6 +258,7 @@ export function renderNotebook(
     if (cell.kind === 'sql') root.append(renderSqlCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'markdown') root.append(renderMarkdownCell(cell, handlers));
     else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
   }
 
   const addRow = document.createElement('div');
@@ -252,6 +267,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-sql">${iconSvg('plus', 12)} SQL</button>
     <button class="btn" data-nb-action="add-markdown">${iconSvg('plus', 12)} Markdown</button>
     <button class="btn" data-nb-action="add-chart">${iconSvg('plus', 12)} Chart</button>
+    <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')
@@ -262,5 +278,8 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-chart"]')
     ?.addEventListener('click', () => notebook.addCell('chart'));
+  addRow
+    .querySelector('[data-nb-action="add-pivot"]')
+    ?.addEventListener('click', () => notebook.addCell('pivot'));
   root.append(addRow);
 }

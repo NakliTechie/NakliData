@@ -1,6 +1,6 @@
 // Cell state types used by the notebook UI.
 
-export type CellKind = 'sql' | 'chart' | 'markdown';
+export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot';
 
 export interface SqlCellState {
   id: string;
@@ -43,7 +43,23 @@ export interface ChartCellState {
   y: string | null;
 }
 
-export type CellState = SqlCellState | MarkdownCellState | ChartCellState;
+export interface PivotCellState {
+  id: string;
+  kind: 'pivot';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose lastResult is pivoted. */
+  inputCell: string | null;
+  /** Column whose values become row labels (down the left). */
+  rowCol: string | null;
+  /** Column whose values become column labels (across the top). */
+  colCol: string | null;
+  /** Numeric column to aggregate. Optional for `count`. */
+  valueCol: string | null;
+  agg: 'sum' | 'avg' | 'min' | 'max' | 'count';
+}
+
+export type CellState = SqlCellState | MarkdownCellState | ChartCellState | PivotCellState;
 
 export interface SqlResult {
   columns: string[];
