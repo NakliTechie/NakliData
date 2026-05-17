@@ -1,8 +1,8 @@
-## Last update: 2026-05-17T03:50:00Z
-## Current milestone: Pre-v1.0-tag gates complete — CodeMirror 6 lazy chunk + DuckDB-wasm SRI pinning + README pass; ready to tag `v1.0.0`
+## Last update: 2026-05-17T04:40:00Z
+## Current milestone: Pre-v1.0-tag gates complete; `main` fast-forwarded to `5b10b93`; `v1.0.0` tag created locally but NOT pushed (harness git proxy returns 403). Desktop session needs to land the tag — see `plan/v1.0-handoff-notes.md`.
 ## Build status: green — `dist/index.html` 320 KB; `dist/chunks/codemirror.js` 370 KB lazy; tsc clean; biome 0 errors / 14 warnings; 60 vitest + 4 e2e tests passing; headless smoke green
-## Branch state: `claude/agent-handoff-start-3c2Ib` ahead of `main` with the pre-tag bundle; needs push + fast-forward
-## Deploy status: not yet deployed
+## Branch state: `main` and `claude/agent-handoff-start-3c2Ib` both at `5b10b93` (pushed). `v1.0.0` annotated tag is local-only.
+## Deploy status: not yet deployed; tag push pending desktop session
 
 ## Pick-up next session — see `plan/progress.md` for the full checkpoint
 
