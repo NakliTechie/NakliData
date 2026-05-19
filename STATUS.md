@@ -1,7 +1,7 @@
-## Last update: 2026-05-17T13:00:00Z
-## Current milestone: **Theme 2 complete** — wave 4 shipped: map cell (MapLibre lazy chunk; no basemap; DECISIONS 18:30) + GeoJSON/KML mount via DuckDB spatial extension. Theme 2 totals: 5/5 sub-items shipped today (Observable Plot ✓, pivot-table ✓, schema-graph ✓, map cell ✓, spatial mount ✓). Spec §3.1 supported formats: 13 → 15. Earlier today: Theme 3 wave 2 (URL-state + PWA + multi-session) + v1.0.0 tag landed. Next push: Theme 1 wave 3 (sample-data regen + vendored extensions for offline smoke), Theme 4 (quality polish), or AI sidecar (spec §4.3 + portfolio mandate).
-## Build status: green — `dist/index.html` 340 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/chunks/cytoscape-graph.js` 436 KB lazy; `dist/chunks/maplibre-map.js` 1.0 MB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **87 vitest + 17 Playwright e2e** passing; headless smoke green.
-## Branch state: single `main` branch. `v1.0.0` tag pushed.
+## Last update: 2026-05-18T17:00:00Z
+## Current milestone: **AI sidecar wave 1 shipped** — BYOK (sessionStorage default + opt-in IDB per spec amendment A2), Anthropic + OpenAI providers, settings modal in header, `explain-query-error` job wired to errored SQL cells with inline result + "Copy SQL" suggested-fix. DECISIONS 2026-05-18 17:00. Theme 2 + Theme 3 wave 2 + v1.0.0 tag landed earlier (2026-05-17). Next: sidecar wave 2 (type-disambiguation), or pivot to Theme 4 / Theme 1 wave 3 / v1.0 carryover.
+## Build status: green — `dist/index.html` 356 KB; `dist/chunks/codemirror.js` 364 KB lazy; `dist/chunks/observable-plot.js` 273 KB lazy; `dist/chunks/cytoscape-graph.js` 436 KB lazy; `dist/chunks/maplibre-map.js` 1.0 MB lazy; `dist/sw.js` 2.7 KB; tsc clean; biome 0 errors / 14 warnings; **104 vitest + 19 Playwright e2e** passing; headless smoke green.
+## Branch state: single `main` branch. `v1.0.0` tag pushed. Repo path now `~/Code/naklios-universe/NakliData/` (post-reorg).
 ## Deploy status: not yet deployed; tag is the release source-of-truth.
 
 ## Theme 2 — complete ✅

@@ -178,6 +178,20 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     div.className = 'cell-output-error';
     div.textContent = cell.lastError;
     container.append(div);
+
+    const actions = document.createElement('div');
+    actions.className = 'cell-output-error-actions';
+    actions.innerHTML = `
+      <button class="btn btn-ghost cell-sidecar-trigger" data-action="explain-error" data-cell-id="${cell.id}" hidden>
+        ${iconSvg('info', 12)} <span>Explain this error</span>
+      </button>
+    `;
+    container.append(actions);
+
+    const sidecar = document.createElement('div');
+    sidecar.className = 'cell-sidecar-result';
+    sidecar.dataset.region = `sidecar-result-${cell.id}`;
+    container.append(sidecar);
     return;
   }
   if (!cell.lastResult) {

@@ -2,6 +2,23 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-18 17:00 — AI sidecar wave 1: BYOK + explain-query-error, two providers, no local model yet
+**Context:** Spec §4.3 defines three sidecar jobs (type disambiguation, explain query error, define-new type assist) and a "Transformers.js + small model" default with BYOK Claude/OpenAI fallback. `plan/sidecar-architecture.md` argues the local-model path is a v1.2+ move because it depends on an eval harness we don't have. v1.1 should ship the BYOK path first to prove out the IPC + UI surface. Spec amendment A2 governs BYOK storage: sessionStorage by default + opt-in plaintext IDB with explicit user labelling.
+**Options considered for the first shipping wave:**
+- A) **BYOK-only sidecar, explain-query-error first** (chosen). One job, two providers (Anthropic + OpenAI), full BYOK storage + settings modal. Lays down all the plumbing; the other two jobs come in follow-up waves.
+- B) Ship all three jobs at once. Larger first PR; harder to review; prompts for each job are independent so there's no leverage in bundling.
+- C) Start with the local Transformers.js path. Drags in the eval-harness question that's explicitly v1.2+; doesn't ship a working sidecar today.
+**Decision:** A. **explain-query-error** is the first job because (1) trigger is unambiguous (errored SQL cell), (2) input is bounded (SQL + error + optional schema hint), and (3) output is short (1-3 sentences + optional suggested SQL) so it's cheap on every model.
+**Reasoning:**
+- **Two providers from the start**, not one. Portfolio mandate is "BYOK is non-negotiable"; locking users to Anthropic on day one would be hostile. Anthropic + OpenAI cover the obvious cases; OpenAI-compatible custom-endpoint support can land in a later wave.
+- **Browser-origin direct calls**, not via a relay. Anthropic supports the `anthropic-dangerous-direct-browser-access` header; OpenAI's CORS is open. Adding a relay would solve nothing today (the key is exposed to the user's tab either way) and would introduce a server piece v1.1 deliberately doesn't have.
+- **CSP changes**: `connect-src` extended with `https://api.anthropic.com` + `https://api.openai.com`. Hard-coded for v1.1; custom-endpoint support means revisiting this.
+- **Structured outputs**: system prompt forces JSON `{explanation, suggested_fix}`. Markdown code-fence stripping is defensive — some models add fences despite the rule. `suggested_fix` is null when the model isn't confident; the UI never auto-applies it (Hard NOT #4) — the user clicks "Copy SQL" which writes to clipboard.
+- **Storage**: `src/core/sidecar/byok.ts` exposes `saveKey / loadKey / locateKey / forgetKey / forgetAllKeys`. sessionStorage path uses `naklidata.byok.<provider>`; IDB path uses `sidecar/byok/<provider>` in the shared kv store. `saveKey` clears the other store first so a key is never in both places.
+- **Visibility**: sidecar disabled by default. Settings → Enable adds `.app-sidecar-enabled` to the app root; CSS gates the "Explain this error" button on errored SQL cells via that class.
+**Reversibility:** Easy. Delete `src/core/sidecar/`, `src/ui/settings-modal.ts`, the Settings header button, the per-cell Explain button, the CSP additions, the sidecar settings fields, the two sidecar test files. No dependencies were added.
+**Verification:** 17 new vitest specs across `tests/sidecar-byok.test.ts` (7) and `tests/sidecar-client.test.ts` (10). 2 new Playwright e2e specs in `tests/e2e/sidecar-flow.spec.ts`. `dist/index.html` 356 KB (was 340; +16 KB; well under 600 KB shell budget). `tsc` clean. `biome` 0 errors / 14 warnings (pre-existing). 104 vitest + 19 Playwright e2e + smoke green.
+
 ## 2026-05-17 18:30 — Map cell + GeoJSON mount: MapLibre lazy chunk, no basemap, DuckDB spatial extension
 **Context:** Theme 2's last item is a map cell + a way to mount geographic files. Three layered choices: (a) what map renderer (MapLibre vs Leaflet vs custom SVG); (b) whether to include deck.gl for >10k-point performance; (c) tile basemap source (or no basemap); (d) how to mount `.geojson` files (DuckDB spatial extension's `ST_Read` vs `read_json_auto` with manual unpacking).
 **Options considered:**

@@ -82,7 +82,7 @@ async function buildShell() {
       "default-src 'self'",
       `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}'`,
       "worker-src 'self' blob:",
-      "connect-src 'self' https://cdn.jsdelivr.net https://extensions.duckdb.org https://*.naklitechie.com",
+      "connect-src 'self' https://cdn.jsdelivr.net https://extensions.duckdb.org https://*.naklitechie.com https://api.anthropic.com https://api.openai.com",
       "img-src 'self' data: blob:",
       "style-src 'self' 'unsafe-inline'",
     ].join('; ');

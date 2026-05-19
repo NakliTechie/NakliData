@@ -21,6 +21,8 @@ import {
   setActiveSession,
 } from './core/sessions.ts';
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
+import { dispatchJob } from './core/sidecar/client.ts';
+import { SidecarError } from './core/sidecar/types.ts';
 import {
   buildShareUrl,
   clearLensFromLocation,
@@ -33,6 +35,7 @@ import type { ClassificationResult } from './taxonomy/types.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
+import { openSettingsModal } from './ui/settings-modal.ts';
 import {
   type ShellState,
   mountShell,
@@ -228,10 +231,12 @@ async function switchToSession(engine: Engine, root: HTMLElement, id: string): P
  * have nothing to restore and that's normal.
  */
 async function restoreFromActiveSession(engine: Engine): Promise<void> {
-  // 1. Settings (small; just the threshold for now).
+  // 1. Settings (auto-accept threshold + sidecar provider/model/enabled).
   try {
     const settings = await loadSettings();
     getWorkbook().setAutoAcceptThreshold(settings.autoAcceptThreshold);
+    const root = document.getElementById('app');
+    root?.classList.toggle('app-sidecar-enabled', settings.sidecarEnabled);
   } catch (err) {
     console.warn('[naklidata] settings load failed', err);
   }
@@ -295,9 +300,13 @@ async function persistSnapshot(engine: Engine): Promise<void> {
   // cross-session default (each session also persists its own value via
   // the snapshot, but a fresh session reads from settings).
   try {
+    // Read current settings so sidecar fields (which the modal owns)
+    // aren't clobbered by this workbook-driven save. Only update what
+    // belongs to the workbook (auto-accept threshold).
+    const current = await loadSettings();
     const settings: Settings = {
+      ...current,
       autoAcceptThreshold: wb.autoAcceptThreshold,
-      sidecarEnabled: false, // v1.1 placeholder; settings UI lands later
     };
     await saveSettings(settings);
   } catch (err) {
@@ -521,6 +530,33 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-schema-graph': {
       void openSchemaGraph();
+      return;
+    }
+    case 'open-settings': {
+      void openSettingsModal();
+      return;
+    }
+    case 'explain-error': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      await runExplainError(engine, cellId);
+      return;
+    }
+    case 'copy-suggested-fix': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      const pre = document.querySelector<HTMLElement>(
+        `[data-region="sidecar-result-${cellId}"] [data-suggested-sql]`,
+      );
+      const sql = pre?.dataset.suggestedSql ?? '';
+      if (!sql) return;
+      try {
+        await navigator.clipboard.writeText(sql);
+        toast('Suggested SQL copied. Paste into the cell to try it.');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(`Couldn't copy: ${msg}`, 'error');
+      }
       return;
     }
     case 'share-link': {
@@ -931,6 +967,97 @@ async function pickSingleFile(): Promise<File | null> {
     input.click();
   });
 }
+
+// ---- Sidecar wiring -------------------------------------------------
+//
+// Visibility of the per-cell "Explain this error" button is gated by
+// `.app-sidecar-enabled` on the root element. The class is toggled in
+// two places: (1) on boot inside `restoreFromActiveSession` based on
+// the saved `sidecarEnabled` setting, and (2) inside the settings
+// modal's change handler when the user flips the toggle.
+
+/**
+ * Build a compact schema hint string ("table.column[, …]") for the
+ * sidecar to disambiguate typos + missing-table errors. Caps at 6
+ * tables / 12 columns per table so we don't ship the whole workbook
+ * over BYOK on every Explain click.
+ */
+function buildSchemaHint(): string {
+  const wb = getWorkbook().get();
+  const lines: string[] = [];
+  let tables = 0;
+  outer: for (const src of wb.sources) {
+    for (const t of src.tables) {
+      const cols = Object.values(wb.assignments)
+        .filter((a) => a.columnName && t.name)
+        .map((a) => a.columnName)
+        .slice(0, 12);
+      const tableLine =
+        cols.length > 0 ? `${t.name}: ${cols.join(', ')}` : `${t.name}: (columns unmapped)`;
+      lines.push(tableLine);
+      tables++;
+      if (tables >= 6) break outer;
+    }
+  }
+  return lines.join('\n');
+}
+
+async function runExplainError(engine: Engine, cellId: string): Promise<void> {
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastError) {
+    toast('Nothing to explain (cell has no error).');
+    return;
+  }
+  const mount = document.querySelector<HTMLElement>(`[data-region="sidecar-result-${cellId}"]`);
+  if (!mount) return;
+  mount.innerHTML = '<div class="cell-sidecar-loading">Asking the sidecar…</div>';
+
+  const settings = await loadSettings();
+  try {
+    const result = await dispatchJob(
+      {
+        kind: 'explain-error',
+        sql: cell.code,
+        errorMessage: cell.lastError,
+        schemaHint: buildSchemaHint(),
+      },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+      },
+    );
+    const explanation = escapeText(result.explanation);
+    const fix = result.suggestedFix
+      ? `<pre class="cell-sidecar-suggested" data-suggested-sql="${escapeText(result.suggestedFix)}"><code>${escapeText(result.suggestedFix)}</code></pre>
+         <button class="btn btn-ghost" data-action="copy-suggested-fix" data-cell-id="${cellId}">
+           Copy SQL
+         </button>`
+      : '';
+    mount.innerHTML = `
+      <div class="cell-sidecar-explanation">${explanation}</div>
+      ${fix}
+      <div class="cell-sidecar-footnote">via ${escapeText(settings.sidecarProvider)} · ${escapeText(settings.sidecarModel)}</div>
+    `;
+  } catch (err) {
+    const msg =
+      err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
+    mount.innerHTML = `<div class="cell-sidecar-error">Sidecar: ${escapeText(msg)}</div>`;
+    if (err instanceof SidecarError && err.kind === 'no-key') {
+      mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
+    }
+  }
+}
+
+function escapeText(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ---- Toast ----------------------------------------------------------
 
 let toastTimer: number | null = null;
 function toast(message: string, kind: 'info' | 'error' = 'info'): void {

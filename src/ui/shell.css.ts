@@ -419,4 +419,151 @@ button {
   min-height: 0;
   background: var(--bg);
 }
+
+/* Settings modal — reuses .schema-graph-overlay + .schema-graph-modal
+   with .settings-overlay / .settings-modal modifiers for layout tweaks. */
+.settings-modal {
+  width: min(720px, 100%);
+  height: auto;
+  max-height: 90vh;
+}
+.settings-body {
+  padding: var(--space-5);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.settings-section h2 {
+  margin: 0 0 var(--space-3);
+  font-size: ${Type.size.md};
+  font-weight: ${Type.weight.semibold};
+}
+.settings-radio-row {
+  display: flex;
+  gap: var(--space-5);
+  margin-bottom: var(--space-3);
+}
+.settings-radio-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.settings-field span {
+  font-size: ${Type.size.sm};
+  color: var(--text-muted);
+}
+.settings-field input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  background: var(--surface);
+}
+.settings-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: ${Type.size.sm};
+  margin: var(--space-2) 0;
+}
+.settings-provider-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--surface);
+}
+.settings-provider-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.settings-active-pill {
+  font-size: ${Type.size.xs};
+  background: var(--accent);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.settings-provider-status {
+  font-size: ${Type.size.sm};
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+.settings-hint {
+  font-size: ${Type.size.xs};
+  color: var(--text-muted);
+  margin: var(--space-2) 0 0;
+}
+.settings-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Sidecar — Explain-this-error UI on errored SQL cells.
+   Hidden by default; shown when the app root has .app-sidecar-enabled. */
+.cell-output-error-actions {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}
+.cell-sidecar-trigger {
+  font-size: ${Type.size.sm};
+  display: none;
+}
+.app-sidecar-enabled .cell-sidecar-trigger {
+  display: inline-flex;
+}
+.cell-sidecar-result {
+  margin-top: var(--space-3);
+}
+.cell-sidecar-result:empty {
+  display: none;
+}
+.cell-sidecar-loading {
+  color: var(--text-muted);
+  font-size: ${Type.size.sm};
+}
+.cell-sidecar-explanation {
+  background: var(--surface-alt);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: ${Type.size.sm};
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.cell-sidecar-suggested {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin: var(--space-3) 0 var(--space-2);
+  overflow: auto;
+  font-size: ${Type.size.sm};
+  font-family: var(--font-mono);
+}
+.cell-sidecar-footnote {
+  color: var(--text-muted);
+  font-size: ${Type.size.xs};
+  margin-top: var(--space-2);
+}
+.cell-sidecar-error {
+  background: #F6D6D3;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-size: ${Type.size.sm};
+}
 `;

@@ -4,6 +4,60 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-18 (AI sidecar wave 1) — BYOK + explain-query-error end-to-end.
+
+### What landed
+
+- **`src/core/sidecar/`** (new module, ~400 lines total): `types.ts` (provider/job/response unions + `SidecarError`), `byok.ts` (per spec amendment A2 — sessionStorage default, opt-in IDB, last-4-char preview, "switching storage clears the other location" invariant), `providers/anthropic.ts` (Messages API with `anthropic-dangerous-direct-browser-access`), `providers/openai.ts` (Chat Completions with Bearer auth), `client.ts` (top-level `dispatchJob` with stubbable transport for tests; `buildExplainErrorPrompt` + `parseExplainErrorResponse` exported pure-function).
+- **`src/core/settings.ts`** extended with `sidecarProvider` + `sidecarModel`.
+- **`src/ui/settings-modal.ts`** (new, ~250 lines): sidecar enable, active-provider radio, model input, per-provider blocks with status line (formatStatus reads `locateKey` → "Not configured" / "In sessionStorage (••••xxxx). Will clear when you close this tab." / "Stored on this device (••••xxxx). Anyone with access to this browser profile can read it.") + per-provider forget + global "Forget all stored keys". Verbatim A2 wording.
+- **`src/ui/shell.ts`** new Settings button in the header.
+- **`src/ui/cells/sql-cell.ts`**: errored output gains a `cell-output-error-actions` row with an "Explain this error" button (hidden until `.app-sidecar-enabled`) and a `cell-sidecar-result` region for the response.
+- **`src/main.ts`** new actions `open-settings`, `explain-error`, `copy-suggested-fix`. `runExplainError` reads cell's `code` + `lastError`, builds a compact schema hint (capped at 6 tables / 12 columns), dispatches, renders. `restoreFromActiveSession` toggles `.app-sidecar-enabled` from saved settings. `persistSnapshot` preserves sidecar fields (was clobbering on workbook autosave).
+- **CSP**: `connect-src` extended with `https://api.anthropic.com` + `https://api.openai.com` in both `src/index.html` (dev) and `esbuild.config.mjs` (prod).
+- **`src/ui/shell.css.ts`**: settings-modal styles + sidecar-result block styles (explanation card with accent border-left, suggested-fix code block, footnote with provider/model, error state).
+
+### Why this scope for wave 1
+
+Spec §4.3 lists three jobs but prompts for each are independent —
+bundling gains nothing. **explain-query-error** has the most
+unambiguous trigger (errored SQL cell), cleanest input shape (SQL +
+error + optional schema hint), and shortest output (1–3 sentences +
+optional suggested SQL). Ship one job end-to-end with full BYOK +
+settings + visibility plumbing; add the other two in follow-up waves.
+Two providers shipped together since portfolio mandate forbids
+provider lock-in. Full reasoning at DECISIONS 2026-05-18 17:00.
+
+### Hard-NOT compliance
+
+- **#2 (no persistent BYOK by default)**: sessionStorage is default; IDB is opt-in via a labelled checkbox.
+- **#4 (no auto-execute LLM SQL)**: suggested-fix renders as `<pre>` with "Copy SQL" → clipboard. No editor mutation, no auto-run.
+- **#7 (no third-party scripts beyond SRI-pinned DuckDB CDN)**: sidecar calls APIs via `fetch`, not script tags. CSP `connect-src` extension is to whitelisted JSON endpoints only.
+- **Prose-narration boundary**: the explanation IS prose (spec explicitly allows it for the error-explanation job). The narration constraint applies to query-result summaries; separate surface.
+
+### Tests
+
+- **`tests/sidecar-byok.test.ts`** (7 vitest specs): default-sessionStorage, opt-in IDB, switching-clears-the-other invariant, locate-when-empty, forget-from-both-stores, forget-all, empty-key rejection. vi.mock IDB + MemoryStorage shim for `globalThis.sessionStorage`.
+- **`tests/sidecar-client.test.ts`** (10 vitest specs): `buildExplainErrorPrompt` shape, `parseExplainErrorResponse` (clean / fenced / null-fix / malformed / missing-explanation), `dispatchJob` no-key, dispatch happy path with stubbed transport (verifies provider/model/key/system/user wiring), transport-error propagation.
+- **`tests/e2e/sidecar-flow.spec.ts`** (2 Playwright specs): full UI flow with `page.route('https://api.anthropic.com/v1/messages', …)` returning a canned JSON response — open Settings → enable sidecar (verifies `.app-sidecar-enabled` on root) → save key → status line flips to "In sessionStorage (••••)" → close modal → trigger SQL error → click Explain → assert exactly 1 Anthropic call + explanation + suggested-fix rendered. Second spec: enable sidecar with no key → Explain → no-key error + "Open Settings" affordance visible.
+
+### Quality
+
+- `dist/index.html` 356 KB (was 340; +16 KB for sidecar code + settings modal + CSS). Well under 600 KB budget.
+- Lazy chunks unchanged (sidecar dispatch lives in the main bundle because every errored cell needs it).
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **104 vitest** (was 87; +17) + **19 Playwright e2e** (was 17; +2) + smoke green.
+
+### What's next (sidecar arc)
+
+1. **Wave 2 — type disambiguation** (spec §4.3 job 1). Schema panel's per-column candidate menu gets "Ask sidecar" for columns with confidence ∈ [0.5, 0.9]. One-token answer; temperature 0; output is `typeId` from the candidate list or `unknown`.
+2. **Wave 3 — define-new type assist** (spec §4.3 job 3). User picks a column → sidecar suggests `{id, display_name, category, regex}`. Lives in the schema panel's "User type" workflow.
+3. **Eval harness (v1.2)** — `plan/sidecar-architecture.md` makes the case that without held-out evals we can't honestly compare prompted vs LoRA. Per-job synthetic data generators + accuracy metrics.
+4. **Custom-endpoint support** — OpenAI-compatible URL field for users running local llamafiles / vLLM. Needs a CSP rethink (current explicit-host whitelist won't work).
+5. **Local model path (v1.2+)** — Transformers.js + Phi-3-mini-class (~150 MB OPFS). Opt-in fallback to BYOK if not downloaded.
+
+---
+
 ## 2026-05-17 (Theme 2 wave 4) — Map cell + GeoJSON/KML mount. **Theme 2 complete.**
 
 ### What landed

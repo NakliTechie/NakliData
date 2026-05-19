@@ -49,6 +49,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="share-link" title="Copy share link (no data, just the workbook description)">
         ${iconSvg('link', 14)} <span>Share</span>
       </button>
+      <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
+        ${iconSvg('info', 14)} <span>Settings</span>
+      </button>
     </div>
   `;
   return el;

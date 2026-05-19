@@ -7,17 +7,24 @@
 // not the file.
 
 import { kvGet, kvPut } from './idb.ts';
+import type { SidecarProvider } from './sidecar/types.ts';
 
 export interface Settings {
   /** 0.5 .. 1.0 — slider in the schema panel. */
   autoAcceptThreshold: number;
-  /** Sidecar enable (v1.1 placeholder). */
+  /** Sidecar enable. When false, the Explain button + other sidecar entry points are hidden. */
   sidecarEnabled: boolean;
+  /** Which BYOK provider the dispatch layer talks to. */
+  sidecarProvider: SidecarProvider;
+  /** Provider model id (e.g., `claude-3-5-haiku-latest`). */
+  sidecarModel: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   autoAcceptThreshold: 0.9,
   sidecarEnabled: false,
+  sidecarProvider: 'anthropic',
+  sidecarModel: 'claude-3-5-haiku-latest',
 };
 
 const KEY = 'settings/v1';
@@ -38,6 +45,12 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
     out.autoAcceptThreshold = clamp(s.autoAcceptThreshold, 0.5, 1);
   }
   if (typeof s.sidecarEnabled === 'boolean') out.sidecarEnabled = s.sidecarEnabled;
+  if (s.sidecarProvider === 'anthropic' || s.sidecarProvider === 'openai') {
+    out.sidecarProvider = s.sidecarProvider;
+  }
+  if (typeof s.sidecarModel === 'string' && s.sidecarModel.trim()) {
+    out.sidecarModel = s.sidecarModel.trim();
+  }
   return out;
 }
 
