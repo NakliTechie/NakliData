@@ -566,4 +566,42 @@ button {
   padding: var(--space-3);
   font-size: ${Type.size.sm};
 }
+
+/* Define-new-type modal — reuses .schema-graph-overlay + .schema-graph-modal
+   with a column-split body (sample context on the left, form on the right). */
+.define-type-modal {
+  width: min(880px, 100%);
+  height: auto;
+  max-height: 90vh;
+}
+.define-type-body {
+  padding: var(--space-5);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  overflow: auto;
+}
+.define-type-context,
+.define-type-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.define-type-context textarea,
+.define-type-form textarea,
+.define-type-context input,
+.define-type-form input {
+  font-family: var(--font-mono);
+  font-size: ${Type.size.sm};
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.define-type-context input:disabled,
+.define-type-context textarea:disabled {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
 `;

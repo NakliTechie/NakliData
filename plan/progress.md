@@ -4,6 +4,72 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-18 (AI sidecar wave 3) — Define-new-type assist + per-workbook user types. **Sidecar arc complete for v1.1.**
+
+### What landed
+
+- **`src/core/workbook.ts`**: new `UserType` interface (`{id, display_name, category, regex, created, note?}`). `WorkbookState.userTypes: UserType[]`. Three mutators: `addUserType / removeUserType / setUserTypes`. `clear()` resets the array.
+- **`src/core/persistence.ts`**: `SerializeInput.userTypes?` accepted; `serialize()` writes them into the file's `user_types` field (was a placeholder `unknown[]`). The `NakliDataFile.user_types` type tightened from `unknown[]` to `UserType[]`. v1.0 files with `user_types: []` continue to load fine.
+- **`src/main.ts`** all three `serialize()` call sites (persistSnapshot, save action, share-link) pass `wb.userTypes`. `applyLoadedFile` restores via `workbook.setUserTypes(file.user_types ?? [])` immediately after `clear()`. New action `define-new-type` resolves source/table from workbook, opens the modal.
+- **`src/core/sidecar/types.ts`**: `DefineTypeJob` (`columnName / sqlType / samples`) + `DefineTypeResponse` (`suggestion: {id, display_name, category, regex}`) added to the unions.
+- **`src/core/sidecar/client.ts`**: new dispatch case + `buildDefineTypePrompt` + `parseDefineTypeResponse`. Parser validates id (`/^[a-z][a-z0-9_]*$/`), all four fields non-empty, regex compiles via `new RegExp(regex)`. Failures throw `SidecarError` with `kind: 'parse'` so the UI can surface them before saving a broken type.
+- **`src/ui/define-type-modal.ts`** (new, ~280 lines): per-column dialog. Re-samples values via `engine.sampleColumn`; shows column header + SQL type + 20 sample values (read-only context). Form fields: id / display_name / category / regex (editable). "Suggest with sidecar" populates the form. "Save + apply" validates locally (snake_case id + compiles regex), then `workbook.addUserType(...)` + `workbook.setAssignment(key, {... origin: 'user_override', typeId: id ...})` to apply to the source column.
+- **`src/ui/schema-panel.ts`**: `SchemaPanelState` gains `userTypes`. Override dropdown renders a **User types** group at the top (after "unknown"), with the accent color in the header. "+ Define new type from this column…" appears at the bottom of the dropdown, bubbling a `data-action="define-new-type"` with the column's data attrs.
+- **`src/ui/shell.css.ts`**: `.define-type-modal` (reuses `.schema-graph-overlay` + `.schema-graph-modal`) with a 2-column body layout (sample context left, form right). Mono font for fields. Disabled inputs use surface-alt + muted text.
+
+### Why these choices
+
+- **Per-workbook user types** (not global): matches NakliData's "workbook is the unit" model. `.naklidata` files carry their types; cross-machine portability comes for free via file sharing. A global "my custom types" library is a possible v1.2+ feature.
+- **Override-menu trigger** (not a standalone button per column): discoverable in the natural override workflow; doesn't clutter the schema row.
+- **Synced suggest + edit modal** (both paths through the same save chain): the user gets sidecar assist when configured, falls back to manual entry when not. Pure-suggestion would lock out users without keys; pure-edit would miss the AI assist that's the point of wave 3.
+- **Strict parser validation** (snake_case id + RegExp compile): a saved user type with a broken regex would break override application + (eventually) classification. Throw `SidecarError` so the modal can show a friendly error before saving a broken spec.
+- **Classifier integration deferred**: user types are application targets (via Override) but not auto-detection targets. The classifier worker would need to re-load when a user type changes — bigger work for a future wave.
+
+Full reasoning at DECISIONS 2026-05-18 19:00.
+
+### Tests
+
+- **`tests/sidecar-client.test.ts`** (+9 vitest specs):
+  - `buildDefineTypePrompt` — embeds column header + SQL type + samples (capped at 20).
+  - `parseDefineTypeResponse` — clean JSON, fenced JSON, malformed JSON, missing fields, non-snake_case id rejection, invalid-regex rejection.
+  - `dispatchJob` happy path with stubbed transport.
+
+No new e2e — the modal opens via a real menu click (covered by existing schema-panel rendering tests), sample re-fetch via `engine.sampleColumn` (covered by classifier tests), sidecar dispatch via the same machinery as waves 1+2 (covered by `sidecar-flow.spec.ts`). The integration risk on top of those is small.
+
+### Quality
+
+- `dist/index.html` 372 KB (was 360; +12 KB for modal + persistence + schema-panel changes). Well under the 600 KB shell budget.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **123 vitest** (was 114; +9) + 19 Playwright e2e + smoke green.
+
+### Sidecar arc — done for v1.1
+
+All three spec §4.3 jobs are now live:
+
+| Wave | Job | Trigger |
+| --- | --- | --- |
+| 1 | explain-query-error | "Explain this error" button on errored SQL cells |
+| 2 | disambiguate-type | "Ask sidecar" button on ambiguous schema-panel columns |
+| 3 | define-type | "+ Define new type from this column…" in the Override dropdown |
+
+Plus full BYOK plumbing (sessionStorage + opt-in IDB), settings modal,
+two providers (Anthropic + OpenAI), per-workbook user-type persistence
+(via the `.naklidata` `user_types` field — was a placeholder).
+
+### What's next (outside the sidecar arc)
+
+From `plan/checkpoint-2026-05-17-eod.md`:
+
+- **Theme 4** — schema + data quality polish. Column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode. Direct extension of the spec's most-important surface.
+- **Theme 1 wave 3** — test infrastructure. Sample-data regen + vendor DuckDB extensions for offline-grade smoke.
+- **v1.0 review carryover** — CM6 lazy-mount eyeball, SRI scenario, README audit, 11 agent-seeded taxonomy types review, save-load flake fix.
+- **Custom-endpoint sidecar support** — OpenAI-compatible URL field for local llamafiles / vLLM. CSP rethink required.
+- **Eval harness (v1.2)** — per spec amendment-architecture path. Without held-out evals we can't honestly compare prompted vs LoRA.
+- **Local-model path (v1.2+)** — Transformers.js + Phi-3-mini-class (~150 MB OPFS). Opt-in fallback when no BYOK key.
+- **LoRA-Gemma 4 E2B (v1.3+)** — opt-in high-accuracy mode.
+
+---
+
 ## 2026-05-18 (AI sidecar wave 2) — Type disambiguation on ambiguous schema columns.
 
 ### What landed

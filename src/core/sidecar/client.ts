@@ -9,6 +9,8 @@ import { loadKey } from './byok.ts';
 import { callAnthropic } from './providers/anthropic.ts';
 import { callOpenAI } from './providers/openai.ts';
 import {
+  type DefineTypeJob,
+  type DefineTypeResponse,
   type DisambiguateTypeJob,
   type DisambiguateTypeResponse,
   type ExplainErrorJob,
@@ -92,6 +94,18 @@ export async function dispatchJob(
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseDisambiguateTypeResponse(raw, job.candidates);
+  }
+  if (job.kind === 'define-type') {
+    const { system, user } = buildDefineTypePrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseDefineTypeResponse(raw);
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
@@ -192,6 +206,94 @@ export function parseDisambiguateTypeResponse(
   // The model returned a string that isn't in the candidate list. Treat as 'unknown'.
   // (We don't throw here — coercing to null is more user-friendly than failing.)
   return { kind: 'disambiguate-type', typeId: null };
+}
+
+// ---- define-type prompt + parser ------------------------------------
+
+const DEFINE_TYPE_SYSTEM = `You are NakliData's sidecar helping the user define a new semantic type for a column the classifier didn't recognise.
+
+Given the column header and sample values, suggest a type specification.
+
+Output strictly as JSON in this shape:
+
+{
+  "id": "<snake_case_id>",
+  "display_name": "<Human Readable>",
+  "category": "<one short label like 'Identifier' / 'Code' / 'Email' / 'Date' / 'Domain-specific'>",
+  "regex": "<JavaScript-compatible regex, with anchors ^ and $, no leading/trailing slashes>"
+}
+
+Hard rules:
+- Output ONLY the JSON object. No markdown code fences. No commentary outside the JSON.
+- "id" is snake_case (lowercase letters / digits / underscores; starts with a letter). Choose a short, meaningful id (e.g., \`employee_id\`, \`order_no\`, \`isbn_13\`).
+- "display_name" is Title Case, no more than 3 words.
+- "category" is one short label, capitalised. Pick "Identifier" when the column looks like a key, "Code" for short codes, "Email" / "Phone" / "Date" / "URL" / "Currency" for those, otherwise "Domain-specific".
+- "regex" must include anchors (^ and $) and match every sample value provided. Never emit \`.*\` or \`.+\` as the entire pattern — that's useless. If the samples don't share a clear pattern, return a regex that matches their character class + length range.`;
+
+export function buildDefineTypePrompt(job: DefineTypeJob): {
+  system: string;
+  user: string;
+} {
+  const samplesBlock = job.samples.slice(0, 20).join('\n');
+  const user = [
+    `Column header: ${job.columnName}`,
+    `SQL type: ${job.sqlType}`,
+    '',
+    'Sample values:',
+    samplesBlock,
+  ].join('\n');
+  return { system: DEFINE_TYPE_SYSTEM, user };
+}
+
+const ID_REGEX = /^[a-z][a-z0-9_]*$/;
+
+export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  let parsed: {
+    id?: unknown;
+    display_name?: unknown;
+    category?: unknown;
+    regex?: unknown;
+  };
+  try {
+    parsed = JSON.parse(stripped) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  const id = typeof parsed.id === 'string' ? parsed.id.trim() : '';
+  const display_name = typeof parsed.display_name === 'string' ? parsed.display_name.trim() : '';
+  const category = typeof parsed.category === 'string' ? parsed.category.trim() : '';
+  const regex = typeof parsed.regex === 'string' ? parsed.regex.trim() : '';
+  if (!id || !display_name || !category || !regex) {
+    throw new SidecarError(
+      'Sidecar response missing one of {id, display_name, category, regex}.',
+      'parse',
+    );
+  }
+  if (!ID_REGEX.test(id)) {
+    throw new SidecarError(`Sidecar returned a non-snake_case id: ${id}`, 'parse');
+  }
+  // Verify the regex compiles. If it doesn't, surface the failure so the
+  // UI can show the user a helpful error before they save the type.
+  try {
+    new RegExp(regex);
+  } catch (err) {
+    throw new SidecarError(
+      `Sidecar returned an invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  return {
+    kind: 'define-type',
+    suggestion: { id, display_name, category, regex },
+  };
 }
 
 // ---- explain-error parser -------------------------------------------

@@ -25,7 +25,7 @@ export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderCon
 };
 
 /** A sidecar job is a tagged input asking the model to do one specific thing. */
-export type SidecarJob = ExplainErrorJob | DisambiguateTypeJob;
+export type SidecarJob = ExplainErrorJob | DisambiguateTypeJob | DefineTypeJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -53,8 +53,18 @@ export interface DisambiguateTypeJob {
   candidates: Array<{ typeId: string; displayName: string }>;
 }
 
+export interface DefineTypeJob {
+  kind: 'define-type';
+  /** Column header name. */
+  columnName: string;
+  /** DuckDB SQL type for the column. */
+  sqlType: string;
+  /** Up to 20 non-null sample values, stringified. */
+  samples: string[];
+}
+
 /** A sidecar response is a tagged structured output. */
-export type SidecarResponse = ExplainErrorResponse | DisambiguateTypeResponse;
+export type SidecarResponse = ExplainErrorResponse | DisambiguateTypeResponse | DefineTypeResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -71,6 +81,20 @@ export interface DisambiguateTypeResponse {
    * picks 'unknown' / can't decide.
    */
   typeId: string | null;
+}
+
+export interface DefineTypeResponse {
+  kind: 'define-type';
+  suggestion: {
+    /** snake_case identifier. */
+    id: string;
+    /** Human-readable label, capitalised. */
+    display_name: string;
+    /** Short category label (e.g., 'Identifier', 'Code', 'Email', 'Domain-specific'). */
+    category: string;
+    /** JavaScript-compatible regex (anchors included, no `/` delimiters). */
+    regex: string;
+  };
 }
 
 export class SidecarError extends Error {

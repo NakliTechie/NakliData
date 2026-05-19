@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type SidecarTransport,
+  buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
   dispatchJob,
+  parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
 } from '../src/core/sidecar/client.ts';
@@ -269,5 +271,131 @@ describe('dispatchJob — disambiguate-type', () => {
       { provider: 'anthropic', model: 'claude-3-5-haiku-latest', transport },
     );
     expect(result).toEqual({ kind: 'disambiguate-type', typeId: null });
+  });
+});
+
+describe('buildDefineTypePrompt', () => {
+  it('embeds column header + SQL type + samples (capped at 20)', () => {
+    const { system, user } = buildDefineTypePrompt({
+      kind: 'define-type',
+      columnName: 'employee_id',
+      sqlType: 'VARCHAR',
+      samples: ['EMP-0001', 'EMP-0002'],
+    });
+    expect(system).toMatch(/define a new semantic type/);
+    expect(system).toMatch(/snake_case_id/);
+    expect(system).toMatch(/anchors/);
+    expect(user).toContain('Column header: employee_id');
+    expect(user).toContain('SQL type: VARCHAR');
+    expect(user).toContain('EMP-0001');
+    expect(user).toContain('EMP-0002');
+  });
+
+  it('caps samples at 20', () => {
+    const samples = Array.from({ length: 50 }, (_, i) => `s${i}`);
+    const { user } = buildDefineTypePrompt({
+      kind: 'define-type',
+      columnName: 'c',
+      sqlType: 'VARCHAR',
+      samples,
+    });
+    expect(user).toContain('s0');
+    expect(user).toContain('s19');
+    expect(user).not.toContain('s20');
+  });
+});
+
+describe('parseDefineTypeResponse', () => {
+  it('parses a clean JSON suggestion', () => {
+    const r = parseDefineTypeResponse(
+      JSON.stringify({
+        id: 'employee_id',
+        display_name: 'Employee ID',
+        category: 'Identifier',
+        regex: '^EMP-[0-9]{4}$',
+      }),
+    );
+    expect(r).toEqual({
+      kind: 'define-type',
+      suggestion: {
+        id: 'employee_id',
+        display_name: 'Employee ID',
+        category: 'Identifier',
+        regex: '^EMP-[0-9]{4}$',
+      },
+    });
+  });
+
+  it('strips ```json``` fences if the model adds them', () => {
+    const fenced =
+      '```json\n{"id":"x","display_name":"X","category":"Code","regex":"^x$"}\n```';
+    const r = parseDefineTypeResponse(fenced);
+    expect(r.suggestion.id).toBe('x');
+  });
+
+  it('throws on malformed JSON', () => {
+    expect(() => parseDefineTypeResponse('not json')).toThrow(SidecarError);
+  });
+
+  it('throws when any of {id, display_name, category, regex} is missing', () => {
+    expect(() =>
+      parseDefineTypeResponse(JSON.stringify({ id: 'x', display_name: 'X', category: 'Code' })),
+    ).toThrow(SidecarError);
+  });
+
+  it('throws on non-snake_case id', () => {
+    expect(() =>
+      parseDefineTypeResponse(
+        JSON.stringify({
+          id: 'Employee ID',
+          display_name: 'Employee ID',
+          category: 'Identifier',
+          regex: '^.+$',
+        }),
+      ),
+    ).toThrow(/non-snake_case/);
+  });
+
+  it('throws on uncompilable regex', () => {
+    expect(() =>
+      parseDefineTypeResponse(
+        JSON.stringify({
+          id: 'x',
+          display_name: 'X',
+          category: 'Code',
+          regex: '[invalid(',
+        }),
+      ),
+    ).toThrow(/invalid regex/);
+  });
+});
+
+describe('dispatchJob — define-type', () => {
+  it('calls the transport with the define-type prompt and returns the parsed suggestion', async () => {
+    _idb.set('sidecar/byok/anthropic', 'sk-ant-stub');
+    const transport: SidecarTransport = async (req) => {
+      expect(req.system).toMatch(/define a new semantic type/);
+      expect(req.user).toContain('Column header: employee_id');
+      expect(req.user).toContain('EMP-0001');
+      return JSON.stringify({
+        id: 'employee_id',
+        display_name: 'Employee ID',
+        category: 'Identifier',
+        regex: '^EMP-[0-9]{4}$',
+      });
+    };
+    const result = await dispatchJob(
+      {
+        kind: 'define-type',
+        columnName: 'employee_id',
+        sqlType: 'VARCHAR',
+        samples: ['EMP-0001'],
+      },
+      { provider: 'anthropic', model: 'claude-3-5-haiku-latest', transport },
+    );
+    expect(result.kind).toBe('define-type');
+    if (result.kind !== 'define-type') return;
+    expect(result.suggestion.id).toBe('employee_id');
+    expect(result.suggestion.regex).toBe('^EMP-[0-9]{4}$');
   });
 });

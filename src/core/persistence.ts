@@ -1,17 +1,18 @@
 // `.naklidata` save/load. Spec §5 + handoff §3.9.
 //
 // JSON-on-disk via FSA. Contains source mounts, schema assignments, notebook
-// cells. Never source data. On load, sources are re-attempted; failures show
-// a "Reconnect needed" banner (handled by the caller).
+// cells, user-defined types. Never source data. On load, sources are
+// re-attempted; failures show a "Reconnect needed" banner (handled by the
+// caller).
 //
 // v1.0 limits:
 //   - Only example-bundle and single-file FSA sources persist their ref.
 //     FSA folder handles (build-order step 3) round-trip via IndexedDB later.
-//   - User types are an empty array (v1.1 feature).
 
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { MountedSource } from './mount.ts';
+import type { UserType } from './workbook.ts';
 
 export const NAKLIDATA_VERSION = '1.0';
 
@@ -24,7 +25,8 @@ export interface NakliDataFile {
   sources: PersistedSource[];
   assignments: PersistedAssignment[];
   cells: PersistedCell[];
-  user_types: unknown[];
+  /** User-defined semantic types. Wave 3 (2026-05-18) — was a placeholder. */
+  user_types: UserType[];
   settings: { auto_accept_threshold: number };
 }
 
@@ -56,6 +58,8 @@ export interface SerializeInput {
   assignments: Record<string, ColumnAssignment>;
   cells: CellState[];
   autoAcceptThreshold: number;
+  /** User-defined types from the workbook. Defaults to empty when omitted. */
+  userTypes?: UserType[];
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -90,7 +94,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
       resolutionKind: a.resolution.kind,
     })),
     cells: input.cells.map(cellWithoutResults),
-    user_types: [],
+    user_types: input.userTypes ?? [],
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

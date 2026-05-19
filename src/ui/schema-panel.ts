@@ -5,6 +5,7 @@
 // bar + expandable evidence + accept/override/define-new actions.
 
 import type { MountedSource, MountedTable } from '../core/mount.ts';
+import type { UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 
@@ -37,6 +38,8 @@ export interface SchemaPanelState {
   bundle: TaxonomyBundle | null;
   /** Threshold for "bulk accept all >= n" action (default 0.9). */
   autoAcceptThreshold: number;
+  /** User-defined types from the workbook (per-`.naklidata`). */
+  userTypes: UserType[];
 }
 
 export interface SchemaPanelHandlers {
@@ -142,7 +145,7 @@ function renderTableBlock(
   for (const key of myKeys) {
     const a = state.assignments[key];
     if (!a) continue;
-    ul.append(renderColumnRow(src.id, table.id, a, state.bundle, handlers));
+    ul.append(renderColumnRow(src.id, table.id, a, state.bundle, state.userTypes, handlers));
   }
   return el;
 }
@@ -152,6 +155,7 @@ function renderColumnRow(
   tableId: string,
   a: ColumnAssignment,
   bundle: TaxonomyBundle | null,
+  userTypes: UserType[],
   handlers: SchemaPanelHandlers,
 ): HTMLElement {
   const li = document.createElement('li');
@@ -222,7 +226,7 @@ function renderColumnRow(
     const menu = details.querySelector<HTMLElement>('[data-region="override-menu"]');
     if (menu && menu.childElementCount === 0 && bundle) {
       menu.append(
-        renderOverrideMenu(bundle, a, (typeId) => {
+        renderOverrideMenu(bundle, userTypes, a, sourceId, tableId, (typeId) => {
           details.open = false;
           handlers.onOverride(sourceId, tableId, a.columnName, typeId);
         }),
@@ -297,7 +301,10 @@ function renderEvidence(a: ColumnAssignment): string {
 
 function renderOverrideMenu(
   bundle: TaxonomyBundle,
+  userTypes: UserType[],
   a: ColumnAssignment,
+  sourceId: string,
+  tableId: string,
   onPick: (typeId: string | null) => void,
 ): HTMLElement {
   const wrap = document.createElement('div');
@@ -321,6 +328,25 @@ function renderOverrideMenu(
   unknownBtn.textContent = 'unknown';
   unknownBtn.addEventListener('click', () => onPick(null));
   list.append(unknownBtn);
+
+  // User-defined types — always first since they're scoped to this workbook.
+  if (userTypes.length > 0) {
+    const hdr = document.createElement('div');
+    hdr.textContent = 'User types';
+    hdr.style.cssText =
+      'font-size:11px;color:var(--accent);padding:4px 8px;text-transform:uppercase;letter-spacing:0.05em;';
+    list.append(hdr);
+    for (const t of userTypes) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-ghost type-option';
+      btn.style.cssText = 'justify-content:flex-start;padding:4px 8px;font-size:12px;';
+      btn.dataset.typeId = t.id;
+      btn.dataset.label = t.display_name.toLowerCase();
+      btn.innerHTML = `${escapeHtml(t.display_name)} <span style="color:var(--text-muted);margin-left:auto;font-size:10px;">${escapeHtml(t.id)}</span>`;
+      btn.addEventListener('click', () => onPick(t.id));
+      list.append(btn);
+    }
+  }
 
   const compatible = bundle.types.filter((t) =>
     t.sql_compat.some((c) => a.sqlType.toUpperCase().includes(c.toUpperCase())),
@@ -348,6 +374,20 @@ function renderOverrideMenu(
       list.append(btn);
     }
   }
+
+  // "Define new type from this column…" at the bottom. Bubbles a data-
+  // action up to main.ts, which opens the modal.
+  const defineBtn = document.createElement('button');
+  defineBtn.className = 'btn btn-ghost define-new-type-trigger';
+  defineBtn.dataset.action = 'define-new-type';
+  defineBtn.dataset.sourceId = sourceId;
+  defineBtn.dataset.tableId = tableId;
+  defineBtn.dataset.column = a.columnName;
+  defineBtn.dataset.sqlType = a.sqlType;
+  defineBtn.style.cssText =
+    'justify-content:flex-start;padding:6px 8px;font-size:12px;color:var(--accent);margin-top:6px;border-top:1px dashed var(--border);';
+  defineBtn.innerHTML = '+ Define new type from this column…';
+  list.append(defineBtn);
 
   search.addEventListener('input', () => {
     const q = search.value.trim().toLowerCase();

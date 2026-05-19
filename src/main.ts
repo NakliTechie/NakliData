@@ -32,6 +32,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
@@ -110,6 +111,7 @@ async function boot(): Promise<void> {
         assignments: wb.assignments,
         bundle: getTaxonomyClient().getBundle(),
         autoAcceptThreshold: wb.autoAcceptThreshold,
+        userTypes: wb.userTypes,
       },
       {
         onAccept: (sId, tId, col) => acceptAssignment(sId, tId, col),
@@ -291,6 +293,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       assignments: wb.assignments,
       cells: nb.get().cells,
       autoAcceptThreshold: wb.autoAcceptThreshold,
+      userTypes: wb.userTypes,
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -428,6 +431,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         assignments: wb.assignments,
         cells: nb.get().cells,
         autoAcceptThreshold: wb.autoAcceptThreshold,
+        userTypes: wb.userTypes,
       });
       try {
         const res = await saveToFile(file);
@@ -550,6 +554,22 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await runDisambiguateType(engine, el, sourceId, tableId, columnName);
       return;
     }
+    case 'define-new-type': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const columnName = el?.dataset.column;
+      const sqlType = el?.dataset.sqlType ?? 'VARCHAR';
+      if (!sourceId || !tableId || !columnName) return;
+      const wb = workbook.get();
+      const tableName =
+        wb.sources.find((s) => s.id === sourceId)?.tables.find((t) => t.id === tableId)?.name ?? '';
+      if (!tableName) {
+        toast('Table not found for that column.', 'error');
+        return;
+      }
+      await openDefineTypeModal({ sourceId, tableId, tableName, columnName, sqlType });
+      return;
+    }
     case 'copy-suggested-fix': {
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
@@ -580,6 +600,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         assignments: wb.assignments,
         cells: nb.get().cells,
         autoAcceptThreshold: wb.autoAcceptThreshold,
+        userTypes: wb.userTypes,
       });
       try {
         const { url, tooLong } = await buildShareUrl(file);
@@ -644,6 +665,9 @@ async function applyLoadedFile(
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
   workbook.clear();
+  // Restore user-defined types from the file before sources mount, so the
+  // override menu has them available when the schema panel re-renders.
+  workbook.setUserTypes(file.user_types ?? []);
   const reconnectNeeded: Array<{ id: string; label: string }> = [];
   const restoredSources: MountedSource[] = [];
   for (const ps of file.sources) {

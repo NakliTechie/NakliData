@@ -4,11 +4,30 @@
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { MountedSource } from './mount.ts';
 
+/**
+ * User-defined semantic type. Lives on the workbook (per `.naklidata`
+ * file). When saved, joins the override menu alongside built-in
+ * taxonomy types. Wave 1 doesn't re-run the classifier with user
+ * types — that's a future enhancement.
+ */
+export interface UserType {
+  id: string;
+  display_name: string;
+  category: string;
+  regex: string;
+  /** ISO timestamp; informational only. */
+  created: string;
+  /** Free-form note (e.g., the column it was seeded from). */
+  note?: string;
+}
+
 export interface WorkbookState {
   sources: MountedSource[];
   /** Keyed by `${sourceId}::${tableId}::${columnName}`. */
   assignments: Record<string, ColumnAssignment>;
   autoAcceptThreshold: number;
+  /** User-defined semantic types — local to this workbook. */
+  userTypes: UserType[];
 }
 
 type Listener = (state: WorkbookState) => void;
@@ -18,6 +37,7 @@ class Workbook {
     sources: [],
     assignments: {},
     autoAcceptThreshold: 0.9,
+    userTypes: [],
   };
   private listeners = new Set<Listener>();
 
@@ -63,7 +83,32 @@ class Workbook {
   }
 
   clear(): void {
-    this.state = { sources: [], assignments: {}, autoAcceptThreshold: 0.9 };
+    this.state = {
+      sources: [],
+      assignments: {},
+      autoAcceptThreshold: 0.9,
+      userTypes: [],
+    };
+    this.notify();
+  }
+
+  addUserType(type: UserType): void {
+    // Replace if id collides — caller is responsible for picking a fresh id.
+    const filtered = this.state.userTypes.filter((t) => t.id !== type.id);
+    this.state = { ...this.state, userTypes: [...filtered, type] };
+    this.notify();
+  }
+
+  removeUserType(id: string): void {
+    this.state = {
+      ...this.state,
+      userTypes: this.state.userTypes.filter((t) => t.id !== id),
+    };
+    this.notify();
+  }
+
+  setUserTypes(types: UserType[]): void {
+    this.state = { ...this.state, userTypes: [...types] };
     this.notify();
   }
 
