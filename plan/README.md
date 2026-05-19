@@ -12,6 +12,7 @@ Planning artifacts. Not source; not status. **What we want to build next, what w
 | `remote-sources.md` | Five options for the filestores-as-database question. |
 | `enterprise-strategy.md` | Compute Bridge phasing, buyer profiles, deployment paths. v1.2+ work. |
 | `sidecar-architecture.md` | LoRA-Gemma vs prompted-base sidecar; the eval harness; report-recommendation job. |
+| `warehouse-and-bi-question.md` | Parked thinking: do we need a data warehouse / something like Superset? Two questions stacked (backend vs surface) with adjacent-product survey + what to borrow vs leave. Revisit when v1.2 work starts. |
 | `v1.0-handoff-notes.md` | Web-session → desktop-session handoff for the v1.0 tag. Historical now. |
 | `checkpoint-2026-05-17.md` | Midday 2026-05-17 (pre-Theme-2-finish). Historical. |
 | `checkpoint-2026-05-17-eod.md` | EOD 2026-05-17 (post-Theme-2, pre-sidecar). Historical. |
