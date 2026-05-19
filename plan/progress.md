@@ -4,6 +4,48 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-18 (AI sidecar wave 2) — Type disambiguation on ambiguous schema columns.
+
+### What landed
+
+- **`src/core/sidecar/types.ts`** extended with `DisambiguateTypeJob` (`columnName / sqlType / samples / candidates`) and `DisambiguateTypeResponse` (`typeId: string | null`). Unions extended.
+- **`src/core/sidecar/client.ts`** gets a new dispatch case + helpers. `buildDisambiguateTypePrompt(job)` produces a one-token-output prompt with the candidate list, sample values (capped at 20), column header, and SQL type. `parseDisambiguateTypeResponse(raw, candidates)` strips wrapping quotes / backticks / periods / code fences defensively, matches case-insensitively against the candidate ids, and coerces unknown / off-list / empty answers to `null`. Off-candidate strings (model hallucinates a typeId not in the list) become `null` rather than throwing.
+- **`src/ui/schema-panel.ts`**: new `isAmbiguous(a)` predicate — `origin === 'detector'` && `≥2 candidates` && `assigned.confidence ∈ [0.5, 0.9)`. When true, `renderAskSidecarButton(sourceId, tableId, a)` adds a "Ask sidecar" button to the column row with the right `data-action` / `data-source-id` / `data-table-id` / `data-column` attrs. CSS `.schema-sidecar-ask { display: none }` + `.app-sidecar-enabled .schema-sidecar-ask { display: inline-flex }` so the button is gated by the global enable flag with no schema-panel re-render needed when the user toggles.
+- **`src/main.ts`** new action handler `ask-sidecar-disambiguate` → `runDisambiguateType(engine, buttonEl, sourceId, tableId, columnName)`. The handler reads the column's `ColumnAssignment`, re-samples values via `engine.sampleColumn(table.name, columnName)` (up to 20), dispatches the job, and routes the result through the **existing** `overrideAssignment` — applying the chosen typeId as a `user_override`. `null` response → toast "Sidecar wasn't confident on <column>". Errors restore the button state since no workbook update will re-render the row.
+
+### Why these choices
+
+- **Reuse `overrideAssignment`** — keeps the audit trail single (`origin = 'user_override'` whether the user picked manually or the sidecar did). The "track sidecar overrides distinctly" idea is deferred; future work could add a `'sidecar_override'` origin if needed.
+- **One-token format (not JSON)** — per spec §4.3. Cheaper on every model since the response is bounded to ~10 tokens.
+- **CSS-gated visibility** — toggling sidecar on/off mid-session is instant, no perceptible flicker. The button only renders when `isAmbiguous` says so, so disabled-sidecar users never see it even if CSS were missing.
+- **Defensive parsing** — small models occasionally return `"pan"` or `` `pan` `` or `pan.` despite the rule. Strip rather than reject; off-candidate strings fall to `null` (user-friendly fallback).
+
+Full reasoning at DECISIONS 2026-05-18 18:00.
+
+### Tests
+
+- **`tests/sidecar-client.test.ts`** (+10 vitest specs):
+  - `buildDisambiguateTypePrompt` — includes candidate list + samples + SQL type + column header in the user content; caps samples at 20 (`sample_0..sample_19` present, `sample_20` not).
+  - `parseDisambiguateTypeResponse` — matches case-insensitively (`GSTIN` → `gstin`); `unknown` → null; off-candidate string → null; wrapping quotes/backticks/periods/code-fences stripped; empty string → null.
+  - `dispatchJob` with kind `disambiguate-type` — calls transport with the right prompt and returns the parsed candidate; `unknown` transport response → `typeId: null`.
+
+No new e2e — the dispatch + UI button-click → action-dispatch pipeline is the same machinery as wave 1's `explain-error`, already covered by `tests/e2e/sidecar-flow.spec.ts`. The wave 2 deltas (prompt + parser + override application) are isolated and unit-tested. Adding a real-data e2e here depends on the classifier producing a deterministically ambiguous column, which would be brittle to test infrastructure changes.
+
+### Quality
+
+- `dist/index.html` 360 KB (was 356; +4 KB for prompt/parser + schema-panel button + CSS). Well under the 600 KB shell budget.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **114 vitest** (was 104; +10) + 19 Playwright e2e + smoke green.
+
+### What's next
+
+- **Wave 3 — define-new-type assist** (spec §4.3 job 3). User picks an unrecognized column → sidecar suggests `{id, display_name, category, regex}`. Lives in the schema panel's "User type" workflow. Sets up the user-type lifecycle that's currently a placeholder.
+- **Custom-endpoint support** — OpenAI-compatible URL for local llamafiles / vLLM. Needs CSP rethink.
+- **Eval harness (v1.2)** — `plan/sidecar-architecture.md` makes the case.
+- **Local-model path (v1.2+)** — Transformers.js + Phi-3-mini-class. Opt-in fallback to BYOK.
+
+---
+
 ## 2026-05-18 (AI sidecar wave 1) — BYOK + explain-query-error end-to-end.
 
 ### What landed

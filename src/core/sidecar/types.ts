@@ -25,7 +25,7 @@ export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderCon
 };
 
 /** A sidecar job is a tagged input asking the model to do one specific thing. */
-export type SidecarJob = ExplainErrorJob;
+export type SidecarJob = ExplainErrorJob | DisambiguateTypeJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -41,8 +41,20 @@ export interface ExplainErrorJob {
   schemaHint?: string;
 }
 
+export interface DisambiguateTypeJob {
+  kind: 'disambiguate-type';
+  /** Column header name. */
+  columnName: string;
+  /** DuckDB SQL type for the column (e.g., 'VARCHAR', 'BIGINT'). */
+  sqlType: string;
+  /** Up to 20 non-null sample values, stringified. */
+  samples: string[];
+  /** Candidate types (typeId + display_name) the column was classified into. */
+  candidates: Array<{ typeId: string; displayName: string }>;
+}
+
 /** A sidecar response is a tagged structured output. */
-export type SidecarResponse = ExplainErrorResponse;
+export type SidecarResponse = ExplainErrorResponse | DisambiguateTypeResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -50,6 +62,15 @@ export interface ExplainErrorResponse {
   explanation: string;
   /** Optional suggested SQL fix. Not auto-executed (Hard NOT #4). */
   suggestedFix: string | null;
+}
+
+export interface DisambiguateTypeResponse {
+  kind: 'disambiguate-type';
+  /**
+   * Chosen typeId from the candidate list, or `null` when the sidecar
+   * picks 'unknown' / can't decide.
+   */
+  typeId: string | null;
 }
 
 export class SidecarError extends Error {

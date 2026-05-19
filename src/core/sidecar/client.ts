@@ -9,6 +9,8 @@ import { loadKey } from './byok.ts';
 import { callAnthropic } from './providers/anthropic.ts';
 import { callOpenAI } from './providers/openai.ts';
 import {
+  type DisambiguateTypeJob,
+  type DisambiguateTypeResponse,
   type ExplainErrorJob,
   type ExplainErrorResponse,
   SidecarError,
@@ -79,6 +81,18 @@ export async function dispatchJob(
     });
     return parseExplainErrorResponse(raw);
   }
+  if (job.kind === 'disambiguate-type') {
+    const { system, user } = buildDisambiguateTypePrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseDisambiguateTypeResponse(raw, job.candidates);
+  }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
 
@@ -123,6 +137,64 @@ export function buildExplainErrorPrompt(job: ExplainErrorJob): {
     user: sections.join('\n'),
   };
 }
+
+// ---- disambiguate-type prompt + parser ------------------------------
+
+const DISAMBIGUATE_TYPE_SYSTEM = `You are NakliData's sidecar performing semantic type disambiguation for a single column.
+
+The user has classified the column and has multiple candidate types. Your job is to pick exactly one.
+
+Hard rules:
+- Output ONLY one token: either the chosen typeId from the candidate list, or the literal word \`unknown\`.
+- Do NOT output prose, code fences, JSON, quotes, or any other characters.
+- Pick \`unknown\` if the samples don't clearly fit any candidate, or if the column header + samples are ambiguous.
+- Never invent a typeId that wasn't in the candidate list.`;
+
+export function buildDisambiguateTypePrompt(job: DisambiguateTypeJob): {
+  system: string;
+  user: string;
+} {
+  const candidatesBlock = job.candidates.map((c) => `- ${c.typeId} (${c.displayName})`).join('\n');
+  const samplesBlock = job.samples.slice(0, 20).join('\n');
+  const user = [
+    `Column header: ${job.columnName}`,
+    `SQL type: ${job.sqlType}`,
+    '',
+    'Candidate types (output one of these typeIds, or `unknown`):',
+    candidatesBlock,
+    '',
+    'Sample values:',
+    samplesBlock,
+  ].join('\n');
+  return { system: DISAMBIGUATE_TYPE_SYSTEM, user };
+}
+
+export function parseDisambiguateTypeResponse(
+  raw: string,
+  candidates: DisambiguateTypeJob['candidates'],
+): DisambiguateTypeResponse {
+  // Strip backticks, quotes, periods, code fences — defensive against
+  // models that wrap the answer despite the instruction.
+  const cleaned = raw
+    .trim()
+    .replace(/^```[a-z]*\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .replace(/^["'`]|["'`.]$/g, '')
+    .trim();
+  if (cleaned.toLowerCase() === 'unknown' || cleaned === '') {
+    return { kind: 'disambiguate-type', typeId: null };
+  }
+  // Match case-insensitively against the candidate ids.
+  const match = candidates.find((c) => c.typeId.toLowerCase() === cleaned.toLowerCase());
+  if (match) {
+    return { kind: 'disambiguate-type', typeId: match.typeId };
+  }
+  // The model returned a string that isn't in the candidate list. Treat as 'unknown'.
+  // (We don't throw here — coercing to null is more user-friendly than failing.)
+  return { kind: 'disambiguate-type', typeId: null };
+}
+
+// ---- explain-error parser -------------------------------------------
 
 export function parseExplainErrorResponse(raw: string): ExplainErrorResponse {
   // Strip ```json``` fences if the model added them despite instructions.

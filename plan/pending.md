@@ -280,7 +280,7 @@ Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet
 **Pitch:** "Narrow, helpful, BYOK. Never generates SQL you didn't write."
 
 - [x] Wave 1 — BYOK key storage (`src/core/sidecar/byok.ts`; sessionStorage default + opt-in IDB per amendment A2), Anthropic + OpenAI providers, settings modal in header, `explain-query-error` job wired to errored SQL cells with inline render + "Copy SQL" suggested-fix affordance, CSP extended with the two API endpoints. DECISIONS 2026-05-18 17:00.
-- [ ] Wave 2 — **type-disambiguation** job (spec §4.3 job 1). Schema-panel per-column menu gets "Ask sidecar" for columns with confidence ∈ [0.5, 0.9]. One-token answer, temperature 0, output is a typeId from the candidate list (or `unknown`).
+- [x] Wave 2 — **type-disambiguation** job (spec §4.3 job 1). Schema-panel "Ask sidecar" button on ambiguous columns (≥2 candidates + confidence ∈ [0.5, 0.9) + origin='detector'). One-token answer matched case-insensitively to the candidate list (or `null` for `unknown` / off-list). Chosen typeId applied via the existing `overrideAssignment` path (origin = `user_override`). DECISIONS 2026-05-18 18:00.
 - [ ] Wave 3 — **define-new-type assist** job (spec §4.3 job 3). User picks a column → sidecar suggests `{id, display_name, category, regex}`. Lives in the schema panel's "User type" workflow.
 - [ ] Custom-endpoint support — OpenAI-compatible URL field for local llamafiles / vLLM. CSP rethink required (current explicit-host whitelist won't work).
 - [ ] Eval harness (v1.2) — held-out per-job evals so prompted-vs-LoRA can be measured honestly. Per `plan/sidecar-architecture.md`.

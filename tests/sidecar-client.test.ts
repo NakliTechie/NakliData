@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildExplainErrorPrompt,
   type SidecarTransport,
+  buildDisambiguateTypePrompt,
+  buildExplainErrorPrompt,
   dispatchJob,
+  parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
 } from '../src/core/sidecar/client.ts';
 import { SidecarError } from '../src/core/sidecar/types.ts';
@@ -157,5 +159,115 @@ describe('dispatchJob — explain-error', () => {
         { provider: 'openai', model: 'gpt-4o-mini', transport },
       ),
     ).rejects.toMatchObject({ kind: 'rate-limit' });
+  });
+});
+
+const SAMPLE_CANDIDATES = [
+  { typeId: 'gstin', displayName: 'GSTIN' },
+  { typeId: 'pan', displayName: 'PAN' },
+];
+
+describe('buildDisambiguateTypePrompt', () => {
+  it('includes the candidate list + the sample values + the SQL type', () => {
+    const { system, user } = buildDisambiguateTypePrompt({
+      kind: 'disambiguate-type',
+      columnName: 'id_code',
+      sqlType: 'VARCHAR',
+      samples: ['ABCDE1234F', 'BCDEF2345G'],
+      candidates: SAMPLE_CANDIDATES,
+    });
+    expect(system).toMatch(/one token/);
+    expect(system).toMatch(/Never invent a typeId/);
+    expect(user).toContain('Column header: id_code');
+    expect(user).toContain('SQL type: VARCHAR');
+    expect(user).toContain('- gstin (GSTIN)');
+    expect(user).toContain('- pan (PAN)');
+    expect(user).toContain('ABCDE1234F');
+  });
+
+  it('caps samples at 20 (extra rows are dropped at the prompt boundary)', () => {
+    const many = Array.from({ length: 50 }, (_, i) => `sample_${i}`);
+    const { user } = buildDisambiguateTypePrompt({
+      kind: 'disambiguate-type',
+      columnName: 'c',
+      sqlType: 'VARCHAR',
+      samples: many,
+      candidates: SAMPLE_CANDIDATES,
+    });
+    expect(user).toContain('sample_0');
+    expect(user).toContain('sample_19');
+    expect(user).not.toContain('sample_20');
+  });
+});
+
+describe('parseDisambiguateTypeResponse', () => {
+  it('returns the matching typeId when the model picks a candidate', () => {
+    const r = parseDisambiguateTypeResponse('pan', SAMPLE_CANDIDATES);
+    expect(r).toEqual({ kind: 'disambiguate-type', typeId: 'pan' });
+  });
+
+  it('matches case-insensitively (GSTIN → gstin)', () => {
+    const r = parseDisambiguateTypeResponse('GSTIN', SAMPLE_CANDIDATES);
+    expect(r.typeId).toBe('gstin');
+  });
+
+  it("returns null when the model picks 'unknown'", () => {
+    const r = parseDisambiguateTypeResponse('unknown', SAMPLE_CANDIDATES);
+    expect(r.typeId).toBeNull();
+  });
+
+  it("treats off-candidate strings as 'unknown' (defensive)", () => {
+    const r = parseDisambiguateTypeResponse('hsn_code', SAMPLE_CANDIDATES);
+    expect(r.typeId).toBeNull();
+  });
+
+  it('strips wrapping quotes, backticks, periods, and code fences', () => {
+    expect(parseDisambiguateTypeResponse('"pan"', SAMPLE_CANDIDATES).typeId).toBe('pan');
+    expect(parseDisambiguateTypeResponse('`pan`', SAMPLE_CANDIDATES).typeId).toBe('pan');
+    expect(parseDisambiguateTypeResponse('pan.', SAMPLE_CANDIDATES).typeId).toBe('pan');
+    expect(parseDisambiguateTypeResponse('```\npan\n```', SAMPLE_CANDIDATES).typeId).toBe('pan');
+  });
+
+  it('empty string returns null (no candidate)', () => {
+    expect(parseDisambiguateTypeResponse('   ', SAMPLE_CANDIDATES).typeId).toBeNull();
+  });
+});
+
+describe('dispatchJob — disambiguate-type', () => {
+  it('calls the transport with the disambiguate-type prompt and returns the parsed candidate', async () => {
+    _idb.set('sidecar/byok/anthropic', 'sk-ant-stub');
+    const transport: SidecarTransport = async (req) => {
+      expect(req.system).toMatch(/disambiguation/);
+      expect(req.user).toContain('Column header: id_code');
+      expect(req.user).toContain('- pan (PAN)');
+      return 'pan';
+    };
+    const result = await dispatchJob(
+      {
+        kind: 'disambiguate-type',
+        columnName: 'id_code',
+        sqlType: 'VARCHAR',
+        samples: ['ABCDE1234F'],
+        candidates: SAMPLE_CANDIDATES,
+      },
+      { provider: 'anthropic', model: 'claude-3-5-haiku-latest', transport },
+    );
+    expect(result).toEqual({ kind: 'disambiguate-type', typeId: 'pan' });
+  });
+
+  it('returns typeId: null when the transport returns `unknown`', async () => {
+    _idb.set('sidecar/byok/anthropic', 'sk-ant-stub');
+    const transport: SidecarTransport = async () => 'unknown';
+    const result = await dispatchJob(
+      {
+        kind: 'disambiguate-type',
+        columnName: 'comments',
+        sqlType: 'VARCHAR',
+        samples: ['Lorem ipsum'],
+        candidates: SAMPLE_CANDIDATES,
+      },
+      { provider: 'anthropic', model: 'claude-3-5-haiku-latest', transport },
+    );
+    expect(result).toEqual({ kind: 'disambiguate-type', typeId: null });
   });
 });

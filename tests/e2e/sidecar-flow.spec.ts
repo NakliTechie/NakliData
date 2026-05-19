@@ -101,11 +101,9 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       { timeout: 2_000 },
     );
     await page.click('[data-action="close-settings"]');
-    await page.waitForFunction(
-      () => document.querySelector('.settings-modal') === null,
-      null,
-      { timeout: 2_000 },
-    );
+    await page.waitForFunction(() => document.querySelector('.settings-modal') === null, null, {
+      timeout: 2_000,
+    });
 
     // --- Trigger a SQL error. Use a known-bad keyword so DuckDB rejects it.
     await writeIntoSqlCell(page, 'SELEKT * FROM invoices LIMIT 1');
@@ -180,8 +178,8 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     );
 
     // The "Open Settings" affordance should be present alongside the error.
-    const reopen = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-action="open-settings"]')).length,
+    const reopen = await page.evaluate(
+      () => Array.from(document.querySelectorAll('[data-action="open-settings"]')).length,
     );
     expect(reopen).toBeGreaterThan(1); // header button + the one in the sidecar-error block
 

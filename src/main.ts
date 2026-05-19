@@ -542,6 +542,14 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await runExplainError(engine, cellId);
       return;
     }
+    case 'ask-sidecar-disambiguate': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const columnName = el?.dataset.column;
+      if (!sourceId || !tableId || !columnName) return;
+      await runDisambiguateType(engine, el, sourceId, tableId, columnName);
+      return;
+    }
     case 'copy-suggested-fix': {
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
@@ -1027,6 +1035,9 @@ async function runExplainError(engine: Engine, cellId: string): Promise<void> {
         model: settings.sidecarModel,
       },
     );
+    if (result.kind !== 'explain-error') {
+      throw new Error(`Unexpected sidecar response kind: ${result.kind}`);
+    }
     const explanation = escapeText(result.explanation);
     const fix = result.suggestedFix
       ? `<pre class="cell-sidecar-suggested" data-suggested-sql="${escapeText(result.suggestedFix)}"><code>${escapeText(result.suggestedFix)}</code></pre>
@@ -1055,6 +1066,79 @@ function escapeText(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Sidecar wave 2 — Job 1: type disambiguation.
+ *
+ * Triggered by the schema-panel "Ask sidecar" button on ambiguous
+ * columns (confidence ∈ [0.5, 0.9), ≥2 candidates, origin='detector').
+ * Re-samples the column from the engine, dispatches, applies the
+ * chosen typeId as a user_override. `null` response → toast and
+ * leave the assignment as-is.
+ */
+async function runDisambiguateType(
+  engine: Engine,
+  buttonEl: HTMLElement | null,
+  sourceId: string,
+  tableId: string,
+  columnName: string,
+): Promise<void> {
+  const wb = getWorkbook().get();
+  const source = wb.sources.find((s) => s.id === sourceId);
+  const table = source?.tables.find((t) => t.id === tableId);
+  if (!source || !table) {
+    toast('Source/table not found.', 'error');
+    return;
+  }
+  const key = assignmentKey(sourceId, tableId, columnName);
+  const a = wb.assignments[key];
+  if (!a) {
+    toast('Column not found.', 'error');
+    return;
+  }
+  if (buttonEl instanceof HTMLButtonElement) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Asking…';
+  }
+  try {
+    const stats = await engine.sampleColumn(table.name, columnName);
+    const settings = await loadSettings();
+    const response = await dispatchJob(
+      {
+        kind: 'disambiguate-type',
+        columnName,
+        sqlType: a.sqlType,
+        samples: stats.values.slice(0, 20),
+        candidates: a.candidates.map((c) => ({
+          typeId: c.typeId,
+          displayName: c.displayName,
+        })),
+      },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+      },
+    );
+    if (response.kind !== 'disambiguate-type') return;
+    if (response.typeId === null) {
+      toast(`Sidecar wasn't confident on ${columnName} — leave as-is or override manually.`);
+    } else {
+      overrideAssignment(sourceId, tableId, columnName, response.typeId);
+      const candidate = a.candidates.find((c) => c.typeId === response.typeId);
+      toast(`Sidecar picked ${candidate?.displayName ?? response.typeId} for ${columnName}.`);
+    }
+  } catch (err) {
+    const msg =
+      err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
+    toast(`Sidecar: ${msg}`, 'error');
+    // Restore the button state on error since no workbook update will
+    // re-render this row.
+    if (buttonEl instanceof HTMLButtonElement) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = 'Ask sidecar';
+    }
+  }
 }
 
 // ---- Toast ----------------------------------------------------------

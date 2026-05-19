@@ -198,6 +198,7 @@ function renderColumnRow(
       <button class="btn btn-ghost" data-action="evidence" aria-controls="${detailsId}" aria-expanded="false">
         ${iconSvg('info', 12)} Evidence
       </button>
+      ${isAmbiguous(a) ? renderAskSidecarButton(sourceId, tableId, a) : ''}
     </div>
     <div id="${detailsId}" class="schema-evidence" hidden>${renderEvidence(a)}</div>
   `;
@@ -230,6 +231,33 @@ function renderColumnRow(
   });
 
   return li;
+}
+
+/**
+ * A column qualifies for sidecar disambiguation when the classifier
+ * picked a candidate but isn't confident: two-or-more candidates and
+ * the assigned confidence sits in [0.5, 0.9). Once the user has
+ * accepted or overridden, the column is no longer ambiguous.
+ */
+function isAmbiguous(a: ColumnAssignment): boolean {
+  if (a.assigned.origin !== 'detector') return false;
+  if (a.candidates.length < 2) return false;
+  return a.assigned.confidence >= 0.5 && a.assigned.confidence < 0.9;
+}
+
+function renderAskSidecarButton(sourceId: string, tableId: string, a: ColumnAssignment): string {
+  return `
+    <button
+      class="btn btn-ghost schema-sidecar-ask"
+      data-action="ask-sidecar-disambiguate"
+      data-source-id="${escapeHtml(sourceId)}"
+      data-table-id="${escapeHtml(tableId)}"
+      data-column="${escapeHtml(a.columnName)}"
+      title="Let the sidecar pick a type from the candidates"
+      aria-label="Ask sidecar to disambiguate type for ${escapeHtml(a.columnName)}"
+    >
+      ${iconSvg('info', 12)} Ask sidecar
+    </button>`;
 }
 
 function renderOriginBadge(origin: ColumnAssignment['assigned']['origin']): string {
@@ -503,4 +531,21 @@ const SCHEMA_CSS = `
   color: var(--text-muted);
 }
 .evidence-bullets li { margin: 1px 0; }
+
+/* Sidecar "Ask sidecar" trigger on ambiguous columns.
+   Rendered only when the column qualifies (origin='detector' + 2+
+   candidates + confidence in [0.5, 0.9)), and only visible when the
+   app root has .app-sidecar-enabled. */
+.schema-sidecar-ask {
+  font-size: 11px;
+  color: var(--accent);
+  display: none;
+}
+.app-sidecar-enabled .schema-sidecar-ask {
+  display: inline-flex;
+}
+.schema-sidecar-ask:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
 `;
