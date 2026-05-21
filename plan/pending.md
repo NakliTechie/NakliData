@@ -318,7 +318,7 @@ Wave 1 result: workspace state persists across tabs (per `plan/spec-amendments.m
 - [x] README pass per spec §3.10 — what it is / what it isn't / browser support / quick start / `.naklidata` format / taxonomy contribution / privacy
 - [x] Tag `v1.0.0`
 
-### Theme 4 — Schema + data quality polish
+### Theme 4 — Schema + data quality polish ✅ complete (2026-05-21)
 
 **Pitch:** "Make the most important surface even better."
 
