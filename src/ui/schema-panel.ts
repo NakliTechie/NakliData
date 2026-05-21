@@ -52,6 +52,8 @@ export interface SchemaPanelHandlers {
   ) => void;
   onBulkAccept: (threshold: number) => void;
   onChangeThreshold: (threshold: number) => void;
+  /** Re-run classification across all mounted sources. Wired only when user types exist. */
+  onReclassify: () => void;
 }
 
 export function assignmentKey(sourceId: string, tableId: string, columnName: string): string {
@@ -86,6 +88,14 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
   const el = document.createElement('div');
   el.className = 'schema-toolbar';
   const t = state.autoAcceptThreshold.toFixed(2);
+  // Re-classify button only renders when there are user-defined types — that's
+  // the case where re-running classification actually changes the result.
+  const reclassifyHtml =
+    state.userTypes.length > 0
+      ? `<button class="btn btn-ghost" data-action="reclassify" style="width: 100%; margin-top: 4px; justify-content: center;" title="Re-run classification with the current user types">
+           Re-classify with user types
+         </button>`
+      : '';
   el.innerHTML = `
     <label style="font-size: 12px; color: var(--text-muted); display: block;">
       Auto-accept threshold
@@ -97,6 +107,7 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
     <button class="btn" data-action="bulk-accept" style="width: 100%; margin-top: 8px; justify-content: center;">
       ${iconSvg('check', 14)} Bulk accept ≥ <span data-region="bulk-threshold">${t}</span>
     </button>
+    ${reclassifyHtml}
   `;
   el.querySelector<HTMLInputElement>('[data-action="threshold-slider"]')?.addEventListener(
     'input',
@@ -112,6 +123,9 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
   );
   el.querySelector('[data-action="bulk-accept"]')?.addEventListener('click', () => {
     handlers.onBulkAccept(state.autoAcceptThreshold);
+  });
+  el.querySelector('[data-action="reclassify"]')?.addEventListener('click', () => {
+    handlers.onReclassify();
   });
   return el;
 }
@@ -165,7 +179,9 @@ function renderColumnRow(
   li.dataset.origin = a.assigned.origin;
 
   const assignedLabel = a.assigned.typeId
-    ? (bundle?.types.find((t) => t.id === a.assigned.typeId)?.display_name ?? a.assigned.typeId)
+    ? (bundle?.types.find((t) => t.id === a.assigned.typeId)?.display_name ??
+      userTypes.find((t) => t.id === a.assigned.typeId)?.display_name ??
+      a.assigned.typeId)
     : `unknown<${a.sqlType}>`;
   const confidencePct = (a.assigned.confidence * 100).toFixed(0);
   const confidenceColor = confidenceToColor(a.assigned.confidence);

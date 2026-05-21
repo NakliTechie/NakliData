@@ -1,8 +1,14 @@
 // Main-thread client for the taxonomy worker. Boots the worker, ships the
 // bundle once, and exposes `classifyAllColumns` that walks a table's
 // columns and resolves a ClassificationResult per column.
+//
+// User-defined types from the workbook are pushed to the worker via
+// `setUserTypes` after init + every time they change. The worker
+// merges them into its effective bundle so subsequent `classify` calls
+// see them as first-class candidate types.
 
 import type { Engine } from '../core/engine.ts';
+import type { UserType } from '../core/workbook.ts';
 import { loadTaxonomy } from './load.ts';
 import type { ClassificationResult, ColumnSample, TaxonomyBundle } from './types.ts';
 
@@ -12,10 +18,20 @@ interface ClassifyRequest {
   sample: ColumnSample;
 }
 
+interface SetUserTypesRequest {
+  type: 'set_user_types';
+  userTypes: UserType[];
+}
+
 interface ClassifyResultMsg {
   type: 'classify_result';
   requestId: string;
   result: ClassificationResult;
+}
+
+interface UserTypesAppliedMsg {
+  type: 'user_types_applied';
+  count: number;
 }
 
 interface ErrorMsg {
@@ -24,15 +40,19 @@ interface ErrorMsg {
   message: string;
 }
 
-type FromWorker = ClassifyResultMsg | { type: 'init_ok' } | ErrorMsg;
+type FromWorker = ClassifyResultMsg | UserTypesAppliedMsg | { type: 'init_ok' } | ErrorMsg;
 
 export class TaxonomyClient {
   private worker: Worker | null = null;
   private bundle: TaxonomyBundle | null = null;
+  /** Latest user types pushed to the worker. Tracked so we can re-send on worker re-init. */
+  private userTypes: UserType[] = [];
   private pending = new Map<
     string,
     { resolve: (r: ClassificationResult) => void; reject: (e: Error) => void }
   >();
+  /** Resolvers waiting on `user_types_applied`. Only one in flight at a time is normal. */
+  private setUserTypesWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
   private nextId = 1;
 
   async ensureReady(): Promise<void> {
@@ -56,6 +76,10 @@ export class TaxonomyClient {
       this.handleMessage(ev.data),
     );
     this.worker = worker;
+    // Re-apply any user types we knew about (e.g., after a worker restart).
+    if (this.userTypes.length > 0) {
+      await this.setUserTypes(this.userTypes);
+    }
   }
 
   private handleMessage(msg: FromWorker): void {
@@ -65,11 +89,24 @@ export class TaxonomyClient {
         this.pending.delete(msg.requestId);
         entry.resolve(msg.result);
       }
-    } else if (msg.type === 'error' && msg.requestId) {
-      const entry = this.pending.get(msg.requestId);
-      if (entry) {
-        this.pending.delete(msg.requestId);
-        entry.reject(new Error(msg.message));
+      return;
+    }
+    if (msg.type === 'user_types_applied') {
+      const waiter = this.setUserTypesWaiters.shift();
+      waiter?.resolve();
+      return;
+    }
+    if (msg.type === 'error') {
+      if (msg.requestId) {
+        const entry = this.pending.get(msg.requestId);
+        if (entry) {
+          this.pending.delete(msg.requestId);
+          entry.reject(new Error(msg.message));
+        }
+      } else {
+        // No request id → assume the error belongs to the oldest set-user-types waiter.
+        const waiter = this.setUserTypesWaiters.shift();
+        waiter?.reject(new Error(msg.message));
       }
     }
   }
@@ -84,8 +121,31 @@ export class TaxonomyClient {
     });
   }
 
+  /**
+   * Push the current set of user-defined types to the worker. The
+   * worker merges them into its effective bundle for subsequent
+   * `classify` calls. Resolves when the worker confirms.
+   *
+   * Caller should hold the latest list (the workbook does) and call
+   * this on every change. We also cache the list locally so
+   * `ensureReady` can re-apply it after a worker restart.
+   */
+  async setUserTypes(userTypes: UserType[]): Promise<void> {
+    this.userTypes = [...userTypes];
+    if (!this.worker) return; // worker not yet booted; ensureReady will re-apply
+    await new Promise<void>((resolve, reject) => {
+      this.setUserTypesWaiters.push({ resolve, reject });
+      const req: SetUserTypesRequest = { type: 'set_user_types', userTypes };
+      this.worker?.postMessage(req);
+    });
+  }
+
   getBundle(): TaxonomyBundle | null {
     return this.bundle;
+  }
+
+  getUserTypes(): UserType[] {
+    return this.userTypes;
   }
 }
 

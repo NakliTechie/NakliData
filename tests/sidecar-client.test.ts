@@ -327,8 +327,7 @@ describe('parseDefineTypeResponse', () => {
   });
 
   it('strips ```json``` fences if the model adds them', () => {
-    const fenced =
-      '```json\n{"id":"x","display_name":"X","category":"Code","regex":"^x$"}\n```';
+    const fenced = '```json\n{"id":"x","display_name":"X","category":"Code","regex":"^x$"}\n```';
     const r = parseDefineTypeResponse(fenced);
     expect(r.suggestion.id).toBe('x');
   });

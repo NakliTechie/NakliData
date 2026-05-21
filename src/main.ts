@@ -118,6 +118,9 @@ async function boot(): Promise<void> {
         onOverride: (sId, tId, col, typeId) => overrideAssignment(sId, tId, col, typeId),
         onBulkAccept: (threshold) => bulkAccept(threshold),
         onChangeThreshold: (v) => workbook.setAutoAcceptThreshold(v),
+        onReclassify: () => {
+          void reclassifyAllSources(engine);
+        },
       },
     );
     renderTemplatePanel(
@@ -192,6 +195,31 @@ async function boot(): Promise<void> {
     await restoreFromActiveSession(engine);
   }
   installAutoSave(engine);
+  installUserTypesSync();
+}
+
+/**
+ * Keep the taxonomy worker's set of user types in sync with the
+ * workbook. Subscribes to workbook changes and pushes whenever the
+ * `userTypes` array differs from the last push. Pushes a fresh value
+ * immediately on install so the worker picks up types restored from
+ * an existing `.naklidata` file at boot.
+ */
+function installUserTypesSync(): void {
+  const workbook = getWorkbook();
+  const client = getTaxonomyClient();
+  let lastSerialised = '';
+  const push = (): void => {
+    const next = workbook.get().userTypes;
+    const ser = JSON.stringify(next);
+    if (ser === lastSerialised) return;
+    lastSerialised = ser;
+    void client.setUserTypes(next).catch((err) => {
+      console.warn('[naklidata] setUserTypes failed', err);
+    });
+  };
+  push(); // initial
+  workbook.subscribe(push);
 }
 
 let _activeSession: SessionMeta | null = null;
@@ -774,6 +802,59 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
       }
     }
   }
+}
+
+/**
+ * Re-run classification across every mounted source, but preserve any
+ * column the user has already accepted or overridden. Used when user
+ * types change and the user wants existing mounts to pick up the new
+ * detectors. Refreshes the candidate list for accepted/overridden
+ * columns so the Override menu sees newly-firing user types.
+ */
+async function reclassifyAllSources(engine: Engine): Promise<void> {
+  const workbook = getWorkbook();
+  const sources = workbook.get().sources;
+  if (sources.length === 0) {
+    toast('No mounted sources to re-classify.');
+    return;
+  }
+  const client = getTaxonomyClient();
+  try {
+    await client.ensureReady();
+  } catch (err) {
+    toast(`Classifier failed to start: ${err instanceof Error ? err.message : err}`, 'error');
+    return;
+  }
+  let touched = 0;
+  let preserved = 0;
+  for (const src of sources) {
+    for (const table of src.tables) {
+      try {
+        const results = await classifyTableColumns(engine, client, table.name);
+        for (const r of results) {
+          const key = assignmentKey(src.id, table.id, r.column.columnName);
+          const existing = workbook.get().assignments[key];
+          const fresh = resultToAssignment(r);
+          if (
+            existing &&
+            (existing.assigned.origin === 'user_accept' ||
+              existing.assigned.origin === 'user_override')
+          ) {
+            // Preserve the user's pick; refresh the candidate list so the
+            // Override menu sees user types that fire now.
+            workbook.setAssignment(key, { ...existing, candidates: fresh.candidates });
+            preserved++;
+          } else {
+            workbook.setAssignment(key, fresh);
+            touched++;
+          }
+        }
+      } catch (err) {
+        console.error(`[naklidata] reclassify failed for ${table.name}`, err);
+      }
+    }
+  }
+  toast(`Re-classified: ${touched} updated, ${preserved} preserved (user choices kept).`);
 }
 
 function resultToAssignment(r: ClassificationResult): ColumnAssignment {

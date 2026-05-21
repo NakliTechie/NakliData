@@ -4,6 +4,54 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-19 — Classifier integration of user types. **The wave-3 loop is now closed.**
+
+### What landed
+
+- **`src/taxonomy/user-types.ts`** (new). `userTypeToTypeSpec(ut)` synthesises a `TypeSpec` with two detectors: a regex detector (the user-supplied pattern, weight 0.6) and a header_match detector (id + display_name + snake/space/concat variants, weight 0.4). `mergeUserTypesIntoBundle(bundle, userTypes)` returns a new bundle with user types appended; bundled types with colliding ids are replaced by user types (so users can override locally without forking the taxonomy bundle).
+- **`src/workers/taxonomy.worker.ts`**: new state `effectiveBundle = mergeUserTypesIntoBundle(bundle, userTypes)`. New message `set_user_types` rebuilds it. `classify` reads from `effectiveBundle`. A `user_types_applied` ack confirms the worker accepted the new list.
+- **`src/taxonomy/client.ts`**: `TaxonomyClient.setUserTypes(userTypes)` posts the new message and awaits the ack. Caches the list locally so `ensureReady` can re-apply after a worker restart (if we ever add one). New `getUserTypes()` accessor.
+- **`src/main.ts`**: `installUserTypesSync()` subscribes to workbook changes, diffs against the last-pushed `userTypes` (serialised string compare), pushes to the client on change. Called once at install (fires the initial push so `.naklidata`-restored user types reach the worker on boot).
+- **`src/ui/schema-panel.ts`**: `assignedLabel` now falls back to `userTypes.find(...)?.display_name` when the bundle lookup misses — so a column assigned to `employee_id` renders as "Employee ID" (not the raw id). New `onReclassify` handler on `SchemaPanelHandlers`. New "Re-classify with user types" button in the toolbar — only renders when `state.userTypes.length > 0`.
+- **`src/main.ts`** new `reclassifyAllSources(engine)`: walks every mounted source, re-runs `classifyTableColumns`, applies the new candidates. **Preserves user choices**: when the existing assignment has `origin === 'user_accept'` or `'user_override'`, only the candidate list is refreshed (so newly-firing user types appear in the Override dropdown); the assigned typeId + origin are untouched. Reports `N updated, M preserved` in the toast.
+
+### Why these choices
+
+- **Worker-side merge** keeps the main thread thin + avoids re-sending the user-types list on every classify call. The ack lets the client confirm propagation.
+- **Two detectors per user type** mirrors how bundled types compose detectors — no new detector kind needed. Synthesising header variants covers the common ways a user names a column for the type.
+- **Re-classify is opt-in + preserves user choices** — adding a user type doesn't auto-undo earlier accepts/overrides. The button is discoverable when relevant, invisible otherwise.
+- **`origin: 'detector'` for user-type matches** keeps the audit trail binary (auto-detected vs user-curated). The User-Types group in the Override menu already distinguishes them in the UI.
+
+Full reasoning at DECISIONS 2026-05-19 14:00.
+
+### Tests
+
+- **`tests/user-types.test.ts`** (new, 9 vitest specs):
+  - `userTypeToTypeSpec` emits regex + header_match detectors with the expected weights, patterns, and variants.
+  - `mergeUserTypesIntoBundle` doesn't mutate; returns the input when no user types; user-type id collision replaces the bundled type.
+  - `classifyColumn` against a merged bundle: user type fires on matching header+values (confidence > 0.9); doesn't fire on irrelevant data; regex-only match still clears the 0.5 floor; bundled-type classification (GSTIN) unaffected.
+
+No new e2e — the dispatch + UI button-click → action-dispatch pipeline is well-covered by the existing schema-panel + sidecar e2e specs.
+
+### Quality
+
+- `dist/index.html` 372 KB unchanged (no new deps; user-types.ts is ~75 lines; worker bundle is a separate output).
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 warnings (pre-existing).
+- **132 vitest** (was 123; +9) + 19 Playwright e2e + smoke green.
+
+### What's next
+
+User types are now first-class auto-detection targets. From yesterday's
+EOD checkpoint, the remaining pickup paths are unchanged:
+
+- **B. Theme 4 — quality polish.** Column-statistics panel, side-by-side data compare, type-override learns, demo/censor mode.
+- **C. Theme 1 wave 3 — test infra.** Sample-data regen + vendor DuckDB extensions for offline smoke.
+- **D. v1.0 review carryover tidy.** CM6 audit, SRI scenario, README, taxonomy types review, save-load flake.
+- **E. Custom-endpoint sidecar.** OpenAI-compatible URL; CSP rethink needed.
+- **Sidecar eval harness (v1.2 work).** Per `plan/sidecar-architecture.md`.
+
+---
+
 ## 2026-05-18 (AI sidecar wave 3) — Define-new-type assist + per-workbook user types. **Sidecar arc complete for v1.1.**
 
 ### What landed
