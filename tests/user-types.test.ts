@@ -128,10 +128,7 @@ describe('classifyColumn against a merged bundle', () => {
     const merged = mergeUserTypesIntoBundle(bundle, [EMPLOYEE_ID]);
     // Generic header `id_code` won't match employee_id header patterns,
     // but the regex matches → score ~ 0.6 weight contribution.
-    const result = classifyColumn(
-      merged,
-      sample('id_code', ['EMP-0001', 'EMP-0002', 'EMP-0003']),
-    );
+    const result = classifyColumn(merged, sample('id_code', ['EMP-0001', 'EMP-0002', 'EMP-0003']));
     const candidate = result.candidates.find((c) => c.typeId === 'employee_id');
     expect(candidate).toBeDefined();
     expect(candidate?.confidence).toBeGreaterThanOrEqual(0.5);

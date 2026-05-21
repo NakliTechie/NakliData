@@ -32,6 +32,23 @@ export interface EngineEvents {
 
 export type EngineEventName = keyof EngineEvents;
 
+/**
+ * Full-table column profile produced by `Engine.profileColumn`. Used by
+ * the schema-panel column-profile pane (Theme 4 wave 1).
+ */
+export interface ColumnProfile {
+  totalRows: number;
+  nullCount: number;
+  distinctCount: number;
+  /** Min/Max length of `col::VARCHAR` over non-null values. `null` if all values are null. */
+  lengthMin: number | null;
+  lengthMax: number | null;
+  /** Mean length over non-null values. `null` if all values are null. */
+  lengthAvg: number | null;
+  /** Top 5 values by count (descending). Values are stringified. */
+  topK: Array<{ value: string; count: number }>;
+}
+
 export interface RegisterFileOptions {
   /** Logical table name DuckDB will see. */
   tableName: string;
@@ -472,6 +489,70 @@ export class Engine {
     }
     const distinctCount = new Set(values).size;
     return { values, totalSampled: all.length, nullCount, distinctCount };
+  }
+
+  /**
+   * Full-table profile of a single column. Used by the schema panel's
+   * column-profile panel (Theme 4 wave 1). Unlike `sampleColumn` (which
+   * samples for the classifier), this scans the whole table so the
+   * counts are exact. Returns:
+   *   - totalRows, nullCount, distinctCount (exact, over the table)
+   *   - lengthMin/Max/Avg (computed on the VARCHAR-cast value; for
+   *     numeric columns these are digit-counts, still useful as a proxy)
+   *   - topK: the 5 most common values with their counts
+   *
+   * For very large tables this is more expensive than `sampleColumn`;
+   * the panel only runs it on demand (user clicks Profile).
+   */
+  async profileColumn(tableName: string, columnName: string): Promise<ColumnProfile> {
+    const safeTable = quoteIdent(sanitizeIdent(tableName));
+    const safeCol = quoteIdent(columnName.replace(/"/g, '""'));
+    const summaryRows = await this.query<{
+      total: number | bigint;
+      null_count: number | bigint;
+      distinct_count: number | bigint;
+      len_min: number | bigint | null;
+      len_max: number | bigint | null;
+      len_avg: number | null;
+    }>(
+      `SELECT
+        COUNT(*) AS total,
+        COUNT(*) - COUNT(${safeCol}) AS null_count,
+        COUNT(DISTINCT ${safeCol}) AS distinct_count,
+        MIN(LENGTH(${safeCol}::VARCHAR)) AS len_min,
+        MAX(LENGTH(${safeCol}::VARCHAR)) AS len_max,
+        AVG(LENGTH(${safeCol}::VARCHAR)) AS len_avg
+       FROM ${safeTable}`,
+    );
+    const summary = summaryRows[0] ?? {
+      total: 0,
+      null_count: 0,
+      distinct_count: 0,
+      len_min: null,
+      len_max: null,
+      len_avg: null,
+    };
+    const topRaw = await this.query<{ value: unknown; cnt: number | bigint }>(
+      `SELECT ${safeCol}::VARCHAR AS value, COUNT(*) AS cnt
+       FROM ${safeTable}
+       WHERE ${safeCol} IS NOT NULL
+       GROUP BY ${safeCol}
+       ORDER BY cnt DESC
+       LIMIT 5`,
+    );
+    const topK = topRaw.map((r) => ({
+      value: r.value === null || r.value === undefined ? '∅' : String(r.value),
+      count: Number(r.cnt),
+    }));
+    return {
+      totalRows: Number(summary.total),
+      nullCount: Number(summary.null_count),
+      distinctCount: Number(summary.distinct_count),
+      lengthMin: summary.len_min === null ? null : Number(summary.len_min),
+      lengthMax: summary.len_max === null ? null : Number(summary.len_max),
+      lengthAvg: summary.len_avg === null ? null : Number(summary.len_avg),
+      topK,
+    };
   }
 
   /**

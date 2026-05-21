@@ -104,25 +104,7 @@ async function boot(): Promise<void> {
   workbook.subscribe((wb) => {
     renderSourcesList(root, wb.sources);
     setHasMounts(root, wb.sources.length > 0);
-    renderSchemaPanel(
-      root,
-      {
-        sources: wb.sources,
-        assignments: wb.assignments,
-        bundle: getTaxonomyClient().getBundle(),
-        autoAcceptThreshold: wb.autoAcceptThreshold,
-        userTypes: wb.userTypes,
-      },
-      {
-        onAccept: (sId, tId, col) => acceptAssignment(sId, tId, col),
-        onOverride: (sId, tId, col, typeId) => overrideAssignment(sId, tId, col, typeId),
-        onBulkAccept: (threshold) => bulkAccept(threshold),
-        onChangeThreshold: (v) => workbook.setAutoAcceptThreshold(v),
-        onReclassify: () => {
-          void reclassifyAllSources(engine);
-        },
-      },
-    );
+    renderSchemaPanelWithCurrentState(root, wb, engine);
     renderTemplatePanel(
       root,
       { sources: wb.sources, assignments: wb.assignments },
@@ -223,6 +205,49 @@ function installUserTypesSync(): void {
 }
 
 let _activeSession: SessionMeta | null = null;
+
+/**
+ * Column-profile cache (Theme 4 wave 1). Keyed by assignmentKey.
+ * Presence in the map means the profile panel is currently expanded
+ * for that column. `runShowProfile` toggles it: missing → fetches +
+ * adds; present → deletes. After every mutation, `triggerSchemaRender`
+ * forces a schema-panel re-render so the new state lands.
+ */
+const _columnProfiles = new Map<string, import('./core/engine.ts').ColumnProfile>();
+
+/**
+ * Render the schema panel with the current workbook + cached column
+ * profiles. Called both from the workbook subscriber (when workbook
+ * state changes) and from the profile-toggle handler (when the
+ * profile cache changes but workbook didn't). Extracted so both call
+ * sites stay in sync.
+ */
+function renderSchemaPanelWithCurrentState(
+  root: HTMLElement,
+  wb: ReturnType<ReturnType<typeof getWorkbook>['get']>,
+  engine: Engine,
+): void {
+  renderSchemaPanel(
+    root,
+    {
+      sources: wb.sources,
+      assignments: wb.assignments,
+      bundle: getTaxonomyClient().getBundle(),
+      autoAcceptThreshold: wb.autoAcceptThreshold,
+      userTypes: wb.userTypes,
+      profiles: Object.fromEntries(_columnProfiles),
+    },
+    {
+      onAccept: (sId, tId, col) => acceptAssignment(sId, tId, col),
+      onOverride: (sId, tId, col, typeId) => overrideAssignment(sId, tId, col, typeId),
+      onBulkAccept: (threshold) => bulkAccept(threshold),
+      onChangeThreshold: (v) => getWorkbook().setAutoAcceptThreshold(v),
+      onReclassify: () => {
+        void reclassifyAllSources(engine);
+      },
+    },
+  );
+}
 
 function getActiveSessionId(): string {
   if (!_activeSession) throw new Error('No active session');
@@ -580,6 +605,14 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const columnName = el?.dataset.column;
       if (!sourceId || !tableId || !columnName) return;
       await runDisambiguateType(engine, el, sourceId, tableId, columnName);
+      return;
+    }
+    case 'show-profile': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const columnName = el?.dataset.column;
+      if (!sourceId || !tableId || !columnName) return;
+      await runShowProfile(engine, sourceId, tableId, columnName);
       return;
     }
     case 'define-new-type': {
@@ -1182,6 +1215,54 @@ function escapeText(s: string): string {
  * chosen typeId as a user_override. `null` response → toast and
  * leave the assignment as-is.
  */
+/**
+ * Toggle the column-profile panel for one column. Presence in the
+ * `_columnProfiles` map === expanded; absence === collapsed. Re-renders
+ * the schema panel so the inline panel HTML reflects the new state.
+ *
+ * If we're expanding for the first time, fetches the profile via
+ * `engine.profileColumn`. Fetched profiles stay cached for the
+ * session — subsequent collapse/expand cycles don't re-fetch (the
+ * cache is invalidated when the user toggles off + on again only if
+ * we explicitly clear; current behavior is to keep the cache for the
+ * tab's lifetime since stats are stable per mount).
+ */
+async function runShowProfile(
+  engine: Engine,
+  sourceId: string,
+  tableId: string,
+  columnName: string,
+): Promise<void> {
+  const root = document.getElementById('app');
+  if (!root) return;
+  const key = assignmentKey(sourceId, tableId, columnName);
+  // Collapsing: remove from cache + re-render.
+  if (_columnProfiles.has(key)) {
+    _columnProfiles.delete(key);
+    renderSchemaPanelWithCurrentState(root, getWorkbook().get(), engine);
+    return;
+  }
+  // Expanding: find the table, fetch the profile, cache, re-render.
+  // Toast confirms the click while the engine works — keeps the cache
+  // truthful (present === ready data) without a sentinel "loading"
+  // value and the conditional-render that would need on the panel side.
+  const wb = getWorkbook().get();
+  const table = wb.sources.find((s) => s.id === sourceId)?.tables.find((t) => t.id === tableId);
+  if (!table) {
+    toast('Table not found for that column.', 'error');
+    return;
+  }
+  toast(`Profiling ${columnName}…`);
+  try {
+    const profile = await engine.profileColumn(table.name, columnName);
+    _columnProfiles.set(key, profile);
+    renderSchemaPanelWithCurrentState(root, getWorkbook().get(), engine);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    toast(`Profile failed for ${columnName}: ${msg}`, 'error');
+  }
+}
+
 async function runDisambiguateType(
   engine: Engine,
   buttonEl: HTMLElement | null,

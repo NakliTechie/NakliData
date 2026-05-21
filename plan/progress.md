@@ -4,6 +4,49 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-21 — Theme 4 wave 1 (column-profile panel) + Theme 1 wave 3 GeoJSON fixture.
+
+### What landed
+
+- **`src/core/engine.ts`** — new `ColumnProfile` interface + `profileColumn(tableName, columnName)`. Runs one full-table aggregate (`COUNT(*)`, `null_count`, `distinct_count`, `MIN/MAX/AVG LENGTH(::VARCHAR)`) and a second top-5 query (`GROUP BY ... ORDER BY cnt DESC LIMIT 5`). Both reuse the existing `sanitizeIdent` + `quoteIdent` plumbing. BigInts coerced via `Number(...)`; null safe (`len_min === null ? null : Number(...)`). On-demand only — never autofires.
+- **`src/ui/schema-panel.ts`** — `ColumnProfile` import threaded through `SchemaPanelState.profiles: Record<assignmentKey, ColumnProfile>`. Each column row gets a new ghost-styled `Profile` button (`data-action="show-profile"`) next to the existing Accept / Override / Evidence affordances. When the profile is in state, an inline `.schema-profile-pane` renders below the row with a 4-row grid (Rows, Distinct, Null, Length) plus an optional top-5 list. The button's `aria-pressed` reflects expanded/collapsed. ~85 lines of `SCHEMA_CSS` added for the pane.
+- **`src/main.ts`** — `_columnProfiles: Map<key, ColumnProfile>` module-scope cache. `runShowProfile(engine, sourceId, tableId, columnName)` toggles the entry: present → delete (collapse); absent → toast, call `engine.profileColumn`, set, re-render. `renderSchemaPanelWithCurrentState` passes `profiles: Object.fromEntries(_columnProfiles)` into the schema-panel state. The cache is per-tab, cleared when the workbook resets.
+- **`tests/e2e/fixtures/sample-data/places.geojson`** (new). 5-feature `FeatureCollection` of Indian metro centroids (Bengaluru / Mumbai / Kolkata / Chennai / Delhi NCR) with `name`, `state`, `population_2026` properties. Reserved for future map-cell / spatial-extension tests; not wired into any current spec.
+
+### Why these choices
+
+- **Full-table profile, not sampled.** `sampleColumn` is the right shape for the classifier (cheap, head + random tail, ~200 values). For the user-facing profile panel the counts need to be exact, so the trade-off (one extra agg query per click) is fine. Big tables won't run automatically.
+- **`Engine.profileColumn` cast to `::VARCHAR` for length stats.** Lets the same query work across all DuckDB types. Numeric columns get digit-count length, which is still a useful proxy. Avoids per-type branching on the SQL side.
+- **Cache lives in `main.ts`, not on the workbook.** Profile is derived state — re-runnable from the engine — and shouldn't bloat `.naklidata` save files. Map gets cleared whenever sources/cells reset.
+- **Top-5 only.** Enough to spot common values + skew without overwhelming the panel. Rendered as `<code>` chips with `× N` counts.
+- **GeoJSON fixture is a free-standing artifact** — five features of real Indian metros so future spatial smoke tests have a realistic seed without needing to vendor a state-shapes file.
+
+### Tests
+
+- **`tests/e2e/column-profile.spec.ts`** (new). Boots the engine, mounts example data, clicks the first column's `Profile` button, waits for `.schema-profile-grid` to materialise, asserts labels include {Rows, Distinct, Null, Length}, asserts top-k container is present, then clicks again and asserts the pane collapses. Earlier red iteration (`totalRows=0`) traced to a stale `dist/` from before `npm run build` — running through the project's `tests/e2e/playwright.config.ts` (which the npm script wraps with a fresh build) confirmed the query path is correct.
+
+### Quality
+
+- `dist/index.html` 386 KB / 600 KB budget. No new lazy chunks; renderer is inline schema-panel HTML.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 pre-existing warnings.
+- **132 vitest** unchanged + **20 Playwright e2e** (was 19, +1 column-profile) + smoke green.
+
+### What's next
+
+Remaining Theme 4 items (B from yesterday's pick list):
+
+- **B2.** Side-by-side data compare — auto join-key detection from taxonomy + diff renderer.
+- **B3.** Type override learns — "always treat columns named X as Y" promoted to a per-workspace user-type seed (or auto-applied override rule).
+- **B4.** Demo / censor mode — mask user paths and column names in screenshots.
+
+C still has one item open (vendor DuckDB extensions for offline-grade smoke; deferred to a dedicated session because it needs careful CSP work + a ~1 MB asset budget review).
+
+D / E / sidecar-v1.2 are unchanged.
+
+Full reasoning at DECISIONS 2026-05-21 15:30.
+
+---
+
 ## 2026-05-19 — Classifier integration of user types. **The wave-3 loop is now closed.**
 
 ### What landed

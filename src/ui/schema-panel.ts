@@ -4,6 +4,7 @@
 // Per column we show: name + SQL type + assigned semantic type + confidence
 // bar + expandable evidence + accept/override/define-new actions.
 
+import type { ColumnProfile } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import type { UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
@@ -40,6 +41,13 @@ export interface SchemaPanelState {
   autoAcceptThreshold: number;
   /** User-defined types from the workbook (per-`.naklidata`). */
   userTypes: UserType[];
+  /**
+   * Column profiles loaded via `engine.profileColumn`, keyed by
+   * `assignmentKey(sourceId, tableId, columnName)`. Presence in this
+   * map means the profile panel is expanded for that column; absence
+   * means collapsed. main.ts owns the map and re-renders on change.
+   */
+  profiles: Record<string, ColumnProfile>;
 }
 
 export interface SchemaPanelHandlers {
@@ -159,7 +167,17 @@ function renderTableBlock(
   for (const key of myKeys) {
     const a = state.assignments[key];
     if (!a) continue;
-    ul.append(renderColumnRow(src.id, table.id, a, state.bundle, state.userTypes, handlers));
+    ul.append(
+      renderColumnRow(
+        src.id,
+        table.id,
+        a,
+        state.bundle,
+        state.userTypes,
+        state.profiles[key] ?? null,
+        handlers,
+      ),
+    );
   }
   return el;
 }
@@ -170,6 +188,7 @@ function renderColumnRow(
   a: ColumnAssignment,
   bundle: TaxonomyBundle | null,
   userTypes: UserType[],
+  profile: ColumnProfile | null,
   handlers: SchemaPanelHandlers,
 ): HTMLElement {
   const li = document.createElement('li');
@@ -218,9 +237,13 @@ function renderColumnRow(
       <button class="btn btn-ghost" data-action="evidence" aria-controls="${detailsId}" aria-expanded="false">
         ${iconSvg('info', 12)} Evidence
       </button>
+      <button class="btn btn-ghost" data-action="show-profile" data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}" data-column="${escapeHtml(a.columnName)}" aria-pressed="${profile ? 'true' : 'false'}">
+        ${iconSvg('chart', 12)} Profile
+      </button>
       ${isAmbiguous(a) ? renderAskSidecarButton(sourceId, tableId, a) : ''}
     </div>
     <div id="${detailsId}" class="schema-evidence" hidden>${renderEvidence(a)}</div>
+    <div class="schema-profile-pane" ${profile ? '' : 'hidden'}>${profile ? renderProfilePanel(profile) : ''}</div>
   `;
 
   li.querySelector('[data-action="accept"]')?.addEventListener('click', () => {
@@ -251,6 +274,60 @@ function renderColumnRow(
   });
 
   return li;
+}
+
+/**
+ * Render the column-profile panel from a ColumnProfile. Inline HTML —
+ * not a full template, just a small set of rows + the top-k list.
+ */
+function renderProfilePanel(p: ColumnProfile): string {
+  const pct = (n: number, total: number) =>
+    total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';
+  const fmtNum = (n: number | null): string =>
+    n === null ? '—' : Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1);
+  const nullPct = pct(p.nullCount, p.totalRows);
+  const distinctPct = pct(p.distinctCount, p.totalRows);
+  const lengthLine =
+    p.lengthMin === null || p.lengthMax === null
+      ? '—'
+      : `${fmtNum(p.lengthMin)} – ${fmtNum(p.lengthMax)} (avg ${fmtNum(p.lengthAvg)})`;
+  const topRows = p.topK
+    .map(
+      (entry) => `
+        <li class="schema-profile-topk-row">
+          <code>${escapeHtml(entry.value.length > 60 ? `${entry.value.slice(0, 57)}…` : entry.value)}</code>
+          <span class="schema-profile-topk-count">×${entry.count.toLocaleString()}</span>
+        </li>`,
+    )
+    .join('');
+  return `
+    <div class="schema-profile-grid">
+      <div class="schema-profile-row">
+        <span class="schema-profile-label">Rows</span>
+        <span class="schema-profile-value">${p.totalRows.toLocaleString()}</span>
+      </div>
+      <div class="schema-profile-row">
+        <span class="schema-profile-label">Distinct</span>
+        <span class="schema-profile-value">${p.distinctCount.toLocaleString()} <span class="schema-profile-pct">(${distinctPct})</span></span>
+      </div>
+      <div class="schema-profile-row">
+        <span class="schema-profile-label">Null</span>
+        <span class="schema-profile-value">${p.nullCount.toLocaleString()} <span class="schema-profile-pct">(${nullPct})</span></span>
+      </div>
+      <div class="schema-profile-row">
+        <span class="schema-profile-label">Length</span>
+        <span class="schema-profile-value">${lengthLine}</span>
+      </div>
+    </div>
+    ${
+      p.topK.length > 0
+        ? `<div class="schema-profile-topk">
+            <div class="schema-profile-topk-head">Top values</div>
+            <ul>${topRows}</ul>
+          </div>`
+        : ''
+    }
+  `;
 }
 
 /**
@@ -603,5 +680,90 @@ const SCHEMA_CSS = `
 .schema-sidecar-ask:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+
+/* Column-profile pane (Theme 4 wave 1) — rendered inline below the
+   row when a profile has been loaded. Hidden until the user clicks
+   the Profile button. */
+.schema-profile-pane {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+.schema-profile-pane[hidden] { display: none; }
+.schema-profile-pane.schema-profile-loading {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.schema-profile-pane.schema-profile-error {
+  background: #F6D6D3;
+  color: var(--text);
+}
+.schema-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+.schema-profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.schema-profile-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.schema-profile-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.schema-profile-pct {
+  color: var(--text-muted);
+  font-weight: normal;
+  margin-left: 2px;
+}
+.schema-profile-topk {
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+.schema-profile-topk-head {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.schema-profile-topk ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.schema-profile-topk-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.schema-profile-topk-row code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface-alt);
+  padding: 1px 4px;
+  border-radius: 2px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schema-profile-topk-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 `;

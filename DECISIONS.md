@@ -2,6 +2,17 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-21 15:30 — Column-profile panel (Theme 4 wave 1): full-table aggregate, on-demand only, derived state
+**Context:** Theme 4's lead item is a column statistics panel — cardinality, null %, length distribution, top-k. Three sub-decisions: (a) sampled vs full-scan; (b) where the data lives (workbook state vs ephemeral cache); (c) UI shape (modal vs inline pane).
+**Decisions:**
+- **(a) Full-table aggregate, not sampled.** `Engine.sampleColumn` exists for the classifier — head + random tail of ~200 values, cheap, approximate. The profile panel is user-facing and the user expects "Rows: 80" to literally mean 80, not "~80". We pay one extra agg query per click; that's fine because the panel is on-demand (Profile button must be clicked) and big tables will simply pay big-table costs the user explicitly invited. New method `Engine.profileColumn(tableName, columnName)` runs two queries: a single-row aggregate (`COUNT(*)`, `null_count`, `distinct_count`, `MIN/MAX/AVG LENGTH(::VARCHAR)`) and a top-5 `GROUP BY ... ORDER BY cnt DESC LIMIT 5`. The `::VARCHAR` cast on `LENGTH` lets the same query work across all DuckDB types (numeric columns get digit-count length — a useful proxy without per-type branching).
+- **(b) Derived state — module-scope `Map` in `main.ts`, not workbook state.** Profile is derivable from the engine + the column key; persisting it into `.naklidata` would bloat save files and risk stale numbers across reopens. Map keyed by `assignmentKey(sourceId, tableId, columnName)`; per-tab; cleared on workbook reset. The schema-panel renderer reads `profiles: Object.fromEntries(_columnProfiles)` as part of `SchemaPanelState`.
+- **(c) Inline pane under the column row, not a modal.** The schema panel is a tall scrollable list — inserting a 5-row grid under the clicked column row stays in spatial context (you can compare neighbouring columns without re-opening). A modal would hide the surrounding columns and force re-clicks. The Profile button gets `aria-pressed` reflecting expanded/collapsed so it announces correctly to assistive tech. Top-k list is hidden when empty (no all-null columns get a phantom "Top values" header).
+- **(d) Toggle behaviour: click expands and fetches, click again collapses + drops from cache.** Re-opening re-fetches. Stats are stable per-mount so we could cache forever, but a fresh fetch is cheap and avoids stale-data risk if we ever support live-editable sources. Simpler model.
+**Tests:** `tests/e2e/column-profile.spec.ts` — clicks Profile on the first column, waits for `.schema-profile-grid`, asserts label set + top-k container, then clicks again and asserts the pane collapses. Also drops `tests/e2e/fixtures/sample-data/places.geojson` (5-feature FeatureCollection of Indian metros) as a future fixture for spatial e2e specs. No vitest needed: `profileColumn` is a thin SQL wrapper; the renderer is plain HTML.
+
+---
+
 ## 2026-05-19 14:00 — Classifier integration of user types: merge into the worker's bundle, preserve user choices on re-classify
 **Context:** Sidecar wave 3 (2026-05-18) made user-defined types persistent + applicable via the Override menu, but they didn't fire during classification — they were application targets only. Closing this loop has three sub-decisions: (a) how user types reach the classifier worker; (b) what detector shape each user type takes; (c) what happens to already-classified columns when user types change.
 **Decisions:**

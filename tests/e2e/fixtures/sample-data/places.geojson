@@ -1,0 +1,31 @@
+{
+  "type": "FeatureCollection",
+  "name": "Indian metro centroids — fixture for spatial mount tests",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [77.5946, 12.9716] },
+      "properties": { "name": "Bengaluru", "state": "Karnataka", "population_2026": 14000000 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [72.8777, 19.0760] },
+      "properties": { "name": "Mumbai", "state": "Maharashtra", "population_2026": 22000000 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [88.3639, 22.5726] },
+      "properties": { "name": "Kolkata", "state": "West Bengal", "population_2026": 15500000 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [80.2707, 13.0827] },
+      "properties": { "name": "Chennai", "state": "Tamil Nadu", "population_2026": 11500000 }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [77.1025, 28.7041] },
+      "properties": { "name": "Delhi NCR", "state": "Delhi", "population_2026": 32000000 }
+    }
+  ]
+}
