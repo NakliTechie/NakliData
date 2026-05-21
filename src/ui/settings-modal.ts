@@ -2,6 +2,7 @@
 // amendment A2. Wording matches the amendment ("Stored on this
 // device. Anyone with access to this browser profile can read it.")
 
+import { setDemoMode } from '../core/demo-mode.ts';
 import { type Settings, loadSettings, saveSettings } from '../core/settings.ts';
 import {
   type BYOKEntry,
@@ -40,6 +41,8 @@ async function refresh(): Promise<void> {
   if (modelInput) modelInput.value = settings.sidecarModel;
   const enableInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-enable"]');
   if (enableInput) enableInput.checked = settings.sidecarEnabled;
+  const demoInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-demo-mode"]');
+  if (demoInput) demoInput.checked = settings.demoMode;
   await renderProviderBlocks(overlay, settings);
 }
 
@@ -154,6 +157,14 @@ function renderModal(): HTMLElement {
           <p class="settings-hint">Per spec §4.3: the v1.1 sidecar is narrow — it explains query errors, helps disambiguate column types, and helps define new types. It never generates SQL you didn't write yourself.</p>
         </section>
         <section class="settings-section">
+          <h2>Demo / censor mode</h2>
+          <label class="settings-remember">
+            <input type="checkbox" data-action="settings-demo-mode" />
+            <span>Mask source, table, and column names with stable tokens (<code>src_1</code>, <code>tbl_1</code>, <code>col_1</code>…)</span>
+          </label>
+          <p class="settings-hint">For screenshots and demos. Row values, SQL cell text, and the underlying engine queries are NOT masked — clear cells before screenshotting if they contain sensitive data. Toggle off any time to reveal real labels.</p>
+        </section>
+        <section class="settings-section">
           <h2>Active provider</h2>
           <div class="settings-radio-row">
             <label><input type="radio" name="settings-provider" value="anthropic" /> Anthropic (Claude)</label>
@@ -194,6 +205,17 @@ function renderModal(): HTMLElement {
       const enabled = (target as HTMLInputElement).checked;
       await patchSettings({ sidecarEnabled: enabled });
       document.getElementById('app')?.classList.toggle('app-sidecar-enabled', enabled);
+    }
+    if (action === 'settings-demo-mode') {
+      const enabled = (target as HTMLInputElement).checked;
+      await patchSettings({ demoMode: enabled });
+      setDemoMode(enabled);
+      document.getElementById('app')?.classList.toggle('app-demo-mode', enabled);
+      // Notify the rest of the app so visible surfaces re-render with
+      // masked / unmasked labels. main.ts owns the re-render orchestration.
+      document.dispatchEvent(
+        new CustomEvent('naklidata-demo-mode-changed', { detail: { enabled } }),
+      );
     }
     if (
       target instanceof HTMLInputElement &&

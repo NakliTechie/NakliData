@@ -49,6 +49,38 @@ export interface ColumnProfile {
   topK: Array<{ value: string; count: number }>;
 }
 
+/**
+ * Output of `Engine.compareTables`. Theme 4 wave 2 (B2). All counts are
+ * exact; the differing-row sample is capped via the caller's
+ * `sampleLimit`. Common-column comparison happens on the columns
+ * present in both tables — exact case-sensitive name match.
+ */
+export interface TableComparison {
+  /** Total rows in A. */
+  rowsA: number;
+  /** Total rows in B. */
+  rowsB: number;
+  /** Distinct join-key values present only in A (left anti). */
+  onlyInA: number;
+  /** Distinct join-key values present only in B (right anti). */
+  onlyInB: number;
+  /** Join-key values present in both, all common columns equal. */
+  matched: number;
+  /** Join-key values present in both, at least one common column differs. */
+  differing: number;
+  /** Columns compared (intersection of A and B columns, minus the keys). */
+  comparedColumns: string[];
+  /**
+   * Up to `sampleLimit` differing rows. For each, the key value + a
+   * `diffs` array of {column, valueA, valueB} for every differing
+   * column on that row. Non-differing columns are omitted.
+   */
+  differingSample: Array<{
+    key: string;
+    diffs: Array<{ column: string; valueA: string | null; valueB: string | null }>;
+  }>;
+}
+
 export interface RegisterFileOptions {
   /** Logical table name DuckDB will see. */
   tableName: string;
@@ -552,6 +584,154 @@ export class Engine {
       lengthMax: summary.len_max === null ? null : Number(summary.len_max),
       lengthAvg: summary.len_avg === null ? null : Number(summary.len_avg),
       topK,
+    };
+  }
+
+  /**
+   * Side-by-side comparison of two tables on a chosen join key. Theme 4
+   * wave 2 (B2). For each row in the symmetric difference + the matched
+   * subset, classify into one of four buckets — onlyInA, onlyInB,
+   * matched (all common non-key columns equal), differing (≥1 common
+   * column differs). For "differing" rows, return up to `sampleLimit`
+   * with a column-level diff so the UI can render a useful preview.
+   *
+   * Columns compared = the set-intersection of A's and B's columns by
+   * name (case-sensitive), minus the two join columns. If a column
+   * exists in only one table, it isn't compared (the user should
+   * project before comparing if that matters).
+   *
+   * Caveats:
+   * - DuckDB's NULL semantics: NULL = NULL is FALSE, so a row with NULL
+   *   on the same column on both sides counts as "differing" by the
+   *   raw IS DISTINCT FROM check. We use IS DISTINCT FROM so NULL/NULL
+   *   counts as NOT differing — which matches user expectation.
+   * - Cast both sides to VARCHAR for the diff to avoid type-coercion
+   *   surprises (e.g., DOUBLE vs BIGINT for a numeric column).
+   */
+  async compareTables(
+    tableAName: string,
+    tableBName: string,
+    joinColA: string,
+    joinColB: string,
+    sampleLimit = 25,
+  ): Promise<TableComparison> {
+    const safeA = quoteIdent(sanitizeIdent(tableAName));
+    const safeB = quoteIdent(sanitizeIdent(tableBName));
+    const safeKeyA = quoteIdent(joinColA.replace(/"/g, '""'));
+    const safeKeyB = quoteIdent(joinColB.replace(/"/g, '""'));
+
+    // Discover columns on each side via DESCRIBE.
+    const colsA = await this.query<{ column_name: string }>(`DESCRIBE ${safeA}`);
+    const colsB = await this.query<{ column_name: string }>(`DESCRIBE ${safeB}`);
+    const namesA = new Set(colsA.map((c) => c.column_name));
+    const namesB = new Set(colsB.map((c) => c.column_name));
+    // Intersection minus the two join columns.
+    const common: string[] = [];
+    for (const n of namesA) {
+      if (namesB.has(n) && n !== joinColA && n !== joinColB) common.push(n);
+    }
+
+    // Counts of total rows on each side — cheap sanity for the summary.
+    const [aRow] = await this.query<{ n: bigint | number }>(`SELECT COUNT(*) AS n FROM ${safeA}`);
+    const [bRow] = await this.query<{ n: bigint | number }>(`SELECT COUNT(*) AS n FROM ${safeB}`);
+    const rowsA = Number(aRow?.n ?? 0);
+    const rowsB = Number(bRow?.n ?? 0);
+
+    // Bucket the symmetric outer join into four counts.
+    const diffPredicate =
+      common.length === 0
+        ? '0' // no common columns → never "differing"
+        : common
+            .map(
+              (c) =>
+                `(a.${quoteIdent(c.replace(/"/g, '""'))} IS DISTINCT FROM b.${quoteIdent(c.replace(/"/g, '""'))})::INT`,
+            )
+            .join(' + ');
+    const bucketsSql = `
+      WITH joined AS (
+        SELECT
+          a.${safeKeyA} AS key_a,
+          b.${safeKeyB} AS key_b,
+          ${common.length === 0 ? '0' : diffPredicate} AS n_diffs
+        FROM ${safeA} a
+        FULL OUTER JOIN ${safeB} b ON a.${safeKeyA} = b.${safeKeyB}
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE key_b IS NULL) AS only_a,
+        COUNT(*) FILTER (WHERE key_a IS NULL) AS only_b,
+        COUNT(*) FILTER (WHERE key_a IS NOT NULL AND key_b IS NOT NULL AND n_diffs = 0) AS matched,
+        COUNT(*) FILTER (WHERE key_a IS NOT NULL AND key_b IS NOT NULL AND n_diffs > 0) AS differing
+      FROM joined
+    `;
+    const [buckets] = await this.query<{
+      only_a: bigint | number;
+      only_b: bigint | number;
+      matched: bigint | number;
+      differing: bigint | number;
+    }>(bucketsSql);
+
+    // Sample a small set of differing rows with per-column projection.
+    // We project each common column from both sides side-by-side so we
+    // can re-derive the per-row diff list in JS.
+    const projections =
+      common.length === 0
+        ? ''
+        : common
+            .map((c) => {
+              const safeC = quoteIdent(c.replace(/"/g, '""'));
+              return `a.${safeC} AS a_${sanitizeIdent(c)}, b.${safeC} AS b_${sanitizeIdent(c)}`;
+            })
+            .join(', ');
+    let differingSample: TableComparison['differingSample'] = [];
+    if (common.length > 0 && (buckets?.differing ?? 0) !== 0) {
+      const sampleSql = `
+        SELECT
+          a.${safeKeyA}::VARCHAR AS join_key,
+          ${projections}
+        FROM ${safeA} a
+        JOIN ${safeB} b ON a.${safeKeyA} = b.${safeKeyB}
+        WHERE ${diffPredicate} > 0
+        LIMIT ${sampleLimit}
+      `;
+      const rows = await this.query<Record<string, unknown>>(sampleSql);
+      differingSample = rows.map((r) => {
+        const diffs: TableComparison['differingSample'][number]['diffs'] = [];
+        for (const c of common) {
+          const aKey = `a_${sanitizeIdent(c)}`;
+          const bKey = `b_${sanitizeIdent(c)}`;
+          const va = r[aKey];
+          const vb = r[bKey];
+          // Match DuckDB IS DISTINCT FROM semantics: NULL/NULL not distinct.
+          const distinct =
+            va === null || va === undefined
+              ? !(vb === null || vb === undefined)
+              : vb === null || vb === undefined
+                ? true
+                : String(va) !== String(vb);
+          if (distinct) {
+            diffs.push({
+              column: c,
+              valueA: va === null || va === undefined ? null : String(va),
+              valueB: vb === null || vb === undefined ? null : String(vb),
+            });
+          }
+        }
+        return {
+          key: r.join_key === null || r.join_key === undefined ? '' : String(r.join_key),
+          diffs,
+        };
+      });
+    }
+
+    return {
+      rowsA,
+      rowsB,
+      onlyInA: Number(buckets?.only_a ?? 0),
+      onlyInB: Number(buckets?.only_b ?? 0),
+      matched: Number(buckets?.matched ?? 0),
+      differing: Number(buckets?.differing ?? 0),
+      comparedColumns: common,
+      differingSample,
     };
   }
 

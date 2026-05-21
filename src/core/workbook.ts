@@ -21,6 +21,25 @@ export interface UserType {
   note?: string;
 }
 
+/**
+ * Persisted "always treat columns named X as type Y" rule. Created when
+ * the user opts in to "Remember this" after an Override action. Applied
+ * by `main.ts#applyOverrideRulesToAssignments` after every classify so
+ * that newly-mounted sources inherit user intent without re-clicking.
+ *
+ * Theme 4 wave 2 (B3). Spec ref: handoff §9 (schema-panel polish).
+ */
+export interface OverrideRule {
+  /** Exact column-name match (case-sensitive). */
+  columnName: string;
+  /** Target type id — points at either a bundled type or a user_type. */
+  typeId: string;
+  /** ISO timestamp; informational only. */
+  created: string;
+  /** Optional free-form note. */
+  note?: string;
+}
+
 export interface WorkbookState {
   sources: MountedSource[];
   /** Keyed by `${sourceId}::${tableId}::${columnName}`. */
@@ -28,6 +47,8 @@ export interface WorkbookState {
   autoAcceptThreshold: number;
   /** User-defined semantic types — local to this workbook. */
   userTypes: UserType[];
+  /** "Always treat columns named X as type Y" rules. Theme 4 wave 2 (B3). */
+  overrideRules: OverrideRule[];
 }
 
 type Listener = (state: WorkbookState) => void;
@@ -38,6 +59,7 @@ class Workbook {
     assignments: {},
     autoAcceptThreshold: 0.9,
     userTypes: [],
+    overrideRules: [],
   };
   private listeners = new Set<Listener>();
 
@@ -88,6 +110,7 @@ class Workbook {
       assignments: {},
       autoAcceptThreshold: 0.9,
       userTypes: [],
+      overrideRules: [],
     };
     this.notify();
   }
@@ -109,6 +132,31 @@ class Workbook {
 
   setUserTypes(types: UserType[]): void {
     this.state = { ...this.state, userTypes: [...types] };
+    this.notify();
+  }
+
+  /**
+   * Add (or replace, by columnName) an override rule. Theme 4 wave 2
+   * (B3). columnName is the unique key — re-adding the same column-name
+   * replaces the existing rule's typeId so users can re-purpose a rule
+   * without first removing it.
+   */
+  addOverrideRule(rule: OverrideRule): void {
+    const filtered = this.state.overrideRules.filter((r) => r.columnName !== rule.columnName);
+    this.state = { ...this.state, overrideRules: [...filtered, rule] };
+    this.notify();
+  }
+
+  removeOverrideRule(columnName: string): void {
+    this.state = {
+      ...this.state,
+      overrideRules: this.state.overrideRules.filter((r) => r.columnName !== columnName),
+    };
+    this.notify();
+  }
+
+  setOverrideRules(rules: OverrideRule[]): void {
+    this.state = { ...this.state, overrideRules: [...rules] };
     this.notify();
   }
 

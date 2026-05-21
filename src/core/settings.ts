@@ -18,6 +18,14 @@ export interface Settings {
   sidecarProvider: SidecarProvider;
   /** Provider model id (e.g., `claude-3-5-haiku-latest`). */
   sidecarModel: string;
+  /**
+   * Demo / censor mode. When true, user-data labels (source labels,
+   * table names, column names, source origins, result-table column
+   * headers) are replaced visually with stable obscured tokens
+   * (`src_1`, `tbl_1`, `col_1`, …). Theme 4 wave 2 (B4). Off by
+   * default; users opt in for screenshots and demos.
+   */
+  demoMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarEnabled: false,
   sidecarProvider: 'anthropic',
   sidecarModel: 'claude-3-5-haiku-latest',
+  demoMode: false,
 };
 
 const KEY = 'settings/v1';
@@ -51,6 +60,7 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
   if (typeof s.sidecarModel === 'string' && s.sidecarModel.trim()) {
     out.sidecarModel = s.sidecarModel.trim();
   }
+  if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
   return out;
 }
 

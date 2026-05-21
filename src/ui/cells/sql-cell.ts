@@ -3,6 +3,7 @@
 // CM6). The upgrade preserves the current doc + cursor and survives
 // notebook re-renders via a per-cell-id registry of mounted CM6 views.
 
+import { maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
@@ -208,7 +209,11 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     const headRow = document.createElement('tr');
     for (const col of columns) {
       const th = document.createElement('th');
-      th.textContent = col;
+      // Demo mode (Theme 4 wave 2): mask result-column headers. The
+      // underlying row values aren't masked — they're already the
+      // user's responsibility to scrub before a screenshot. Headers
+      // (which often reveal schema intent) are the higher-risk leak.
+      th.textContent = maskLabel('column', col);
       headRow.appendChild(th);
     }
     head.appendChild(headRow);

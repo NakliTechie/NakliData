@@ -12,7 +12,7 @@
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { MountedSource } from './mount.ts';
-import type { UserType } from './workbook.ts';
+import type { OverrideRule, UserType } from './workbook.ts';
 
 export const NAKLIDATA_VERSION = '1.0';
 
@@ -27,6 +27,12 @@ export interface NakliDataFile {
   cells: PersistedCell[];
   /** User-defined semantic types. Wave 3 (2026-05-18) — was a placeholder. */
   user_types: UserType[];
+  /**
+   * "Always treat columns named X as type Y" rules. Theme 4 wave 2
+   * (2026-05-21). Defaults to `[]` on load when missing — pre-existing
+   * v1.0 files round-trip without bumping the version number.
+   */
+  override_rules?: OverrideRule[];
   settings: { auto_accept_threshold: number };
 }
 
@@ -60,6 +66,8 @@ export interface SerializeInput {
   autoAcceptThreshold: number;
   /** User-defined types from the workbook. Defaults to empty when omitted. */
   userTypes?: UserType[];
+  /** Override rules from the workbook (Theme 4 wave 2). Defaults to empty. */
+  overrideRules?: OverrideRule[];
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -95,6 +103,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     })),
     cells: input.cells.map(cellWithoutResults),
     user_types: input.userTypes ?? [],
+    override_rules: input.overrideRules ?? [],
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

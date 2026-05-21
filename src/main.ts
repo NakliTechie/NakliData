@@ -1,3 +1,4 @@
+import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
 import {
@@ -32,8 +33,10 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
+import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
 import { openSettingsModal } from './ui/settings-modal.ts';
@@ -178,6 +181,28 @@ async function boot(): Promise<void> {
   }
   installAutoSave(engine);
   installUserTypesSync();
+  installDemoModeListener(engine, root);
+}
+
+/**
+ * Theme 4 wave 2 (B4). The Settings modal dispatches
+ * `naklidata-demo-mode-changed` after toggling demoMode. We re-render
+ * the surfaces that route through `maskLabel` so the change takes
+ * effect immediately without a reload. Also re-renders any open
+ * notebook so SQL-result column headers flip.
+ */
+function installDemoModeListener(engine: Engine, root: HTMLElement): void {
+  document.addEventListener('naklidata-demo-mode-changed', () => {
+    const wb = getWorkbook().get();
+    renderSourcesList(root, wb.sources);
+    renderSchemaPanelWithCurrentState(root, wb, engine);
+    // Re-render the notebook so any visible SQL result headers update.
+    const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
+    if (notebookMount) {
+      const nb = getNotebook(engine);
+      renderNotebook(notebookMount, nb, sqlExtra());
+    }
+  });
 }
 
 /**
@@ -236,6 +261,7 @@ function renderSchemaPanelWithCurrentState(
       autoAcceptThreshold: wb.autoAcceptThreshold,
       userTypes: wb.userTypes,
       profiles: Object.fromEntries(_columnProfiles),
+      overrideRules: wb.overrideRules,
     },
     {
       onAccept: (sId, tId, col) => acceptAssignment(sId, tId, col),
@@ -245,8 +271,44 @@ function renderSchemaPanelWithCurrentState(
       onReclassify: () => {
         void reclassifyAllSources(engine);
       },
+      onManageOverrideRules: () => openManageOverrideRules(),
+      onCompareTables: () =>
+        openCompareTablesModal({
+          sources: wb.sources,
+          assignments: wb.assignments,
+          engine,
+        }),
     },
   );
+}
+
+/**
+ * Open the Override-rules management modal. The modal lists current
+ * rules with a Remove button per row; removal is forward-acting only
+ * (it doesn't rewind already-applied assignments — the user can manually
+ * Override the affected columns if they want to roll back).
+ *
+ * Theme 4 wave 2 (B3). Lives in main.ts (not the modal module) so we
+ * can mutate workbook state directly without crossing a handler.
+ */
+function openManageOverrideRules(): void {
+  const buildState = () => {
+    const wb = getWorkbook().get();
+    return {
+      rules: wb.overrideRules,
+      bundle: getTaxonomyClient().getBundle(),
+      userTypes: wb.userTypes,
+    };
+  };
+  const handlers = {
+    onRemove: (columnName: string) => {
+      getWorkbook().removeOverrideRule(columnName);
+      // Re-render the modal with the new list. Workbook subscriber also
+      // re-renders the schema panel so the toolbar count updates.
+      refreshOverrideRulesModal(buildState(), handlers);
+    },
+  };
+  openOverrideRulesModal(buildState(), handlers);
 }
 
 function getActiveSessionId(): string {
@@ -292,6 +354,9 @@ async function restoreFromActiveSession(engine: Engine): Promise<void> {
     getWorkbook().setAutoAcceptThreshold(settings.autoAcceptThreshold);
     const root = document.getElementById('app');
     root?.classList.toggle('app-sidecar-enabled', settings.sidecarEnabled);
+    root?.classList.toggle('app-demo-mode', settings.demoMode);
+    // Restore demo-mode flag on the masker before any render runs.
+    setDemoMode(settings.demoMode);
   } catch (err) {
     console.warn('[naklidata] settings load failed', err);
   }
@@ -347,6 +412,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       cells: nb.get().cells,
       autoAcceptThreshold: wb.autoAcceptThreshold,
       userTypes: wb.userTypes,
+      overrideRules: wb.overrideRules,
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -485,6 +551,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         cells: nb.get().cells,
         autoAcceptThreshold: wb.autoAcceptThreshold,
         userTypes: wb.userTypes,
+        overrideRules: wb.overrideRules,
       });
       try {
         const res = await saveToFile(file);
@@ -662,6 +729,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         cells: nb.get().cells,
         autoAcceptThreshold: wb.autoAcceptThreshold,
         userTypes: wb.userTypes,
+        overrideRules: wb.overrideRules,
       });
       try {
         const { url, tooLong } = await buildShareUrl(file);
@@ -729,6 +797,9 @@ async function applyLoadedFile(
   // Restore user-defined types from the file before sources mount, so the
   // override menu has them available when the schema panel re-renders.
   workbook.setUserTypes(file.user_types ?? []);
+  // Restore override rules (Theme 4 wave 2). Pre-existing v1.0 files
+  // round-trip with an empty list — no migration step needed.
+  workbook.setOverrideRules(file.override_rules ?? []);
   const reconnectNeeded: Array<{ id: string; label: string }> = [];
   const restoredSources: MountedSource[] = [];
   for (const ps of file.sources) {
@@ -828,7 +899,13 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
         const results = await classifyTableColumns(engine, client, table.name);
         for (const r of results) {
           const key = assignmentKey(src.id, table.id, r.column.columnName);
-          workbook.setAssignment(key, resultToAssignment(r));
+          // Theme 4 wave 2: an override rule for this column-name (if any)
+          // wins over the fresh detector output — user told us "always
+          // treat this name as X", so newly-mounted sources should
+          // inherit that intent without re-clicking.
+          const fresh = resultToAssignment(r);
+          const rules = workbook.get().overrideRules;
+          workbook.setAssignment(key, applyOverrideRule(fresh, rules));
         }
       } catch (err) {
         console.error(`[naklidata] classify failed for ${table.name}`, err);
@@ -878,7 +955,12 @@ async function reclassifyAllSources(engine: Engine): Promise<void> {
             workbook.setAssignment(key, { ...existing, candidates: fresh.candidates });
             preserved++;
           } else {
-            workbook.setAssignment(key, fresh);
+            // Theme 4 wave 2: apply override rules to detector-origin
+            // assignments. A rule for this column-name (if any) snaps
+            // the typeId without disturbing the user's manual choices
+            // (those branch above and are preserved).
+            const rules = workbook.get().overrideRules;
+            workbook.setAssignment(key, applyOverrideRule(fresh, rules));
             touched++;
           }
         }
@@ -888,6 +970,33 @@ async function reclassifyAllSources(engine: Engine): Promise<void> {
     }
   }
   toast(`Re-classified: ${touched} updated, ${preserved} preserved (user choices kept).`);
+}
+
+/**
+ * Theme 4 wave 2 (B3). If an override rule exists for the assignment's
+ * column-name, return a copy with `assigned.typeId` snapped to the
+ * rule's typeId and `origin: 'user_override'` (same shape the manual
+ * Override action produces). The candidate list is preserved so the
+ * Evidence panel still shows what the classifier originally found.
+ *
+ * Caller is responsible for not invoking this on assignments that have
+ * already been hand-curated by the user on this specific column —
+ * those are preserved by the surrounding classify loops.
+ */
+function applyOverrideRule(
+  fresh: ColumnAssignment,
+  rules: ReadonlyArray<{ columnName: string; typeId: string }>,
+): ColumnAssignment {
+  const rule = rules.find((r) => r.columnName === fresh.columnName);
+  if (!rule) return fresh;
+  return {
+    ...fresh,
+    assigned: {
+      typeId: rule.typeId,
+      origin: 'user_override',
+      confidence: 1,
+    },
+  };
 }
 
 function resultToAssignment(r: ClassificationResult): ColumnAssignment {
@@ -955,6 +1064,92 @@ function overrideAssignment(
       confidence: candidate ? candidate.confidence : 1, // user choice = full
     },
   });
+  // Theme 4 wave 2 (B3). When the override sets a real typeId, offer a
+  // "Remember rule" toast so the user can promote this one-off pick to
+  // a persistent rule that applies to other current + future columns
+  // sharing the same name. Setting to unknown (typeId === null) skips
+  // the offer — that's a "this column is special" gesture, not a rule.
+  if (typeId !== null) {
+    offerRememberRule(columnName, typeId);
+  }
+}
+
+/**
+ * Show a toast offering to promote the just-completed Override into a
+ * persistent rule. Skipped silently if a rule for this column-name +
+ * typeId already exists (the user already chose to remember it before).
+ *
+ * Theme 4 wave 2 (B3). See DECISIONS 2026-05-21 for the rationale on
+ * opt-in (not automatic) rule learning.
+ */
+function offerRememberRule(columnName: string, typeId: string): void {
+  const workbook = getWorkbook();
+  const existing = workbook.get().overrideRules.find((r) => r.columnName === columnName);
+  if (existing && existing.typeId === typeId) return; // already remembered
+  const friendlyType = friendlyTypeName(typeId);
+  toast(`Override applied. Remember "${columnName} → ${friendlyType}" for other columns?`, 'info', {
+    label: 'Remember',
+    onClick: () => {
+      const rule = {
+        columnName,
+        typeId,
+        created: new Date().toISOString(),
+      };
+      workbook.addOverrideRule(rule);
+      const applied = applyRuleToMountedColumns(rule);
+      toast(
+        applied === 0
+          ? `Rule remembered. Future columns named "${columnName}" will use this type.`
+          : `Rule remembered. Applied to ${applied} other column${applied === 1 ? '' : 's'} named "${columnName}".`,
+      );
+    },
+  });
+}
+
+/** Resolve a typeId to its display name across bundle + user types. */
+function friendlyTypeName(typeId: string): string {
+  const bundle = getTaxonomyClient().getBundle();
+  const fromBundle = bundle?.types.find((t) => t.id === typeId)?.display_name;
+  if (fromBundle) return fromBundle;
+  const userType = getWorkbook()
+    .get()
+    .userTypes.find((t) => t.id === typeId);
+  return userType?.display_name ?? typeId;
+}
+
+/**
+ * Apply a single override rule to every mounted column with a matching
+ * column-name, except columns the user has already curated themselves
+ * (user_accept / user_override on THAT specific column). Returns the
+ * count of assignments actually changed.
+ */
+function applyRuleToMountedColumns(rule: { columnName: string; typeId: string }): number {
+  const workbook = getWorkbook();
+  const assignments = workbook.get().assignments;
+  let touched = 0;
+  for (const [key, a] of Object.entries(assignments)) {
+    if (a.columnName !== rule.columnName) continue;
+    // Already pointed at the rule's typeId via prior user override → no-op.
+    if (
+      a.assigned.typeId === rule.typeId &&
+      (a.assigned.origin === 'user_override' || a.assigned.origin === 'user_accept')
+    ) {
+      continue;
+    }
+    // Preserve user_accept on a different typeId — the user explicitly
+    // accepted a different choice on this specific column; respect it.
+    if (a.assigned.origin === 'user_accept' && a.assigned.typeId !== rule.typeId) continue;
+    workbook.setAssignment(key, {
+      ...a,
+      assigned: {
+        typeId: rule.typeId,
+        origin: 'user_override',
+        confidence: 1,
+      },
+    });
+    touched++;
+  }
+  return touched;
 }
 
 function sqlExtra(): {
@@ -1330,24 +1525,56 @@ async function runDisambiguateType(
 // ---- Toast ----------------------------------------------------------
 
 let toastTimer: number | null = null;
-function toast(message: string, kind: 'info' | 'error' = 'info'): void {
+/**
+ * Render a transient toast. With `action`, the toast grows a button + the
+ * dismiss timeout extends so users have time to read and click. Action
+ * clicks dismiss the toast eagerly. Theme 4 wave 2 added the action
+ * parameter for the "Remember rule" affordance after Override.
+ */
+function toast(
+  message: string,
+  kind: 'info' | 'error' = 'info',
+  action?: { label: string; onClick: () => void },
+): void {
   let el = document.getElementById('naklidata-toast');
   if (!el) {
     el = document.createElement('div');
     el.id = 'naklidata-toast';
     el.style.cssText =
-      'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:#1F1B16;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;max-width:520px;';
+      'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:#1F1B16;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;max-width:520px;display:flex;gap:12px;align-items:center;';
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
   el.style.background = kind === 'error' ? '#A8453F' : '#1F1B16';
-  el.textContent = message;
+  // Rebuild children so a previous action button doesn't leak.
+  el.replaceChildren();
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = action.label;
+    btn.dataset.action = 'toast-action';
+    btn.style.cssText =
+      'background:transparent;color:#FFB066;border:1px solid #FFB066;border-radius:4px;padding:4px 10px;font:inherit;cursor:pointer;';
+    btn.addEventListener('click', () => {
+      // Dismiss eagerly so the user gets immediate feedback before the
+      // follow-up toast (if any) replaces the content.
+      if (el) el.style.opacity = '0';
+      action.onClick();
+    });
+    el.appendChild(btn);
+  }
   el.style.opacity = '1';
   if (toastTimer !== null) window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    if (el) el.style.opacity = '0';
-  }, 3200);
+  toastTimer = window.setTimeout(
+    () => {
+      if (el) el.style.opacity = '0';
+    },
+    action ? 8000 : 3200,
+  );
 }
 
 // Register the service worker (PWA + offline shell). Skipped in DEV

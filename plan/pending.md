@@ -323,9 +323,9 @@ Wave 1 result: workspace state persists across tabs (per `plan/spec-amendments.m
 **Pitch:** "Make the most important surface even better."
 
 - [x] Column statistics panel: cardinality, null %, length distribution, top-k (a `column-profile` mode for the schema panel) — shipped 2026-05-21 (wave 1). `Engine.profileColumn` runs a full-table aggregate + top-5; `.schema-profile-pane` renders inline under each column row; toggleable via the Profile button. e2e: `tests/e2e/column-profile.spec.ts`.
-- [ ] Side-by-side data compare (auto join-key detection from taxonomy + diff renderer)
-- [ ] Type override learns: "always treat columns named `vendor_id` as `gstin`" (per-workspace user-type seed)
-- [ ] Demo / censor mode (lessons doc item 9): mask user paths and column names in screenshots
+- [x] Side-by-side data compare (auto join-key detection from taxonomy + diff renderer) — shipped 2026-05-21 (wave 2 / B2). `Engine.compareTables` does a FULL OUTER JOIN + bucket aggregate + per-row column-level diff sample. Schema-panel header gets a "Compare tables…" button (when ≥2 tables mounted) that opens a modal with auto-detected shared semantic types as candidate join keys. e2e: `tests/e2e/compare-tables.spec.ts`.
+- [x] Type override learns: "always treat columns named `vendor_id` as `gstin`" (per-workspace user-type seed) — shipped 2026-05-21 (wave 2 / B3). Workbook gains `overrideRules: OverrideRule[]` (persisted in `.naklidata` as `override_rules`). After Override, a "Remember rule" toast offers to promote the one-off pick to a rule; new mounts + reclassify apply the rule with origin `user_override`. Manage-rules modal lists current rules with a Remove button. e2e: `tests/e2e/override-rules.spec.ts`.
+- [x] Demo / censor mode (lessons doc item 9): mask user paths and column names in screenshots — shipped 2026-05-21 (wave 2 / B4). `settings.demoMode` boolean (persisted in IDB) gates a `maskLabel(kind, original)` helper used by the sources panel, schema panel, and SQL result-table headers. When on, labels get stable prefixed tokens (`src_1`, `tbl_1`, `col_1`, …). SQL cell text + data row values are NOT masked — the user must clear/anonymise those manually before screenshotting. e2e: `tests/e2e/demo-mode.spec.ts`.
 
 ### Theme 6 — Enterprise / Compute Bridge
 

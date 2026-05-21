@@ -4,9 +4,10 @@
 // Per column we show: name + SQL type + assigned semantic type + confidence
 // bar + expandable evidence + accept/override/define-new actions.
 
+import { maskLabel } from '../core/demo-mode.ts';
 import type { ColumnProfile } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
-import type { UserType } from '../core/workbook.ts';
+import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 
@@ -48,6 +49,12 @@ export interface SchemaPanelState {
    * means collapsed. main.ts owns the map and re-renders on change.
    */
   profiles: Record<string, ColumnProfile>;
+  /**
+   * Per-workspace override rules ("always treat columns named X as
+   * type Y"). Theme 4 wave 2 (B3). Used by the toolbar to surface a
+   * "Manage rules" button when the list is non-empty.
+   */
+  overrideRules: OverrideRule[];
 }
 
 export interface SchemaPanelHandlers {
@@ -62,6 +69,10 @@ export interface SchemaPanelHandlers {
   onChangeThreshold: (threshold: number) => void;
   /** Re-run classification across all mounted sources. Wired only when user types exist. */
   onReclassify: () => void;
+  /** Open the "Override rules" management modal. Theme 4 wave 2 (B3). */
+  onManageOverrideRules: () => void;
+  /** Open the "Compare tables" modal. Theme 4 wave 2 (B2). */
+  onCompareTables: () => void;
 }
 
 export function assignmentKey(sourceId: string, tableId: string, columnName: string): string {
@@ -104,6 +115,25 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
            Re-classify with user types
          </button>`
       : '';
+  // Manage-rules button only renders when at least one rule exists. Rules
+  // get created via the "Remember" affordance on the post-Override toast;
+  // the toolbar is just the management entry-point.
+  const manageRulesHtml =
+    state.overrideRules.length > 0
+      ? `<button class="btn btn-ghost" data-action="manage-override-rules" style="width: 100%; margin-top: 4px; justify-content: center;" title="Manage 'always treat column X as type Y' rules">
+           ${iconSvg('pencil', 12)} Override rules (${state.overrideRules.length})
+         </button>`
+      : '';
+  // Compare-tables button only renders when there are ≥2 tables mounted —
+  // a one-table workbook has nothing to compare against. Two tables in
+  // the same source counts (e.g., examples/finance vendors + invoices).
+  const totalTables = state.sources.reduce((sum, s) => sum + s.tables.length, 0);
+  const compareTablesHtml =
+    totalTables >= 2
+      ? `<button class="btn btn-ghost" data-action="compare-tables" style="width: 100%; margin-top: 4px; justify-content: center;" title="Compare two tables side-by-side using a shared semantic-type column as the join key">
+           ${iconSvg('table', 12)} Compare tables…
+         </button>`
+      : '';
   el.innerHTML = `
     <label style="font-size: 12px; color: var(--text-muted); display: block;">
       Auto-accept threshold
@@ -116,6 +146,8 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
       ${iconSvg('check', 14)} Bulk accept ≥ <span data-region="bulk-threshold">${t}</span>
     </button>
     ${reclassifyHtml}
+    ${manageRulesHtml}
+    ${compareTablesHtml}
   `;
   el.querySelector<HTMLInputElement>('[data-action="threshold-slider"]')?.addEventListener(
     'input',
@@ -135,6 +167,12 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
   el.querySelector('[data-action="reclassify"]')?.addEventListener('click', () => {
     handlers.onReclassify();
   });
+  el.querySelector('[data-action="manage-override-rules"]')?.addEventListener('click', () => {
+    handlers.onManageOverrideRules();
+  });
+  el.querySelector('[data-action="compare-tables"]')?.addEventListener('click', () => {
+    handlers.onCompareTables();
+  });
   return el;
 }
 
@@ -149,7 +187,7 @@ function renderTableBlock(
   el.innerHTML = `
     <div class="schema-table-header">
       <span aria-hidden="true">${iconSvg('table', 14)}</span>
-      <strong>${escapeHtml(table.name)}</strong>
+      <strong>${escapeHtml(maskLabel('table', table.name))}</strong>
       <span class="schema-table-rowcount">${table.rowCount.toLocaleString()} rows</span>
     </div>
     <ul class="schema-columns" role="list"></ul>
@@ -211,7 +249,7 @@ function renderColumnRow(
   li.innerHTML = `
     <div class="schema-column-head">
       <div class="schema-col-name">
-        <span class="col-name">${escapeHtml(a.columnName)}</span>
+        <span class="col-name">${escapeHtml(maskLabel('column', a.columnName))}</span>
         <span class="col-sql-type">${escapeHtml(a.sqlType)}</span>
       </div>
       <div class="schema-col-type">

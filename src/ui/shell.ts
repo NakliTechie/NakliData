@@ -1,3 +1,4 @@
+import { maskLabel } from '../core/demo-mode.ts';
 import type { MountedSource } from '../core/mount.ts';
 import type { SessionsIndex } from '../core/sessions.ts';
 import { iconSvg } from '../tokens/icons.ts';
@@ -249,12 +250,16 @@ function renderSourceCard(src: MountedSource): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'source-card';
   wrap.dataset.sourceId = src.id;
+  // Demo mode (Theme 4 wave 2): mask source label, table names, and
+  // the origin path tooltip so screenshots don't leak file paths or
+  // user-defined names.
+  const sourceLabel = maskLabel('source', src.label);
   const tableRows = src.tables
     .map(
       (t) => `
         <div class="source-row" data-table-id="${t.id}">
           <span aria-hidden="true">${iconSvg('table', 14)}</span>
-          <span class="label" title="${escapeHtml(t.origin)}">${escapeHtml(t.name)}</span>
+          <span class="label" title="${escapeHtml(maskLabel('origin', t.origin))}">${escapeHtml(maskLabel('table', t.name))}</span>
           <span style="color: var(--text-muted); font-size: 11px;">${t.rowCount.toLocaleString()} row${t.rowCount === 1 ? '' : 's'}</span>
         </div>`,
     )
@@ -262,7 +267,7 @@ function renderSourceCard(src: MountedSource): HTMLElement {
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
       <span aria-hidden="true" style="color: var(--text-muted);">${iconSvg(src.kind === 'example-bundle' ? 'database' : src.kind === 'fsa-folder' ? 'folder' : 'file', 14)}</span>
-      <strong style="font-size: 12px;">${escapeHtml(src.label)}</strong>
+      <strong style="font-size: 12px;">${escapeHtml(sourceLabel)}</strong>
       <button class="btn btn-ghost" data-action="remove-source" data-source-id="${src.id}" title="Remove source" style="margin-left:auto;padding:2px 4px;">${iconSvg('x', 12)}</button>
     </div>
     ${tableRows}

@@ -4,6 +4,50 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-21 (afternoon) — Theme 4 wave 2 — B2 (compare) + B3 (override learns) + B4 (demo mode). **Theme 4 complete.**
+
+### What landed
+
+- **B2 — Side-by-side data compare.** New `Engine.compareTables(tableA, tableB, joinColA, joinColB, sampleLimit?)` runs a FULL OUTER JOIN bucket-aggregate (rowsA, rowsB, onlyInA, onlyInB, matched, differing) plus a column-level diff sample for differing rows. `IS DISTINCT FROM` semantics so NULL/NULL doesn't count as a diff. New `src/ui/compare-tables-modal.ts` exposes a "Compare tables…" button in the schema-panel toolbar (renders only when ≥2 tables mounted). The modal auto-detects candidate join keys via `findJoinKeyCandidates(assignments, A, B)` — typeIds both tables have at least one assigned column for, with the first matching column on each side. User can pick from multiple candidates if available. Renderer shows the bucket counts + a per-row column-level diff table.
+- **B3 — Type override learns.** Workbook gains `overrideRules: OverrideRule[]` keyed by columnName, persisted to `.naklidata` as `override_rules` (defaults to `[]` on legacy files). After every Override action that picks a real typeId, an extended toast offers "Remember `<col> → <type>` for other columns?" — clicking adds a rule and applies it to every other mounted column with that name (skipping user_accept entries on those specific columns). `classifyMountedSources` + `reclassifyAllSources` both apply rules to detector-origin assignments after classify so newly-mounted sources inherit the user's intent automatically. New `src/ui/override-rules-modal.ts` lists rules with a Remove button; the toolbar shows "Override rules (N)" only when N > 0.
+- **B4 — Demo / censor mode.** New `settings.demoMode` boolean (IDB-persisted via existing settings module). New `src/core/demo-mode.ts` exposes `maskLabel(kind, original)` with stable in-memory `<prefix>_<n>` tokens per kind (source, origin, table, column). Settings modal gets a checkbox; toggling dispatches `naklidata-demo-mode-changed` on `document`, which main.ts listens for to re-render the schema panel, sources panel, and notebook. Surfaces threaded through `maskLabel`: sources-panel source label + table name + origin tooltip; schema-panel table header + column row name; SQL result-table column headers. Data-* attributes on schema-column LIs keep the REAL column-name so action handlers still resolve. SQL cell text and row values are not masked — those are the user's call to scrub.
+
+### Why these choices
+
+- **Compare modal is ephemeral, not a cell kind.** The output is for inspection — copying the join-key SQL out (a future affordance) is enough, no need to bloat `.naklidata` save files with comparison snapshots. Modal pattern matches the existing schema-graph + define-type modals.
+- **Override rules are forward-acting + opt-in.** Auto-adding a rule on every Override would surprise users. A toast prompt keeps the gesture explicit. Removing a rule does NOT rewind already-applied assignments (the user can manually re-override if they want to revert). Rules persist in `.naklidata` so they survive reload + share-link round-trips.
+- **Demo mode is CSS-class + JS-mask hybrid.** `body.app-demo-mode` lets CSS-only styling layer on top (future enhancement) but the actual label replacement is JS so labels are screenshot-OCR-resistant (not just visually masked). The per-session counter map gives stable tokens — a user's vendor_id stays `col_1` across all renders, so a multi-screenshot demo reads coherently.
+- **maskLabel pass-through when OFF.** No behaviour change in normal use. `setDemoMode(false)` returns the original string from `maskLabel`, even for values previously seen during a demo session. No tearing.
+
+Full reasoning at DECISIONS 2026-05-21 17:00 (B3 + B2 + B4 — combined entry).
+
+### Tests
+
+- **`tests/override-rules.test.ts`** (new, 11 vitest specs): workbook mutators (add / remove / setAll / replace-by-name / clear / subscriber notify) + persistence round-trip (`override_rules` emitted from `overrideRules`; defaults to `[]` when omitted; legacy v1.0 files without the field load cleanly).
+- **`tests/compare-tables.test.ts`** (new, 5 vitest specs): `findJoinKeyCandidates` empty / shared-type / multi-column-same-type / multiple-shared-types / null-typeId cases.
+- **`tests/demo-mode.test.ts`** (new, 8 vitest specs): off-pass-through / token allocation / stable per-input / per-kind counters / null+empty handling / reset / get-set / on→off restoration.
+- **`tests/e2e/override-rules.spec.ts`** (new, 1 e2e): Override `vendor_name` → PAN on first row, Remember toast fires, click applies to second `vendor_name`, modal lists rule, Remove drops it + toolbar button disappears.
+- **`tests/e2e/compare-tables.spec.ts`** (new, 2 e2e): open modal → auto-pick GSTIN ↔ vendor_gstin → bucket counts render; toolbar button hidden when <2 tables.
+- **`tests/e2e/demo-mode.spec.ts`** (new, 1 e2e): baseline labels real → toggle on → labels masked (`col_1`, `tbl_1`, `src_1`) + `app-demo-mode` class set + dataset-stored real column-name unchanged → toggle off → labels restored.
+
+### Quality
+
+- `dist/index.html` 408 KB / 600 KB budget. No new lazy chunks; modal CSS injected inline at first open.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 pre-existing warnings.
+- **156 vitest** (was 132 → +24: 11 override-rules + 5 compare-tables + 8 demo-mode) + **24 Playwright e2e** (was 20 → +4: override-rules×1 + compare-tables×2 + demo-mode×1) + smoke green.
+
+### What's next
+
+Theme 4 complete (B1 wave 1 + B2/B3/B4 wave 2). Remaining pickup paths:
+
+- **C. Theme 1 wave 3** — vendor DuckDB extensions for offline-grade smoke. Deferred — needs CSP rework + ~1 MB asset budget review.
+- **D. v1.0 review carryover** — CM6 audit, SRI scenario, README, taxonomy types review, save-load flake.
+- **E. Custom-endpoint sidecar** — OpenAI-compatible URL; CSP rethink needed.
+- **Sidecar eval harness (v1.2 work).** Per `plan/sidecar-architecture.md`.
+- **Enterprise / Compute Bridge precursors** — Iceberg REST + S3-compatible endpoints. See `plan/enterprise-strategy.md`.
+
+---
+
 ## 2026-05-21 — Theme 4 wave 1 (column-profile panel) + Theme 1 wave 3 GeoJSON fixture.
 
 ### What landed
