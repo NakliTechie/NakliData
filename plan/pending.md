@@ -26,6 +26,78 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 
 ---
 
+## Workplan — next three waves (2026-05-23 snapshot)
+
+This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6) are the historical detail; the waves here are what's actually queued. Item-level detail in the themed sections is kept for cross-reference.
+
+### Wave 1 — Close v1.1 cleanly + small polish
+
+**Pitch:** "Tag the version that already shipped; do the housekeeping; bag the cheap Theme-2 polish items."
+
+- [ ] **W1.1** — Tag `v1.1.0` at HEAD; write `plan/v1.1.0-release-notes.md` (sidecar arc + user-type classifier integration + Theme 4 + Theme 1 wave 3 vendored extensions).
+- [ ] **W1.2** — README v1.1 refresh: capture sidecar, user types, sessions, share links, the four Theme 4 surfaces (column profile, compare tables, override rules, demo mode), the vendored DuckDB extensions.
+- [ ] **W1.3** — v1.0 review carryover (queued since v1.0.0 tag):
+  - CM6 audit — any rough edges from the textarea → CM6 swap
+  - SRI scenario coverage — manual injection / tamper test for the DuckDB-wasm SRI pinning
+  - Save-load flake confirmation — was flaky a few sessions back; verify green
+  - Taxonomy types editorial pass — the ~80 types haven't had fresh eyes since v1.0
+- [ ] **W1.4** — naklios.dev Immersive same-origin mirror (FSA inside the launcher). Manifest entry + `.github/workflows/notify-naklios.yml` + `NAKLIOS_DISPATCH_TOKEN` secret.
+- [ ] **W1.5** — Theme 2 polish pickups (cheap):
+  - Pie chart mark (hand-rolled SVG arc; Plot doesn't ship one)
+  - Faceted small-multiples (third "facet-by" picker on the chart cell)
+- [ ] **W1.6** *(stretch)* — Map cell basemap with CSP carve-out for OSM tiles + UI to pick the basemap.
+
+### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility
+
+**Pitch:** "Open the lakehouse and BYO-model doors. No new core deps."
+
+Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"v1.2 precursors" and [remote-sources.md](./remote-sources.md).
+
+- [ ] **W2.1** — Apache Iceberg REST + OAuth2/Bearer/SigV4 via DuckDB's `iceberg` extension (browser HTTP load works as of Dec 2025). New source kind `iceberg-catalog`; auth via either Bearer token, OAuth2 device-code flow, or AWS SigV4 (for Glue).
+- [ ] **W2.2** — S3-compatible custom endpoints via DuckDB `httpfs`. UI source kind `s3-endpoint` with fields for endpoint URL, region, access key, secret. Supports MinIO, Cloudflare R2, Backblaze B2, Wasabi out of the box. BYOK secrets policy mirrors sidecar BYOK (session default + opt-in IDB).
+- [ ] **W2.3** — Custom-endpoint sidecar. New provider kind `custom-openai-compatible`; user supplies a URL + model name. CSP rework: replace explicit-host whitelist with a runtime-allow-list driven by configured provider URLs (or use a meta-CSP refresh pattern).
+- [ ] **W2.4** — Sidecar eval harness ([sidecar-architecture.md](./sidecar-architecture.md) §"v1.2 — build the eval harness"). Held-out per-job evaluation set + a runner that scores prompted-base vs. prompted+LoRA on the same set. Lays the foundation for v1.3 LoRA work. Outputs an HTML report. No new runtime dependency in the main app; lives under `eval/`.
+- [ ] **W2.5** — Spec amendments for Iceberg + S3 custom endpoints. New `plan/spec-amendments.md` entries.
+- [ ] **W2.6** *(stretch)* — Map cell deck.gl pairing (for >10k-point rendering) if a real workload shows up during W2.
+
+### Wave 3 — Sidecar maturation + Compute Bridge MVP
+
+**Pitch:** "A 4th sidecar job + a local model path + the Compute Bridge — the v1.3 enterprise launch."
+
+Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"Compute Bridge — sibling OSS project" and [sidecar-architecture.md](./sidecar-architecture.md) §"AI in the browser vs AI in the bridge".
+
+- [ ] **W3.1** — Job 4: report-template recommendation. Per `plan/sidecar-architecture.md`. Browser-side, structured-output only (template-ids ranked by fit), no prose. Wired into the schema panel's "Suggested reports" section as an "Ask sidecar to rank" affordance.
+- [ ] **W3.2** — Local-model path. Transformers.js + a Phi-3-mini-class model at 4-bit (~150 MB OPFS-cached). Opt-in via Settings; fallback to BYOK when not downloaded. Adds a new sidecar transport in `src/core/sidecar/`.
+- [ ] **W3.3** — Compute Bridge MVP (sibling OSS project `NakliTechie/nakli-compute`, Apache-2.0 lean). Single binary + Docker image. Arrow Flight + HTTP wire protocol. Bearer-token auth. Bridge-side sidecar uses a heavier LoRA-Gemma weight (Gemma 4 E4B at 4-bit, ~2.5 GB on bridge disk).
+- [ ] **W3.4** — `compute-bridge` source kind in NakliData's mount layer. Discovery + connection flow; falls back gracefully when bridge is unreachable.
+- [ ] **W3.5** — Routing logic for jobs that benefit from the bridge (batch classification of 10k+ columns, heavy semantic search). Browser-side stays the baseline; bridge-side is the enhancement layer.
+- [ ] **W3.6** *(stretch / opportunistic)* — Resume vendoring `excel` + `read_stat` extensions if/when DuckDB-wasm bumps to a version where they're published for wasm_eh. Resume SQLite ATTACH-on-wasm work if the upstream VFS bridge lands.
+
+### Deferred / blocked / out-of-scope for these three waves
+
+Listed here so they don't get re-discovered as "what about…":
+
+- **Excel + read_stat DuckDB extensions** — blocked on DuckDB-wasm version bump (not published for v1.1.1/wasm_eh).
+- **SQLite mount on wasm** — blocked on the sqlite_scanner extension bridging to DuckDB-wasm's VFS. Fixture lives at `tests/e2e/fixtures/sample-data/finance.sqlite` for when it lands.
+- **`.xlsx`, `.sas7bdat` fixtures** — depend on the two above.
+- **Shapefile mount** — needs a multi-file FSA picker which the FSA spec doesn't support today.
+- **v1.4 multi-team OAuth2 + shared-taxonomy hub** — see `plan/enterprise-strategy.md`. Comes after W3.
+- **v2.0 DB Relay** — Postgres / MySQL / Snowflake / BigQuery via stateless user-deployed proxy.
+- **v2.x edge compute** — Cloudflare Worker / AWS Lambda DuckDB deployment.
+- **Embeddable `<nakli-data-widget>`** — v2.1 roadmap item.
+
+### Wave-1 / 2 / 3 themed in the existing backlog
+
+The themed sections below carry the historical detail. Cross-reference if needed:
+
+| Wave | Themed sections | What's done | What's queued |
+| --- | --- | --- | --- |
+| Wave 1 | Pre-v1.0-tag gates ✅, Theme 4 ✅, Theme 1 wave 3 partial | Tag work, polish surfaces, vendored extensions | v1.1 tag, README, naklios mirror, CM6 audit, Theme 2 polish |
+| Wave 2 | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | none yet | Iceberg, S3 endpoints, custom-endpoint sidecar, eval harness |
+| Wave 3 | Theme 6 v1.3 (Compute Bridge), AI sidecar local-model + LoRA | none yet | Job 4, local model, bridge MVP, bridge-side sidecar |
+
+---
+
 ## A. PondPilot feature parity
 
 [PondPilot](https://github.com/pondpilot/pondpilot) is our most direct competitor (AGPL-3.0, 100% client-side, DuckDB-wasm). Their feature surface, mapped to ours:
