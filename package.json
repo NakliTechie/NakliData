@@ -15,7 +15,7 @@
     "test:e2e": "npm run build && npx playwright test --config tests/e2e/playwright.config.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "test:watch": "vitest",
-    "postinstall": "node scripts/fetch-duckdb-fallback.mjs"
+    "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

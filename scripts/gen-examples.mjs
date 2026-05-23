@@ -4,10 +4,17 @@
 // taxonomy detectors (GSTIN, PAN, IFSC, HSN, ISO codes, timestamps, etc.)
 // without exposing any real records. Re-runnable: same seed → same output.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const ROOT = resolve('public/examples');
+// SQLite fixture lives next to other e2e test assets (places.geojson)
+// rather than the auto-loaded example bundle, because the SQLite mount
+// path needs upstream sqlite_scanner work for DuckDB-wasm's VFS — see
+// DECISIONS 2026-05-23. Once ATTACH-via-VFS works, this can move into
+// public/examples/ and join the manifest.
+const E2E_FIXTURES = resolve('tests/e2e/fixtures/sample-data');
 
 // Deterministic LCG so the same seed produces the same data.
 function rng(seed) {
@@ -92,8 +99,26 @@ const VENDOR_NAMES = [
 ];
 
 const HSN_CODES = [
-  '4818', '7308', '8443', '8471', '8528', '9403', '6403', '3917', '7321', '8517',
-  '4202', '2106', '9018', '6109', '8302', '8536', '7616', '3923', '7610', '8504',
+  '4818',
+  '7308',
+  '8443',
+  '8471',
+  '8528',
+  '9403',
+  '6403',
+  '3917',
+  '7321',
+  '8517',
+  '4202',
+  '2106',
+  '9018',
+  '6109',
+  '8302',
+  '8536',
+  '7616',
+  '3923',
+  '7610',
+  '8504',
 ];
 
 const GST_RATES = [5, 12, 18, 28];
@@ -176,9 +201,10 @@ const payments = [];
 let payIdx = 1;
 for (const inv of invoices) {
   if (inv.payment_status === 'pending') continue;
-  const amount = inv.payment_status === 'partial'
-    ? +(Number(inv.total_amount) * 0.4).toFixed(2)
-    : Number(inv.total_amount);
+  const amount =
+    inv.payment_status === 'partial'
+      ? +(Number(inv.total_amount) * 0.4).toFixed(2)
+      : Number(inv.total_amount);
   const lag = Math.floor(rand() * 45) + 1;
   const payDate = new Date(new Date(inv.invoice_date).getTime() + lag * 86400000)
     .toISOString()
@@ -226,10 +252,117 @@ for (let i = 0; i < 240; i++) {
   });
 }
 
+// --- SQLite mirror -------------------------------------------------------
+// Theme 1 wave 3 (2026-05-23): emit a SQLite file containing the same
+// finance tables so the smoke + e2e suite can exercise the SQLite mount
+// path with offline-vendored extensions. Uses Node 22's built-in
+// `node:sqlite` (no extra dep).
+//
+// Schema is identical to the CSVs (TEXT for everything VARCHAR; REAL
+// for monetary columns; INTEGER for rates). SQLite is type-permissive
+// but DuckDB's sqlite scanner reads the declared types.
+async function writeFinanceSqlite(outPath) {
+  // Remove any existing file so node:sqlite starts fresh — DatabaseSync
+  // re-opens an existing file in place which would accumulate stale
+  // rows on re-run.
+  try {
+    await unlink(outPath);
+  } catch {
+    /* missing is fine */
+  }
+  const db = new DatabaseSync(outPath);
+  db.exec(`
+    CREATE TABLE vendors (
+      vendor_id TEXT PRIMARY KEY,
+      vendor_name TEXT,
+      gstin TEXT,
+      pan TEXT,
+      state_code TEXT,
+      ifsc TEXT,
+      account_no TEXT,
+      contact_email TEXT
+    );
+    CREATE TABLE invoices (
+      invoice_no TEXT PRIMARY KEY,
+      invoice_date TEXT,
+      vendor_gstin TEXT,
+      vendor_name TEXT,
+      hsn_code TEXT,
+      gst_rate INTEGER,
+      taxable_amount REAL,
+      cgst REAL,
+      sgst REAL,
+      igst REAL,
+      total_amount REAL,
+      payment_status TEXT
+    );
+    CREATE TABLE payments (
+      payment_id TEXT PRIMARY KEY,
+      invoice_no TEXT,
+      payment_date TEXT,
+      amount_paid REAL,
+      mode TEXT,
+      reference TEXT
+    );
+  `);
+  const insV = db.prepare(
+    `INSERT INTO vendors (vendor_id, vendor_name, gstin, pan, state_code, ifsc, account_no, contact_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const v of vendors) {
+    insV.run(
+      v.vendor_id,
+      v.vendor_name,
+      v.gstin,
+      v.pan,
+      v.state_code,
+      v.ifsc,
+      v.account_no,
+      v.contact_email,
+    );
+  }
+  const insI = db.prepare(
+    `INSERT INTO invoices (invoice_no, invoice_date, vendor_gstin, vendor_name, hsn_code, gst_rate, taxable_amount, cgst, sgst, igst, total_amount, payment_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const inv of invoices) {
+    insI.run(
+      inv.invoice_no,
+      inv.invoice_date,
+      inv.vendor_gstin,
+      inv.vendor_name,
+      inv.hsn_code,
+      inv.gst_rate,
+      Number(inv.taxable_amount),
+      Number(inv.cgst),
+      Number(inv.sgst),
+      Number(inv.igst),
+      Number(inv.total_amount),
+      inv.payment_status,
+    );
+  }
+  const insP = db.prepare(
+    `INSERT INTO payments (payment_id, invoice_no, payment_date, amount_paid, mode, reference)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  for (const p of payments) {
+    insP.run(
+      p.payment_id,
+      p.invoice_no,
+      p.payment_date,
+      Number(p.amount_paid),
+      p.mode,
+      p.reference,
+    );
+  }
+  db.close();
+}
+
 // --- Write ---------------------------------------------------------------
 async function main() {
   await mkdir(`${ROOT}/finance`, { recursive: true });
   await mkdir(`${ROOT}/logs`, { recursive: true });
+  await mkdir(E2E_FIXTURES, { recursive: true });
   await writeFile(`${ROOT}/finance/vendors.csv`, toCsv(vendors));
   await writeFile(`${ROOT}/finance/invoices.csv`, toCsv(invoices));
   await writeFile(`${ROOT}/finance/payments.csv`, toCsv(payments));
@@ -237,6 +370,9 @@ async function main() {
     `${ROOT}/logs/access.jsonl`,
     logLines.map((l) => JSON.stringify(l)).join('\n') + '\n',
   );
+  // SQLite fixture goes under tests/e2e/fixtures/ for now — see comment
+  // at the top of this file for why it doesn't ship in the bundle.
+  await writeFinanceSqlite(`${E2E_FIXTURES}/finance.sqlite`);
 
   const manifest = {
     bundle: 'naklidata-examples',
@@ -263,6 +399,9 @@ async function main() {
   await writeFile(`${ROOT}/manifest.json`, JSON.stringify(manifest, null, 2));
   console.log(
     `Wrote: vendors(${vendors.length}), invoices(${invoices.length}), payments(${payments.length}), logs(${logLines.length})`,
+  );
+  console.log(
+    `Wrote e2e fixture: ${E2E_FIXTURES}/finance.sqlite (${vendors.length}+${invoices.length}+${payments.length} rows across 3 tables)`,
   );
 }
 

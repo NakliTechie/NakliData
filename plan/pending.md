@@ -251,8 +251,16 @@ Tracking checklist — tick as items land:
 - [x] DECISIONS.md: community-extension trust posture logged (2026-05-16 05:50)
 - [x] **Lazy code-splitting infrastructure in esbuild** — `src/lazy/<name>.ts` → `dist/chunks/<name>.js`; `src/core/lazy-loader.ts` with typed `loadChunk(name)`; demo chunk `_demo.ts` verifies end-to-end via e2e. Ready for CodeMirror 6 + Observable Plot + future chunks.
 - [x] **Mount: Apache Arrow IPC** (`.arrow` / `.feather`) — turns out `apache-arrow` JS isn't needed; DuckDB-wasm's `insertArrowFromIPCStream` reads IPC bytes directly. Creates a TABLE (not a view), so `drop()` is now dual-mode (DROP VIEW then DROP TABLE). No new dep, ~30 lines.
-- [ ] Sample data: regenerate to include `.sqlite` + `.xlsx` (and ideally a small `.sas7bdat`) so the smoke + e2e tests cover the new mounts in production
-- [ ] Vendor a small set of DuckDB extensions (`sqlite`, `excel`, `read_stat`) into `public/duckdb-fallback/` for offline-grade smoke testing (sandbox blocks `extensions.duckdb.org`)
+- [~] Sample data: regenerate to include `.sqlite` + `.xlsx` (and ideally a small `.sas7bdat`) so the smoke + e2e tests cover the new mounts in production
+  - [x] `.sqlite` fixture generated (Node `node:sqlite`) at `tests/e2e/fixtures/sample-data/finance.sqlite` — but NOT in the auto-loaded example bundle. SQLite ATTACH on duckdb-wasm fails (VFS bridge limitation, see DECISIONS 2026-05-23). Mount works in native DuckDB; defer auto-load until upstream bridge work lands.
+  - [ ] `.xlsx` fixture — blocked on the same vendoring step (the `excel` extension isn't published at extensions.duckdb.org for v1.1.1/wasm_eh — we'd need to bump DuckDB-wasm or find an alternative source).
+  - [ ] `.sas7bdat` fixture — blocked on `read_stat` community extension not being available for our wasm revision.
+- [~] Vendor a small set of DuckDB extensions (`sqlite`, `excel`, `read_stat`) into `public/duckdb-extensions/` for offline-grade smoke testing
+  - [x] `json` (680 KB) vendored at `public/duckdb-extensions/v1.1.1/wasm_eh/` — unblocks the JSONL access-log mount in offline smoke. Smoke now asserts 4 tables (was tolerant 3).
+  - [x] `sqlite_scanner` (1.6 MB) + `sqlite` alias copy vendored — extension loads but `ATTACH` fails due to VFS bridge (see DECISIONS 2026-05-23). Vendored for the day it's fixed.
+  - [x] `engine.boot({ offline: true })` sets `custom_extension_repository = '${origin}/duckdb-extensions'` so DuckDB picks up the vendored bytes.
+  - [x] `tests/e2e/offline-extensions.spec.ts` asserts zero `extensions.duckdb.org` fetches under `?offline=1`.
+  - [ ] `excel` + `read_stat` deferred — not published at extensions.duckdb.org for v1.1.1/wasm_eh.
 
 Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet, Arrow IPC × 2 exts, SQLite × 3 exts, DuckDB, Excel, SPSS × 3 exts, Stata, SAS × 2 exts). The two remaining items are testing-infrastructure work, not new features.
 

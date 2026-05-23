@@ -10,8 +10,8 @@
 // notebook seed, SQL run, chart cell, template instantiation, .naklidata
 // serialize round-trip.
 
-import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
@@ -130,31 +130,23 @@ async function main() {
   log('clicked browse-examples');
 
   // Wait for sources panel to populate.
-  await page.waitForFunction(
-    () => document.querySelectorAll('.source-row').length > 0,
-    null,
-    { timeout: 30000 },
-  );
-  const sourceRowCount = await page.evaluate(
-    () => document.querySelectorAll('.source-row').length,
-  );
+  await page.waitForFunction(() => document.querySelectorAll('.source-row').length > 0, null, {
+    timeout: 30000,
+  });
+  const sourceRowCount = await page.evaluate(() => document.querySelectorAll('.source-row').length);
   log(`✓ sources mounted (${sourceRowCount} tables in sources panel)`);
-  // We expect 3 CSVs (vendors, invoices, payments). The bundled JSONL log
-  // file needs the duckdb JSON extension which is auto-fetched from
-  // extensions.duckdb.org — this sandbox's egress blocks that origin, so
-  // we tolerate one missing table here.
-  if (sourceRowCount < 3) fail(`expected ≥3 tables, got ${sourceRowCount}`);
+  // We expect 4 tables: 3 CSVs (vendors, invoices, payments) + the JSONL
+  // access log. Theme 1 wave 3 (2026-05-23) vendored the json extension
+  // into `public/duckdb-extensions/` so the JSONL load works fully
+  // offline; before that landed, this assertion was a tolerant `>= 3`.
+  if (sourceRowCount < 4) fail(`expected ≥4 tables, got ${sourceRowCount}`);
 
   // 5. Wait for the schema panel to classify at least some columns.
   log('waiting for classification');
-  await page.waitForFunction(
-    () => document.querySelectorAll('.schema-column').length >= 10,
-    null,
-    { timeout: 60000 },
-  );
-  const colsTotal = await page.evaluate(
-    () => document.querySelectorAll('.schema-column').length,
-  );
+  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length >= 10, null, {
+    timeout: 60000,
+  });
+  const colsTotal = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
   log(`✓ schema panel rendered ${colsTotal} column rows`);
 
   const classified = await page.evaluate(() => {
@@ -165,7 +157,7 @@ async function main() {
     for (const c of cols) {
       const pill = c.querySelector('.type-pill span:nth-of-type(2)');
       const pct = c.querySelector('.confidence-pct')?.textContent ?? '';
-      const num = parseInt(pct, 10);
+      const num = Number.parseInt(pct, 10);
       const label = pill?.textContent ?? '';
       if (label.startsWith('unknown<')) unknown++;
       else {
@@ -185,9 +177,10 @@ async function main() {
 
   // 6. Templates panel: "Vendor concentration" should be applicable.
   await page.waitForFunction(
-    () => Array.from(document.querySelectorAll('.template-card strong')).some(
-      (n) => n.textContent === 'Vendor concentration',
-    ),
+    () =>
+      Array.from(document.querySelectorAll('.template-card strong')).some(
+        (n) => n.textContent === 'Vendor concentration',
+      ),
     null,
     { timeout: 10000 },
   );
@@ -228,7 +221,9 @@ async function main() {
   // Wait for the SQL cell to have a result row.
   await page.waitForFunction(
     () => {
-      const tables = document.querySelectorAll('.cell[data-cell-kind="sql"] .result-table tbody tr');
+      const tables = document.querySelectorAll(
+        '.cell[data-cell-kind="sql"] .result-table tbody tr',
+      );
       return tables.length > 0;
     },
     null,

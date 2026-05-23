@@ -14,9 +14,9 @@
 //  - SKIP_DUCKDB_FETCH=1 is set
 //  - The destination already has the expected files AND integrity.json
 
-import { mkdir, writeFile, stat, readFile, copyFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const DEST = resolve('public/duckdb-fallback');
@@ -81,12 +81,11 @@ async function main() {
       const bytes = await sourceBytes(f);
       await writeFile(resolve(DEST, f), bytes);
       integrity.files[f] = sha384(bytes);
-      console.log(`  ✓ ${f} (${(bytes.byteLength / 1024).toFixed(1)} KB) ${integrity.files[f].slice(0, 24)}…`);
+      console.log(
+        `  ✓ ${f} (${(bytes.byteLength / 1024).toFixed(1)} KB) ${integrity.files[f].slice(0, 24)}…`,
+      );
     }
-    await writeFile(
-      resolve(DEST, 'integrity.json'),
-      JSON.stringify(integrity, null, 2),
-    );
+    await writeFile(resolve(DEST, 'integrity.json'), JSON.stringify(integrity, null, 2));
     console.log(`  ✓ integrity.json (${Object.keys(integrity.files).length} hashes)`);
   } catch (err) {
     console.warn(`[naklidata] could not vendor DuckDB fallback (continuing): ${err.message}`);

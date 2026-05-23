@@ -10,6 +10,38 @@ async function waitForEngineReady(page: Page): Promise<void> {
   );
 }
 
+/**
+ * Wait until the classifier stops producing new schema-column rows for
+ * `stableMs`. Cloned from auto-restore.spec — avoiding a shared helper
+ * file because adding one would force a cascade of import changes; the
+ * function is small enough to duplicate.
+ */
+async function waitForClassificationStable(
+  page: Page,
+  timeoutMs = 60_000,
+  stableMs = 600,
+): Promise<void> {
+  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
+    timeout: timeoutMs,
+  });
+  const start = Date.now();
+  let lastCount = -1;
+  let stableSince = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
+    if (count !== lastCount) {
+      lastCount = count;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= stableMs) {
+      return;
+    }
+    await page.waitForTimeout(100);
+  }
+  throw new Error(
+    `classification did not stabilize within ${timeoutMs}ms (last count: ${lastCount})`,
+  );
+}
+
 async function writeIntoSqlCell(page: Page, code: string): Promise<void> {
   await page.evaluate((c) => {
     const sqlCell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
@@ -147,6 +179,12 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       null,
       { timeout: 60_000 },
     );
+    // Wait for the classifier to fully settle. Under workers=2 CPU
+    // contention, a late-arriving classification update fires the
+    // workbook subscriber which re-renders the notebook — replacing
+    // the cell's sidecar-result mount node mid-dispatch and losing the
+    // error message. Stabilising first sidesteps the race.
+    await waitForClassificationStable(page);
 
     // Enable sidecar (without saving a key) so the Explain button shows.
     await page.click('[data-action="open-settings"]');
@@ -157,6 +195,16 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       cb.checked = true;
       cb.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    // The change handler is async (awaits patchSettings → IDB write).
+    // Wait for the body class flip — that's the deterministic signal
+    // that the setting has actually persisted + the Explain button is
+    // wired up. Without this, under workers=2 CPU contention the
+    // subsequent close-settings click can outrun the IDB write.
+    await page.waitForFunction(
+      () => document.getElementById('app')?.classList.contains('app-sidecar-enabled') === true,
+      null,
+      { timeout: 5_000 },
+    );
     await page.click('[data-action="close-settings"]');
 
     // Cause an error + click Explain.
@@ -167,6 +215,10 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       null,
       { timeout: 10_000 },
     );
+    // The Explain button is rendered inside the errored cell only when
+    // sidecar is enabled. Under workers=2 contention, the click can
+    // outrun the button's render — wait for it explicitly.
+    await page.waitForSelector('[data-action="explain-error"]', { timeout: 5_000 });
     await page.click('[data-action="explain-error"]');
     await page.waitForFunction(
       () => {
@@ -174,7 +226,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
         return e !== null && /No API key configured/.test(e.textContent ?? '');
       },
       null,
-      { timeout: 5_000 },
+      { timeout: 10_000 },
     );
 
     // The "Open Settings" affordance should be present alongside the error.

@@ -4,6 +4,52 @@ Append-only checkpoint journal. Each entry: where we are, what just shipped, whe
 
 ---
 
+## 2026-05-23 — Theme 1 wave 3: vendor DuckDB extensions + JSONL offline mount + sidecar e2e race fix.
+
+### What landed
+
+- **`scripts/fetch-duckdb-extensions.mjs`** (new) — downloads `json` + `sqlite_scanner` (with `sqlite` alias copy) into `public/duckdb-extensions/v1.1.1/wasm_eh/` and writes `integrity.json` with SHA-384 hashes per file. Postinstall wired in `package.json` after the existing duckdb-fallback fetcher. Total vendored payload: ~2.3 MB. Idempotent — re-runs no-op if files + integrity.json are present.
+- **`src/core/engine.ts`** — when `boot({ offline: true })`, after the connection opens we set `custom_extension_repository` + `autoinstall_extension_repository` to `${location.origin}/duckdb-extensions`. DuckDB appends `${REVISION}/${PLATFORM}/${NAME}.duckdb_extension.wasm` to that base and finds the vendored bytes. Non-fatal failure — surfaces a clearer ExtensionLoadError later if the URL doesn't resolve.
+- **`scripts/gen-examples.mjs`** — extended via Node 22's built-in `node:sqlite` (`DatabaseSync`) to also emit `tests/e2e/fixtures/sample-data/finance.sqlite` (vendors + invoices + payments mirroring the CSVs). The fixture lives next to the GeoJSON fixture in `tests/e2e/fixtures/sample-data/`, not in the auto-loaded example bundle — see DECISIONS for the SQLite-VFS limitation.
+- **`scripts/smoke.mjs`** — tightened the post-bundle-mount assertion from `>= 3` to `>= 4` tables. The JSONL access-log mount used to silently fail because the json extension couldn't be reached; with the vendored extension it now loads cleanly.
+- **`tests/e2e/offline-extensions.spec.ts`** (new, +1 e2e) — boots `?offline=1`, mounts the example bundle, asserts ≥4 tables AND at least one fetch went to `/duckdb-extensions/json.duckdb_extension.wasm` AND zero fetches went to `extensions.duckdb.org` / `community-extensions.duckdb.org`.
+- **`tests/e2e/sidecar-flow.spec.ts`** — fixed a workers=2 race where a late classifier update could re-render the notebook mid-Explain-dispatch, blowing away the sidecar-result mount before the no-key error could land. Test now waits for classification to stabilise before triggering Explain. Helper inlined from `auto-restore.spec.ts` rather than promoted to a shared module.
+
+### Why these choices
+
+- **Vendor only what exists at v1.1.1/wasm_eh.** Empirical probe showed `excel` and `read_stat` aren't published for our DuckDB-wasm-1.29.0-bundled revision (v1.1.1). Trying to vendor them would 404. The two that ARE published — `json` and `sqlite_scanner` — give the biggest immediate win (the smoke's JSONL mount now works offline).
+- **`SET custom_extension_repository` over patching DuckDB-wasm.** The runtime supports the override out of the box; no fork, no rebuild. Online users still hit `extensions.duckdb.org` for any extension we didn't vendor.
+- **SQLite mount stays bundle-unwired.** Probed the actual ATTACH path: the extension loads fine, but `ATTACH 'name' (TYPE sqlite)` fails on duckdb-wasm because the SQLite extension's VFS doesn't bridge to DuckDB-wasm's in-memory file VFS. This is a real limitation, not a build issue. The fixture is generated for whenever the bridge work lands; until then, no manifest entry, no smoke step.
+- **Inline the classification-stable helper.** Test files don't share helpers in this project (no `tests/e2e/utils/`). Promoting the helper would force imports across multiple specs without a real win. Duplicating ~30 lines is cleaner.
+
+Full reasoning at DECISIONS 2026-05-23 23:00.
+
+### Tests
+
+- New: `tests/e2e/offline-extensions.spec.ts` (+1 e2e). Asserts the offline path is wired correctly with no external extension hits.
+- Smoke now asserts ≥4 tables (was tolerant ≥3).
+- Sidecar e2e #2: race fix means workers=2 is stable again.
+
+### Quality
+
+- `dist/index.html` 408 KB / 600 KB budget (unchanged — engine SET adds ~150 bytes).
+- Vendored extensions: 2.3 MB under `public/duckdb-extensions/` — NOT precached by the PWA service worker (existing lite-cache decision); cached opportunistically on first offline use.
+- `tsc --noEmit` clean. `biome check` 0 errors / 14 pre-existing warnings.
+- **156 vitest** unchanged + **25 Playwright e2e** (was 24 → +1 offline-extensions) + smoke green at workers=2.
+
+### What's next
+
+Closing out Theme 1 wave 3's first half. Remaining pickup paths (per `plan/checkpoint-2026-05-21-eod.md` "Tomorrow's pickup paths" — partially closed today):
+
+- **A (continued). Theme 1 wave 3 sub-items still queued.** Vendor `excel` + `read_stat` extensions — blocked on either bumping the DuckDB-wasm version (to one where those extensions exist for wasm_eh) or finding an alternative source. SQLite mount needs the VFS-bridge work upstream. Each is its own follow-up.
+- **B. v1.1 tag.** Unchanged — cheap, ready when wanted.
+- **C. Iceberg + S3-compatible endpoints.** Unchanged — highest-leverage strategic move.
+- **D. Custom-endpoint sidecar.** Unchanged.
+- **E. v1.0 review carryover.** Unchanged.
+- **F. Eval harness.** Unchanged.
+
+---
+
 ## 2026-05-21 (afternoon) — Theme 4 wave 2 — B2 (compare) + B3 (override learns) + B4 (demo mode). **Theme 4 complete.**
 
 ### What landed

@@ -220,6 +220,30 @@ export class Engine {
       this.db = db;
       this.worker = worker;
       this.conn = await db.connect();
+      // Theme 1 wave 3: when booting offline (?offline=1 or
+      // opts.offline: true), point INSTALL at the vendored extensions
+      // under public/duckdb-extensions/. Without this, an INSTALL
+      // would still try to reach extensions.duckdb.org and fail in
+      // sandboxed / air-gapped environments (the smoke runner is one).
+      // For online boots we leave the default so the runtime can
+      // fetch any extension on demand. The path is form-required:
+      // DuckDB appends `${REVISION}/${PLATFORM}/${NAME}.duckdb_extension.wasm`.
+      if (opts.offline && typeof location !== 'undefined' && location.origin) {
+        const localRepo = `${location.origin}/duckdb-extensions`;
+        try {
+          await this.conn.query(
+            `SET custom_extension_repository = '${localRepo.replace(/'/g, "''")}'`,
+          );
+          await this.conn.query(
+            `SET autoinstall_extension_repository = '${localRepo.replace(/'/g, "''")}'`,
+          );
+        } catch (err) {
+          // Non-fatal: extensions will fail later with a clearer
+          // ExtensionLoadError; we don't want a setting error to block
+          // the boot entirely.
+          console.warn('[engine] failed to set custom_extension_repository', err);
+        }
+      }
       this.setStatus('ready');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

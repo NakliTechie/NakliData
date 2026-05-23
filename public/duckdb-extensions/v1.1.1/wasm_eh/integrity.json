@@ -1,0 +1,10 @@
+{
+  "revision": "v1.1.1",
+  "platform": "wasm_eh",
+  "generated": "2026-05-23T17:23:05.089Z",
+  "files": {
+    "json.duckdb_extension.wasm": "sha384-u0EZCWWDPuK6dXbc+k2JLmrWT7BVXNdnanpP0cIpNmDcIJQ5lSXj/v0buqzphVm4",
+    "sqlite_scanner.duckdb_extension.wasm": "sha384-CUyR7ITlEq6HkBH4EhaMwbqVJQO/CmANxJEEVMy3XgwIHmKXf4deAUXsgSl+MnSj",
+    "sqlite.duckdb_extension.wasm": "sha384-CUyR7ITlEq6HkBH4EhaMwbqVJQO/CmANxJEEVMy3XgwIHmKXf4deAUXsgSl+MnSj"
+  }
+}

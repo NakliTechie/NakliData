@@ -10,4 +10,8 @@ coverage/
 .vitest-cache/
 public/duckdb-fallback/duckdb-*.wasm
 public/duckdb-fallback/duckdb-browser-*.worker.js
+# DuckDB extension wasm bytes are fetched by postinstall
+# (scripts/fetch-duckdb-extensions.mjs). integrity.json is committed
+# as the pinned-version record; the binaries themselves aren't.
+public/duckdb-extensions/**/*.duckdb_extension.wasm
 test-results/
