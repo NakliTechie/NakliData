@@ -112,6 +112,29 @@ The explicit-host whitelist is incompatible with the Wave 2 product proposition 
 
 ---
 
+## A6 — S3-compatible custom endpoints (Wave 2 slice 2) (amends spec §4.1)
+
+**Original §4.1 (paraphrased):**
+> Private bucket via Relay: stateless Cloudflare Worker that signs S3 / GCS / Azure URLs on behalf of the user. Credentials session-only.
+
+The Relay was a v1.1 design for browser-incompatible auth (back when DuckDB-wasm couldn't sign S3 requests itself). DuckDB's httpfs extension now does SigV4 natively in the browser, so the Relay primitive is unnecessary for the common S3 case. The "credentials session-only" posture survives — see A2 for the BYOK shape.
+
+**Amended:**
+
+> **S3-compatible custom endpoints.** A new `'s3-endpoint'` `SourceKind` connects to AWS S3, MinIO, Cloudflare R2, Backblaze B2, Wasabi, or any other S3-API-compatible store. `Engine.configureS3({ endpoint, region, accessKeyId, secretAccessKey, urlStyle })` installs the DuckDB `httpfs` extension and applies the `SET s3_*` config; `Engine.registerS3Url({ tableName, s3Url, format })` creates the view via `read_<format>('s3://bucket/path')`. Browser fetches via DuckDB's SigV4 signing — Relay no longer needed for the common case.
+>
+> **Source-secrets BYOK** (`src/core/secrets/source-secrets.ts`). Per-source credential storage mirrors the sidecar BYOK pattern (A2): `sessionStorage` default, opt-in IndexedDB plaintext with honest labelling, `forgetSource(sourceId, names)` cleanup when a source is removed. Identifiers are `(sourceId, secretName)` so a single source can hold multiple named secrets (s3-endpoint uses `access_key_id` + `secret_access_key`).
+>
+> **`.naklidata` round-trip.** A new optional `s3` field on `PersistedSource` carries the endpoint config (`endpoint`, `region`, `bucket`, `path_prefix`, `url_style`). **Secrets are never persisted in the file.** On load, `applyLoadedFile` looks up the secrets via `source-secrets`; if missing (new session, no IDB opt-in, or "Forget" was clicked), the source moves to `reconnectNeeded` rather than mounting. Additive field — no `.naklidata` format-version bump per the policy in DECISIONS 14:00.
+>
+> **Slice 2 limitation: one set of S3 credentials per session.** DuckDB's `SET s3_*` is connection-wide; mounting a second `s3-endpoint` source with different credentials clobbers the first. Documented in the modal hint. A future enhancement can move to DuckDB's `CREATE SECRET` (which supports per-secret scoping) once the wasm build catches up.
+
+**Why:** A real-world bucket mount needs three things — endpoint config, credential storage, and the engine plumbing. We had none of them shipped; the v1.1 Relay design was over-scoped (a Cloudflare Worker for what DuckDB-wasm can now do itself). Slice 2 ships the focused minimum: connect, authenticate, read. The Relay primitive (spec §4.2) is parked for the harder cases it was actually designed for (GCS / Azure SAS signing, or environments where the user can't share credentials with the browser).
+
+**Status:** Wave 2 slice 2 shipped 2026-05-24 (commit on `main`). Slice 3 (Iceberg REST catalogs) reuses the source-secrets module + the CSP `https:` allowance from slice 1. Full reasoning in [DECISIONS 2026-05-24 15:30 — Wave 2 slice 2](../DECISIONS.md).
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

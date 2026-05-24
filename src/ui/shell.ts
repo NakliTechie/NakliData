@@ -168,6 +168,11 @@ function renderEmptyState(): HTMLElement {
         <span class="label">Paste URL</span>
         <span class="hint">Public CSV / Parquet over HTTPS.</span>
       </button>
+      <button class="opt" data-action="mount-s3" title="Mount an S3-compatible bucket (AWS / R2 / B2 / MinIO / Wasabi)">
+        ${iconSvg('link', 28)}
+        <span class="label">Mount bucket</span>
+        <span class="hint">S3-compatible. Keys session-default.</span>
+      </button>
     </div>
     <div class="examples-link">
       Or <button data-action="browse-examples">browse example data</button>.

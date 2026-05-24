@@ -4,13 +4,16 @@ import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './cor
 import {
   MountError,
   type MountedSource,
+  S3_SECRET_NAMES,
   mountExampleBundle,
   mountFile,
   mountFolder,
+  mountS3Endpoint,
   mountUrl,
   remountFolderFromHandle,
 } from './core/mount.ts';
 import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import {
   type SessionMeta,
   createSession,
@@ -36,6 +39,7 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
@@ -535,6 +539,15 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             console.warn(`[naklidata] drop view failed for ${t.name}`, err);
           }
         }
+        // Wave 2 slice 2 — secrets that this source owned should not
+        // outlive the source. Quiet on failure (IDB unavailable, etc.).
+        if (src.kind === 's3-endpoint') {
+          try {
+            await forgetSource(id, [...S3_SECRET_NAMES]);
+          } catch (err) {
+            console.warn(`[naklidata] secret cleanup failed for ${id}`, err);
+          }
+        }
       }
       workbook.removeSource(id);
       return;
@@ -785,6 +798,26 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       });
       return;
     }
+    case 'mount-s3': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      openMountS3Modal({
+        onMount: async (input) => {
+          const source = await mountS3Endpoint(engine, input);
+          // Persist secrets under the freshly-minted sourceId. Honour the
+          // "Remember on this device" choice; secrets never make it into
+          // the .naklidata file regardless.
+          await saveSecret(source.id, 'access_key_id', input.accessKeyId, input.remember);
+          await saveSecret(source.id, 'secret_access_key', input.secretAccessKey, input.remember);
+          workbook.addSources([source]);
+          toast(`Mounted "${source.label}".`);
+          void classifyMountedSources(engine, [source]);
+        },
+      });
+      return;
+    }
     case 'add-source':
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
@@ -925,6 +958,42 @@ async function doApplyLoadedFile(
         restoredSources.push(remounted);
       } catch (err) {
         console.warn('[naklidata] URL remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else if (ps.kind === 's3-endpoint' && ps.s3) {
+      // Wave 2 slice 2 — re-mount an S3-compatible source. Secrets are
+      // never persisted in the file; we look them up via source-secrets
+      // (sessionStorage for the current session, IDB if the user opted
+      // in to "Remember on this device"). Missing keys → reconnect.
+      try {
+        const accessKeyId = await loadSecret(ps.id, 'access_key_id');
+        const secretAccessKey = await loadSecret(ps.id, 'secret_access_key');
+        if (!accessKeyId || !secretAccessKey) {
+          reconnectNeeded.push({ id: ps.id, label: ps.label });
+        } else {
+          const remounted = await mountS3Endpoint(engine, {
+            label: ps.label,
+            endpoint: ps.s3.endpoint,
+            region: ps.s3.region,
+            bucket: ps.s3.bucket,
+            pathPrefix: ps.s3.path_prefix,
+            urlStyle: ps.s3.url_style,
+            accessKeyId,
+            secretAccessKey,
+          });
+          remounted.id = ps.id;
+          for (let i = 0; i < remounted.tables.length; i++) {
+            const persistedTable = ps.tables[i];
+            const t = remounted.tables[i];
+            if (persistedTable && t) {
+              t.id = persistedTable.id;
+              t.sourceId = remounted.id;
+            }
+          }
+          restoredSources.push(remounted);
+        }
+      } catch (err) {
+        console.warn('[naklidata] S3 endpoint remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else {

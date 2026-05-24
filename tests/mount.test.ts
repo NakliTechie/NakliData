@@ -185,9 +185,7 @@ describe('mountUrl (Wave 2 slice 1)', () => {
   ] as const)('accepts %s URLs (format %s)', async (ext, expected) => {
     const engine = urlMockEngine();
     await mountUrl(engine as never, { url: `https://example.com/x${ext}` });
-    expect(engine.registerUrl).toHaveBeenCalledWith(
-      expect.objectContaining({ format: expected }),
-    );
+    expect(engine.registerUrl).toHaveBeenCalledWith(expect.objectContaining({ format: expected }));
   });
 
   it('uses the provided label when given', async () => {
@@ -217,9 +215,9 @@ describe('mountUrl (Wave 2 slice 1)', () => {
 
   it('rejects non-http(s) URLs', async () => {
     const engine = urlMockEngine();
-    await expect(
-      mountUrl(engine as never, { url: 'file:///tmp/x.parquet' }),
-    ).rejects.toThrow(/must start with http/);
+    await expect(mountUrl(engine as never, { url: 'file:///tmp/x.parquet' })).rejects.toThrow(
+      /must start with http/,
+    );
     expect(engine.registerUrl).not.toHaveBeenCalled();
   });
 
@@ -236,5 +234,130 @@ describe('mountUrl (Wave 2 slice 1)', () => {
       mountUrl(engine as never, { url: 'https://example.com/data.xlsx' }),
     ).rejects.toThrow(/can be mounted from disk but not yet via a public URL/);
     expect(engine.registerUrl).not.toHaveBeenCalled();
+  });
+});
+
+// ---- mountS3Endpoint (Wave 2 slice 2) ------------------------------------
+
+import { mountS3Endpoint } from '../src/core/mount.ts';
+
+function s3MockEngine() {
+  return {
+    configureS3: vi.fn().mockResolvedValue(undefined),
+    registerS3Url: vi.fn().mockResolvedValue(undefined),
+    ensureExtension: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue([{ n: 7n }]),
+  };
+}
+
+const validS3Input = {
+  label: 'My bucket',
+  endpoint: 'https://s3.amazonaws.com',
+  region: 'us-east-1',
+  bucket: 'my-bucket',
+  pathPrefix: 'data/vendors.parquet',
+  urlStyle: 'vhost' as const,
+  accessKeyId: 'AKIA-EXAMPLE',
+  secretAccessKey: 'secret-example',
+};
+
+describe('mountS3Endpoint (Wave 2 slice 2)', () => {
+  it('configures S3 + registers a parquet view and returns kind="s3-endpoint"', async () => {
+    const engine = s3MockEngine();
+    const src = await mountS3Endpoint(engine as never, validS3Input);
+    expect(engine.configureS3).toHaveBeenCalledWith({
+      endpoint: 's3.amazonaws.com', // scheme stripped
+      region: 'us-east-1',
+      accessKeyId: 'AKIA-EXAMPLE',
+      secretAccessKey: 'secret-example',
+      urlStyle: 'vhost',
+    });
+    expect(engine.registerS3Url).toHaveBeenCalledWith({
+      tableName: 'vendors',
+      s3Url: 's3://my-bucket/data/vendors.parquet',
+      format: 'parquet',
+    });
+    expect(src.kind).toBe('s3-endpoint');
+    expect(src.s3?.bucket).toBe('my-bucket');
+    expect(src.s3?.urlStyle).toBe('vhost');
+    expect(src.tables[0]?.format).toBe('parquet');
+  });
+
+  it('strips http:// and trailing slashes from the endpoint', async () => {
+    const engine = s3MockEngine();
+    await mountS3Endpoint(engine as never, {
+      ...validS3Input,
+      endpoint: 'https://minio.example.com:9000///',
+    });
+    expect(engine.configureS3).toHaveBeenCalledWith(
+      expect.objectContaining({ endpoint: 'minio.example.com:9000' }),
+    );
+  });
+
+  it('strips leading slashes from the path prefix', async () => {
+    const engine = s3MockEngine();
+    const src = await mountS3Endpoint(engine as never, {
+      ...validS3Input,
+      pathPrefix: '///data/vendors.parquet',
+    });
+    expect(src.s3?.pathPrefix).toBe('data/vendors.parquet');
+  });
+
+  it('defaults the region to us-east-1 when blank', async () => {
+    const engine = s3MockEngine();
+    await mountS3Endpoint(engine as never, { ...validS3Input, region: '' });
+    expect(engine.configureS3).toHaveBeenCalledWith(
+      expect.objectContaining({ region: 'us-east-1' }),
+    );
+  });
+
+  it.each([
+    ['data/x.csv', 'csv'],
+    ['data/x.tsv', 'tsv'],
+    ['data/x.jsonl', 'jsonl'],
+    ['data/x.parquet', 'parquet'],
+  ] as const)('accepts %s (format %s)', async (pathPrefix, expected) => {
+    const engine = s3MockEngine();
+    await mountS3Endpoint(engine as never, { ...validS3Input, pathPrefix });
+    expect(engine.registerS3Url).toHaveBeenCalledWith(
+      expect.objectContaining({ format: expected }),
+    );
+  });
+
+  it('rejects empty endpoint / bucket / access key / secret', async () => {
+    const engine = s3MockEngine();
+    await expect(
+      mountS3Endpoint(engine as never, { ...validS3Input, endpoint: '' }),
+    ).rejects.toThrow(/S3 endpoint is required/);
+    await expect(
+      mountS3Endpoint(engine as never, { ...validS3Input, bucket: '' }),
+    ).rejects.toThrow(/Bucket is required/);
+    await expect(
+      mountS3Endpoint(engine as never, { ...validS3Input, accessKeyId: '' }),
+    ).rejects.toThrow(/Access key/);
+    await expect(
+      mountS3Endpoint(engine as never, { ...validS3Input, secretAccessKey: '' }),
+    ).rejects.toThrow(/Access key/);
+  });
+
+  it('rejects unsupported extensions with a helpful pointer', async () => {
+    const engine = s3MockEngine();
+    await expect(
+      mountS3Endpoint(engine as never, {
+        ...validS3Input,
+        pathPrefix: 'data/file.unknown',
+      }),
+    ).rejects.toThrow(/Could not infer a supported format/);
+    expect(engine.configureS3).not.toHaveBeenCalled();
+  });
+
+  it('rejects formats that need extensions (e.g. .xlsx) on slice 2', async () => {
+    const engine = s3MockEngine();
+    await expect(
+      mountS3Endpoint(engine as never, {
+        ...validS3Input,
+        pathPrefix: 'data/file.xlsx',
+      }),
+    ).rejects.toThrow(/can be mounted from disk but not yet via an S3 endpoint/);
   });
 });

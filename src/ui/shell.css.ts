@@ -665,4 +665,56 @@ button {
   justify-content: flex-end;
   gap: var(--space-3);
 }
+
+/* Wave 2 slice 2 — Mount S3-compatible bucket modal. Wider than
+   mount-url to fit the two-column field rows. Same base styles. */
+.mount-s3-modal {
+  width: min(720px, 100%);
+  height: auto;
+  max-height: 90vh;
+}
+.mount-s3-body {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow: auto;
+}
+.mount-s3-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.mount-s3-row .mount-url-field {
+  min-width: 0;
+}
+.mount-url-field select {
+  font-family: inherit;
+  font-size: ${Type.size.sm};
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.mount-s3-remember {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.mount-s3-remember input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+.mount-s3-remember span {
+  color: var(--text);
+  font-size: ${Type.size.sm};
+  line-height: 1.4;
+}
+.mount-s3-remember em {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-style: normal;
+}
 `;

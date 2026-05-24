@@ -66,10 +66,7 @@ test.describe('Paste URL mount (Wave 2 slice 1)', () => {
     expect(errEmpty).toContain('URL is required');
 
     // Unsupported extension → "Could not infer a supported format…"
-    await page.fill(
-      '.mount-url-overlay [data-region="url-input"]',
-      'https://example.com/data.txt',
-    );
+    await page.fill('.mount-url-overlay [data-region="url-input"]', 'https://example.com/data.txt');
     await page.click('.mount-url-overlay [data-action="confirm-mount-url"]');
     await page.waitForFunction(
       () => {

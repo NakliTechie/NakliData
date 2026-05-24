@@ -42,6 +42,14 @@ export interface PersistedSource {
   label: string;
   ref: string | null;
   tables: Array<{ id: string; name: string; format: string; origin: string; rowCount: number }>;
+  /** Wave 2 slice 2 — present when kind is 's3-endpoint'. Secrets are NOT persisted. */
+  s3?: {
+    endpoint: string;
+    region: string;
+    bucket: string;
+    path_prefix: string;
+    url_style: 'vhost' | 'path';
+  };
 }
 
 export interface PersistedAssignment {
@@ -90,6 +98,21 @@ export function serialize(input: SerializeInput): NakliDataFile {
         origin: t.origin,
         rowCount: t.rowCount,
       })),
+      // Wave 2 slice 2 — s3-endpoint config travels alongside the source.
+      // Secrets (access key, secret access key) are NOT persisted here;
+      // they live in source-secrets.ts and the user re-grants them on
+      // reload (or restores from IDB if they had opted in).
+      ...(s.s3
+        ? {
+            s3: {
+              endpoint: s.s3.endpoint,
+              region: s.s3.region,
+              bucket: s.s3.bucket,
+              path_prefix: s.s3.pathPrefix,
+              url_style: s.s3.urlStyle,
+            },
+          }
+        : {}),
     })),
     assignments: Object.entries(input.assignments).map(([key, a]) => ({
       key,

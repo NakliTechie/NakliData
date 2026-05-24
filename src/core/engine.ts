@@ -360,6 +360,62 @@ export class Engine {
   }
 
   /**
+   * Wave 2 slice 2 — apply S3 credentials + endpoint config to the
+   * connection so subsequent reads of `s3://...` URLs authenticate. The
+   * config is connection-wide; mounting a SECOND s3-endpoint source
+   * with different credentials would clobber the first. Documented
+   * limitation; a future enhancement can move to DuckDB's `CREATE SECRET`
+   * once we bump to a version that supports it on wasm.
+   */
+  async configureS3({
+    endpoint,
+    region,
+    accessKeyId,
+    secretAccessKey,
+    urlStyle,
+  }: {
+    endpoint: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    urlStyle: 'vhost' | 'path';
+  }): Promise<void> {
+    await this.ensureExtension('httpfs');
+    await this.exec(`SET s3_endpoint = '${escapeLiteral(endpoint)}'`);
+    await this.exec(`SET s3_region = '${escapeLiteral(region)}'`);
+    await this.exec(`SET s3_access_key_id = '${escapeLiteral(accessKeyId)}'`);
+    await this.exec(`SET s3_secret_access_key = '${escapeLiteral(secretAccessKey)}'`);
+    await this.exec(`SET s3_url_style = '${urlStyle}'`);
+  }
+
+  /**
+   * Register a view backed by an `s3://...` URL. Assumes `configureS3()`
+   * has already been called this session — otherwise the SELECT fails
+   * with an auth/region error from DuckDB.
+   */
+  async registerS3Url({
+    tableName,
+    s3Url,
+    format,
+  }: {
+    tableName: string;
+    s3Url: string;
+    format: 'csv' | 'tsv' | 'jsonl' | 'parquet';
+  }): Promise<void> {
+    const safeTable = sanitizeIdent(tableName);
+    const lit = escapeLiteral(s3Url);
+    const reader: Record<typeof format, string> = {
+      csv: `read_csv_auto('${lit}', header=true, sample_size=2048)`,
+      tsv: `read_csv_auto('${lit}', delim='\t', header=true, sample_size=2048)`,
+      jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
+      parquet: `read_parquet('${lit}')`,
+    };
+    await this.exec(
+      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`,
+    );
+  }
+
+  /**
    * Idempotently install + load a DuckDB extension. The first call to a
    * given extension fetches it from the DuckDB extension registry (core)
    * or the community-extensions registry; subsequent calls are no-ops.

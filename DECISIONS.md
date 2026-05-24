@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 15:30 — Wave 2 slice 2: S3-compatible endpoint mounting + per-source BYOK secrets
+**Context:** Slice 1 wired public-URL mounts; this slice adds the auth + credential storage on top so users can point at S3 / R2 / MinIO / B2 / Wasabi. Three sub-decisions: (a) credential storage shape; (b) DuckDB config plumbing; (c) what `.naklidata` round-trips.
+
+**Decisions:**
+
+- **(a) Per-source BYOK in `src/core/secrets/source-secrets.ts`.** Mirrors the sidecar BYOK pattern (spec amendment A2). Identifiers are `(sourceId, secretName)` — a single source can hold multiple named secrets. `sessionStorage` default, opt-in IDB plaintext with honest labelling ("Anyone with access to this browser profile can read them."), `forgetSource(sourceId, names)` cleanup when a source is removed. Same honesty-over-theatre posture as sidecar BYOK; encrypting in-origin IDB with an origin-derived key is largely placebo since the JS that decrypts is also same-origin.
+- **(b) `SET s3_*` over `CREATE SECRET`.** DuckDB's `CREATE SECRET` (introduced in v0.10) supports per-secret scoping, but the wasm 1.1.1 build doesn't ship it in a useful form yet. `SET s3_endpoint / s3_region / s3_access_key_id / s3_secret_access_key / s3_url_style` is connection-wide — one set of credentials per session. Documented limitation; a future enhancement can move to `CREATE SECRET` once the wasm build catches up.
+- **(c) `.naklidata` carries endpoint config but never secrets.** New optional `s3` field on `PersistedSource` (`endpoint`, `region`, `bucket`, `path_prefix`, `url_style`). Secrets stay in `source-secrets`. On load, `applyLoadedFile` looks up the secrets — present → mount; missing → `reconnectNeeded`. Additive field, no format-version bump (per [DECISIONS 14:00](#2026-05-24-1400)).
+- **(d) Endpoint normalisation.** `mountS3Endpoint` strips `http(s)://` and trailing slashes before passing to `s3_endpoint` (DuckDB wants the host-only form, e.g. `s3.amazonaws.com`). Path prefix has leading slashes stripped. Region defaults to `us-east-1` when blank.
+- **(e) URL style is the user's pick, defaults to vhost.** AWS-native S3 uses virtual-host style (`bucket.endpoint`); MinIO / R2 / older S3 deployments need path style (`endpoint/bucket/...`). Slice 2's modal exposes a dropdown rather than auto-detecting — auto-detection has too many edge cases (region-specific AWS endpoints, custom subdomain configs).
+
+**Reasoning:** Three things had to land together. Without the secrets module, mounting and persistence don't compose cleanly. Without `configureS3` + `registerS3Url`, DuckDB can't read the bucket. Without the `s3` field in `PersistedSource`, save/load doesn't round-trip. Splitting into more slices would force premature partial commits without working end-to-end value.
+
+**Tests:**
+- 8 new vitest specs in `tests/source-secrets.test.ts` (sessionStorage + IDB tiering, rotation, forget semantics, masked previews).
+- 8 new vitest specs in `tests/mount.test.ts` for `mountS3Endpoint` (scheme stripping, path normalisation, format inference, required-field validation, unsupported-extension rejection).
+- 2 new e2e specs in `tests/e2e/mount-s3.spec.ts` (modal opens / focuses endpoint / validates required fields / Cancel returns focus to trigger; URL-style picker exposes both options).
+- Smoke green (no console errors, no regressions from the new modal CSS / wiring).
+- Bundle: `dist/index.html` 420 KB (slice 1 was 412 KB; +8 KB for the modal + engine methods).
+- Full gate: tsc + biome clean; 195 vitest (was 173 at v1.1.0, +22 across slices 1 + 2); 30 Playwright e2e across 19 spec files (was 26 / 17 at v1.1.0).
+
+**Reversibility:** Easy. Drop `src/ui/mount-s3-modal.ts` + `src/core/secrets/source-secrets.ts` + the `'s3-endpoint'` branch in `applyLoadedFile` + the engine methods + the SourceKind union entry. Existing `.naklidata` files with `s3-endpoint` sources would surface as reconnect-needed.
+
+**Limitations / follow-ups noted:**
+- One set of S3 credentials per session (see (b)). Multi-bucket mounts with different credentials need `CREATE SECRET` work.
+- The empty-state UI has two link-icon buttons (Paste URL + Mount bucket) — visually similar; consider distinct iconography in a future polish pass.
+- "Forget keys for this source" is exposed only via source removal (cascades through `forgetSource`); a per-source UI affordance can come if users ask.
+
+---
+
 ## 2026-05-24 15:00 — Wave 2 slice 1: public URL mount + CSP `connect-src` broadens to `'self' https:`
 **Context:** Wave 2's value proposition is "point at your S3 endpoint, your Iceberg catalog, your public data URL." All of those are user-configured at runtime, unknown at build time. The explicit-host `connect-src` whitelist (jsdelivr / extensions.duckdb.org / naklitechie / anthropic / openai) shipped in v1.0 + v1.1 is incompatible with that. This slice does two things: (1) wires the latent `'http'` `SourceKind` end-to-end (engine, mount, UI, persistence, tests), and (2) broadens the CSP to make user-configured network egress possible at all.
 

@@ -30,7 +30,24 @@ export type FileFormat =
   | 'geojson'
   | 'kml';
 
-export type SourceKind = 'example-bundle' | 'fsa-folder' | 'fsa-file' | 'http';
+export type SourceKind = 'example-bundle' | 'fsa-folder' | 'fsa-file' | 'http' | 's3-endpoint';
+
+/**
+ * Per-source kind metadata that travels alongside `MountedSource` for
+ * kinds that need more than a single `ref` string. Optional — kinds
+ * that fit in `ref` (example-bundle, fsa-folder, fsa-file, http) leave
+ * this undefined.
+ */
+export interface S3EndpointConfig {
+  endpoint: string; // host without scheme, e.g. 's3.amazonaws.com'
+  region: string;
+  bucket: string;
+  pathPrefix: string; // e.g. 'data/2026/' (no leading slash, may be empty)
+  urlStyle: 'vhost' | 'path';
+}
+
+/** Canonical secret names for the s3-endpoint kind. */
+export const S3_SECRET_NAMES = ['access_key_id', 'secret_access_key'] as const;
 
 export interface MountedTable {
   id: string;
@@ -49,6 +66,8 @@ export interface MountedSource {
   label: string;
   /** For example-bundle: bundle id; for FSA: handle id; for http: URL. */
   ref?: string;
+  /** Wave 2 slice 2 — populated for `kind: 's3-endpoint'`. */
+  s3?: S3EndpointConfig;
   tables: MountedTable[];
 }
 
@@ -396,6 +415,104 @@ export async function mountUrl(
         name: tableLabel,
         format,
         origin: url,
+        rowCount,
+        registered: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Wave 2 slice 2 — mount an S3-compatible bucket as a table. Works
+ * against AWS S3, MinIO, Cloudflare R2, Backblaze B2, Wasabi, and any
+ * other DuckDB httpfs-compatible endpoint.
+ *
+ * Caller is expected to have already persisted the credentials via
+ * `source-secrets.ts` against the sourceId we return — but we accept
+ * them inline here so the engine call can wire them immediately. The
+ * sourceId is generated up-front so the caller knows which key to
+ * persist secrets under.
+ *
+ * Path-vs-vhost URL style is the user's call; default to 'vhost' (AWS
+ * native). MinIO / R2-via-API typically need 'path'.
+ *
+ * Limitation: DuckDB's `SET s3_*` is connection-wide, so a session can
+ * only hold one set of S3 credentials at a time. Mounting a second
+ * s3-endpoint with different credentials will clobber the first. The
+ * UI surfaces this; a future enhancement can move to `CREATE SECRET`.
+ */
+export async function mountS3Endpoint(
+  engine: Engine,
+  opts: {
+    label: string;
+    endpoint: string;
+    region: string;
+    bucket: string;
+    pathPrefix: string;
+    urlStyle: 'vhost' | 'path';
+    accessKeyId: string;
+    secretAccessKey: string;
+  },
+): Promise<MountedSource> {
+  if (!opts.endpoint.trim()) throw new MountError('S3 endpoint is required.');
+  if (!opts.bucket.trim()) throw new MountError('Bucket is required.');
+  if (!opts.accessKeyId.trim() || !opts.secretAccessKey.trim()) {
+    throw new MountError('Access key ID and secret access key are required.');
+  }
+  const pathPrefix = opts.pathPrefix.trim().replace(/^\/+/, '');
+  // Format inference: the path prefix must point at a specific file, a
+  // glob pattern, or end in a slash + we'll add a default glob. Slice 2
+  // requires the user to supply a file or glob; multi-format listing
+  // (LIST → SCAN each shard) is a future enhancement.
+  const last = pathPrefix.split(/[?#]/)[0]?.split('/').pop() ?? '';
+  const format = detectFormat(last);
+  if (!format) {
+    throw new MountError(
+      'Could not infer a supported format from the path prefix. End the prefix with a filename (e.g. "data/vendors.parquet") or a glob ("data/*.parquet").',
+    );
+  }
+  if (format !== 'csv' && format !== 'tsv' && format !== 'jsonl' && format !== 'parquet') {
+    throw new MountError(
+      `Format "${format}" can be mounted from disk but not yet via an S3 endpoint. Slice 2 ships csv / tsv / jsonl / parquet only.`,
+    );
+  }
+  // Normalise the endpoint: strip scheme + trailing slash. DuckDB's
+  // s3_endpoint wants the host-only form (e.g. 's3.amazonaws.com').
+  const endpointHost = opts.endpoint
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  await engine.configureS3({
+    endpoint: endpointHost,
+    region: opts.region.trim() || 'us-east-1',
+    accessKeyId: opts.accessKeyId,
+    secretAccessKey: opts.secretAccessKey,
+    urlStyle: opts.urlStyle,
+  });
+  const sourceId = genId('src');
+  const tableLabel = sanitizeTableName(last || opts.bucket);
+  const s3Url = `s3://${opts.bucket.trim()}/${pathPrefix}`;
+  await engine.registerS3Url({ tableName: tableLabel, s3Url, format });
+  const rowCount = await getRowCount(engine, tableLabel);
+  return {
+    id: sourceId,
+    kind: 's3-endpoint',
+    label: opts.label.trim() || `${opts.bucket}/${pathPrefix}`,
+    ref: s3Url,
+    s3: {
+      endpoint: endpointHost,
+      region: opts.region.trim() || 'us-east-1',
+      bucket: opts.bucket.trim(),
+      pathPrefix,
+      urlStyle: opts.urlStyle,
+    },
+    tables: [
+      {
+        id: genId('tbl'),
+        sourceId,
+        name: tableLabel,
+        format,
+        origin: s3Url,
         rowCount,
         registered: true,
       },
