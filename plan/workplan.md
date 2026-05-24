@@ -1,41 +1,47 @@
 # Workplan — 2026-05-24 snapshot
 
 v1.1.0 is tagged + pushed; `applyLoadedFile` mutex landed post-tag.
-Wave 1 is closed except for W1.4 (mirror) and W1.6 (basemap stretch).
-The next session has two natural starting points: a small housekeeping
-chunk that finishes Wave 1's deferred items, or a strategic kickoff
-of Wave 2. They're independent — pick the one that matches available
-time.
+Wave 1 is closed; W1.4 (mirror) is dropped now that NakliData
+positions as an independent product (not a launcher app); W1.8
+(deploy) is deferred — we're nowhere near needing a hosted build
+yet. The next session opens with the small Chunk 4 follow-ups, then
+moves into Wave 2.
 
-Order below is "tactical first, strategic second" — small finishable
-items come before the bigger arcs so a short session can still close
-something.
-
----
-
-## Chunk 1 — Ship the v1.1.0 deploy + mirror (half day)
-
-Closes Wave 1's two deferred items together. The deploy unblocks the
-mirror; doing them in one sitting avoids context-switching.
-
-- **W1.8** — Add a GitHub Pages deploy workflow.
-  `.github/workflows/deploy-pages.yml` building `dist/` on push to
-  `main` and publishing via `actions/deploy-pages`. Verify the SRI +
-  CSP story still holds when served from `*.github.io`.
-- **W1.2 follow-up** — Once Pages is live, replace the "URL TBD when
-  published" line in `README.md` with the actual hosted URL.
-- **W1.4** — Extend `nakli-dev`'s `sync-mirrors.sh` to handle
-  multi-file builds (new `source_url` / `pages_url` field in
-  `apps/manifest.json`); add NakliData's mirror entry; add the
-  source-side `.github/workflows/notify-naklios.yml` here +
-  `NAKLIOS_DISPATCH_TOKEN`.
-
-Prerequisites: GitHub Pages enabled for the repo (one-click in
-Settings). Cross-repo work touches `NakliTechie/nakli-dev`.
+Order below puts the small finishable items first, then the bigger
+Wave 2 arcs.
 
 ---
 
-## Chunk 2 — Wave 2 kickoff: Iceberg + S3 endpoints (1–2 days)
+## Chunk 4 — Small follow-ups (under an hour each — pick them off)
+
+Scrappy items that don't fit a larger arc. Doing these together
+gives the next session a clean "got something concrete done" start
+before tackling Wave 2.
+
+- **W1.9** — Doc-cadence decision. We now have *both*
+  `checkpoint-YYYY-MM-DD-eod.md` (pre-windup pattern, exhaustive)
+  and `YYYY-MM-DD-summary.md` (windup output, tight). Pick one going
+  forward; either archive old checkpoints or document why both
+  exist. Most likely outcome: summaries are canonical, old
+  checkpoints stay as historical record.
+- **Cytoscape modal focus restoration** — quick a11y audit on
+  `src/ui/schema-graph.ts`. When the modal closes, keyboard focus
+  may stay trapped on the cytoscape canvas instead of returning to
+  the trigger button. Small fix if confirmed; no fix if focus
+  already returns cleanly.
+- **`.naklidata` format-version policy** — document when a `1.1`
+  bump would actually be warranted (breaking change to a *required*
+  field) vs additive-optional changes that round-trip cleanly
+  (`user_types`, `override_rules` both landed without a version
+  bump). One paragraph in `plan/spec-amendments.md` or
+  `DECISIONS.md` so future-us doesn't accidentally bump on something
+  that doesn't need it.
+
+Prerequisites: none. Each item is self-contained.
+
+---
+
+## Chunk 1 — Wave 2 kickoff: Iceberg + S3 endpoints (1–2 days)
 
 The lakehouse + BYO-endpoint pair. Both DuckDB-native, no new core
 dependencies. Worth doing together because they share the auth /
@@ -58,9 +64,9 @@ the sidecar arc next; Chunk 3 is the alternate.
 
 ---
 
-## Chunk 3 — Wave 2 sidecar: custom endpoint + eval harness (1–2 days)
+## Chunk 2 — Wave 2 sidecar: custom endpoint + eval harness (1–2 days)
 
-The "BYO-model" half of Wave 2. Independent of Chunk 2 — pick
+The "BYO-model" half of Wave 2. Independent of Chunk 1 above — pick
 whichever matters more for the next demo.
 
 - **W2.3** — Custom-endpoint sidecar provider. New kind
@@ -81,29 +87,14 @@ vLLM) for testing W2.3.
 
 ---
 
-## Chunk 4 — Small follow-ups (under an hour each)
-
-Scrappy items that don't fit Chunks 1–3 and don't deserve their own
-sitting. Pick off opportunistically.
-
-- **W1.9** — Decide whether the `checkpoint-YYYY-MM-DD-eod.md` files
-  are still needed now that `windup` writes a daily summary +
-  workplan. Consolidate or document the distinction.
-- **Cytoscape modal focus restoration** — quick a11y audit; the
-  schema-graph modal may not return keyboard focus to the open
-  button on close.
-- **Format-version bump readiness check** — `.naklidata` is still at
-  `version: '1.0'` with additive optional fields (`user_types`,
-  `override_rules`). Document when a `1.1` bump would actually be
-  warranted (breaking change to a required field, not new optional
-  fields).
-
----
-
 ## Unbatched
 
 Bigger items that don't yet have enough shape to be in a chunk:
 
+- **W1.8 deploy** — A hosted build is useful eventually (the README
+  still says "URL TBD when published") but the runtime is the
+  static page itself; users self-host. Pick up when we want a
+  canonical hosted entry-point and have the bandwidth.
 - **W2.6 stretch** — Map cell deck.gl pairing (for >10k-point
   rendering). Defer until a real workload appears.
 - **W1.6 stretch** — Map cell basemap with CSP carve-out for OSM
@@ -112,3 +103,13 @@ Bigger items that don't yet have enough shape to be in a chunk:
 - **Wave 3 entirely** — Sidecar maturation + Compute Bridge MVP.
   Multi-week arc; see [`enterprise-strategy.md`](./enterprise-strategy.md)
   for the full strategic context. Don't start until Wave 2 ships.
+
+---
+
+## Dropped (no longer planned)
+
+- **W1.4 mirror** — naklios.dev Immersive same-origin mirror. NakliData
+  positions as an independent product; we're not tying its
+  discoverability to the launcher. Existing `nakli-dev` infrastructure
+  is no longer in scope. (The cross-repo work to extend
+  `sync-mirrors.sh` for multi-file builds is also dropped.)

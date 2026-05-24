@@ -11,6 +11,7 @@ Things we've explicitly looked at and chosen not to do. Reasons given so future-
 - **Multi-user collab / share-via-link with login** — vision: single-operator. URL-state sharing (privacy-preserving, no data sent) is the alternative.
 - **Hosted / SaaS variant** — never. The product IS the local-first posture.
 - **Server-side data crunching** — DuckDB-wasm runs in the tab; that's the whole point.
+- **naklios.dev / nakli-dev launcher mirror (W1.4)** — dropped 2026-05-24. NakliData is an independent product; we're not tying its discoverability to a portfolio launcher. The mirror work in pending.md (extending `sync-mirrors.sh` for multi-file builds, adding a `source_url` / `pages_url` field to `apps/manifest.json`, the source-side notify workflow + `NAKLIOS_DISPATCH_TOKEN`) is no longer on the roadmap. Existing references in older `plan/checkpoint-*-eod.md` files remain as historical record.
 
 ---
 
