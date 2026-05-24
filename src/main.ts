@@ -786,7 +786,37 @@ interface ApplyLoadedOptions {
   silent?: boolean;
 }
 
+/**
+ * Serialises applyLoadedFile invocations. The function clears the
+ * workbook then awaits an async mount-and-restore sequence, so two
+ * overlapping calls (e.g. boot-time auto-restore racing an explicit
+ * Load click) would each clear the same empty workbook, then both
+ * append their sources at the end — producing duplicate cards. Each
+ * new call awaits the previous one before doing any work; errors from
+ * a prior invocation don't block the next (they're independent work
+ * and the original caller has already received the rejection).
+ */
+let _applyLoadedChain: Promise<unknown> = Promise.resolve();
+
 async function applyLoadedFile(
+  engine: Engine,
+  file: NakliDataFile,
+  opts: ApplyLoadedOptions = {},
+): Promise<void> {
+  const prev = _applyLoadedChain;
+  const next = (async () => {
+    try {
+      await prev;
+    } catch {
+      // Prior invocation's rejection is not our concern.
+    }
+    await doApplyLoadedFile(engine, file, opts);
+  })();
+  _applyLoadedChain = next;
+  return next;
+}
+
+async function doApplyLoadedFile(
   engine: Engine,
   file: NakliDataFile,
   opts: ApplyLoadedOptions = {},

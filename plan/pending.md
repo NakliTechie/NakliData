@@ -49,6 +49,8 @@ This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6)
 
 **Bonus (also landed 2026-05-24, commit `7a73bc4`):** Latent CSP-hash bug in `esbuild.config.mjs` — `String.prototype.replace` was interpreting `$&` in the minified script body as the matched substring, drifting the inlined CSP hash off the actual bytes. Fix is function-form replacers. The Wave 1 pie + facet additions tipped the minified bundle across the threshold where `$&` first appeared, which surfaced it.
 
+**Post-v1.1.0 follow-up landed 2026-05-24:** `applyLoadedFile` re-entrancy fix. The v1.1.0 release notes flagged the underlying race (boot-time auto-restore racing an explicit Load click → 4 source cards instead of 2) as deferred; this change adds a module-level promise-chain mutex in `src/main.ts` that serialises all three callers (lens decode, snapshot restore, user Load). The e2e save-load test reverts the IDB-clear workaround and now exercises the race directly — flips to a regression guard for the mutex contract. See DECISIONS 2026-05-24 13:00.
+
 ### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility
 
 **Pitch:** "Open the lakehouse and BYO-model doors. No new core deps."

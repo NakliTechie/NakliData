@@ -2,6 +2,20 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 13:00 — applyLoadedFile gets a promise-chain mutex; e2e save-load reverts its IDB-clear workaround and now exercises the race directly
+**Context:** v1.1.0 review carryover. `applyLoadedFile` in `src/main.ts` is not safe to invoke concurrently — it calls `workbook.clear()`, awaits `mountExampleBundle(engine)`, then calls `workbook.addSources(...)`. Two interleaved invocations (boot-time `restoreFromActiveSession` racing an explicit `[data-action="load"]` click) both clear the empty workbook, both await the mount, then both append, producing 4 source cards instead of 2. The v1.1.0 e2e fix (commit 04feedc) papered over this in the test by `indexedDB.deleteDatabase('naklidata')` between save + reload — race avoided in the test, production bug intact. This entry resolves the underlying re-entrancy.
+**Decisions:**
+
+- **(a) Module-level promise chain, not a counted semaphore or Lock API.** Plain pattern: snapshot the chain's tail, build a new promise that `await prev` (swallowing the prior rejection — independent work) then runs the actual body, and publish that new promise as the new tail. JS single-threaded execution makes the snapshot/publish atomic without a real lock. Web Locks API would also work but pulls in a `navigator.locks` dependency for a one-call-site need; the promise chain is ~12 lines and self-contained in `main.ts` next to its sole consumer.
+- **(b) Refactor body into `doApplyLoadedFile`, keep `applyLoadedFile` as the public name.** All three call sites (boot lens decode, boot snapshot restore, user Load click) stay unchanged; the serialisation is invisible to callers, who still `await applyLoadedFile(...)` and get the same rejection semantics.
+- **(c) Errors from a prior invocation do not block the next.** `applyLoadedFile` calls are independent work — typically a different file or a different intent (auto-restore vs explicit Load). The original caller still receives its own rejection; the chain just guarantees ordering, not error coupling.
+- **(d) Revert the e2e IDB-clear hack and let the test exercise the race.** `tests/e2e/save-load.spec.ts` no longer clears IDB between save and reload, so auto-restore actually fires concurrently with the explicit Load click — the test now asserts the contract the mutex provides (final state = 2 source cards, not 4). The empty-state assertion between reload and Load is gone (it wouldn't hold once auto-restore runs). Test still passes at ~8s (was ~2s; the extra time is the redundant auto-restore + Load both running, which is the point).
+- **(e) Why not "have the load handler await any pending restore" instead?** That sketch covers the boot-restore-vs-Load case, but not Load-vs-Load (two quick Load clicks), Load-vs-lens-decode, or session-switch-vs-Load. A general mutex over the function covers every pairing without per-caller bookkeeping.
+
+**Tests:** `tests/e2e/save-load.spec.ts` is the regression guard (reverting the mutex causes 4 cards instead of 2 → `expect(after.sources).toEqual(before.sources)` fails). Full smoke + 165 vitest + auto-restore + sessions e2e all green. No bundle delta (logic-only change in `main.ts`; 413 KB).
+
+---
+
 ## 2026-05-23 23:00 — Theme 1 wave 3: vendor DuckDB extensions for offline smoke; pin to v1.1.1/wasm_eh; ship json + sqlite_scanner only (excel + read_stat deferred); SQLite mount stays browser-experimental until VFS bridge work upstream
 **Context:** The smoke runner has long "tolerated" the JSONL access-log mount silently failing because the runtime tried to fetch `https://extensions.duckdb.org/${REVISION}/wasm_eh/json.duckdb_extension.wasm` which the sandbox blocks. The path forward is to vendor these extensions locally (same pattern as the duckdb-fallback wasm + worker) and point DuckDB at the vendored copy via `custom_extension_repository`. Three sub-decisions: (a) which extensions to vendor; (b) which DuckDB revision to pin; (c) how to wire the URL override.
 **Decisions:**

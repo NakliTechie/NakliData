@@ -78,21 +78,11 @@ test.describe('save / load round-trip', () => {
     expect(Array.isArray(parsed.assignments)).toBe(true);
     expect(parsed.assignments.length).toBeGreaterThanOrEqual(10);
 
-    // Clear the IDB snapshot so the reload doesn't auto-restore. The
-    // test models "user closes the tab and opens the saved file in a
-    // fresh state" — otherwise auto-restore races the explicit Load
-    // click (both call applyLoadedFile, and concurrent invocations are
-    // not safe to interleave — see e2e save-load race in v1.1 notes).
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve, reject) => {
-        const req = indexedDB.deleteDatabase('naklidata');
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-        req.onblocked = () => resolve();
-      });
-    });
-
-    // Reload the page → fresh shell, no mounts.
+    // Reload the page. We deliberately leave the IDB snapshot in place
+    // so auto-restore fires concurrently with the explicit Load below —
+    // both call applyLoadedFile, and serialisation is the contract this
+    // test exercises (regression guard for the v1.1 race that produced
+    // 4 source cards instead of 2).
     await page.reload();
     await page.waitForFunction(
       () =>
@@ -100,9 +90,10 @@ test.describe('save / load round-trip', () => {
       null,
       { timeout: 90_000 },
     );
-    expect(await page.locator('.empty-state').count()).toBe(1);
 
-    // Stage the .naklidata file and click Open.
+    // Stage the .naklidata file and click Open immediately, without
+    // waiting for auto-restore to settle — the mutex inside
+    // applyLoadedFile must queue the Load behind the in-flight restore.
     await fsa.stageOpenFile(written.name, written.text, 'application/json');
     await page.click('[data-action="load"]');
 
