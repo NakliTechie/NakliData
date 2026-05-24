@@ -36,6 +36,14 @@ export function mountPlotChart({ mount, cell, result }: PlotRenderOpts): void {
     [y]: coerceNumeric(r[y]),
   }));
 
+  // Honor the facet picker only when the column exists in the result
+  // and is distinct from x/y so we don't fold a dimension out from
+  // under the chart.
+  const facet =
+    cell.facet && result.columns.includes(cell.facet) && cell.facet !== x && cell.facet !== y
+      ? cell.facet
+      : null;
+
   let svg: SVGElement | HTMLElement;
   try {
     switch (cell.chartType) {
@@ -43,11 +51,13 @@ export function mountPlotChart({ mount, cell, result }: PlotRenderOpts): void {
         svg = Plot.plot({
           marginLeft: 80,
           color: { scheme: 'tableau10', legend: true },
+          ...(facet ? { fy: { label: facet } } : {}),
           marks: [
             Plot.barX(data, {
               x: y,
               y: x,
-              fill: pickCategory(data, [x, y]) ?? x,
+              ...(facet ? { fy: facet } : {}),
+              fill: pickCategory(data, [x, y, facet ?? '']) ?? x,
               sort: { y: '-x' },
             }),
             Plot.ruleX([0], { stroke: Neutral.border }),
@@ -58,11 +68,13 @@ export function mountPlotChart({ mount, cell, result }: PlotRenderOpts): void {
         svg = Plot.plot({
           marginLeft: 60,
           color: { scheme: 'tableau10', legend: true },
+          ...(facet ? { fy: { label: facet } } : {}),
           marks: [
             Plot.areaY(data, {
               x,
               y,
-              fill: pickCategory(data, [x, y]) ?? x,
+              ...(facet ? { fy: facet } : {}),
+              fill: pickCategory(data, [x, y, facet ?? '']) ?? x,
               curve: 'monotone-x',
             }),
             Plot.ruleY([0], { stroke: Neutral.border }),
@@ -71,18 +83,22 @@ export function mountPlotChart({ mount, cell, result }: PlotRenderOpts): void {
         break;
       case 'heatmap': {
         // Heatmap needs three channels: x, y, value. We auto-pick value
-        // as the first numeric column that's neither x nor y, falling
-        // back to count.
+        // as the first numeric column that's neither x, y, nor facet,
+        // falling back to count.
         const valueCol = result.columns.find(
-          (c) => c !== x && c !== y && data.some((r) => typeof r[c] === 'number'),
+          (c) => c !== x && c !== y && c !== facet && data.some((r) => typeof r[c] === 'number'),
         );
         svg = Plot.plot({
           marginLeft: 80,
           color: { scheme: 'OrRd', legend: true, label: valueCol ?? 'count' },
+          ...(facet ? { fy: { label: facet } } : {}),
           marks: [
             valueCol
-              ? Plot.cell(data, { x, y, fill: valueCol })
-              : Plot.cell(data, Plot.group({ fill: 'count' }, { x, y })),
+              ? Plot.cell(data, { x, y, ...(facet ? { fy: facet } : {}), fill: valueCol })
+              : Plot.cell(
+                  data,
+                  Plot.group({ fill: 'count' }, { x, y, ...(facet ? { fy: facet } : {}) }),
+                ),
           ],
         });
         break;

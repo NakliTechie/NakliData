@@ -36,11 +36,14 @@ export interface ChartCellState {
     | 'table'
     | 'stat'
     | 'histogram'
+    | 'pie'
     | 'stacked-bar'
     | 'area-stacked'
     | 'heatmap';
   x: string | null;
   y: string | null;
+  /** Optional column whose values drive small-multiples faceting. */
+  facet: string | null;
 }
 
 export interface PivotCellState {

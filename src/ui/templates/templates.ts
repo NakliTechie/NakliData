@@ -223,6 +223,7 @@ function chart(
     chartType: type,
     x,
     y,
+    facet: null,
   };
 }
 

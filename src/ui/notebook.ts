@@ -114,6 +114,7 @@ export class Notebook {
         chartType: 'bar',
         x: null,
         y: null,
+        facet: null,
       } satisfies ChartCellState;
     }
     this.state = { cells: [...this.state.cells, cell] };

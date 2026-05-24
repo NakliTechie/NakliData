@@ -39,6 +39,7 @@ export function renderChartCell(
           'area',
           'scatter',
           'histogram',
+          'pie',
           'stacked-bar',
           'area-stacked',
           'heatmap',
@@ -69,6 +70,7 @@ export function renderChartCell(
       if (sel.dataset.action === 'chart-type') patch.chartType = sel.value;
       if (sel.dataset.action === 'chart-x') patch.x = sel.value || null;
       if (sel.dataset.action === 'chart-y') patch.y = sel.value || null;
+      if (sel.dataset.action === 'chart-facet') patch.facet = sel.value || null;
       handlers.onChange(cell.id, patch);
     });
   }
@@ -94,6 +96,16 @@ export function renderChartCell(
   return el;
 }
 
+// Chart types that meaningfully respond to a facet-by column. Other
+// chart types (bar / line / scatter / etc.) ignore the facet field
+// even if a value sneaks through from a saved file.
+const FACETABLE: ReadonlySet<ChartCellState['chartType']> = new Set([
+  'pie',
+  'stacked-bar',
+  'area-stacked',
+  'heatmap',
+]);
+
 function renderColPickers(cell: ChartCellState, cols: string[]): string {
   const sel = (label: string, action: string, current: string | null | undefined) => `
     <label style="font-size:11px;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px;">
@@ -108,7 +120,8 @@ function renderColPickers(cell: ChartCellState, cols: string[]): string {
           .join('')}
       </select>
     </label>`;
-  return sel('x', 'chart-x', cell.x) + sel('y', 'chart-y', cell.y);
+  const xy = sel('x', 'chart-x', cell.x) + sel('y', 'chart-y', cell.y);
+  return FACETABLE.has(cell.chartType) ? xy + sel('facet', 'chart-facet', cell.facet) : xy;
 }
 
 function escapeHtml(s: string): string {

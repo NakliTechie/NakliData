@@ -16,6 +16,10 @@ import type { ChartCellState, SqlResult } from '../ui/cells/types.ts';
 
 const PLOT_TYPES = new Set<ChartCellState['chartType']>(['stacked-bar', 'area-stacked', 'heatmap']);
 
+// Threshold below which we don't split the pie into faceted small-multiples.
+const FACET_MIN_PARTITIONS = 2;
+const FACET_MAX_PARTITIONS = 9;
+
 export function renderChart(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
   mount.innerHTML = '';
   mount.style.padding = '12px';
@@ -57,6 +61,9 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
         break;
       case 'histogram':
         renderHistogram(wrap, cell, result);
+        break;
+      case 'pie':
+        renderPie(wrap, cell, result);
         break;
     }
   }
@@ -381,6 +388,210 @@ function renderHistogram(mount: HTMLElement, cell: ChartCellState, result: SqlRe
     })),
     col,
   );
+}
+
+function renderPie(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
+  const cat = pickCategoricalCol(cell.x, result);
+  const num = pickNumericCol(cell.y, result);
+  if (!cat || !num) {
+    mount.innerHTML = `<div class="cell-output-empty">Pick x (category) and y (number).</div>`;
+    return;
+  }
+
+  const facetCol =
+    cell.facet && result.columns.includes(cell.facet) && cell.facet !== cat && cell.facet !== num
+      ? cell.facet
+      : null;
+
+  if (!facetCol) {
+    const slices = aggregatePieSlices(result.rows, cat, num);
+    if (slices.length === 0) {
+      mount.innerHTML = `<div class="cell-output-empty">No positive values to plot.</div>`;
+      return;
+    }
+    mount.append(buildPieSvg(slices, num, null));
+    return;
+  }
+
+  const partitions = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of result.rows) {
+    const key = String(row[facetCol] ?? '');
+    let arr = partitions.get(key);
+    if (!arr) {
+      arr = [];
+      partitions.set(key, arr);
+    }
+    arr.push(row);
+  }
+  if (partitions.size < FACET_MIN_PARTITIONS) {
+    const slices = aggregatePieSlices(result.rows, cat, num);
+    if (slices.length === 0) {
+      mount.innerHTML = `<div class="cell-output-empty">No positive values to plot.</div>`;
+      return;
+    }
+    mount.append(buildPieSvg(slices, num, null));
+    return;
+  }
+
+  const ranked = [...partitions.entries()]
+    .map(([key, rows]) => ({
+      key,
+      rows,
+      total: rows.reduce((s, r) => s + (Number(r[num]) || 0), 0),
+    }))
+    .sort((a, b) => b.total - a.total);
+  const top = ranked.slice(0, FACET_MAX_PARTITIONS);
+  const hidden = ranked.length - top.length;
+
+  const grid = document.createElement('div');
+  grid.style.cssText =
+    'display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;';
+  for (const p of top) {
+    const slices = aggregatePieSlices(p.rows, cat, num);
+    if (slices.length === 0) continue;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `border:1px solid ${Neutral.border};border-radius:4px;padding:6px;background:${Neutral.surface};`;
+    wrap.append(buildPieSvg(slices, num, p.key || '(empty)'));
+    grid.append(wrap);
+  }
+  mount.append(grid);
+
+  if (hidden > 0) {
+    const note = document.createElement('div');
+    note.className = 'cell-output-empty';
+    note.style.marginTop = '6px';
+    note.textContent = `+${hidden} more facet${hidden === 1 ? '' : 's'} hidden (showing top ${FACET_MAX_PARTITIONS} by total).`;
+    mount.append(note);
+  }
+}
+
+/**
+ * Aggregate rows into pie slices. Sums `num` per distinct `cat` value,
+ * drops non-positive totals, sorts descending, caps at 12 slices + an
+ * "Other" bucket for the tail. Exported for unit testing.
+ */
+export function aggregatePieSlices(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  cat: string,
+  num: string,
+): Array<{ label: string; value: number }> {
+  const acc = new Map<string, number>();
+  for (const r of rows) {
+    const label = String(r[cat] ?? '');
+    const v = Number(r[num]);
+    if (!Number.isFinite(v) || v <= 0) continue;
+    acc.set(label, (acc.get(label) ?? 0) + v);
+  }
+  const entries = [...acc.entries()].sort((a, b) => b[1] - a[1]);
+  const cap = 12;
+  if (entries.length > cap) {
+    const head = entries.slice(0, cap - 1).map(([label, value]) => ({ label, value }));
+    const tail = entries.slice(cap - 1).reduce((s, [, v]) => s + v, 0);
+    return [...head, { label: 'Other', value: tail }];
+  }
+  return entries.map(([label, value]) => ({ label, value }));
+}
+
+function buildPieSvg(
+  slices: Array<{ label: string; value: number }>,
+  numLabel: string,
+  title: string | null,
+): SVGElement {
+  const width = 360;
+  const height = 240;
+  const cx = 110;
+  const cy = title ? height / 2 + 8 : height / 2;
+  const r = 86;
+  const total = slices.reduce((s, sl) => s + sl.value, 0);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `Pie chart of ${numLabel}${title ? ` for ${title}` : ''}`);
+
+  if (title) {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', String(width / 2));
+    t.setAttribute('y', '14');
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-size', '12');
+    t.setAttribute('fill', Neutral.text);
+    t.textContent = title.length > 36 ? `${title.slice(0, 34)}…` : title;
+    svg.appendChild(t);
+  }
+
+  if (slices.length === 1) {
+    // Degenerate single-slice: render a full disc so we don't draw a 0° arc.
+    const single = slices[0];
+    if (single) {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', String(cx));
+      circle.setAttribute('cy', String(cy));
+      circle.setAttribute('r', String(r));
+      circle.setAttribute('fill', categorical(0));
+      circle.setAttribute('stroke', Neutral.surface);
+      circle.setAttribute('stroke-width', '1');
+      svg.appendChild(circle);
+    }
+  } else {
+    let angle = -Math.PI / 2;
+    for (let i = 0; i < slices.length; i++) {
+      const slice = slices[i];
+      if (!slice) continue;
+      const frac = slice.value / total;
+      const next = angle + frac * 2 * Math.PI;
+      const x1 = cx + Math.cos(angle) * r;
+      const y1 = cy + Math.sin(angle) * r;
+      const x2 = cx + Math.cos(next) * r;
+      const y2 = cy + Math.sin(next) * r;
+      const large = frac > 0.5 ? 1 : 0;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`);
+      path.setAttribute('fill', categorical(i));
+      path.setAttribute('stroke', Neutral.surface);
+      path.setAttribute('stroke-width', '1');
+      svg.appendChild(path);
+      angle = next;
+    }
+  }
+
+  const legendX = 218;
+  const legendStart = title ? 34 : 20;
+  const itemH = 16;
+  const legendCap = 9;
+  const shown = slices.slice(0, legendCap);
+  const overflow = slices.length - shown.length;
+  for (let i = 0; i < shown.length; i++) {
+    const item = shown[i];
+    if (!item) continue;
+    const pct = (item.value / total) * 100;
+    const y = legendStart + i * itemH;
+    const swatch = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    swatch.setAttribute('x', String(legendX));
+    swatch.setAttribute('y', String(y - 9));
+    swatch.setAttribute('width', '10');
+    swatch.setAttribute('height', '10');
+    swatch.setAttribute('fill', categorical(i));
+    svg.appendChild(swatch);
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', String(legendX + 14));
+    text.setAttribute('y', String(y));
+    text.setAttribute('font-size', '11');
+    text.setAttribute('fill', Neutral.text);
+    const labelTrim = item.label.length > 14 ? `${item.label.slice(0, 13)}…` : item.label;
+    text.textContent = `${labelTrim} ${pct.toFixed(1)}%`;
+    svg.appendChild(text);
+  }
+  if (overflow > 0) {
+    const more = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    more.setAttribute('x', String(legendX));
+    more.setAttribute('y', String(legendStart + shown.length * itemH));
+    more.setAttribute('font-size', '10');
+    more.setAttribute('fill', Neutral.textMuted);
+    more.textContent = `+${overflow} more`;
+    svg.appendChild(more);
+  }
+  return svg;
 }
 
 function pickNumericCol(hint: string | null | undefined, result: SqlResult): string | null {
