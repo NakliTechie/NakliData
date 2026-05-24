@@ -7,6 +7,7 @@ import {
   mountExampleBundle,
   mountFile,
   mountFolder,
+  mountUrl,
   remountFolderFromHandle,
 } from './core/mount.ts';
 import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
@@ -35,6 +36,7 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
@@ -765,7 +767,24 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       return;
     }
-    case 'mount-url':
+    case 'mount-url': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      openMountUrlModal({
+        onMount: async ({ label, url }) => {
+          // mountUrl throws MountError on bad URL / unsupported format /
+          // network failure — let the modal's try/catch surface those
+          // inline rather than re-toasting.
+          const source = await mountUrl(engine, { url, ...(label ? { label } : {}) });
+          workbook.addSources([source]);
+          toast(`Mounted "${source.label}".`);
+          void classifyMountedSources(engine, [source]);
+        },
+      });
+      return;
+    }
     case 'add-source':
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
@@ -884,6 +903,28 @@ async function doApplyLoadedFile(
         }
       } catch (err) {
         console.warn('[naklidata] folder remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else if (ps.kind === 'http' && ps.ref) {
+      // Wave 2 slice 1 — re-mount a public URL. No auth, no permission
+      // re-grant; the URL itself is the entire identifier. Failures
+      // (network, 404, format mismatch) surface as a reconnect prompt
+      // rather than tanking the whole load.
+      try {
+        const remounted = await mountUrl(engine, { url: ps.ref, label: ps.label });
+        // Preserve the persisted ids so assignment keys still resolve.
+        remounted.id = ps.id;
+        for (let i = 0; i < remounted.tables.length; i++) {
+          const persistedTable = ps.tables[i];
+          const t = remounted.tables[i];
+          if (persistedTable && t) {
+            t.id = persistedTable.id;
+            t.sourceId = remounted.id;
+          }
+        }
+        restoredSources.push(remounted);
+      } catch (err) {
+        console.warn('[naklidata] URL remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else {

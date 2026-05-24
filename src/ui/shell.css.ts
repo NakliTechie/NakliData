@@ -604,4 +604,65 @@ button {
   background: var(--surface-alt);
   color: var(--text-muted);
 }
+
+/* Wave 2 slice 1 — Mount URL modal. Compact form: label + URL +
+   help + actions. Reuses .schema-graph-overlay + .schema-graph-modal. */
+.mount-url-modal {
+  width: min(540px, 100%);
+  height: auto;
+  max-height: 90vh;
+}
+.mount-url-body {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.mount-url-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: ${Type.size.sm};
+}
+.mount-url-field span {
+  color: var(--text-muted);
+}
+.mount-url-field em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+.mount-url-field input {
+  font-family: var(--font-mono);
+  font-size: ${Type.size.sm};
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.mount-url-hint {
+  margin: 0;
+  font-size: ${Type.size.sm};
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.mount-url-hint code {
+  font-family: var(--font-mono);
+  background: var(--surface-alt);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+}
+.mount-url-error {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: ${Type.size.sm};
+  color: var(--danger);
+}
+.mount-url-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
 `;

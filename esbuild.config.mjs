@@ -78,11 +78,15 @@ async function buildShell() {
     const cssBundle = main.outputFiles.find((f) => f.path.endsWith('main.css'));
     const scriptBody = jsBundle ? jsBundle.text : '';
     const scriptHash = createHash('sha256').update(scriptBody, 'utf8').digest('base64');
+    // connect-src: 'self' + https: (Wave 2 unlocks user-configured S3 /
+    // Iceberg / public-URL mounts; explicit-host whitelist is no longer
+    // feasible). script-src stays tight — that's the primary XSS defence.
+    // See DECISIONS 2026-05-24 for the trade-off rationale.
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}'`,
       "worker-src 'self' blob:",
-      "connect-src 'self' https://cdn.jsdelivr.net https://extensions.duckdb.org https://*.naklitechie.com https://api.anthropic.com https://api.openai.com",
+      "connect-src 'self' https:",
       "img-src 'self' data: blob:",
       "style-src 'self' 'unsafe-inline'",
     ].join('; ');

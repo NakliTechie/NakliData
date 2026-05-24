@@ -2,6 +2,30 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 15:00 — Wave 2 slice 1: public URL mount + CSP `connect-src` broadens to `'self' https:`
+**Context:** Wave 2's value proposition is "point at your S3 endpoint, your Iceberg catalog, your public data URL." All of those are user-configured at runtime, unknown at build time. The explicit-host `connect-src` whitelist (jsdelivr / extensions.duckdb.org / naklitechie / anthropic / openai) shipped in v1.0 + v1.1 is incompatible with that. This slice does two things: (1) wires the latent `'http'` `SourceKind` end-to-end (engine, mount, UI, persistence, tests), and (2) broadens the CSP to make user-configured network egress possible at all.
+
+**Decisions:**
+
+- **(a) `connect-src` widens to `'self' https:` (only).** A meta-CSP-refresh pattern (multiple `<meta>` tags) only tightens CSP, never relaxes — it can't help. Per-user / per-deployment CSP would require a build-time configurator, which doesn't fit the static-HTML deployment model. `https:` is broader than the prior whitelist but still tighter than `*` (blocks plaintext HTTP, blocks `data:` / `blob:` fetches). `script-src` stays at `'self' 'wasm-unsafe-eval' 'sha256-<inline>'` — that's the actual primary XSS defence.
+- **(b) Trade-off acknowledged.** A future XSS that bypassed the SHA-pinned `script-src` could exfiltrate to any HTTPS host. The mitigations: (i) the script-src protection is the primary defence, (ii) the user has explicitly authorized URLs they pasted in, (iii) NakliData has no escalation path from "see your data" to "see worse data" — the threat model is exfiltration, and broad `connect-src` does open that vector. We accept it because the alternative (building a per-deployment CSP) defeats the static-shell model.
+- **(c) New `Engine.registerUrl({ tableName, url, format })` over a new `mountUrl(engine, { url, label?, tableName? })`.** The engine call is a thin `CREATE OR REPLACE VIEW ... AS SELECT * FROM read_<format>('<url>')`. No `registerFile` — DuckDB-wasm fetches the bytes directly via the browser's fetch (HTTP range requests on Parquet etc.). Slice 1 supports `csv`, `tsv`, `jsonl`, `parquet` only — those four ship in core DuckDB without an extension. Other formats (`xlsx`, `sqlite`, `geojson`, etc.) throw a `MountError` with a helpful pointer to the file-mount path.
+- **(d) Persistence is the existing `PersistedSource.ref` field** — already typed as `string | null`. URL sources store the full URL there. `applyLoadedFile` adds a new branch: `ps.kind === 'http'` calls `mountUrl(engine, { url: ps.ref, label: ps.label })`. Failure surfaces via the existing `reconnectNeeded` path. No format-version bump (per [DECISIONS 14:00](#2026-05-24-1400)).
+- **(e) UI: small focused modal (`src/ui/mount-url-modal.ts`) following the schema-graph + settings-modal pattern.** Reuses `.schema-graph-overlay` + `.schema-graph-modal` base styles with `.mount-url-*` modifiers. Focus management mirrors W1.11 fixes (focus to URL input on open; restore to trigger on close; Escape listener properly torn down). Slices 2 + 3 will add their own modals for S3 / Iceberg auth fields.
+
+**Reasoning:** Two orthogonal concerns, one ship: (i) URL mount is itself a meaningful user-facing capability — public data dumps, government datasets, anything Parquet-on-CDN — and was always in the spec but never wired. (ii) Without the CSP rework, slices 2 + 3 can't ship either. Doing them together lets us amortise the trade-off discussion.
+
+**Tests:**
+- 8 new vitest specs in `tests/mount.test.ts` (mock-engine routing for `csv` / `tsv` / `jsonl` / `parquet`; default and custom label; query-string stripping; non-http(s) URL rejection; unsupported-extension error; extension-needing format hint).
+- 2 new Playwright e2e specs in `tests/e2e/mount-url.spec.ts` (full UI flow with same-origin CSV; inline error rendering for empty + unsupported URLs).
+- Smoke green (CSP rework didn't regress the existing CDN + extensions paths).
+- Bundle: `dist/index.html` 412 KB — well under 600 KB.
+- Full gate: tsc + biome clean; 173 vitest (was 165, +8); 28 Playwright e2e across 18 spec files (was 26 across 17, +2).
+
+**Reversibility:** Easy. Revert the CSP back to explicit-host whitelist + remove `mount-url-modal.ts` + drop the `'http'` branch in `applyLoadedFile` + drop `Engine.registerUrl` and `mountUrl`. Existing `.naklidata` files with `'http'` sources would fail on load (silent reconnect-needed path).
+
+---
+
 ## 2026-05-24 14:00 — `.naklidata` format-version bump policy: additive optional fields don't bump; required-field changes do
 **Context:** v1.1 shipped two additive fields on the `.naklidata` schema (`user_types` at `b08d679`, `override_rules` at `0b14ff7`) without bumping `NAKLIDATA_VERSION` (still `'1.0'`). Both fields round-trip cleanly through v1.0 readers — missing-field defaults are `[]`, so old code doesn't choke. Future-us reading the code might be tempted to bump the version when adding any new field; this entry locks the policy in.
 **Decisions:**

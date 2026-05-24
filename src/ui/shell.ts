@@ -163,10 +163,10 @@ function renderEmptyState(): HTMLElement {
         <span class="label">Add file</span>
         <span class="hint">Single CSV, Parquet, .xlsx, or SQLite.</span>
       </button>
-      <button class="opt" data-action="mount-url" disabled title="v1.1">
+      <button class="opt" data-action="mount-url" title="Mount a public HTTPS URL (CSV / TSV / JSONL / Parquet)">
         ${iconSvg('link', 28)}
         <span class="label">Paste URL</span>
-        <span class="hint">v1.1</span>
+        <span class="hint">Public CSV / Parquet over HTTPS.</span>
       </button>
     </div>
     <div class="examples-link">

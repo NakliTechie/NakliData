@@ -147,3 +147,94 @@ describe('mountFile routes formats to the right engine method', () => {
     );
   });
 });
+
+// ---- mountUrl (Wave 2 slice 1) -------------------------------------------
+
+import { mountUrl } from '../src/core/mount.ts';
+
+function urlMockEngine() {
+  return {
+    registerUrl: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue([{ n: 100n }]),
+  };
+}
+
+describe('mountUrl (Wave 2 slice 1)', () => {
+  it('mounts a parquet URL and returns a source with kind="http"', async () => {
+    const engine = urlMockEngine();
+    const src = await mountUrl(engine as never, {
+      url: 'https://example.com/data/vendors.parquet',
+    });
+    expect(engine.registerUrl).toHaveBeenCalledWith({
+      tableName: 'vendors',
+      url: 'https://example.com/data/vendors.parquet',
+      format: 'parquet',
+    });
+    expect(src.kind).toBe('http');
+    expect(src.ref).toBe('https://example.com/data/vendors.parquet');
+    expect(src.tables).toHaveLength(1);
+    expect(src.tables[0]?.format).toBe('parquet');
+    expect(src.tables[0]?.name).toBe('vendors');
+  });
+
+  it.each([
+    ['.csv', 'csv'],
+    ['.tsv', 'tsv'],
+    ['.jsonl', 'jsonl'],
+    ['.parquet', 'parquet'],
+  ] as const)('accepts %s URLs (format %s)', async (ext, expected) => {
+    const engine = urlMockEngine();
+    await mountUrl(engine as never, { url: `https://example.com/x${ext}` });
+    expect(engine.registerUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ format: expected }),
+    );
+  });
+
+  it('uses the provided label when given', async () => {
+    const engine = urlMockEngine();
+    const src = await mountUrl(engine as never, {
+      url: 'https://example.com/data/x.csv',
+      label: 'My remote data',
+    });
+    expect(src.label).toBe('My remote data');
+  });
+
+  it('defaults the label to the filename', async () => {
+    const engine = urlMockEngine();
+    const src = await mountUrl(engine as never, {
+      url: 'https://example.com/data/vendors.parquet',
+    });
+    expect(src.label).toBe('vendors.parquet');
+  });
+
+  it('strips query string + fragment when detecting format', async () => {
+    const engine = urlMockEngine();
+    const src = await mountUrl(engine as never, {
+      url: 'https://example.com/x.parquet?token=abc#frag',
+    });
+    expect(src.tables[0]?.format).toBe('parquet');
+  });
+
+  it('rejects non-http(s) URLs', async () => {
+    const engine = urlMockEngine();
+    await expect(
+      mountUrl(engine as never, { url: 'file:///tmp/x.parquet' }),
+    ).rejects.toThrow(/must start with http/);
+    expect(engine.registerUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported extensions with a helpful message', async () => {
+    const engine = urlMockEngine();
+    await expect(
+      mountUrl(engine as never, { url: 'https://example.com/data.txt' }),
+    ).rejects.toThrow(/Could not infer a supported format/);
+  });
+
+  it('rejects formats that need extensions (e.g. .xlsx) on slice 1', async () => {
+    const engine = urlMockEngine();
+    await expect(
+      mountUrl(engine as never, { url: 'https://example.com/data.xlsx' }),
+    ).rejects.toThrow(/can be mounted from disk but not yet via a public URL/);
+    expect(engine.registerUrl).not.toHaveBeenCalled();
+  });
+});

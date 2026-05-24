@@ -346,3 +346,59 @@ export async function mountFile(
     tables,
   };
 }
+
+/**
+ * Wave 2 slice 1 — mount a remote URL as a table. DuckDB-wasm reads the
+ * bytes directly via the browser's fetch; no httpfs extension needed for
+ * plain HTTPS reads. The view is created over `read_<format>('<url>')`,
+ * so SELECTs against the table re-fetch ranges on demand (DuckDB respects
+ * HTTP range requests where the server supports them, e.g. for Parquet).
+ *
+ * Supported formats: csv, tsv, jsonl, parquet — the four whose readers
+ * ship in DuckDB-wasm without an extension load. Other formats throw a
+ * MountError pointing the user at the file-mount path instead.
+ */
+export async function mountUrl(
+  engine: Engine,
+  opts: { url: string; label?: string; tableName?: string },
+): Promise<MountedSource> {
+  const url = opts.url.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    throw new MountError(
+      'URL must start with http:// or https://. (https:// is required for cross-origin reads.)',
+    );
+  }
+  const lastSegment = url.split(/[?#]/)[0]?.split('/').pop() ?? '';
+  const format = detectFormat(lastSegment);
+  if (!format) {
+    throw new MountError(
+      'Could not infer a supported format from the URL. Filename should end in .csv, .tsv, .jsonl/.ndjson, or .parquet (slice 1 — Excel / SQLite / DuckDB / stats formats via URL are queued for Wave 2 slice 2+).',
+    );
+  }
+  if (format !== 'csv' && format !== 'tsv' && format !== 'jsonl' && format !== 'parquet') {
+    throw new MountError(
+      `Format "${format}" can be mounted from disk but not yet via a public URL. Use Add file / Add folder for now.`,
+    );
+  }
+  const sourceId = genId('src');
+  const tableLabel = opts.tableName ?? sanitizeTableName(lastSegment || 'remote');
+  await engine.registerUrl({ tableName: tableLabel, url, format });
+  const rowCount = await getRowCount(engine, tableLabel);
+  return {
+    id: sourceId,
+    kind: 'http',
+    label: opts.label ?? (lastSegment || url),
+    ref: url,
+    tables: [
+      {
+        id: genId('tbl'),
+        sourceId,
+        name: tableLabel,
+        format,
+        origin: url,
+        rowCount,
+        registered: true,
+      },
+    ],
+  };
+}

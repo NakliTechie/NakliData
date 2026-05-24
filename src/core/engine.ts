@@ -328,6 +328,38 @@ export class Engine {
   }
 
   /**
+   * Register a remote URL as a table. DuckDB-wasm fetches the bytes
+   * directly via the browser's fetch (no httpfs extension needed for
+   * plain HTTPS reads). The view is created over read_<format>('<url>'),
+   * so subsequent SELECTs against the table re-fetch ranges on demand.
+   * Wave 2 slice 1 supports csv / tsv / jsonl / parquet — formats whose
+   * readers ship in core DuckDB without an extension load. Other formats
+   * are surfaced by mountUrl with a friendly "not supported via URL"
+   * error rather than reaching here.
+   */
+  async registerUrl({
+    tableName,
+    url,
+    format,
+  }: {
+    tableName: string;
+    url: string;
+    format: 'csv' | 'tsv' | 'jsonl' | 'parquet';
+  }): Promise<void> {
+    const safeTable = sanitizeIdent(tableName);
+    const lit = escapeLiteral(url);
+    const reader: Record<typeof format, string> = {
+      csv: `read_csv_auto('${lit}', header=true, sample_size=2048)`,
+      tsv: `read_csv_auto('${lit}', delim='\t', header=true, sample_size=2048)`,
+      jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
+      parquet: `read_parquet('${lit}')`,
+    };
+    await this.exec(
+      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`,
+    );
+  }
+
+  /**
    * Idempotently install + load a DuckDB extension. The first call to a
    * given extension fetches it from the DuckDB extension registry (core)
    * or the community-extensions registry; subsequent calls are no-ops.
