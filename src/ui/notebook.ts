@@ -55,6 +55,14 @@ export class Notebook {
   }
 
   load(cells: CellState[]): void {
+    // Dispose any CM6 instances attached to cells we're replacing so the
+    // EditorViews don't leak across .naklidata loads + session switches.
+    // Cell ids are timestamp-prefixed (see genCellId) so the incoming
+    // set never collides with the outgoing set — we can dispose all old
+    // SQL cells unconditionally.
+    for (const old of this.state.cells) {
+      if (old.kind === 'sql') disposeSqlCellEditor(old.id);
+    }
     this.state = { cells };
     this.notify();
   }
