@@ -2,6 +2,35 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 16:00 — Wave 2 slice 3a: Iceberg table-by-URL with optional Bearer auth; REST catalog + OAuth + SigV4 deferred to 3b
+**Context:** PondPilot ships Iceberg via DuckDB; W2.1 in pending.md called for "Apache Iceberg REST + OAuth2 / Bearer / SigV4". The full surface — REST catalog navigation, OAuth2 device flow, AWS SigV4 — is several days of work. We ship the most common case first.
+
+**Decisions:**
+
+- **(a) Split W2.1 into 3a (this slice) + 3b (queued).** 3a = table-by-URL with optional Bearer. 3b = REST catalog browser + OAuth2 + SigV4. The split delivers the common case (private S3-backed Iceberg with simple auth, public CORS-friendly Iceberg tables) without the OAuth UX burden. Slice 3b stays in `wave-2-design.md` and `pending.md`.
+- **(b) Two SourceKinds.** This slice adds `'iceberg-table'`. Slice 3b will add `'iceberg-catalog'`. Splitting the kinds lets the modals stay focused — table-by-URL is a 3-field form; catalog-browsing needs a tree picker. Different SourceKind = different persistence shape, different mount flow, different secret names.
+- **(c) `extra_http_headers` over per-call signing.** DuckDB's `SET extra_http_headers = MAP { ... }` is connection-wide, like the S3 SET pattern. Bearer is applied to *every* httpfs request that session; this is fine for tables backed by a single host. For S3-backed Iceberg, the user mounts the bucket first (slice 2) so the S3 credentials are already set; the Iceberg slice just adds the Bearer for the catalog/REST surface, not the data files.
+- **(d) Smart table-name derivation.** Iceberg's canonical layout is `<table>/metadata/v<N>.metadata.json`. The name-from-URL logic handles three shapes: a bare directory URL (use the last segment), `<table>/metadata.json` (parent dir), and the canonical `<table>/metadata/v<N>.metadata.json` (grandparent — detected by the literal `metadata` parent). Defaults to `iceberg_table` if all heuristics fail.
+- **(e) Empty Bearer = public table; not saved.** Whitespace-only tokens are treated as no token. The persisted `iceberg.requires_bearer` flag tracks whether the user supplied one; on reload, we only look up a secret if the flag is true.
+
+**Reasoning:** The full W2.1 spec is the kind of work that, attempted in one go, ships gold-plated foundation + broken UI. Splitting at the REST catalog boundary lets the foundation (engine + mount + secrets) prove itself in slice 3a before the auth-chain UX work in 3b builds on top.
+
+**Tests:**
+- 8 new vitest specs in `tests/mount.test.ts` for mountIcebergTable (configure call, Bearer pass-through, whitespace handling, table-name derivation across all three layouts, http(s)+s3 URL acceptance, file:// rejection, empty-URL rejection).
+- 1 new e2e spec in `tests/e2e/mount-iceberg.spec.ts` (modal opens / focuses URL input / required-URL error / file:// validation / Cancel returns focus).
+- Smoke green; full e2e 31/31; bundle 428 KB (was 420 at slice 2; +8 KB for the modal + engine methods).
+- 203 vitest across 16 files (was 195 at slice 2, +8).
+
+**Reversibility:** Easy. Drop `src/ui/mount-iceberg-modal.ts` + the `'iceberg-table'` branch in `applyLoadedFile` + the engine methods (`configureIceberg`, `registerIcebergTable`) + the SourceKind union entry + the `IcebergTableConfig` interface. Existing `.naklidata` files with iceberg-table sources surface as reconnect-needed.
+
+**Limitations:**
+- One Bearer token per session (`extra_http_headers` is connection-wide; mounting a second iceberg-table with a different token clobbers the first).
+- For S3-backed Iceberg, user must mount the bucket via "Mount bucket" first.
+- No catalog discovery — user must know the table's metadata URL.
+- All deferred to slice 3b.
+
+---
+
 ## 2026-05-24 15:30 — Wave 2 slice 2: S3-compatible endpoint mounting + per-source BYOK secrets
 **Context:** Slice 1 wired public-URL mounts; this slice adds the auth + credential storage on top so users can point at S3 / R2 / MinIO / B2 / Wasabi. Three sub-decisions: (a) credential storage shape; (b) DuckDB config plumbing; (c) what `.naklidata` round-trips.
 

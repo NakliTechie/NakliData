@@ -50,6 +50,11 @@ export interface PersistedSource {
     path_prefix: string;
     url_style: 'vhost' | 'path';
   };
+  /** Wave 2 slice 3a — present when kind is 'iceberg-table'. Bearer token (if any) is NOT persisted. */
+  iceberg?: {
+    metadata_url: string;
+    requires_bearer: boolean;
+  };
 }
 
 export interface PersistedAssignment {
@@ -110,6 +115,16 @@ export function serialize(input: SerializeInput): NakliDataFile {
               bucket: s.s3.bucket,
               path_prefix: s.s3.pathPrefix,
               url_style: s.s3.urlStyle,
+            },
+          }
+        : {}),
+      // Wave 2 slice 3a — iceberg-table config. Bearer token (if any)
+      // lives in source-secrets and is NOT persisted here.
+      ...(s.iceberg
+        ? {
+            iceberg: {
+              metadata_url: s.iceberg.metadataUrl,
+              requires_bearer: s.iceberg.requiresBearer,
             },
           }
         : {}),

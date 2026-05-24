@@ -30,7 +30,13 @@ export type FileFormat =
   | 'geojson'
   | 'kml';
 
-export type SourceKind = 'example-bundle' | 'fsa-folder' | 'fsa-file' | 'http' | 's3-endpoint';
+export type SourceKind =
+  | 'example-bundle'
+  | 'fsa-folder'
+  | 'fsa-file'
+  | 'http'
+  | 's3-endpoint'
+  | 'iceberg-table';
 
 /**
  * Per-source kind metadata that travels alongside `MountedSource` for
@@ -48,6 +54,22 @@ export interface S3EndpointConfig {
 
 /** Canonical secret names for the s3-endpoint kind. */
 export const S3_SECRET_NAMES = ['access_key_id', 'secret_access_key'] as const;
+
+/** Canonical secret names for the iceberg-table kind (slice 3a — Bearer only). */
+export const ICEBERG_SECRET_NAMES = ['bearer_token'] as const;
+
+/**
+ * Slice 3a metadata for `kind: 'iceberg-table'`. The Iceberg table is
+ * identified by its `metadata.json` URL (or a directory URL whose
+ * latest snapshot DuckDB resolves automatically). Slice 3b will add a
+ * companion `IcebergCatalogConfig` for REST catalog navigation.
+ */
+export interface IcebergTableConfig {
+  /** URL of the table's metadata.json (or its directory). */
+  metadataUrl: string;
+  /** Whether to send a Bearer token (looked up via source-secrets). */
+  requiresBearer: boolean;
+}
 
 export interface MountedTable {
   id: string;
@@ -68,6 +90,8 @@ export interface MountedSource {
   ref?: string;
   /** Wave 2 slice 2 — populated for `kind: 's3-endpoint'`. */
   s3?: S3EndpointConfig;
+  /** Wave 2 slice 3a — populated for `kind: 'iceberg-table'`. */
+  iceberg?: IcebergTableConfig;
   tables: MountedTable[];
 }
 
@@ -513,6 +537,80 @@ export async function mountS3Endpoint(
         name: tableLabel,
         format,
         origin: s3Url,
+        rowCount,
+        registered: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Wave 2 slice 3a — mount an Apache Iceberg table by URL. The user
+ * supplies the metadata.json URL (or a directory whose latest snapshot
+ * DuckDB resolves) and optionally a Bearer token. DuckDB's iceberg
+ * extension reads the table's metadata + manifest list and resolves
+ * the data-file URLs; httpfs's `extra_http_headers` carries the Bearer.
+ *
+ * Slice 3b (queued) will add REST catalog navigation + OAuth2 device
+ * flow + AWS SigV4 (for Glue). For now the user must already know the
+ * direct URL of their table's metadata — covered in the modal hint.
+ */
+export async function mountIcebergTable(
+  engine: Engine,
+  opts: {
+    label: string;
+    metadataUrl: string;
+    bearerToken: string | null;
+    tableName?: string;
+  },
+): Promise<MountedSource> {
+  const metadataUrl = opts.metadataUrl.trim();
+  if (!metadataUrl) throw new MountError('Iceberg metadata URL is required.');
+  if (!/^https?:\/\/|^s3:\/\//i.test(metadataUrl)) {
+    throw new MountError(
+      'Iceberg metadata URL must start with https:// or s3://. (For s3:// URLs, configure your S3 credentials via the Mount bucket flow first — they share the same connection-wide config.)',
+    );
+  }
+  const bearerToken = opts.bearerToken?.trim() || null;
+  await engine.configureIceberg({ bearerToken });
+  const sourceId = genId('src');
+  // Derive a default table name from the URL. Iceberg's typical layout
+  // is `.../<table>/metadata/v<N>.metadata.json`, so when the parent
+  // of the json file is literally "metadata" we walk up another level.
+  // Also handles `.../<table>/metadata.json` (no metadata/ dir) and bare
+  // directory URLs `.../<table>/`.
+  const fallbackName = (() => {
+    const stripped = metadataUrl.split(/[?#]/)[0] ?? metadataUrl;
+    const parts = stripped.replace(/\/+$/, '').split('/');
+    const last = parts.at(-1) ?? '';
+    if (/\.json$/i.test(last) || /^v\d+\.metadata\.json$/i.test(last)) {
+      const parent = parts.at(-2) ?? '';
+      if (parent.toLowerCase() === 'metadata') {
+        return parts.at(-3) ?? 'iceberg_table';
+      }
+      return parent || 'iceberg_table';
+    }
+    return last || 'iceberg_table';
+  })();
+  const tableLabel = opts.tableName ?? sanitizeTableName(fallbackName);
+  await engine.registerIcebergTable({ tableName: tableLabel, metadataUrl });
+  const rowCount = await getRowCount(engine, tableLabel);
+  return {
+    id: sourceId,
+    kind: 'iceberg-table',
+    label: opts.label.trim() || fallbackName,
+    ref: metadataUrl,
+    iceberg: {
+      metadataUrl,
+      requiresBearer: bearerToken !== null,
+    },
+    tables: [
+      {
+        id: genId('tbl'),
+        sourceId,
+        name: tableLabel,
+        format: 'parquet', // Iceberg tables are Parquet-backed by spec
+        origin: metadataUrl,
         rowCount,
         registered: true,
       },

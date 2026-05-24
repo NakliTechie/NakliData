@@ -45,9 +45,7 @@ beforeEach(() => {
 describe('source-secrets (Wave 2 slice 2)', () => {
   it('saveSecret with remember=false uses sessionStorage; loadSecret reads it back', async () => {
     await saveSecret('src_1', 'access_key_id', 'AKIA-EXAMPLE', false);
-    expect(_session.getItem('naklidata.source-secret.src_1.access_key_id')).toBe(
-      'AKIA-EXAMPLE',
-    );
+    expect(_session.getItem('naklidata.source-secret.src_1.access_key_id')).toBe('AKIA-EXAMPLE');
     expect(_idb.has('source-secrets/src_1/access_key_id')).toBe(false);
     expect(await loadSecret('src_1', 'access_key_id')).toBe('AKIA-EXAMPLE');
   });

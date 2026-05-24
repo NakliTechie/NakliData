@@ -329,9 +329,9 @@ describe('mountS3Endpoint (Wave 2 slice 2)', () => {
     await expect(
       mountS3Endpoint(engine as never, { ...validS3Input, endpoint: '' }),
     ).rejects.toThrow(/S3 endpoint is required/);
-    await expect(
-      mountS3Endpoint(engine as never, { ...validS3Input, bucket: '' }),
-    ).rejects.toThrow(/Bucket is required/);
+    await expect(mountS3Endpoint(engine as never, { ...validS3Input, bucket: '' })).rejects.toThrow(
+      /Bucket is required/,
+    );
     await expect(
       mountS3Endpoint(engine as never, { ...validS3Input, accessKeyId: '' }),
     ).rejects.toThrow(/Access key/);
@@ -359,5 +359,121 @@ describe('mountS3Endpoint (Wave 2 slice 2)', () => {
         pathPrefix: 'data/file.xlsx',
       }),
     ).rejects.toThrow(/can be mounted from disk but not yet via an S3 endpoint/);
+  });
+});
+
+// ---- mountIcebergTable (Wave 2 slice 3a) ---------------------------------
+
+import { mountIcebergTable } from '../src/core/mount.ts';
+
+function icebergMockEngine() {
+  return {
+    configureIceberg: vi.fn().mockResolvedValue(undefined),
+    registerIcebergTable: vi.fn().mockResolvedValue(undefined),
+    ensureExtension: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue([{ n: 42n }]),
+  };
+}
+
+describe('mountIcebergTable (Wave 2 slice 3a)', () => {
+  it('configures Iceberg + registers a view and returns kind="iceberg-table"', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: 'Sales table',
+      metadataUrl: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+      bearerToken: null,
+    });
+    expect(engine.configureIceberg).toHaveBeenCalledWith({ bearerToken: null });
+    expect(engine.registerIcebergTable).toHaveBeenCalledWith({
+      tableName: 'sales',
+      metadataUrl: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+    });
+    expect(src.kind).toBe('iceberg-table');
+    expect(src.iceberg?.metadataUrl).toBe(
+      'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+    );
+    expect(src.iceberg?.requiresBearer).toBe(false);
+    expect(src.tables[0]?.format).toBe('parquet');
+  });
+
+  it('passes through a Bearer token when supplied', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: '',
+      metadataUrl: 'https://example.com/table/metadata.json',
+      bearerToken: 'eyJhbGc-EXAMPLE',
+    });
+    expect(engine.configureIceberg).toHaveBeenCalledWith({ bearerToken: 'eyJhbGc-EXAMPLE' });
+    expect(src.iceberg?.requiresBearer).toBe(true);
+  });
+
+  it('treats whitespace-only bearer as no bearer (null)', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: '',
+      metadataUrl: 'https://example.com/table/metadata.json',
+      bearerToken: '   \t  ',
+    });
+    expect(engine.configureIceberg).toHaveBeenCalledWith({ bearerToken: null });
+    expect(src.iceberg?.requiresBearer).toBe(false);
+  });
+
+  it('falls back to the parent directory name for metadata.json files', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: '',
+      metadataUrl: 'https://example.com/warehouse/customers/metadata.json',
+      bearerToken: null,
+    });
+    expect(engine.registerIcebergTable).toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'customers' }),
+    );
+    expect(src.label).toBe('customers');
+  });
+
+  it('handles the canonical .../<table>/metadata/v<N>.metadata.json layout by walking up two levels', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: '',
+      metadataUrl: 'https://example.com/sales/metadata/v17.metadata.json',
+      bearerToken: null,
+    });
+    expect(engine.registerIcebergTable).toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'sales' }),
+    );
+    expect(src.label).toBe('sales');
+  });
+
+  it('accepts s3:// URLs (relies on prior S3 configuration)', async () => {
+    const engine = icebergMockEngine();
+    const src = await mountIcebergTable(engine as never, {
+      label: 'S3 Iceberg',
+      metadataUrl: 's3://my-bucket/warehouse/sales/metadata.json',
+      bearerToken: null,
+    });
+    expect(src.kind).toBe('iceberg-table');
+  });
+
+  it('rejects URLs that are not http(s) or s3', async () => {
+    const engine = icebergMockEngine();
+    await expect(
+      mountIcebergTable(engine as never, {
+        label: '',
+        metadataUrl: 'file:///tmp/metadata.json',
+        bearerToken: null,
+      }),
+    ).rejects.toThrow(/must start with https/);
+    expect(engine.configureIceberg).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty metadata URL', async () => {
+    const engine = icebergMockEngine();
+    await expect(
+      mountIcebergTable(engine as never, {
+        label: '',
+        metadataUrl: '   ',
+        bearerToken: null,
+      }),
+    ).rejects.toThrow(/Iceberg metadata URL is required/);
   });
 });

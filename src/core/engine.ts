@@ -416,6 +416,52 @@ export class Engine {
   }
 
   /**
+   * Wave 2 slice 3a — install + load the iceberg extension and
+   * optionally configure a Bearer Authorization header for the
+   * subsequent httpfs reads. Like the S3 SET statements, this is
+   * connection-wide; the most recently called configureIceberg wins.
+   * Pass `bearerToken: null` to clear any previously-set header.
+   */
+  async configureIceberg({
+    bearerToken,
+  }: {
+    bearerToken: string | null;
+  }): Promise<void> {
+    await this.ensureExtension('iceberg');
+    if (bearerToken) {
+      // DuckDB's httpfs respects `extra_http_headers` — a STRUCT of
+      // header-name → value pairs applied to every outgoing httpfs
+      // request. Bearer auth covers REST endpoints (slice 3b) and any
+      // table-storage host that gates reads behind a token.
+      await this.exec(
+        `SET extra_http_headers = MAP { 'Authorization': 'Bearer ${escapeLiteral(bearerToken)}' }`,
+      );
+    } else {
+      await this.exec('SET extra_http_headers = MAP {}');
+    }
+  }
+
+  /**
+   * Register a view backed by an Iceberg table. `metadataUrl` is the
+   * URL of the table's metadata.json (or a directory whose latest
+   * snapshot DuckDB resolves). Assumes `configureIceberg()` has been
+   * called this session.
+   */
+  async registerIcebergTable({
+    tableName,
+    metadataUrl,
+  }: {
+    tableName: string;
+    metadataUrl: string;
+  }): Promise<void> {
+    const safeTable = sanitizeIdent(tableName);
+    const lit = escapeLiteral(metadataUrl);
+    await this.exec(
+      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM iceberg_scan('${lit}')`,
+    );
+  }
+
+  /**
    * Idempotently install + load a DuckDB extension. The first call to a
    * given extension fetches it from the DuckDB extension registry (core)
    * or the community-extensions registry; subsequent calls are no-ops.

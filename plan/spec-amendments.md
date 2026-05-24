@@ -135,6 +135,63 @@ The Relay was a v1.1 design for browser-incompatible auth (back when DuckDB-wasm
 
 ---
 
+## A7 — Iceberg table-by-URL with Bearer auth (Wave 2 slice 3a) (amends spec §3.1, §4.1)
+
+**Original §3.1 (paraphrased):**
+> Supported formats: CSV, TSV, JSONL, Parquet, plus extension-loaded SQLite, DuckDB, Excel, SPSS/Stata/SAS.
+
+**Original §4.1 (paraphrased):**
+> Apache Iceberg is not in scope for v1.x. Remote sources are signed-URL only.
+
+DuckDB-wasm gained working Iceberg support in Dec 2025 (`INSTALL iceberg; LOAD iceberg; SELECT * FROM iceberg_scan('<url>')` works in the browser). Closing the gap is now cheap.
+
+**Amended:**
+
+> **Apache Iceberg tables are a supported source kind.** A new
+> `'iceberg-table'` `SourceKind` mounts a single Iceberg table identified
+> by the URL of its `metadata.json` (or directory whose latest snapshot
+> DuckDB resolves). `Engine.configureIceberg({ bearerToken })` installs
+> the `iceberg` extension and, if a token is supplied, sets
+> `extra_http_headers = MAP { 'Authorization': 'Bearer <token>' }` for
+> the subsequent httpfs reads. `Engine.registerIcebergTable({ tableName,
+> metadataUrl })` creates the view via `iceberg_scan('<url>')`.
+>
+> **Slice 3a — Bearer + URL only.** This first slice supports table-by-URL
+> with an optional Bearer token. Use cases: public Iceberg tables on
+> CORS-enabled buckets; private S3-backed Iceberg tables when the user
+> has already mounted the bucket via "Mount bucket" (S3 credentials are
+> connection-wide); REST-catalog-managed tables where the user knows
+> the direct metadata URL.
+>
+> **Slice 3b (queued) — REST catalog navigation + OAuth2 + SigV4.** A
+> companion `'iceberg-catalog'` `SourceKind` with a REST client for
+> namespace + table picking and the three auth modes
+> (Bearer / OAuth2 device flow / AWS SigV4 for Glue). Deferred to a
+> separate sitting — the OAuth device flow alone is non-trivial UX.
+>
+> **BYOK Bearer token.** Same posture as A2 + A6: sessionStorage default
+> + opt-in IDB plaintext with honest labelling. Secret name is
+> `bearer_token` (singular). Empty/whitespace token = public table; no
+> secret is saved.
+>
+> **`.naklidata` round-trip.** New optional `iceberg` field on
+> `PersistedSource` (`metadata_url`, `requires_bearer`). Token stays in
+> `source-secrets`. On load, if `requires_bearer` is true and no secret
+> is found, the source moves to `reconnectNeeded`. Additive field —
+> no format-version bump.
+
+**Why now:** Wave 2's existing infrastructure (`source-secrets`, CSP
+`https:`, modal pattern) covers the table-by-URL case at ~250 lines of
+new code. The REST catalog + OAuth2 + SigV4 surface multiplies that by
+several × — splitting into 3a + 3b lets us ship the common case
+without the OAuth UX burden.
+
+**Status:** Slice 3a shipped 2026-05-24 (commit on `main`). Slice 3b
+queued in [`wave-2-design.md`](./wave-2-design.md). Full reasoning in
+[DECISIONS 2026-05-24 — Wave 2 slice 3a](../DECISIONS.md).
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

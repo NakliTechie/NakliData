@@ -2,12 +2,14 @@ import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
 import {
+  ICEBERG_SECRET_NAMES,
   MountError,
   type MountedSource,
   S3_SECRET_NAMES,
   mountExampleBundle,
   mountFile,
   mountFolder,
+  mountIcebergTable,
   mountS3Endpoint,
   mountUrl,
   remountFolderFromHandle,
@@ -39,6 +41,7 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
@@ -539,13 +542,20 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             console.warn(`[naklidata] drop view failed for ${t.name}`, err);
           }
         }
-        // Wave 2 slice 2 — secrets that this source owned should not
-        // outlive the source. Quiet on failure (IDB unavailable, etc.).
+        // Wave 2 slice 2 + 3a — secrets owned by this source should not
+        // outlive it. Quiet on failure (IDB unavailable, etc.).
         if (src.kind === 's3-endpoint') {
           try {
             await forgetSource(id, [...S3_SECRET_NAMES]);
           } catch (err) {
             console.warn(`[naklidata] secret cleanup failed for ${id}`, err);
+          }
+        }
+        if (src.kind === 'iceberg-table') {
+          try {
+            await forgetSource(id, [...ICEBERG_SECRET_NAMES]);
+          } catch (err) {
+            console.warn(`[naklidata] iceberg secret cleanup failed for ${id}`, err);
           }
         }
       }
@@ -818,6 +828,30 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       });
       return;
     }
+    case 'mount-iceberg': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      openMountIcebergModal({
+        onMount: async (input) => {
+          const source = await mountIcebergTable(engine, {
+            label: input.label,
+            metadataUrl: input.metadataUrl,
+            bearerToken: input.bearerToken.trim() || null,
+          });
+          // Save the Bearer token if one was provided. Empty token =
+          // public table; nothing to persist.
+          if (input.bearerToken.trim()) {
+            await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
+          }
+          workbook.addSources([source]);
+          toast(`Mounted "${source.label}".`);
+          void classifyMountedSources(engine, [source]);
+        },
+      });
+      return;
+    }
     case 'add-source':
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
@@ -958,6 +992,36 @@ async function doApplyLoadedFile(
         restoredSources.push(remounted);
       } catch (err) {
         console.warn('[naklidata] URL remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else if (ps.kind === 'iceberg-table' && ps.iceberg) {
+      // Wave 2 slice 3a — re-mount an Iceberg table by URL. Bearer
+      // token (if required) is looked up via source-secrets.
+      try {
+        const bearerToken = ps.iceberg.requires_bearer
+          ? await loadSecret(ps.id, 'bearer_token')
+          : null;
+        if (ps.iceberg.requires_bearer && !bearerToken) {
+          reconnectNeeded.push({ id: ps.id, label: ps.label });
+        } else {
+          const remounted = await mountIcebergTable(engine, {
+            label: ps.label,
+            metadataUrl: ps.iceberg.metadata_url,
+            bearerToken,
+          });
+          remounted.id = ps.id;
+          for (let i = 0; i < remounted.tables.length; i++) {
+            const persistedTable = ps.tables[i];
+            const t = remounted.tables[i];
+            if (persistedTable && t) {
+              t.id = persistedTable.id;
+              t.sourceId = remounted.id;
+            }
+          }
+          restoredSources.push(remounted);
+        }
+      } catch (err) {
+        console.warn('[naklidata] Iceberg table remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else if (ps.kind === 's3-endpoint' && ps.s3) {

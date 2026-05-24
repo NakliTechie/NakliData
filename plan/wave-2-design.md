@@ -21,12 +21,18 @@ Three shippable slices, each its own commit + gate pass:
    form with endpoint URL, region, bucket, path prefix, access key,
    secret. Engine wiring: `SET s3_endpoint / s3_region / s3_access_key_id /
    s3_secret_access_key`; `INSTALL httpfs`.
-3. **Slice 3 — Iceberg REST catalogs (W2.1).** New `'iceberg-catalog'`
-   SourceKind. Three auth modes: Bearer (simplest, ship first),
-   OAuth2 device flow, AWS SigV4 (for Glue). REST API client for
-   catalog navigation (list namespaces → list tables → get table
-   location). Engine wiring: `INSTALL iceberg`; `SELECT * FROM
-   iceberg_scan('<table-uri>')`.
+3. **Slice 3a — Iceberg table by URL + Bearer auth.** New
+   `'iceberg-table'` SourceKind. User pastes the table's metadata.json
+   URL (or directory containing it) + an optional Bearer token. Engine
+   wiring: `INSTALL iceberg`; `SET extra_http_headers` for the Bearer
+   case; `SELECT * FROM iceberg_scan('<metadata-url>')`. Covers the
+   common case (private S3-backed Iceberg tables with simple auth)
+   without the REST catalog UX.
+4. **Slice 3b (queued) — Iceberg REST catalog + OAuth2 + SigV4.** New
+   `'iceberg-catalog'` SourceKind. REST API client (config →
+   namespaces → tables → metadata-location). OAuth2 device flow,
+   AWS SigV4 (for Glue catalog), namespace + table picker UI. Bigger
+   than a single sitting — queued for a follow-up.
 
 Slice 1 is the prerequisite for both Slice 2 and Slice 3 — they all
 need the CSP rework and the URL-mount plumbing.

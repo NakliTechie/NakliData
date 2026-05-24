@@ -717,4 +717,13 @@ button {
   color: var(--text-muted);
   font-style: normal;
 }
+
+/* Wave 2 slice 3a — Mount Iceberg table. Same modal width as
+   mount-url-modal (fewer fields than mount-s3); body uses .mount-s3-body
+   so we can share the row + remember styles. */
+.mount-iceberg-modal {
+  width: min(620px, 100%);
+  height: auto;
+  max-height: 90vh;
+}
 `;
