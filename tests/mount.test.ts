@@ -477,3 +477,108 @@ describe('mountIcebergTable (Wave 2 slice 3a)', () => {
     ).rejects.toThrow(/Iceberg metadata URL is required/);
   });
 });
+
+// ---- mountIcebergCatalog (Wave 2 slice 3b) -------------------------------
+
+import { mountIcebergCatalog } from '../src/core/mount.ts';
+
+describe('mountIcebergCatalog (Wave 2 slice 3b)', () => {
+  it('resolves metadata-location via REST + mounts via iceberg_scan', async () => {
+    const engine = icebergMockEngine();
+    const fetchImpl: typeof fetch = async (url) => {
+      // Just one endpoint matters here: GET .../v1/namespaces/{ns}/tables/{tbl}
+      expect(String(url)).toContain('/v1/namespaces/analytics/tables/sales');
+      return new Response(
+        JSON.stringify({
+          'metadata-location': 's3://bucket/warehouse/sales/metadata/v3.metadata.json',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    const src = await mountIcebergCatalog(engine as never, {
+      label: '',
+      catalogUrl: 'https://catalog.example.com',
+      namespace: 'analytics',
+      table: 'sales',
+      bearerToken: null,
+      fetchImpl,
+    });
+    expect(engine.configureIceberg).toHaveBeenCalledWith({ bearerToken: null });
+    expect(engine.registerIcebergTable).toHaveBeenCalledWith({
+      tableName: 'sales',
+      metadataUrl: 's3://bucket/warehouse/sales/metadata/v3.metadata.json',
+    });
+    expect(src.kind).toBe('iceberg-catalog');
+    expect(src.icebergCatalog?.catalogUrl).toBe('https://catalog.example.com');
+    expect(src.icebergCatalog?.namespace).toBe('analytics');
+    expect(src.icebergCatalog?.table).toBe('sales');
+    expect(src.icebergCatalog?.requiresBearer).toBe(false);
+    expect(src.label).toBe('analytics.sales');
+    expect(src.tables[0]?.format).toBe('parquet');
+  });
+
+  it('passes Bearer to the catalog + the engine config', async () => {
+    const engine = icebergMockEngine();
+    let sawAuth: string | undefined;
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sawAuth = new Headers(init?.headers).get('authorization') ?? undefined;
+      return new Response(
+        JSON.stringify({ 'metadata-location': 'https://example.com/m.json' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    await mountIcebergCatalog(engine as never, {
+      label: '',
+      catalogUrl: 'https://catalog.example.com',
+      namespace: 'ns',
+      table: 'tbl',
+      bearerToken: 'token-abc',
+      fetchImpl,
+    });
+    expect(sawAuth).toBe('Bearer token-abc');
+    expect(engine.configureIceberg).toHaveBeenCalledWith({ bearerToken: 'token-abc' });
+  });
+
+  it('wraps REST errors in MountError with a helpful prefix', async () => {
+    const engine = icebergMockEngine();
+    const fetchImpl: typeof fetch = async () =>
+      new Response('Forbidden', {
+        status: 403,
+        headers: { 'content-type': 'text/plain' },
+      });
+    await expect(
+      mountIcebergCatalog(engine as never, {
+        label: '',
+        catalogUrl: 'https://catalog.example.com',
+        namespace: 'ns',
+        table: 'tbl',
+        bearerToken: null,
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/Iceberg catalog:.*403/);
+    expect(engine.configureIceberg).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty catalog URL / namespace / table', async () => {
+    const engine = icebergMockEngine();
+    const fetchImpl: typeof fetch = async () =>
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    const base = {
+      label: '',
+      catalogUrl: 'https://catalog.example.com',
+      namespace: 'ns',
+      table: 'tbl',
+      bearerToken: null,
+      fetchImpl,
+    };
+    await expect(
+      mountIcebergCatalog(engine as never, { ...base, catalogUrl: '' }),
+    ).rejects.toThrow(/Catalog URL is required/);
+    await expect(
+      mountIcebergCatalog(engine as never, { ...base, namespace: '' }),
+    ).rejects.toThrow(/Namespace is required/);
+    await expect(
+      mountIcebergCatalog(engine as never, { ...base, table: '' }),
+    ).rejects.toThrow(/Table is required/);
+  });
+});

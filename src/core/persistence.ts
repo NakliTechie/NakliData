@@ -55,6 +55,13 @@ export interface PersistedSource {
     metadata_url: string;
     requires_bearer: boolean;
   };
+  /** Wave 2 slice 3b — present when kind is 'iceberg-catalog'. Bearer token (if any) is NOT persisted. */
+  iceberg_catalog?: {
+    catalog_url: string;
+    namespace: string;
+    table: string;
+    requires_bearer: boolean;
+  };
 }
 
 export interface PersistedAssignment {
@@ -125,6 +132,17 @@ export function serialize(input: SerializeInput): NakliDataFile {
             iceberg: {
               metadata_url: s.iceberg.metadataUrl,
               requires_bearer: s.iceberg.requiresBearer,
+            },
+          }
+        : {}),
+      // Wave 2 slice 3b — iceberg-catalog. Bearer token NOT persisted.
+      ...(s.icebergCatalog
+        ? {
+            iceberg_catalog: {
+              catalog_url: s.icebergCatalog.catalogUrl,
+              namespace: s.icebergCatalog.namespace,
+              table: s.icebergCatalog.table,
+              requires_bearer: s.icebergCatalog.requiresBearer,
             },
           }
         : {}),

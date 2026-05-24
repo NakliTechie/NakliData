@@ -178,6 +178,11 @@ function renderEmptyState(): HTMLElement {
         <span class="label">Iceberg table</span>
         <span class="hint">By metadata URL. Bearer optional.</span>
       </button>
+      <button class="opt" data-action="mount-iceberg-catalog" title="Mount via an Apache Iceberg REST Catalog (Bearer auth)">
+        ${iconSvg('link', 28)}
+        <span class="label">Iceberg catalog</span>
+        <span class="hint">REST + namespace.table.</span>
+      </button>
     </div>
     <div class="examples-link">
       Or <button data-action="browse-examples">browse example data</button>.

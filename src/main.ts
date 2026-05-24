@@ -9,6 +9,7 @@ import {
   mountExampleBundle,
   mountFile,
   mountFolder,
+  mountIcebergCatalog,
   mountIcebergTable,
   mountS3Endpoint,
   mountUrl,
@@ -41,6 +42,7 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
 import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
@@ -551,7 +553,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             console.warn(`[naklidata] secret cleanup failed for ${id}`, err);
           }
         }
-        if (src.kind === 'iceberg-table') {
+        if (src.kind === 'iceberg-table' || src.kind === 'iceberg-catalog') {
           try {
             await forgetSource(id, [...ICEBERG_SECRET_NAMES]);
           } catch (err) {
@@ -852,6 +854,30 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       });
       return;
     }
+    case 'mount-iceberg-catalog': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      openMountIcebergCatalogModal({
+        onMount: async (input) => {
+          const source = await mountIcebergCatalog(engine, {
+            label: input.label,
+            catalogUrl: input.catalogUrl,
+            namespace: input.namespace,
+            table: input.table,
+            bearerToken: input.bearerToken.trim() || null,
+          });
+          if (input.bearerToken.trim()) {
+            await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
+          }
+          workbook.addSources([source]);
+          toast(`Mounted "${source.label}".`);
+          void classifyMountedSources(engine, [source]);
+        },
+      });
+      return;
+    }
     case 'add-source':
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
@@ -992,6 +1018,40 @@ async function doApplyLoadedFile(
         restoredSources.push(remounted);
       } catch (err) {
         console.warn('[naklidata] URL remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else if (ps.kind === 'iceberg-catalog' && ps.iceberg_catalog) {
+      // Wave 2 slice 3b — re-mount via REST catalog. The catalog
+      // re-resolves the current metadata-location, so new snapshots
+      // pick up automatically. Bearer token (if required) is looked
+      // up via source-secrets.
+      try {
+        const bearerToken = ps.iceberg_catalog.requires_bearer
+          ? await loadSecret(ps.id, 'bearer_token')
+          : null;
+        if (ps.iceberg_catalog.requires_bearer && !bearerToken) {
+          reconnectNeeded.push({ id: ps.id, label: ps.label });
+        } else {
+          const remounted = await mountIcebergCatalog(engine, {
+            label: ps.label,
+            catalogUrl: ps.iceberg_catalog.catalog_url,
+            namespace: ps.iceberg_catalog.namespace,
+            table: ps.iceberg_catalog.table,
+            bearerToken,
+          });
+          remounted.id = ps.id;
+          for (let i = 0; i < remounted.tables.length; i++) {
+            const persistedTable = ps.tables[i];
+            const t = remounted.tables[i];
+            if (persistedTable && t) {
+              t.id = persistedTable.id;
+              t.sourceId = remounted.id;
+            }
+          }
+          restoredSources.push(remounted);
+        }
+      } catch (err) {
+        console.warn('[naklidata] Iceberg catalog remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else if (ps.kind === 'iceberg-table' && ps.iceberg) {

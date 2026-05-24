@@ -192,6 +192,51 @@ queued in [`wave-2-design.md`](./wave-2-design.md). Full reasoning in
 
 ---
 
+## A8 — Iceberg REST Catalog navigation (Wave 2 slice 3b) (amends spec §4.1)
+
+**Original §4.1 (paraphrased):**
+> Remote sources are signed-URL only.
+
+A7 added table-by-URL mounting; this amendment adds the REST Catalog
+discovery path for the same backing extension.
+
+**Amended:**
+
+> **Iceberg REST Catalog source kind.** A companion `'iceberg-catalog'`
+> `SourceKind` mounts an Iceberg table identified by `(catalogUrl,
+> namespace, table)`. A REST client (`src/core/iceberg/rest-client.ts`)
+> implements just enough of the OpenAPI surface for the picker flow:
+> `GET /v1/config`, `GET /v1/namespaces`, `GET /v1/namespaces/{ns}/tables`,
+> `GET /v1/namespaces/{ns}/tables/{table}` (resolves
+> `metadata-location`). Nested namespaces collapse into a single path
+> segment joined by U+001F per the REST spec.
+>
+> **Mount flow.** `mountIcebergCatalog(engine, opts)` calls the REST
+> client to resolve `metadata-location`, then hands off to the same
+> engine path slice 3a uses (`configureIceberg` + `registerIcebergTable`).
+> Re-mount via `.naklidata` reload re-resolves through the catalog so
+> fresh snapshots pick up automatically — the persisted state holds the
+> catalog coordinates, not the URL of the metadata at save time.
+>
+> **Slice 3b ships Bearer auth only.** OAuth2 device flow + AWS SigV4
+> (for Glue) are queued for v1.3 alongside the multi-tenant work in
+> [enterprise-strategy.md](./enterprise-strategy.md). The OAuth UX
+> (device code prompt + polling) needs its own modal flow + token
+> refresh handling — separate sitting.
+
+**Why now:** The table-by-URL flow (3a) covers private S3-backed
+Iceberg tables, but it requires the user to know the exact
+metadata.json URL. Catalog navigation is what users actually expect
+("connect to my Iceberg catalog, pick a table"). The REST client is
+~100 lines + the modal is ~150 — modest cost for the user-visible
+delta.
+
+**Status:** Slice 3b shipped 2026-05-24 (commit on `main`). The
+OAuth2 + SigV4 surface stays in [`wave-2-design.md`](./wave-2-design.md)
+under "Deferred."
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

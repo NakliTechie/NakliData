@@ -36,7 +36,8 @@ export type SourceKind =
   | 'fsa-file'
   | 'http'
   | 's3-endpoint'
-  | 'iceberg-table';
+  | 'iceberg-table'
+  | 'iceberg-catalog';
 
 /**
  * Per-source kind metadata that travels alongside `MountedSource` for
@@ -61,13 +62,26 @@ export const ICEBERG_SECRET_NAMES = ['bearer_token'] as const;
 /**
  * Slice 3a metadata for `kind: 'iceberg-table'`. The Iceberg table is
  * identified by its `metadata.json` URL (or a directory URL whose
- * latest snapshot DuckDB resolves automatically). Slice 3b will add a
- * companion `IcebergCatalogConfig` for REST catalog navigation.
+ * latest snapshot DuckDB resolves automatically).
  */
 export interface IcebergTableConfig {
   /** URL of the table's metadata.json (or its directory). */
   metadataUrl: string;
   /** Whether to send a Bearer token (looked up via source-secrets). */
+  requiresBearer: boolean;
+}
+
+/**
+ * Slice 3b metadata for `kind: 'iceberg-catalog'`. A catalog-mounted
+ * table tracks the catalog URL + namespace + table name (rather than
+ * the metadata URL directly), so re-mount re-resolves via the catalog
+ * and picks up new snapshots automatically.
+ */
+export interface IcebergCatalogConfig {
+  catalogUrl: string;
+  namespace: string;
+  table: string;
+  /** Whether to send a Bearer token to the catalog + storage. */
   requiresBearer: boolean;
 }
 
@@ -92,6 +106,8 @@ export interface MountedSource {
   s3?: S3EndpointConfig;
   /** Wave 2 slice 3a — populated for `kind: 'iceberg-table'`. */
   iceberg?: IcebergTableConfig;
+  /** Wave 2 slice 3b — populated for `kind: 'iceberg-catalog'`. */
+  icebergCatalog?: IcebergCatalogConfig;
   tables: MountedTable[];
 }
 
@@ -537,6 +553,87 @@ export async function mountS3Endpoint(
         name: tableLabel,
         format,
         origin: s3Url,
+        rowCount,
+        registered: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Wave 2 slice 3b — mount an Apache Iceberg table via a REST Catalog.
+ * The catalog navigates from a (catalog URL, namespace, table) triple
+ * to the table's current metadata-location, then we hand off to the
+ * same `iceberg_scan` path slice 3a uses.
+ *
+ * Re-mounts re-resolve via the catalog — a fresh snapshot picks up
+ * automatically. The catalog client is injected so tests can supply
+ * a fake fetch.
+ *
+ * Slice 3b ships Bearer auth only. OAuth2 device flow and AWS SigV4
+ * are queued for v1.3 (separate sitting).
+ */
+export async function mountIcebergCatalog(
+  engine: Engine,
+  opts: {
+    label: string;
+    catalogUrl: string;
+    namespace: string;
+    table: string;
+    bearerToken: string | null;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<MountedSource> {
+  if (!opts.catalogUrl.trim()) throw new MountError('Catalog URL is required.');
+  if (!opts.namespace.trim()) throw new MountError('Namespace is required.');
+  if (!opts.table.trim()) throw new MountError('Table is required.');
+  const bearerToken = opts.bearerToken?.trim() || null;
+  // Resolve the metadata-location via the REST catalog.
+  const { IcebergCatalogClient } = await import('./iceberg/rest-client.ts');
+  const client = new IcebergCatalogClient({
+    catalogUrl: opts.catalogUrl.trim(),
+    bearerToken,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  let metadataLocation: string;
+  try {
+    const result = await client.loadTable(opts.namespace.trim(), opts.table.trim());
+    metadataLocation = result.metadataLocation;
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new MountError(`Iceberg catalog: ${err.message}`);
+    }
+    throw err;
+  }
+  // Use the same engine path as slice 3a. Bearer is set for any
+  // subsequent storage-host requests (some catalogs require the same
+  // token for the data tier; harmless for catalogs that don't).
+  await engine.configureIceberg({ bearerToken });
+  const sourceId = genId('src');
+  const tableLabel = sanitizeTableName(opts.table.trim());
+  await engine.registerIcebergTable({
+    tableName: tableLabel,
+    metadataUrl: metadataLocation,
+  });
+  const rowCount = await getRowCount(engine, tableLabel);
+  return {
+    id: sourceId,
+    kind: 'iceberg-catalog',
+    label: opts.label.trim() || `${opts.namespace.trim()}.${opts.table.trim()}`,
+    ref: metadataLocation, // the resolved URL, useful for display
+    icebergCatalog: {
+      catalogUrl: opts.catalogUrl.trim(),
+      namespace: opts.namespace.trim(),
+      table: opts.table.trim(),
+      requiresBearer: bearerToken !== null,
+    },
+    tables: [
+      {
+        id: genId('tbl'),
+        sourceId,
+        name: tableLabel,
+        format: 'parquet',
+        origin: `${opts.namespace.trim()}.${opts.table.trim()} (catalog: ${opts.catalogUrl.trim()})`,
         rowCount,
         registered: true,
       },

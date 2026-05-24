@@ -60,10 +60,9 @@ test.describe('Mount Iceberg table modal (Wave 2 slice 3a)', () => {
 
     // Cancel returns focus to the trigger.
     await page.click('.mount-iceberg-overlay [data-action="close-mount-iceberg"]');
-    await page.waitForFunction(
-      () => document.querySelector('.mount-iceberg-overlay') === null,
-      { timeout: 2_000 },
-    );
+    await page.waitForFunction(() => document.querySelector('.mount-iceberg-overlay') === null, {
+      timeout: 2_000,
+    });
     const focusedAfterClose = await page.evaluate(
       () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
     );

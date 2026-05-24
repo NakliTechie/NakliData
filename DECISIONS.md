@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 16:30 — Wave 2 slice 3b: Iceberg REST Catalog navigation (Bearer only)
+**Context:** Slice 3a shipped table-by-URL. The natural completion is REST Catalog discovery (PondPilot parity, the actual UX users expect: "connect to my catalog, pick a table"). OAuth2 device flow + AWS SigV4 are the remaining auth modes; OAuth alone is 200+ lines of UX surface (device code prompt + polling).
+
+**Decisions:**
+
+- **(a) New `'iceberg-catalog'` SourceKind, sibling to `'iceberg-table'`.** The two flows differ enough that combining them would muddle the mount surface. Persistence shape differs (catalog tracks `(catalogUrl, namespace, table)`; table tracks `metadataUrl`). On reload the catalog source re-resolves via REST — fresh snapshots pick up automatically without the user knowing.
+- **(b) New REST client module `src/core/iceberg/rest-client.ts`.** Self-contained, ~150 lines, takes an injected `fetchImpl` so tests can supply a fake. Implements the four endpoints we use (config, list namespaces, list tables, load table). Other Iceberg endpoints (commit table, drop table, etc.) are out of scope — NakliData is read-only against remote sources.
+- **(c) Bearer-only for slice 3b.** OAuth2 device flow and AWS SigV4 are queued for v1.3. The OAuth UX needs a polling modal + token refresh; the SigV4 path needs AWS credentials chain handling (env vars + ~/.aws/credentials parsing — impossible in the browser without user intervention; would need the user to paste IAM keys, which is the same UX as the S3-endpoint flow's existing access-key/secret pair).
+- **(d) Engine reuse.** `mountIcebergCatalog` calls `configureIceberg` + `registerIcebergTable` — the exact same engine path slice 3a uses. The catalog's only job is to resolve `metadata-location`; once we have that URL, the rest is identical.
+- **(e) Nested namespaces via U+001F joiner.** Per the REST OpenAPI spec, nested namespaces collapse into a single URL path segment using the unit-separator character. We split on `.` for the user-facing input (so a user types `lakehouse.public.subschema` to address a 3-level namespace) and join with `%1F` in the URL. Single-level namespaces work identically to a plain path segment.
+- **(f) Tolerant of catalog quirks.** `loadTable()` accepts both `metadata-location` (kebab-case, per spec) and `metadataLocation` (camelCase, used by some catalogs). REST errors surface as `IcebergCatalogError` with the HTTP status code attached.
+
+**Tests:**
+- 11 new vitest specs in `tests/iceberg-rest-client.test.ts` (auth header presence/absence, URL normalisation, nested-namespace encoding, kebab vs camelCase metadata-location, error wrapping with status).
+- 4 new vitest specs in `tests/mount.test.ts` for `mountIcebergCatalog` (REST round-trip with mocked fetch, Bearer propagation to both catalog + engine, error wrapping, required-field validation).
+- 218 vitest across 17 files (was 203 / 16 at slice 3a).
+- 31 Playwright e2e unchanged (no new e2e — slice 3a's iceberg modal pattern + the REST client's unit coverage is sufficient).
+- Bundle 436 KB (was 428 at slice 3a; +8 KB for REST client + modal).
+- Smoke + tsc + biome green.
+
+**Reversibility:** Easy. Drop `src/ui/mount-iceberg-catalog-modal.ts` + `src/core/iceberg/rest-client.ts` + the `'iceberg-catalog'` branch in `applyLoadedFile` + the `mountIcebergCatalog` function + the SourceKind union entry + the `IcebergCatalogConfig` interface. Existing `.naklidata` files with iceberg-catalog sources surface as reconnect-needed.
+
+**Limitations:**
+- Bearer auth only (see (c)).
+- One Bearer per session (the engine's `extra_http_headers` is connection-wide; mounting a second iceberg-catalog with a different token clobbers the first).
+- No UI for namespace + table discovery — user types both as text fields. A two-stage picker (load namespaces → pick → load tables → pick) is a slice-3c polish item.
+- No table-action surface (rename, drop, etc.) — NakliData stays read-only.
+
+---
+
 ## 2026-05-24 16:00 — Wave 2 slice 3a: Iceberg table-by-URL with optional Bearer auth; REST catalog + OAuth + SigV4 deferred to 3b
 **Context:** PondPilot ships Iceberg via DuckDB; W2.1 in pending.md called for "Apache Iceberg REST + OAuth2 / Bearer / SigV4". The full surface — REST catalog navigation, OAuth2 device flow, AWS SigV4 — is several days of work. We ship the most common case first.
 
