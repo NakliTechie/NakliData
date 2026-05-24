@@ -10,14 +10,26 @@ import { iconSvg } from '../tokens/icons.ts';
 
 let _activeHandle: { destroy: () => void } | null = null;
 let _modalEl: HTMLElement | null = null;
+let _previouslyFocused: HTMLElement | null = null;
+let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 
 export async function openSchemaGraph(): Promise<void> {
   // Singleton modal — clicking the button twice doesn't stack modals.
   if (_modalEl && document.body.contains(_modalEl)) return;
 
+  // Remember whichever element had focus before we opened so we can
+  // restore it when the modal closes (a11y — keyboard users return to
+  // the trigger, not document.body).
+  _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
+
   const overlay = renderModal();
   document.body.append(overlay);
   _modalEl = overlay;
+
+  // Move keyboard focus into the modal. The close button is the
+  // predictable, always-rendered target; Tab from there reaches the
+  // canvas + status if the user wants to explore.
+  overlay.querySelector<HTMLElement>('[data-action="close-schema-graph"]')?.focus();
 
   const canvas = overlay.querySelector<HTMLElement>('[data-region="graph-canvas"]');
   const statusEl = overlay.querySelector<HTMLElement>('[data-region="graph-status"]');
@@ -83,6 +95,18 @@ export function closeSchemaGraph(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
+  // Tear down the Escape listener unconditionally — previously it only
+  // removed itself on Escape-triggered close, leaking when the user
+  // closed via backdrop click or the X button.
+  if (_onKey) {
+    document.removeEventListener('keydown', _onKey);
+    _onKey = null;
+  }
+  // Restore focus to whatever had it before the modal opened. focus()
+  // on a detached node is a safe no-op, so we don't need to verify
+  // the element is still in the DOM.
+  _previouslyFocused?.focus();
+  _previouslyFocused = null;
 }
 
 function renderModal(): HTMLElement {
@@ -110,16 +134,13 @@ function renderModal(): HTMLElement {
     if (target === overlay) closeSchemaGraph();
     if (target.closest('[data-action="close-schema-graph"]')) closeSchemaGraph();
   });
-  // Escape closes.
-  document.addEventListener(
-    'keydown',
-    function onKey(ev) {
-      if (ev.key === 'Escape') {
-        closeSchemaGraph();
-        document.removeEventListener('keydown', onKey);
-      }
-    },
-    { once: false },
-  );
+  // Escape closes. Stash the handler at module scope so closeSchemaGraph
+  // can detach it regardless of how the modal was closed (backdrop, X,
+  // or Escape) — the previous self-removing inline handler leaked when
+  // the user closed via anything other than Escape.
+  _onKey = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') closeSchemaGraph();
+  };
+  document.addEventListener('keydown', _onKey);
   return overlay;
 }

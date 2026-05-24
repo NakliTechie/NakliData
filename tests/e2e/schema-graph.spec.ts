@@ -58,11 +58,24 @@ test.describe('schema-graph modal (Theme 2 wave 3)', () => {
     const statusText = await page.textContent('[data-region="graph-status"]');
     expect(statusText).toMatch(/\d+ types,\s*\d+ relationships/);
 
+    // a11y: focus should have moved into the modal (the close button is
+    // the predictable initial-focus target).
+    const focusedAction = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedAction).toBe('close-schema-graph');
+
     // Escape closes the modal.
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelector('.schema-graph-overlay') === null, {
       timeout: 2_000,
     });
+
+    // a11y: focus should be back on the trigger button after close.
+    const focusedAfterClose = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedAfterClose).toBe('open-schema-graph');
 
     await context.close();
     await server.close();

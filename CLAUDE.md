@@ -76,6 +76,28 @@ handoff §5: spec-vs-spec contradiction, genuinely-required new
 runtime dep, materially-changed downstream sink format, or a feature
 that conflicts with a Hard NOT.
 
+## Documentation cadence
+
+- **`STATUS.md`** — current build state at the top, updated whenever
+  it stops reflecting reality (per stop-checklist #6). Single source
+  of truth for "what state is the repo in right now."
+- **`DECISIONS.md`** — append-only log of non-trivial decisions. New
+  entries at the top of the file; format per handoff §5.
+- **`plan/pending.md`** — exhaustive flat list of open work. Update
+  when items close or new ones surface.
+- **`plan/workplan.md`** — curated chunks for the next session.
+  Reorganises `pending.md` into pickup-ready batches.
+- **`plan/YYYY-MM-DD-summary.md`** — day-end summary (windup
+  output). Tight, bulleted, signal-not-prose. **Canonical day-end
+  doc going forward.**
+- **`plan/checkpoint-YYYY-MM-DD-eod.md`** — older pre-windup
+  pattern, exhaustive snapshots. Files already on disk stay as
+  historical record; do not create new ones (the summary pattern
+  replaces them).
+- **`plan/v<N>.<M>.0-release-notes.md`** — canonical changelog per
+  tag. Written as part of the release gate; do not retcon after the
+  tag ships.
+
 ## Portfolio rules — non-negotiable
 
 NakliTechie-wide rules live in `~/.claude/CLAUDE.md` (user-level memory).

@@ -2,6 +2,21 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 14:00 — `.naklidata` format-version bump policy: additive optional fields don't bump; required-field changes do
+**Context:** v1.1 shipped two additive fields on the `.naklidata` schema (`user_types` at `b08d679`, `override_rules` at `0b14ff7`) without bumping `NAKLIDATA_VERSION` (still `'1.0'`). Both fields round-trip cleanly through v1.0 readers — missing-field defaults are `[]`, so old code doesn't choke. Future-us reading the code might be tempted to bump the version when adding any new field; this entry locks the policy in.
+**Decisions:**
+
+- **(a) Bump the version only on breaking changes to required-field shape.** The reader's gate is `if (compareVersion(obj.version, NAKLIDATA_VERSION) > 0) throw` — newer-than-known versions are rejected outright. A bump is a hard signal: "older readers must refuse this file." Reserve it for actual breaks: removing a required field, renaming one, changing a field's semantic meaning (same key, different shape), or promoting an optional field to required. Additive optional fields go in without a bump.
+- **(b) Adding a new enum value to a non-required field is additive.** If an older reader sees an unknown `kind` it doesn't recognise, it should fall back gracefully (skip, log, or treat as 'unknown') rather than the format bumping. Already-shipped pattern: `MountedSource['kind']` grew from `'example-bundle' | 'fsa-folder'` to include `'fsa-file'` without a bump — older readers handle the unknown via the existing `reconnectNeeded` path.
+- **(c) When a bump IS required, write a migration in `parse()`.** Today's `parse()` has a comment "Trivial migration path for v1.0 — just trust the shape." A real `1.0 → 1.1` migration lives next to that comment — translate the old shape to the new before returning. The version check in line 128 stays as the upper bound; the migration handles the lower bound.
+- **(d) Document additive fields in the release notes' "Persistence / format" section** (the v1.1.0 notes do this; keep the pattern). Future readers checking "did this version add anything I need?" should find it there, not have to diff `persistence.ts`.
+
+**Reasoning:** A bump is a one-way door for older readers. Sharing `.naklidata` files (via the file format itself or `?lens=` share links) means a careful reader posture: be liberal in what we accept, strict in what we emit. Additive optional fields keep the door open both ways.
+
+**Tests:** Existing `tests/url-state.test.ts` round-trip covers additive-field forward-compat by virtue of the share-link path going through `parse()`. No new tests; this is a policy entry.
+
+---
+
 ## 2026-05-24 13:00 — applyLoadedFile gets a promise-chain mutex; e2e save-load reverts its IDB-clear workaround and now exercises the race directly
 **Context:** v1.1.0 review carryover. `applyLoadedFile` in `src/main.ts` is not safe to invoke concurrently — it calls `workbook.clear()`, awaits `mountExampleBundle(engine)`, then calls `workbook.addSources(...)`. Two interleaved invocations (boot-time `restoreFromActiveSession` racing an explicit `[data-action="load"]` click) both clear the empty workbook, both await the mount, then both append, producing 4 source cards instead of 2. The v1.1.0 e2e fix (commit 04feedc) papered over this in the test by `indexedDB.deleteDatabase('naklidata')` between save + reload — race avoided in the test, production bug intact. This entry resolves the underlying re-entrancy.
 **Decisions:**
