@@ -87,12 +87,18 @@ async function buildShell() {
       "style-src 'self' 'unsafe-inline'",
     ].join('; ');
     const shellHtml = await readFile('src/index.html', 'utf8');
+    // NB: use function-form replacers when inserting bundle output —
+    // string-form replacement treats `$&` / `$$` / `` $` `` in the
+    // *replacement* as special tokens, and minified JS/CSS routinely
+    // contains those sequences. A latent bug from the original build
+    // that bit once the bundle grew to contain `$&`.
     const inlined = shellHtml
       .replace(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]*>/i,
-        `<meta http-equiv="Content-Security-Policy" content="${csp}">`)
-      .replace('<!-- INLINE_CSS -->', cssBundle ? `<style>${cssBundle.text}</style>` : '')
-      .replace(
-        '<!-- INLINE_JS -->',
+        () => `<meta http-equiv="Content-Security-Policy" content="${csp}">`)
+      .replace('<!-- INLINE_CSS -->', () =>
+        cssBundle ? `<style>${cssBundle.text}</style>` : '',
+      )
+      .replace('<!-- INLINE_JS -->', () =>
         scriptBody ? `<script type="module">${scriptBody}</script>` : '',
       );
     await writeFile(`${OUT_DIR}/index.html`, inlined);
