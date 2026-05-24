@@ -30,26 +30,23 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 
 This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6) are the historical detail; the waves here are what's actually queued. Item-level detail in the themed sections is kept for cross-reference.
 
-### Wave 1 — Close v1.1 cleanly + small polish — ⏳ mostly done (2026-05-24)
+### Wave 1 — Close v1.1 cleanly + small polish — ✅ closed (2026-05-24) except W1.4 (deferred) + W1.6 (stretch)
 
 **Pitch:** "Tag the version that already shipped; do the housekeeping; bag the cheap Theme-2 polish items."
 
-- [ ] **W1.1** — Tag `v1.1.0` at HEAD; write `plan/v1.1.0-release-notes.md` (sidecar arc + user-type classifier integration + Theme 4 + Theme 1 wave 3 vendored extensions + Wave 1 polish: pie + facet + build-bug fix + CM6 dispose + SRI manifest test + taxonomy edits). **Next session's natural opener after W1.2.**
-- [ ] **W1.2** — README v1.1 refresh: capture sidecar, user types, sessions, share links, the four Theme 4 surfaces (column profile, compare tables, override rules, demo mode), the vendored DuckDB extensions, PWA, Theme 2 surfaces, pie + facet. **Recommended next pickup; should land before W1.1.**
-- [x] **W1.3** — v1.0 review carryover (queued since v1.0.0 tag): **landed 2026-05-24**
-  - [x] CM6 audit — `notebook.load()` now disposes outgoing-set SQL cells (memory leak across `.naklidata` loads + session switches). Commit `bc78d4a`.
-  - [x] SRI scenario coverage — `tests/sri-integrity.test.ts` (3 specs incl. negative tamper) verifies `integrity.json` ↔ vendored bytes round-trip. Commit `bc78d4a`.
-  - [x] Save-load flake confirmation — 5/5 stable at ~2.0s each. No flakes seen.
-  - [x] Taxonomy editorial pass — 41 types now (was 40). Real CIN regex bug fixed (`[LUu]` → `[LU]`); `iso_country_code` `iso3` header noise removed; UUID added. Commit `bc78d4a`.
-- [ ] **W1.4** — naklios.dev Immersive same-origin mirror (FSA inside the launcher). **Deferred to its own wave after v1.1.0 tags** — the existing `sync-mirrors.sh` in `nakli-dev` only knows `raw.githubusercontent.com/<repo>/<branch>/<file>`, but NakliData's shipping artifact is `dist/index.html` (gitignored, built). End-to-end fix needs (a) a GH Pages deploy workflow here + (b) a `source_url` / `pages_url` extension to `apps/manifest.json` + `sync-mirrors.sh` in `nakli-dev`. Plus the source-side `.github/workflows/notify-naklios.yml` + `NAKLIOS_DISPATCH_TOKEN`. See [`checkpoint-2026-05-24-eod.md`](./checkpoint-2026-05-24-eod.md) "What's deferred" for the full handoff.
-- [x] **W1.5** — Theme 2 polish pickups — **landed 2026-05-24**, commit `983827f`:
-  - [x] Pie chart mark — hand-rolled SVG arc renderer in `src/charts/render.ts`. Aggregates per category, drops non-positive, caps at 12 + "Other" bucket. Plot doesn't ship a pie mark by design.
-  - [x] Faceted small-multiples — third "facet-by" picker on the chart cell, shown only for facetable types (pie + the three Plot-rendered: stacked-bar, area-stacked, heatmap). Plot uses native `fy`; pie partitions into a grid (top-9 by total, remainder collapsed into a hidden count).
+- [x] **W1.1** — `v1.1.0` tag pushed 2026-05-24 at commit `04feedc`. `plan/v1.1.0-release-notes.md` is the canonical changelog (27 commits since v1.0.0).
+- [x] **W1.2** — README v1.1 refresh landed in commit `04feedc` (Theme 2 surfaces + Theme 3 wave 2 + Theme 4 + AI sidecar + vendored extensions + pie + facet; formats 13 → 15; taxonomy 40 → 41).
+- [x] **W1.3** — v1.0 review carryover (commit `bc78d4a`): CM6 EditorView dispose loop, `tests/sri-integrity.test.ts` (manifest ↔ bytes + negative tamper), save-load flake confirmation, taxonomy editorial pass (41 types, CIN regex fix, iso3 noise removal, UUID added).
+- [ ] **W1.4** — naklios.dev Immersive same-origin mirror (FSA inside the launcher). **Deferred to its own wave** — the existing `sync-mirrors.sh` in `nakli-dev` only knows `raw.githubusercontent.com/<repo>/<branch>/<file>`, but NakliData's shipping artifact is `dist/index.html` (gitignored, built). End-to-end fix needs (a) a GH Pages deploy workflow here + (b) a `source_url` / `pages_url` extension to `apps/manifest.json` + `sync-mirrors.sh` in `nakli-dev`. Plus the source-side `.github/workflows/notify-naklios.yml` + `NAKLIOS_DISPATCH_TOKEN`. See [`checkpoint-2026-05-24-eod.md`](./checkpoint-2026-05-24-eod.md) "What's deferred" for the full handoff.
+- [x] **W1.5** — Theme 2 polish pickups (commit `983827f`): pie chart (custom SVG arc renderer) + faceted small-multiples (third facet-by picker; Plot uses native `fy`, pie partitions into a grid).
 - [ ] **W1.6** *(stretch)* — Map cell basemap with CSP carve-out for OSM tiles + UI to pick the basemap. **Not started; defer until requested** — touches privacy posture, warrants a real decision.
+- [x] **W1.7** *(post-tag)* — `applyLoadedFile` re-entrancy fix (commit `8742b2c`). The v1.1.0 release notes flagged the race (boot-time auto-restore racing an explicit Load click → 4 source cards instead of 2) as deferred; module-level promise-chain mutex in `src/main.ts` serialises all three callers. e2e save-load reverts the IDB-clear workaround and now exercises the race directly. See DECISIONS 2026-05-24 13:00.
 
 **Bonus (also landed 2026-05-24, commit `7a73bc4`):** Latent CSP-hash bug in `esbuild.config.mjs` — `String.prototype.replace` was interpreting `$&` in the minified script body as the matched substring, drifting the inlined CSP hash off the actual bytes. Fix is function-form replacers. The Wave 1 pie + facet additions tipped the minified bundle across the threshold where `$&` first appeared, which surfaced it.
 
-**Post-v1.1.0 follow-up landed 2026-05-24:** `applyLoadedFile` re-entrancy fix. The v1.1.0 release notes flagged the underlying race (boot-time auto-restore racing an explicit Load click → 4 source cards instead of 2) as deferred; this change adds a module-level promise-chain mutex in `src/main.ts` that serialises all three callers (lens decode, snapshot restore, user Load). The e2e save-load test reverts the IDB-clear workaround and now exercises the race directly — flips to a regression guard for the mutex contract. See DECISIONS 2026-05-24 13:00.
+**Post-v1.1.0 housekeeping queued (small):**
+- [ ] **W1.8** — GitHub Pages deploy workflow. Build on push to main → publish `dist/` via `actions/deploy-pages`. Unblocks W1.4 (mirror needs a reachable URL for the built single-file app) and lets the README link to `https://naklitechie.github.io/NakliData/` instead of "URL TBD when published".
+- [ ] **W1.9** — `STATUS.md` + checkpoint cadence post-tag. The day-summary doc and pending updates are the standing pattern; review whether the `checkpoint-YYYY-MM-DD-eod.md` file is still needed alongside `YYYY-MM-DD-summary.md` (this windup writes the latter).
 
 ### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility
 
@@ -96,7 +93,7 @@ The themed sections below carry the historical detail. Cross-reference if needed
 
 | Wave | Themed sections | What's done | What's queued |
 | --- | --- | --- | --- |
-| Wave 1 | Pre-v1.0-tag gates ✅, Theme 4 ✅, Theme 1 wave 3 ✅, Wave 1 polish ✅, v1.0 review carryover ✅ | Tag work, polish surfaces, vendored extensions, pie + facet, CM6 dispose, SRI manifest test, taxonomy editorial pass, build CSP-hash fix | **W1.2 README**, **W1.1 v1.1.0 tag**; W1.4 mirror deferred to its own short wave |
+| Wave 1 | Pre-v1.0-tag gates ✅, Theme 4 ✅, Theme 1 wave 3 ✅, Wave 1 polish ✅, v1.0 review carryover ✅, v1.1.0 tag ✅, README v1.1 ✅, applyLoadedFile mutex ✅ | All in-scope items shipped + v1.1.0 tagged + post-tag mutex follow-up | **W1.4 mirror** + **W1.8 GH Pages deploy** (deploy unblocks mirror); W1.6 basemap stretch deferred |
 | Wave 2 | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | none yet | Iceberg, S3 endpoints, custom-endpoint sidecar, eval harness |
 | Wave 3 | Theme 6 v1.3 (Compute Bridge), AI sidecar local-model + LoRA | none yet | Job 4, local model, bridge MVP, bridge-side sidecar |
 
