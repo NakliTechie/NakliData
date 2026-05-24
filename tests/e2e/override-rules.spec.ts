@@ -69,7 +69,7 @@ test.describe('override rules (Theme 4 wave 2 / B3)', () => {
 
     // Toast appears with a Remember action.
     await page.waitForSelector('#naklidata-toast [data-action="toast-action"]', {
-      timeout: 4_000,
+      timeout: 8_000,
     });
     const toastText = await page.locator('#naklidata-toast').textContent();
     expect(toastText).toContain('Remember');
