@@ -44,23 +44,26 @@ This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6)
 
 **Bonus (also landed 2026-05-24, commit `7a73bc4`):** Latent CSP-hash bug in `esbuild.config.mjs` — `String.prototype.replace` was interpreting `$&` in the minified script body as the matched substring, drifting the inlined CSP hash off the actual bytes. Fix is function-form replacers. The Wave 1 pie + facet additions tipped the minified bundle across the threshold where `$&` first appeared, which surfaced it.
 
-**Post-v1.1.0 housekeeping queued (small):**
+**Post-v1.1.0 housekeeping:**
 - [ ] **W1.8** — GitHub Pages deploy workflow. **Deferred — not near needing it.** A hosted build would be nice eventually but the runtime is the static page itself; users self-host. Pick up when we want a canonical hosted entry-point.
-- [ ] **W1.9** — Doc-cadence decision. We now have *both* `checkpoint-YYYY-MM-DD-eod.md` (pre-windup pattern) and `YYYY-MM-DD-summary.md` (windup output). Pick one going forward.
-- [ ] **W1.10** — `.naklidata` format-version policy note. Document when a `1.1` bump is warranted (breaking change to a required field) vs additive-optional fields that round-trip cleanly. One paragraph in `spec-amendments.md` or `DECISIONS.md`.
-- [ ] **W1.11** — Cytoscape modal focus restoration. Quick a11y audit of `src/ui/schema-graph.ts` — keyboard focus may not return to the trigger button on close.
+- [x] **W1.9** — Doc-cadence pinned in CLAUDE.md (commit `35f6226`). Windup summaries are canonical going forward; `checkpoint-*-eod.md` retired (existing files stay as historical record).
+- [x] **W1.10** — `.naklidata` format-version bump policy logged (DECISIONS 14:00; commit `35f6226`). Additive optional fields don't bump.
+- [x] **W1.11** — Schema-graph modal a11y (commit `35f6226`). Focus moves to close on open, restores to trigger on close, Escape-listener leak fixed.
 
-### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility
+### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility — ✅ substantially complete (2026-05-24)
 
 **Pitch:** "Open the lakehouse and BYO-model doors. No new core deps."
 
-Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"v1.2 precursors" and [remote-sources.md](./remote-sources.md).
+Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"v1.2 precursors" and [remote-sources.md](./remote-sources.md). Five slices shipped today (1, 2, 3a, 3b, W2.3); only the eval harness (W2.4) remains.
 
-- [ ] **W2.1** — Apache Iceberg REST + OAuth2/Bearer/SigV4 via DuckDB's `iceberg` extension (browser HTTP load works as of Dec 2025). New source kind `iceberg-catalog`; auth via either Bearer token, OAuth2 device-code flow, or AWS SigV4 (for Glue).
-- [ ] **W2.2** — S3-compatible custom endpoints via DuckDB `httpfs`. UI source kind `s3-endpoint` with fields for endpoint URL, region, access key, secret. Supports MinIO, Cloudflare R2, Backblaze B2, Wasabi out of the box. BYOK secrets policy mirrors sidecar BYOK (session default + opt-in IDB).
-- [ ] **W2.3** — Custom-endpoint sidecar. New provider kind `custom-openai-compatible`; user supplies a URL + model name. CSP rework: replace explicit-host whitelist with a runtime-allow-list driven by configured provider URLs (or use a meta-CSP refresh pattern).
-- [ ] **W2.4** — Sidecar eval harness ([sidecar-architecture.md](./sidecar-architecture.md) §"v1.2 — build the eval harness"). Held-out per-job evaluation set + a runner that scores prompted-base vs. prompted+LoRA on the same set. Lays the foundation for v1.3 LoRA work. Outputs an HTML report. No new runtime dependency in the main app; lives under `eval/`.
-- [ ] **W2.5** — Spec amendments for Iceberg + S3 custom endpoints. New `plan/spec-amendments.md` entries.
+- [x] **Slice 1** *(prerequisite — was latent W2.0)* — Public URL mount + CSP `connect-src` → `'self' https:`. Commit `20f40e2`; spec amendment A5; DECISIONS 15:00.
+- [x] **W2.2** — S3-compatible custom endpoints via DuckDB `httpfs`. New `'s3-endpoint'` source kind + per-source BYOK secrets module mirroring sidecar BYOK (sessionStorage default + opt-in IDB). Commit `f8c1c32`; spec amendment A6; DECISIONS 15:30. Limitation: `SET s3_*` is connection-wide → one set of S3 credentials per session.
+- [x] **W2.1a** *(was W2.1 split into a/b/c)* — Iceberg table-by-URL + Bearer auth. New `'iceberg-table'` SourceKind. Commit `e7adfe3`; spec amendment A7; DECISIONS 16:00.
+- [x] **W2.1b** — Iceberg REST Catalog navigation (Bearer-only). New `'iceberg-catalog'` SourceKind + self-contained REST client. Commit `971d27c`; spec amendment A8; DECISIONS 16:30.
+- [ ] **W2.1c** — Iceberg OAuth2 device flow + AWS SigV4 (for Glue). **Deferred to v1.3** alongside multi-tenant enterprise work — the OAuth UX needs its own modal flow + token-refresh logic. See `plan/wave-2-design.md` "Deferred."
+- [x] **W2.3** — Custom-endpoint sidecar provider. New `'custom'` `SidecarProvider` (OpenAI-compatible — llamafile / vLLM / Ollama / LM Studio). The CSP `https:` rework in slice 1 made this contained. Commit `689ee8e`; spec amendment A9; DECISIONS 17:00.
+- [ ] **W2.4** — Sidecar eval harness ([sidecar-architecture.md](./sidecar-architecture.md) §"v1.2 — build the eval harness"). Held-out per-job evaluation set + Node runner that scores prompted-base vs. prompted+LoRA. HTML report under `eval/`. Foundation for v1.3 LoRA work. **Deferred** to a focused session — doesn't unblock anything user-visible.
+- [x] **W2.5** — Spec amendments for the above. Five amendments landed (A5–A9) — see [`plan/spec-amendments.md`](./spec-amendments.md).
 - [ ] **W2.6** *(stretch)* — Map cell deck.gl pairing (for >10k-point rendering) if a real workload shows up during W2.
 
 ### Wave 3 — Sidecar maturation + Compute Bridge MVP
@@ -96,8 +99,8 @@ The themed sections below carry the historical detail. Cross-reference if needed
 | Wave | Themed sections | What's done | What's queued |
 | --- | --- | --- | --- |
 | Wave 1 | Pre-v1.0-tag gates ✅, Theme 4 ✅, Theme 1 wave 3 ✅, Wave 1 polish ✅, v1.0 review carryover ✅, v1.1.0 tag ✅, README v1.1 ✅, applyLoadedFile mutex ✅ | All in-scope items shipped + v1.1.0 tagged + post-tag mutex follow-up | **W1.4 mirror** + **W1.8 GH Pages deploy** (deploy unblocks mirror); W1.6 basemap stretch deferred |
-| Wave 2 | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | none yet | Iceberg, S3 endpoints, custom-endpoint sidecar, eval harness |
-| Wave 3 | Theme 6 v1.3 (Compute Bridge), AI sidecar local-model + LoRA | none yet | Job 4, local model, bridge MVP, bridge-side sidecar |
+| Wave 2 | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | Slice 1 (URL + CSP) ✅, W2.2 (S3 endpoints) ✅, W2.1a/b (Iceberg table + REST catalog) ✅, W2.3 (custom-endpoint sidecar) ✅, W2.5 (spec amendments A5–A9) ✅ | **W2.4 eval harness** + W2.1c (OAuth2 + SigV4 — deferred to v1.3) |
+| Wave 3 | Theme 6 v1.3 (Compute Bridge), AI sidecar local-model + LoRA | none yet | Job 4 report rec, local model, bridge MVP, bridge-side sidecar |
 
 ---
 

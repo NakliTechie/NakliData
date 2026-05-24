@@ -1,89 +1,108 @@
-# Workplan — 2026-05-24 snapshot
+# Workplan — 2026-05-24 EOD snapshot
 
-v1.1.0 is tagged + pushed; `applyLoadedFile` mutex landed post-tag.
-Wave 1 is closed; W1.4 (mirror) is dropped now that NakliData
-positions as an independent product (not a launcher app); W1.8
-(deploy) is deferred — we're nowhere near needing a hosted build
-yet. The next session opens with the small Chunk 4 follow-ups, then
-moves into Wave 2.
+Wave 2 is substantially complete. Five slices shipped today (1, 2, 3a,
+3b, W2.3). Only **W2.4 (eval harness)** remains from the original Wave 2
+scope; **W2.1c (OAuth2 + SigV4)** moves to v1.3. The next session can
+start with W2.4 as a focused task, or open Wave 3.
 
-Order below puts the small finishable items first, then the bigger
-Wave 2 arcs.
+Order below: closing-Wave-2 first, then Wave 3 opener, then maintenance.
 
 ---
 
-## Chunk 4 — Small follow-ups (under an hour each — pick them off)
+## Chunk 1 — W2.4: Sidecar eval harness (half day → full day)
 
-Scrappy items that don't fit a larger arc. Doing these together
-gives the next session a clean "got something concrete done" start
-before tackling Wave 2.
+Wave 2's last remaining item. Foundation for the v1.3 LoRA evaluation
+work — lives under `eval/`, no UI, no new runtime dependency in the
+main app.
 
-- **W1.9** — Doc-cadence decision. We now have *both*
-  `checkpoint-YYYY-MM-DD-eod.md` (pre-windup pattern, exhaustive)
-  and `YYYY-MM-DD-summary.md` (windup output, tight). Pick one going
-  forward; either archive old checkpoints or document why both
-  exist. Most likely outcome: summaries are canonical, old
-  checkpoints stay as historical record.
-- **Cytoscape modal focus restoration** — quick a11y audit on
-  `src/ui/schema-graph.ts`. When the modal closes, keyboard focus
-  may stay trapped on the cytoscape canvas instead of returning to
-  the trigger button. Small fix if confirmed; no fix if focus
-  already returns cleanly.
-- **`.naklidata` format-version policy** — document when a `1.1`
-  bump would actually be warranted (breaking change to a *required*
-  field) vs additive-optional changes that round-trip cleanly
-  (`user_types`, `override_rules` both landed without a version
-  bump). One paragraph in `plan/spec-amendments.md` or
-  `DECISIONS.md` so future-us doesn't accidentally bump on something
-  that doesn't need it.
+- **Held-out per-job fixtures** under `eval/fixtures/`. One file per
+  job (`explain-error`, `disambiguate-type`, `define-type`), each
+  with 20–50 hand-curated cases — input shape + expected output
+  shape (the parser already validates the shape, so we score on
+  semantic correctness, not format).
+- **Scoring functions per job** in `eval/score/`:
+  - `explain-error`: prose-similarity to reference explanation
+    (cosine on TF-IDF? embedding distance? simple keyword overlap
+    for v1?); strict equality on suggested-fix when present.
+  - `disambiguate-type`: exact match on the returned typeId (the
+    response is a single token).
+  - `define-type`: tuple match on `(category, regex-class)`; soft
+    match on `id` / `display_name`.
+- **Node runner** `eval/run.mjs` that takes a provider + model +
+  optional `--cases <glob>` and walks each fixture, calls the
+  sidecar via the same `dispatchJob` surface, scores, and emits
+  per-case + aggregate stats.
+- **HTML report** `eval/report.html` generator — table of cases x
+  models, per-job aggregate, deltas vs the baseline run. Self-
+  contained, no chart libs.
+- **No runtime dep added to the main app.** `eval/` has its own
+  `package.json` if any deps creep in (probably just `@types/node`).
 
-Prerequisites: none. Each item is self-contained.
+Prerequisites: a working sidecar key (anthropic / openai / custom).
+The first 5–10 fixture cases can come from real production
+errors / edge cases the team has already seen.
 
----
-
-## Chunk 1 — Wave 2 kickoff: Iceberg + S3 endpoints (1–2 days)
-
-The lakehouse + BYO-endpoint pair. Both DuckDB-native, no new core
-dependencies. Worth doing together because they share the auth /
-secrets / CSP surface.
-
-- **W2.1** — Apache Iceberg REST + OAuth2 / Bearer / SigV4 via
-  DuckDB's `iceberg` extension. New source kind `iceberg-catalog`.
-- **W2.2** — S3-compatible custom endpoints via DuckDB `httpfs`.
-  New source kind `s3-endpoint` (MinIO, R2, B2, Wasabi out of the
-  box). BYOK secrets mirror the sidecar BYOK pattern (session
-  default + opt-in IDB per amendment A2).
-- **W2.5** — `plan/spec-amendments.md` entries for both, since they
-  introduce new auth + secret-storage surfaces the canonical spec
-  didn't anticipate.
-
-Prerequisites: none — both extensions confirmed to work in browser
-as of Dec 2025 (see DECISIONS 2026-05-23 for the vendored-extension
-groundwork). Depends on user's appetite for the lakehouse arc vs
-the sidecar arc next; Chunk 3 is the alternate.
+Why this matters: v1.3 LoRA-Gemma work needs an objective scoring
+surface to compare prompted-base vs prompted+LoRA — the eval harness
+IS that surface.
 
 ---
 
-## Chunk 2 — Wave 2 sidecar: custom endpoint + eval harness (1–2 days)
+## Chunk 2 — Wave 3 opener: Job 4 (report-template recommendation) (half day)
 
-The "BYO-model" half of Wave 2. Independent of Chunk 1 above — pick
-whichever matters more for the next demo.
+Wave 3's first item per `plan/pending.md`. The smallest user-visible
+addition that doesn't need the bigger Compute Bridge infrastructure.
 
-- **W2.3** — Custom-endpoint sidecar provider. New kind
-  `custom-openai-compatible`; user supplies URL + model name. **CSP
-  rework required:** today's explicit-host whitelist won't survive
-  runtime URL config; replace with a runtime-allow-list driven by
-  configured provider URLs or a meta-CSP refresh pattern. This is
-  the gnarliest part.
-- **W2.4** — Sidecar eval harness. Held-out per-job evaluation set
-  + a runner that scores prompted-base vs prompted+LoRA on the same
-  set. Lives under `eval/`; no new runtime dependency in the main
-  app. Foundation for the v1.3 LoRA work. See
-  [`sidecar-architecture.md`](./sidecar-architecture.md) §"v1.2 —
-  build the eval harness".
+- **W3.1** — Job 4: report-template recommendation. Browser-side,
+  structured-output only (template-ids ranked by fit, no prose).
+  Wired into the schema-panel "Suggested reports" section as an
+  "Ask sidecar to rank" affordance. New job kind in
+  `src/core/sidecar/types.ts`; prompt + parser in `client.ts`;
+  UI hook in the schema-panel templates section.
 
-Prerequisites: a working local sidecar endpoint (llamafile or
-vLLM) for testing W2.3.
+Prerequisites: none — reuses the existing sidecar dispatch surface.
+Custom-endpoint sidecar already works (W2.3), so the user can run
+Job 4 against a local model if they want.
+
+---
+
+## Chunk 3 — Wave 3 strategic prep (week-scale)
+
+The Compute Bridge MVP is multi-week — not for a single sitting. But
+two opening moves are tractable:
+
+- **W3.2** — Local-model path. Transformers.js + Phi-3-mini-class at
+  4-bit (~150 MB OPFS-cached). Opt-in via Settings; fallback to
+  BYOK when not downloaded. New sidecar transport in
+  `src/core/sidecar/`.
+- **W3.3** — Compute Bridge MVP project scaffolding. Sibling OSS
+  repo (target name `NakliTechie/nakli-compute` — but worth a
+  rename pass given the launcher positioning is dropped). Single
+  binary + Docker image, Arrow Flight + HTTP wire protocol, Bearer-
+  token auth.
+
+Prerequisite for both: Wave 2 closed (so W2.4 ships first).
+
+---
+
+## Chunk 4 — Maintenance + nice-to-haves (under an hour each)
+
+Loose items worth picking off when context allows:
+
+- **`exitFullScreen` / focus audit pass** beyond the schema-graph
+  modal — check the other modals (settings, define-type, override-
+  rules, compare-tables, mount-url, mount-s3, mount-iceberg, mount-
+  iceberg-catalog) for the same focus-restoration + Escape-listener
+  cleanup pattern. Probably 1–2 fixes hiding.
+- **"Test connection" button** in the custom-endpoint sidecar
+  settings. Punted today; revisit if users hit configuration
+  friction in practice.
+- **Rename `NakliTechie/nakli-compute`** target name now that the
+  launcher positioning is dropped. Decision-only — the repo doesn't
+  exist yet.
+- **Multi-bucket S3 / multi-token Iceberg** via DuckDB `CREATE
+  SECRET` once wasm catches up. Tracked limitation in DECISIONS
+  15:30 + 16:00.
 
 ---
 
@@ -91,25 +110,22 @@ vLLM) for testing W2.3.
 
 Bigger items that don't yet have enough shape to be in a chunk:
 
-- **W1.8 deploy** — A hosted build is useful eventually (the README
-  still says "URL TBD when published") but the runtime is the
-  static page itself; users self-host. Pick up when we want a
-  canonical hosted entry-point and have the bandwidth.
-- **W2.6 stretch** — Map cell deck.gl pairing (for >10k-point
-  rendering). Defer until a real workload appears.
-- **W1.6 stretch** — Map cell basemap with CSP carve-out for OSM
-  tiles. Touches privacy posture; warrants a `DECISIONS.md` entry
-  before any code lands.
+- **W1.8 deploy** — A hosted build. Useful eventually but the
+  runtime is the static page itself; users self-host. Pick up
+  when we want a canonical hosted entry-point.
+- **W2.1c — Iceberg OAuth2 device flow + AWS SigV4** for v1.3
+  (with multi-tenant enterprise work).
+- **W2.6 stretch** — Map cell deck.gl pairing (>10k-point rendering).
+- **W1.6 stretch** — Map cell basemap with CSP carve-out for OSM tiles.
 - **Wave 3 entirely** — Sidecar maturation + Compute Bridge MVP.
-  Multi-week arc; see [`enterprise-strategy.md`](./enterprise-strategy.md)
-  for the full strategic context. Don't start until Wave 2 ships.
+  Multi-week arc per [`enterprise-strategy.md`](./enterprise-strategy.md).
+- **v1.4 — multi-team OAuth2 + shared-taxonomy hub** — comes after
+  Wave 3.
 
 ---
 
 ## Dropped (no longer planned)
 
-- **W1.4 mirror** — naklios.dev Immersive same-origin mirror. NakliData
-  positions as an independent product; we're not tying its
-  discoverability to the launcher. Existing `nakli-dev` infrastructure
-  is no longer in scope. (The cross-repo work to extend
-  `sync-mirrors.sh` for multi-file builds is also dropped.)
+- **W1.4 mirror** — naklios.dev Immersive same-origin mirror.
+  NakliData is positioned as an independent product; cross-repo
+  `sync-mirrors.sh` work no longer on the roadmap.
