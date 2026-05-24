@@ -522,10 +522,10 @@ describe('mountIcebergCatalog (Wave 2 slice 3b)', () => {
     let sawAuth: string | undefined;
     const fetchImpl: typeof fetch = async (_url, init) => {
       sawAuth = new Headers(init?.headers).get('authorization') ?? undefined;
-      return new Response(
-        JSON.stringify({ 'metadata-location': 'https://example.com/m.json' }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ 'metadata-location': 'https://example.com/m.json' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     };
     await mountIcebergCatalog(engine as never, {
       label: '',
@@ -571,14 +571,14 @@ describe('mountIcebergCatalog (Wave 2 slice 3b)', () => {
       bearerToken: null,
       fetchImpl,
     };
-    await expect(
-      mountIcebergCatalog(engine as never, { ...base, catalogUrl: '' }),
-    ).rejects.toThrow(/Catalog URL is required/);
-    await expect(
-      mountIcebergCatalog(engine as never, { ...base, namespace: '' }),
-    ).rejects.toThrow(/Namespace is required/);
-    await expect(
-      mountIcebergCatalog(engine as never, { ...base, table: '' }),
-    ).rejects.toThrow(/Table is required/);
+    await expect(mountIcebergCatalog(engine as never, { ...base, catalogUrl: '' })).rejects.toThrow(
+      /Catalog URL is required/,
+    );
+    await expect(mountIcebergCatalog(engine as never, { ...base, namespace: '' })).rejects.toThrow(
+      /Namespace is required/,
+    );
+    await expect(mountIcebergCatalog(engine as never, { ...base, table: '' })).rejects.toThrow(
+      /Table is required/,
+    );
   });
 });

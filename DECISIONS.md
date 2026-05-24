@@ -2,6 +2,28 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 17:00 — Wave 2 W2.3: custom-endpoint sidecar provider (OpenAI-compatible)
+**Context:** pending.md W2.3 calls for a custom-endpoint sidecar to unlock local models (llamafile, vLLM, Ollama, LM Studio) and BYO inference gateways. The CSP rework in slice 1 already cleared the runway — what's left is the provider plumbing + settings UI.
+
+**Decisions:**
+
+- **(a) New `'custom'` value in the `SidecarProvider` union.** Sibling to `'anthropic'` and `'openai'`. BYOK key storage works as-is (provider-keyed). Settings persists provider + model + new `sidecarCustomEndpoint` URL field.
+- **(b) New thin call function `callCustomOpenAI` in `src/core/sidecar/providers/custom-openai.ts`.** Mirrors `callOpenAI` but takes the endpoint URL at call time. URL auto-resolution handles three input shapes (bare base / `…/v1` / fully-qualified `…/v1/chat/completions`) so users can paste whatever their server documents.
+- **(c) `SidecarTransportRequest` gains an optional `endpointUrl` field.** `SidecarDispatchOpts` gains an optional `customEndpoint`. Existing call sites in main.ts + define-type-modal.ts thread the value when the active provider is `'custom'`. No changes to the prompt-builder / response-parser layer — the custom provider returns the same OpenAI-compatible Chat Completions shape that `callOpenAI` consumes.
+- **(d) Settings modal exposes the endpoint URL field only when `'custom'` is active.** A radio for the three providers, a hidden URL row that reveals on `'custom'`. Persists on every keystroke (same pattern as the model field). No "test connection" button — surfacing the actual HTTP error from the next sidecar call is more informative than a synthetic ping.
+- **(e) Local `http://` endpoints stay blocked.** CSP is `'self' https:` (A5). Users running plaintext local model servers must front them with TLS (self-signed is fine; localhost cert exceptions don't apply to CSP). Documented in the modal hint + spec amendment A9.
+
+**Tests:**
+- 10 new vitest specs in `tests/sidecar-custom-endpoint.test.ts`: URL auto-resolution (3 input shapes), POST shape (headers, body, model passed through), empty-URL / empty-model `no-provider` errors, HTTP 429 → `rate-limit`, HTTP 500 → `http` with status in message, empty-content → `parse`.
+- 228 vitest across 18 files (was 218 / 17 at slice 3b, +10).
+- 31 Playwright e2e unchanged.
+- Bundle 440 KB (was 436 at slice 3b; +4 KB for the new provider + settings additions).
+- Smoke + tsc + biome green.
+
+**Reversibility:** Easy. Drop `src/core/sidecar/providers/custom-openai.ts` + the `'custom'` branch in `defaultTransport` + the `customEndpoint` field on `SidecarDispatchOpts` + the radio option + URL field in settings-modal + the union expansion. Settings normalization gracefully ignores leftover `sidecarCustomEndpoint` / `sidecarProvider === 'custom'` values from saved settings.
+
+---
+
 ## 2026-05-24 16:30 — Wave 2 slice 3b: Iceberg REST Catalog navigation (Bearer only)
 **Context:** Slice 3a shipped table-by-URL. The natural completion is REST Catalog discovery (PondPilot parity, the actual UX users expect: "connect to my catalog, pick a table"). OAuth2 device flow + AWS SigV4 are the remaining auth modes; OAuth alone is 200+ lines of UX surface (device code prompt + polling).
 

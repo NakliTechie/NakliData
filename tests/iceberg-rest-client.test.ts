@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  IcebergCatalogClient,
-  IcebergCatalogError,
-} from '../src/core/iceberg/rest-client.ts';
+import { IcebergCatalogClient, IcebergCatalogError } from '../src/core/iceberg/rest-client.ts';
 
 function jsonResponse(body: unknown, init: { status?: number } = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -70,9 +67,11 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   });
 
   it('listNamespaces() returns the namespaces array', async () => {
-    const fetchImpl: typeof fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ namespaces: [['analytics'], ['lakehouse', 'public']] }),
-    ) as never;
+    const fetchImpl: typeof fetch = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ namespaces: [['analytics'], ['lakehouse', 'public']] }),
+      ) as never;
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -153,9 +152,7 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
       bearerToken: null,
       fetchImpl,
     });
-    await expect(client.loadTable('ns', 'tbl')).rejects.toThrow(
-      /missing the metadata-location/,
-    );
+    await expect(client.loadTable('ns', 'tbl')).rejects.toThrow(/missing the metadata-location/);
   });
 
   it('surfaces non-2xx responses as IcebergCatalogError with status', async () => {

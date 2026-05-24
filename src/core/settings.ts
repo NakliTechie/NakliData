@@ -19,6 +19,12 @@ export interface Settings {
   /** Provider model id (e.g., `claude-3-5-haiku-latest`). */
   sidecarModel: string;
   /**
+   * Wave 2 W2.3 — base URL for the custom OpenAI-compatible provider.
+   * Empty string when not configured. Used only when sidecarProvider
+   * is `'custom'`. Local llamafiles, vLLM, Ollama, LM Studio, etc.
+   */
+  sidecarCustomEndpoint: string;
+  /**
    * Demo / censor mode. When true, user-data labels (source labels,
    * table names, column names, source origins, result-table column
    * headers) are replaced visually with stable obscured tokens
@@ -33,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarEnabled: false,
   sidecarProvider: 'anthropic',
   sidecarModel: 'claude-3-5-haiku-latest',
+  sidecarCustomEndpoint: '',
   demoMode: false,
 };
 
@@ -54,11 +61,18 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
     out.autoAcceptThreshold = clamp(s.autoAcceptThreshold, 0.5, 1);
   }
   if (typeof s.sidecarEnabled === 'boolean') out.sidecarEnabled = s.sidecarEnabled;
-  if (s.sidecarProvider === 'anthropic' || s.sidecarProvider === 'openai') {
+  if (
+    s.sidecarProvider === 'anthropic' ||
+    s.sidecarProvider === 'openai' ||
+    s.sidecarProvider === 'custom'
+  ) {
     out.sidecarProvider = s.sidecarProvider;
   }
   if (typeof s.sidecarModel === 'string' && s.sidecarModel.trim()) {
     out.sidecarModel = s.sidecarModel.trim();
+  }
+  if (typeof s.sidecarCustomEndpoint === 'string') {
+    out.sidecarCustomEndpoint = s.sidecarCustomEndpoint.trim();
   }
   if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
   return out;

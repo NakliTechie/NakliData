@@ -1630,6 +1630,9 @@ async function runExplainError(engine: Engine, cellId: string): Promise<void> {
       {
         provider: settings.sidecarProvider,
         model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
       },
     );
     if (result.kind !== 'explain-error') {
@@ -1763,6 +1766,9 @@ async function runDisambiguateType(
       {
         provider: settings.sidecarProvider,
         model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
       },
     );
     if (response.kind !== 'disambiguate-type') return;

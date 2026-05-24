@@ -237,6 +237,26 @@ under "Deferred."
 
 ---
 
+## A9 — Custom-endpoint sidecar provider (Wave 2 W2.3) (amends spec §4.3)
+
+**Original §4.3 (paraphrased):**
+> Sidecar providers: Anthropic and OpenAI, BYOK keys (per A2).
+
+**Amended:**
+
+> **A third sidecar provider — `'custom'` — accepts any OpenAI-compatible Chat Completions endpoint.** Intended for locally-hosted models (llamafile, vLLM, Ollama, LM Studio, oobabooga) and bring-your-own model gateways. The user supplies the base URL + model name under Settings → "Custom (OpenAI-compatible)"; BYOK API key uses the same posture as Anthropic / OpenAI (A2). URL auto-completion: bare host → `<host>/v1/chat/completions`; `…/v1` → `…/v1/chat/completions`; full URL → unchanged.
+>
+> The CSP `connect-src 'self' https:` adjustment (A5) is what made this possible — runtime-configured URLs were impossible under the explicit-host whitelist. Local-only `http://` endpoints remain blocked by CSP; users running a plaintext local model server must front it with TLS (self-signed is fine for personal use) or use a tunnel.
+
+**Why:** The spec already supports "Anthropic vs OpenAI"; once the CSP relaxation in A5 cleared the runway, adding a third generic-OpenAI provider is mostly settings UI + a thin call function. The BYOK pattern stays intact (each provider has its own key namespace). No new dependency, no new auth model.
+
+**Status:** Shipped 2026-05-24 (commit on `main`). Closes the v1.2
+"custom-endpoint sidecar" item in [`pending.md`](./pending.md). Wave 2
+proper now complete except W2.4 (eval harness, deferred to a focused
+session).
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

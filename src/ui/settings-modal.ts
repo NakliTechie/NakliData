@@ -14,7 +14,7 @@ import {
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 
-const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai'];
+const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
 
 let _modalEl: HTMLElement | null = null;
 
@@ -43,6 +43,17 @@ async function refresh(): Promise<void> {
   if (enableInput) enableInput.checked = settings.sidecarEnabled;
   const demoInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-demo-mode"]');
   if (demoInput) demoInput.checked = settings.demoMode;
+  // Wave 2 W2.3 — custom endpoint URL field is only relevant when the
+  // provider is `'custom'`. Hide the row otherwise to keep the form
+  // shape compact.
+  const customRow = overlay.querySelector<HTMLElement>(
+    '[data-region="settings-custom-endpoint-row"]',
+  );
+  const customInput = overlay.querySelector<HTMLInputElement>(
+    '[data-action="settings-custom-endpoint"]',
+  );
+  if (customRow) customRow.hidden = provider !== 'custom';
+  if (customInput) customInput.value = settings.sidecarCustomEndpoint;
   await renderProviderBlocks(overlay, settings);
 }
 
@@ -123,7 +134,9 @@ function formatStatus(entry: BYOKEntry): { text: string; canForget: boolean } {
 }
 
 function providerLabel(provider: SidecarProvider): string {
-  return provider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI';
+  if (provider === 'anthropic') return 'Anthropic (Claude)';
+  if (provider === 'openai') return 'OpenAI';
+  return 'Custom (OpenAI-compatible)';
 }
 
 function setRadio(root: HTMLElement, name: string, value: string): void {
@@ -169,10 +182,15 @@ function renderModal(): HTMLElement {
           <div class="settings-radio-row">
             <label><input type="radio" name="settings-provider" value="anthropic" /> Anthropic (Claude)</label>
             <label><input type="radio" name="settings-provider" value="openai" /> OpenAI</label>
+            <label><input type="radio" name="settings-provider" value="custom" /> Custom (OpenAI-compatible)</label>
           </div>
           <label class="settings-field">
             <span>Model</span>
             <input type="text" data-action="settings-model" placeholder="claude-3-5-haiku-latest" />
+          </label>
+          <label class="settings-field" data-region="settings-custom-endpoint-row" hidden>
+            <span>Custom endpoint URL <em>(OpenAI-compatible — local llamafile, vLLM, Ollama, LM Studio)</em></span>
+            <input type="url" data-action="settings-custom-endpoint" placeholder="https://my-llm.example.com" autocomplete="off" spellcheck="false" />
           </label>
         </section>
         <section class="settings-section">
@@ -233,6 +251,9 @@ function renderModal(): HTMLElement {
     if (!target) return;
     if (target.dataset.action === 'settings-model') {
       await patchSettings({ sidecarModel: target.value });
+    }
+    if (target.dataset.action === 'settings-custom-endpoint') {
+      await patchSettings({ sidecarCustomEndpoint: target.value });
     }
   });
   document.addEventListener(

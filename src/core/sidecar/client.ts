@@ -7,6 +7,7 @@
 
 import { loadKey } from './byok.ts';
 import { callAnthropic } from './providers/anthropic.ts';
+import { callCustomOpenAI } from './providers/custom-openai.ts';
 import { callOpenAI } from './providers/openai.ts';
 import {
   type DefineTypeJob,
@@ -25,6 +26,11 @@ export interface SidecarDispatchOpts {
   provider: SidecarProvider;
   model: string;
   signal?: AbortSignal;
+  /**
+   * Required when `provider === 'custom'`. The OpenAI-compatible base
+   * URL the custom transport posts to. Ignored for other providers.
+   */
+  customEndpoint?: string;
   /** Override the provider transport — used by tests to stub fetch. */
   transport?: SidecarTransport;
 }
@@ -35,6 +41,8 @@ export interface SidecarTransportRequest {
   system: string;
   user: string;
   apiKey: string;
+  /** Set when `provider === 'custom'`. */
+  endpointUrl?: string;
   signal?: AbortSignal;
 }
 
@@ -43,6 +51,16 @@ export type SidecarTransport = (req: SidecarTransportRequest) => Promise<string>
 const defaultTransport: SidecarTransport = (req) => {
   if (req.provider === 'anthropic') {
     return callAnthropic({
+      apiKey: req.apiKey,
+      model: req.model,
+      system: req.system,
+      user: req.user,
+      ...(req.signal ? { signal: req.signal } : {}),
+    });
+  }
+  if (req.provider === 'custom') {
+    return callCustomOpenAI({
+      endpointUrl: req.endpointUrl ?? '',
       apiKey: req.apiKey,
       model: req.model,
       system: req.system,
@@ -79,6 +97,7 @@ export async function dispatchJob(
       system,
       user,
       apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseExplainErrorResponse(raw);
@@ -91,6 +110,7 @@ export async function dispatchJob(
       system,
       user,
       apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseDisambiguateTypeResponse(raw, job.candidates);
@@ -103,6 +123,7 @@ export async function dispatchJob(
       system,
       user,
       apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseDefineTypeResponse(raw);

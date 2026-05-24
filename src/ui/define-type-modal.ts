@@ -195,6 +195,9 @@ async function runSuggest(overlay: HTMLElement, opts: OpenDefineTypeOpts): Promi
       {
         provider: settings.sidecarProvider,
         model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
       },
     );
     if (result.kind !== 'define-type') throw new Error('Unexpected response kind');

@@ -11,17 +11,22 @@
 //   - no auto-execute of generated SQL (we only EXPLAIN; we never RUN)
 //   - BYOK keys per spec amendment A2 (sessionStorage default, opt-in IDB)
 
-export type SidecarProvider = 'anthropic' | 'openai';
+export type SidecarProvider = 'anthropic' | 'openai' | 'custom';
 
 export interface SidecarProviderConfig {
   provider: SidecarProvider;
   model: string;
+  /** Required for `provider: 'custom'` — the OpenAI-compatible base URL. */
+  endpointUrl?: string;
 }
 
 /** Defaults the BYOK + sidecar surface picks when nothing is set yet. */
 export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderConfig> = {
   anthropic: { provider: 'anthropic', model: 'claude-3-5-haiku-latest' },
   openai: { provider: 'openai', model: 'gpt-4o-mini' },
+  // The 'custom' default has no usable model + endpoint until the user
+  // configures one in Settings — the UI surfaces that as a required step.
+  custom: { provider: 'custom', model: '', endpointUrl: '' },
 };
 
 /** A sidecar job is a tagged input asking the model to do one specific thing. */
