@@ -1,54 +1,25 @@
-# Workplan — 2026-05-24 EOD snapshot
+# Workplan — 2026-05-24 EOD snapshot (updated post-W2.4)
 
-Wave 2 is substantially complete. Five slices shipped today (1, 2, 3a,
-3b, W2.3). Only **W2.4 (eval harness)** remains from the original Wave 2
-scope; **W2.1c (OAuth2 + SigV4)** moves to v1.3. The next session can
-start with W2.4 as a focused task, or open Wave 3.
+**Wave 2 is COMPLETE.** All six slices shipped (1, 2, 3a, 3b, W2.3,
+W2.4). The eval harness landed in the 2026-05-24 evening session
+(`eval/`, DECISIONS 21:30). **W2.1c (Iceberg OAuth2 + SigV4)** is the
+only Wave-2-adjacent item left, deferred to v1.3.
 
-Order below: closing-Wave-2 first, then Wave 3 opener, then maintenance.
-
----
-
-## Chunk 1 — W2.4: Sidecar eval harness (half day → full day)
-
-Wave 2's last remaining item. Foundation for the v1.3 LoRA evaluation
-work — lives under `eval/`, no UI, no new runtime dependency in the
-main app.
-
-- **Held-out per-job fixtures** under `eval/fixtures/`. One file per
-  job (`explain-error`, `disambiguate-type`, `define-type`), each
-  with 20–50 hand-curated cases — input shape + expected output
-  shape (the parser already validates the shape, so we score on
-  semantic correctness, not format).
-- **Scoring functions per job** in `eval/score/`:
-  - `explain-error`: prose-similarity to reference explanation
-    (cosine on TF-IDF? embedding distance? simple keyword overlap
-    for v1?); strict equality on suggested-fix when present.
-  - `disambiguate-type`: exact match on the returned typeId (the
-    response is a single token).
-  - `define-type`: tuple match on `(category, regex-class)`; soft
-    match on `id` / `display_name`.
-- **Node runner** `eval/run.mjs` that takes a provider + model +
-  optional `--cases <glob>` and walks each fixture, calls the
-  sidecar via the same `dispatchJob` surface, scores, and emits
-  per-case + aggregate stats.
-- **HTML report** `eval/report.html` generator — table of cases x
-  models, per-job aggregate, deltas vs the baseline run. Self-
-  contained, no chart libs.
-- **No runtime dep added to the main app.** `eval/` has its own
-  `package.json` if any deps creep in (probably just `@types/node`).
-
-Prerequisites: a working sidecar key (anthropic / openai / custom).
-The first 5–10 fixture cases can come from real production
-errors / edge cases the team has already seen.
-
-Why this matters: v1.3 LoRA-Gemma work needs an objective scoring
-surface to compare prompted-base vs prompted+LoRA — the eval harness
-IS that surface.
+The next session opens Wave 3. Chunk 1 below (Job 4) is the smallest
+user-visible opener; Chunk 2 is the strategic multi-week arc.
 
 ---
 
-## Chunk 2 — Wave 3 opener: Job 4 (report-template recommendation) (half day)
+## ~~Chunk 0 — W2.4 eval harness~~ ✅ DONE (2026-05-24 evening)
+
+Shipped: `eval/run.mjs` (esbuild-bundled TS harness, no new dep),
+`eval/harness.ts`, `eval/score.ts`, `eval/report.ts`, fixtures for all
+three jobs, `tests/eval-score.test.ts` (15 specs), `npm run eval`.
+Dry-run self-test 34/34. See DECISIONS 21:30.
+
+---
+
+## Chunk 1 — Wave 3 opener: Job 4 (report-template recommendation) (half day)
 
 Wave 3's first item per `plan/pending.md`. The smallest user-visible
 addition that doesn't need the bigger Compute Bridge infrastructure.

@@ -38,12 +38,12 @@ describe('resolveChatCompletionsUrl (Wave 2 W2.3)', () => {
 });
 
 describe('callCustomOpenAI (Wave 2 W2.3)', () => {
-  function makeFetchSpy(body: unknown, init: { status?: number } = {}) {
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+  function makeFetchSpy(body: unknown) {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const fetchSpy = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init });
       return new Response(JSON.stringify(body), {
-        status: init?.method && init.method !== 'POST' ? 405 : (init?.status ?? 200) || (init as { status?: number }).status || 200,
+        status: 200,
         headers: { 'content-type': 'application/json' },
       });
     });
@@ -71,7 +71,10 @@ describe('callCustomOpenAI (Wave 2 W2.3)', () => {
       const headers = new Headers(init?.headers);
       expect(headers.get('authorization')).toBe('Bearer sk-test');
       expect(headers.get('content-type')).toBe('application/json');
-      const sent = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ role: string }> };
+      const sent = JSON.parse(String(init?.body)) as {
+        model: string;
+        messages: Array<{ role: string }>;
+      };
       expect(sent.model).toBe('mixtral-8x7b');
       expect(sent.messages[0]?.role).toBe('system');
       expect(sent.messages[1]?.role).toBe('user');
@@ -106,7 +109,9 @@ describe('callCustomOpenAI (Wave 2 W2.3)', () => {
 
   it('treats HTTP 429 as rate-limit', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () => new Response('Too Many Requests', { status: 429 })) as never;
+    globalThis.fetch = vi.fn(
+      async () => new Response('Too Many Requests', { status: 429 }),
+    ) as never;
     try {
       await expect(
         callCustomOpenAI({

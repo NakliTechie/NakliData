@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 21:30 — W2.4: sidecar eval harness (closes Wave 2)
+**Context:** The last Wave 2 item. Per `sidecar-architecture.md` §"v1.2 — build the eval harness": a held-out per-job evaluation set + a runner that scores prompted-base vs prompted+LoRA on the same set, foundation for the v1.3 LoRA work. Constraint: no new runtime dependency in the main app; lives under `eval/`.
+
+**Decisions:**
+
+- **(a) Bundle the TS harness via esbuild rather than add a TS runner.** Node 22.19's native type-stripping rejects the codebase's TS parameter properties (`SidecarError`'s constructor uses `public readonly kind:` shorthand). Rather than refactor app code to suit the eval, or add `tsx` as a devDep, `eval/run.mjs` calls esbuild's build API (already a devDep) to bundle `eval/harness.ts` + its `src/` imports into `eval/.cache/`, imports the result, then cleans up. Zero new deps, and the harness exercises the REAL prompt builders + parsers.
+- **(b) Reuse the app's exported `buildXxxPrompt` + `parseXxxResponse`, not `dispatchJob`.** `dispatchJob` calls `loadKey()` (sessionStorage/IDB — browser-only). The harness builds the prompt with the exported builders, calls the provider transport directly with a key from env, and parses with the exported parsers. This evaluates exactly the prompt-quality + parse-robustness surface we care about, without the browser-only key store.
+- **(c) Deterministic rubric scoring, not an LLM-judge.** disambiguate-type: exact typeId match. define-type: category match + functional regex check (compiles AND matches every sample). explain-error: ≥50% keyword coverage + suggested-fix check. Cheap, reproducible, and exactly what a base-vs-LoRA comparison needs (an LLM-judge adds variance + cost + a second model to trust).
+- **(d) Two modes: live + dry-run.** Live calls the configured provider (key from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `CUSTOM_API_KEY`). `--dry-run` feeds each fixture's `recordedResponse` through the parser + scorer — no network, runnable in CI, doubles as a harness self-test.
+- **(e) Fixtures use all-passing recorded responses; scorer discrimination is unit-tested separately.** First cut planted deliberately-failing recorded responses so the report showed FAIL rows — but that made `--dry-run` always exit non-zero, muddying its value as a self-test. Reversed: recorded responses are all good reference answers (dry-run → 34/34, exit 0), and the scorer's pass/fail discrimination is proven in `tests/eval-score.test.ts` (15 specs, both directions). Cleaner separation: dry-run validates the harness; unit tests validate the scorer.
+- **(f) Eval gets the same TS + lint discipline as the rest.** Added `eval/**/*.ts` to `tsconfig` include and `eval` to the `biome check` / `fmt` / `lint` targets. `eval/.cache` is biome-ignored (generated esbuild bundle) + gitignored; `eval/report.html` gitignored.
+
+**Process note — latent tsc error caught:** Adding `eval` to the `npm run check` surface surfaced a pre-existing tsc error in `tests/sidecar-custom-endpoint.test.ts` (a convoluted `makeFetchSpy` with `exactOptionalPropertyTypes` violations + an unused param), committed in W2.3 (`689ee8e`). It slipped because that commit's gate ran `npm run test` (vitest = esbuild, no typecheck) after the last `npm run check`, not a second check. **Lesson: run `npm run check` LAST in the gate, after any test-file additions.** Fixed here.
+
+**Tests:** 15 new vitest specs in `tests/eval-score.test.ts` (scorer pass + fail directions for all three jobs). Dry-run self-test green at 34/34. `npm run check` clean (eval now type-checked + linted). 243 vitest total (was 228, +15).
+
+**Limitations / follow-ups:**
+- Seed fixture set is ~10–12 cases/job; grow toward 20–50 as real edge cases surface.
+- explain-error keyword scoring is a coarse proxy — fine for relative base-vs-LoRA comparison, not an absolute quality bar. An embedding-similarity scorer is a future refinement if needed.
+- No CI wiring yet — `npm run eval -- --dry-run` is CI-ready (exit code reflects pass/fail) but not added to a workflow (deferred with W1.8 deploy).
+
+---
+
 ## 2026-05-24 17:00 — Wave 2 W2.3: custom-endpoint sidecar provider (OpenAI-compatible)
 **Context:** pending.md W2.3 calls for a custom-endpoint sidecar to unlock local models (llamafile, vLLM, Ollama, LM Studio) and BYO inference gateways. The CSP rework in slice 1 already cleared the runway — what's left is the provider plumbing + settings UI.
 

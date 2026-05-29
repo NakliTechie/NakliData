@@ -50,11 +50,11 @@ This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6)
 - [x] **W1.10** — `.naklidata` format-version bump policy logged (DECISIONS 14:00; commit `35f6226`). Additive optional fields don't bump.
 - [x] **W1.11** — Schema-graph modal a11y (commit `35f6226`). Focus moves to close on open, restores to trigger on close, Escape-listener leak fixed.
 
-### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility — ✅ substantially complete (2026-05-24)
+### Wave 2 — Strategic v1.2: lakehouse + endpoint flexibility — ✅ COMPLETE (2026-05-24)
 
 **Pitch:** "Open the lakehouse and BYO-model doors. No new core deps."
 
-Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"v1.2 precursors" and [remote-sources.md](./remote-sources.md). Five slices shipped today (1, 2, 3a, 3b, W2.3); only the eval harness (W2.4) remains.
+Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"v1.2 precursors" and [remote-sources.md](./remote-sources.md). All six slices shipped (1, 2, 3a, 3b, W2.3, W2.4). Only W2.1c (Iceberg OAuth2 + SigV4) deferred to v1.3.
 
 - [x] **Slice 1** *(prerequisite — was latent W2.0)* — Public URL mount + CSP `connect-src` → `'self' https:`. Commit `20f40e2`; spec amendment A5; DECISIONS 15:00.
 - [x] **W2.2** — S3-compatible custom endpoints via DuckDB `httpfs`. New `'s3-endpoint'` source kind + per-source BYOK secrets module mirroring sidecar BYOK (sessionStorage default + opt-in IDB). Commit `f8c1c32`; spec amendment A6; DECISIONS 15:30. Limitation: `SET s3_*` is connection-wide → one set of S3 credentials per session.
@@ -62,7 +62,7 @@ Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"
 - [x] **W2.1b** — Iceberg REST Catalog navigation (Bearer-only). New `'iceberg-catalog'` SourceKind + self-contained REST client. Commit `971d27c`; spec amendment A8; DECISIONS 16:30.
 - [ ] **W2.1c** — Iceberg OAuth2 device flow + AWS SigV4 (for Glue). **Deferred to v1.3** alongside multi-tenant enterprise work — the OAuth UX needs its own modal flow + token-refresh logic. See `plan/wave-2-design.md` "Deferred."
 - [x] **W2.3** — Custom-endpoint sidecar provider. New `'custom'` `SidecarProvider` (OpenAI-compatible — llamafile / vLLM / Ollama / LM Studio). The CSP `https:` rework in slice 1 made this contained. Commit `689ee8e`; spec amendment A9; DECISIONS 17:00.
-- [ ] **W2.4** — Sidecar eval harness ([sidecar-architecture.md](./sidecar-architecture.md) §"v1.2 — build the eval harness"). Held-out per-job evaluation set + Node runner that scores prompted-base vs. prompted+LoRA. HTML report under `eval/`. Foundation for v1.3 LoRA work. **Deferred** to a focused session — doesn't unblock anything user-visible.
+- [x] **W2.4** — Sidecar eval harness. `eval/` — deterministic rubric scoring of the three jobs, reuses the app's exported prompt builders + parsers, bundled for Node via esbuild (no new dep). Live + `--dry-run` modes; self-contained HTML report; scorer unit-tested in `tests/eval-score.test.ts`. Foundation for v1.3 LoRA base-vs-LoRA comparison. DECISIONS 21:30.
 - [x] **W2.5** — Spec amendments for the above. Five amendments landed (A5–A9) — see [`plan/spec-amendments.md`](./spec-amendments.md).
 - [ ] **W2.6** *(stretch)* — Map cell deck.gl pairing (for >10k-point rendering) if a real workload shows up during W2.
 
@@ -99,7 +99,7 @@ The themed sections below carry the historical detail. Cross-reference if needed
 | Wave | Themed sections | What's done | What's queued |
 | --- | --- | --- | --- |
 | Wave 1 | Pre-v1.0-tag gates ✅, Theme 4 ✅, Theme 1 wave 3 ✅, Wave 1 polish ✅, v1.0 review carryover ✅, v1.1.0 tag ✅, README v1.1 ✅, applyLoadedFile mutex ✅ | All in-scope items shipped + v1.1.0 tagged + post-tag mutex follow-up | **W1.4 mirror** + **W1.8 GH Pages deploy** (deploy unblocks mirror); W1.6 basemap stretch deferred |
-| Wave 2 | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | Slice 1 (URL + CSP) ✅, W2.2 (S3 endpoints) ✅, W2.1a/b (Iceberg table + REST catalog) ✅, W2.3 (custom-endpoint sidecar) ✅, W2.5 (spec amendments A5–A9) ✅ | **W2.4 eval harness** + W2.1c (OAuth2 + SigV4 — deferred to v1.3) |
+| Wave 2 ✅ | Theme 6 v1.2 precursors, AI sidecar custom-endpoint | ALL shipped: slice 1 (URL + CSP), W2.2 (S3), W2.1a/b (Iceberg table + REST catalog), W2.3 (custom sidecar), W2.4 (eval harness), W2.5 (amendments A5–A9) | W2.1c (Iceberg OAuth2 + SigV4) deferred to v1.3 |
 | Wave 3 | Theme 6 v1.3 (Compute Bridge), AI sidecar local-model + LoRA | none yet | Job 4 report rec, local model, bridge MVP, bridge-side sidecar |
 
 ---

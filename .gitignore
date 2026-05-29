@@ -15,3 +15,7 @@ public/duckdb-fallback/duckdb-browser-*.worker.js
 # as the pinned-version record; the binaries themselves aren't.
 public/duckdb-extensions/**/*.duckdb_extension.wasm
 test-results/
+# Eval harness: generated report + esbuild bundle cache (eval/.cache/ is
+# also covered by the .cache/ rule above, listed here for clarity).
+eval/report.html
+eval/.cache/

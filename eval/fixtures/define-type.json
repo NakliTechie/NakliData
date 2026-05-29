@@ -1,0 +1,126 @@
+{
+  "job": "define-type",
+  "_note": "Held-out cases for the define-new-type job. `recordedResponse` is a representative raw JSON model output used by --dry-run. Scoring checks category match + that the suggested regex compiles AND matches every sample. Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "employee-id",
+      "input": {
+        "columnName": "emp_id",
+        "sqlType": "VARCHAR",
+        "samples": ["E0001", "E0042", "E1337"]
+      },
+      "expected": { "category": "Identifier", "regexMatchesSamples": true, "idLike": "employee" },
+      "recordedResponse": "{\"id\":\"employee_id\",\"display_name\":\"Employee ID\",\"category\":\"Identifier\",\"regex\":\"^E[0-9]{4}$\"}"
+    },
+    {
+      "id": "isbn-13",
+      "input": {
+        "columnName": "isbn",
+        "sqlType": "VARCHAR",
+        "samples": ["9780131103627", "9781491950296", "9780596007126"]
+      },
+      "expected": { "category": "Code", "regexMatchesSamples": true, "idLike": "isbn" },
+      "recordedResponse": "{\"id\":\"isbn_13\",\"display_name\":\"ISBN-13\",\"category\":\"Code\",\"regex\":\"^97[89][0-9]{10}$\"}"
+    },
+    {
+      "id": "order-number",
+      "input": {
+        "columnName": "order_no",
+        "sqlType": "VARCHAR",
+        "samples": ["ORD-2026-0001", "ORD-2026-1842", "ORD-2025-9913"]
+      },
+      "expected": { "category": "Identifier", "regexMatchesSamples": true, "idLike": "order" },
+      "recordedResponse": "{\"id\":\"order_no\",\"display_name\":\"Order Number\",\"category\":\"Identifier\",\"regex\":\"^ORD-[0-9]{4}-[0-9]{4}$\"}"
+    },
+    {
+      "id": "indian-pincode",
+      "input": {
+        "columnName": "pin",
+        "sqlType": "VARCHAR",
+        "samples": ["560001", "110001", "400051"]
+      },
+      "expected": { "category": "Code", "regexMatchesSamples": true, "idLike": "pin" },
+      "recordedResponse": "{\"id\":\"pincode\",\"display_name\":\"PIN Code\",\"category\":\"Code\",\"regex\":\"^[1-9][0-9]{5}$\"}"
+    },
+    {
+      "id": "semver",
+      "input": {
+        "columnName": "version",
+        "sqlType": "VARCHAR",
+        "samples": ["1.0.0", "2.14.3", "0.1.0"]
+      },
+      "expected": { "category": "Code", "regexMatchesSamples": true, "idLike": "version" },
+      "recordedResponse": "{\"id\":\"semver\",\"display_name\":\"Semantic Version\",\"category\":\"Code\",\"regex\":\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"}"
+    },
+    {
+      "id": "mac-address",
+      "input": {
+        "columnName": "device_mac",
+        "sqlType": "VARCHAR",
+        "samples": ["00:1A:2B:3C:4D:5E", "AA:BB:CC:DD:EE:FF"]
+      },
+      "expected": { "category": "Identifier", "regexMatchesSamples": true, "idLike": "mac" },
+      "recordedResponse": "{\"id\":\"mac_address\",\"display_name\":\"MAC Address\",\"category\":\"Identifier\",\"regex\":\"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$\"}"
+    },
+    {
+      "id": "currency-pair",
+      "input": {
+        "columnName": "pair",
+        "sqlType": "VARCHAR",
+        "samples": ["USD/INR", "EUR/USD", "GBP/JPY"]
+      },
+      "expected": { "category": "Code", "regexMatchesSamples": true, "idLike": "currency" },
+      "recordedResponse": "{\"id\":\"currency_pair\",\"display_name\":\"Currency Pair\",\"category\":\"Code\",\"regex\":\"^[A-Z]{3}/[A-Z]{3}$\"}"
+    },
+    {
+      "id": "phone-e164",
+      "input": {
+        "columnName": "mobile",
+        "sqlType": "VARCHAR",
+        "samples": ["+919812345678", "+14155552671", "+442071838750"]
+      },
+      "expected": { "category": "Phone", "regexMatchesSamples": true, "idLike": "phone" },
+      "recordedResponse": "{\"id\":\"phone_e164\",\"display_name\":\"Phone (E.164)\",\"category\":\"Phone\",\"regex\":\"^\\\\+[1-9][0-9]{6,14}$\"}"
+    },
+    {
+      "id": "git-short-sha",
+      "input": {
+        "columnName": "commit",
+        "sqlType": "VARCHAR",
+        "samples": ["e9182a7", "bc78d4a", "983827f"]
+      },
+      "expected": { "category": "Identifier", "regexMatchesSamples": true, "idLike": "sha" },
+      "recordedResponse": "{\"id\":\"git_short_sha\",\"display_name\":\"Git Short SHA\",\"category\":\"Identifier\",\"regex\":\"^[0-9a-f]{7}$\"}"
+    },
+    {
+      "id": "percentage-string",
+      "input": {
+        "columnName": "rate",
+        "sqlType": "VARCHAR",
+        "samples": ["18%", "5%", "12.5%"]
+      },
+      "expected": { "category": "Code", "regexMatchesSamples": true, "idLike": "percent" },
+      "recordedResponse": "{\"id\":\"percentage\",\"display_name\":\"Percentage\",\"category\":\"Code\",\"regex\":\"^[0-9]+(\\\\.[0-9]+)?%$\"}"
+    },
+    {
+      "id": "sku-code",
+      "input": {
+        "columnName": "sku",
+        "sqlType": "VARCHAR",
+        "samples": ["SKU-AB-1234", "SKU-CD-5678", "SKU-EF-9012"]
+      },
+      "expected": { "category": "Identifier", "regexMatchesSamples": true, "idLike": "sku" },
+      "recordedResponse": "{\"id\":\"sku\",\"display_name\":\"SKU\",\"category\":\"Identifier\",\"regex\":\"^SKU-[A-Z]{2}-[0-9]{4}$\"}"
+    },
+    {
+      "id": "email-address",
+      "input": {
+        "columnName": "user_email",
+        "sqlType": "VARCHAR",
+        "samples": ["a@b.com", "c@d.org"]
+      },
+      "expected": { "category": "Email", "regexMatchesSamples": true, "idLike": "email" },
+      "recordedResponse": "{\"id\":\"email_addr\",\"display_name\":\"Email Address\",\"category\":\"Email\",\"regex\":\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"}"
+    }
+  ]
+}

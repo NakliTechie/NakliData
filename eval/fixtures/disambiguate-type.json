@@ -1,0 +1,174 @@
+{
+  "job": "disambiguate-type",
+  "_note": "Held-out cases for the type-disambiguation job. `recordedResponse` is a representative raw model output (a single token) used by --dry-run; a couple are deliberately wrong to exercise the FAIL path. Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "gstin-vs-pan",
+      "input": {
+        "columnName": "tax_id",
+        "sqlType": "VARCHAR",
+        "samples": ["27AAPFU0939F1ZV", "29AAGCB7383J1Z4", "07AABCU9603R1ZP"],
+        "candidates": [
+          { "typeId": "gstin", "displayName": "GSTIN" },
+          { "typeId": "pan", "displayName": "PAN" }
+        ]
+      },
+      "expected": { "typeId": "gstin" },
+      "recordedResponse": "gstin"
+    },
+    {
+      "id": "datetime-vs-date",
+      "input": {
+        "columnName": "event_ts",
+        "sqlType": "VARCHAR",
+        "samples": ["2026-05-24T11:50:00Z", "2026-05-23T09:14:22Z"],
+        "candidates": [
+          { "typeId": "iso_datetime", "displayName": "ISO datetime" },
+          { "typeId": "iso_date", "displayName": "ISO date" }
+        ]
+      },
+      "expected": { "typeId": "iso_datetime" },
+      "recordedResponse": "iso_datetime"
+    },
+    {
+      "id": "email-vs-vendor-name",
+      "input": {
+        "columnName": "contact",
+        "sqlType": "VARCHAR",
+        "samples": ["ravi@sharma-trading.co.in", "accounts@gupta-textiles.com"],
+        "candidates": [
+          { "typeId": "email", "displayName": "Email" },
+          { "typeId": "vendor_name", "displayName": "Vendor name" }
+        ]
+      },
+      "expected": { "typeId": "email" },
+      "recordedResponse": "email"
+    },
+    {
+      "id": "http-status-vs-amount",
+      "input": {
+        "columnName": "code",
+        "sqlType": "BIGINT",
+        "samples": ["200", "404", "500", "301"],
+        "candidates": [
+          { "typeId": "http_status", "displayName": "HTTP status" },
+          { "typeId": "amount", "displayName": "Amount" }
+        ]
+      },
+      "expected": { "typeId": "http_status" },
+      "recordedResponse": "http_status"
+    },
+    {
+      "id": "uuid-vs-request-id",
+      "input": {
+        "columnName": "trace",
+        "sqlType": "VARCHAR",
+        "samples": ["550e8400-e29b-41d4-a716-446655440000", "f47ac10b-58cc-4372-a567-0e02b2c3d479"],
+        "candidates": [
+          { "typeId": "uuid", "displayName": "UUID" },
+          { "typeId": "request_id", "displayName": "Request ID" }
+        ]
+      },
+      "expected": { "typeId": "uuid" },
+      "recordedResponse": "uuid"
+    },
+    {
+      "id": "ifsc-vs-gst-state-code",
+      "input": {
+        "columnName": "branch",
+        "sqlType": "VARCHAR",
+        "samples": ["HDFC0001234", "SBIN0005678", "ICIC0009012"],
+        "candidates": [
+          { "typeId": "ifsc", "displayName": "IFSC" },
+          { "typeId": "gst_state_code", "displayName": "GST state code" }
+        ]
+      },
+      "expected": { "typeId": "ifsc" },
+      "recordedResponse": "ifsc"
+    },
+    {
+      "id": "country-code-vs-state-code",
+      "input": {
+        "columnName": "region",
+        "sqlType": "VARCHAR",
+        "samples": ["IN", "US", "GB", "SG"],
+        "candidates": [
+          { "typeId": "iso_country_code", "displayName": "ISO country code" },
+          { "typeId": "gst_state_code", "displayName": "GST state code" }
+        ]
+      },
+      "expected": { "typeId": "iso_country_code" },
+      "recordedResponse": "iso_country_code"
+    },
+    {
+      "id": "pan-vs-cin",
+      "input": {
+        "columnName": "company_ref",
+        "sqlType": "VARCHAR",
+        "samples": ["AAPFU0939F", "AAGCB7383J"],
+        "candidates": [
+          { "typeId": "pan", "displayName": "PAN" },
+          { "typeId": "cin", "displayName": "CIN" }
+        ]
+      },
+      "expected": { "typeId": "pan" },
+      "recordedResponse": "pan"
+    },
+    {
+      "id": "ambiguous-gibberish-unknown",
+      "input": {
+        "columnName": "misc",
+        "sqlType": "VARCHAR",
+        "samples": ["x12", "qq", "—", "n/a"],
+        "candidates": [
+          { "typeId": "vendor_name", "displayName": "Vendor name" },
+          { "typeId": "payment_mode", "displayName": "Payment mode" }
+        ]
+      },
+      "expected": { "typeId": null },
+      "recordedResponse": "unknown"
+    },
+    {
+      "id": "amount-vs-duration-ms",
+      "input": {
+        "columnName": "latency_ms",
+        "sqlType": "BIGINT",
+        "samples": ["12", "248", "1503", "37"],
+        "candidates": [
+          { "typeId": "duration_ms", "displayName": "Duration (ms)" },
+          { "typeId": "amount", "displayName": "Amount" }
+        ]
+      },
+      "expected": { "typeId": "duration_ms" },
+      "recordedResponse": "duration_ms"
+    },
+    {
+      "id": "log-level-vs-service",
+      "input": {
+        "columnName": "lvl",
+        "sqlType": "VARCHAR",
+        "samples": ["INFO", "WARN", "ERROR", "DEBUG"],
+        "candidates": [
+          { "typeId": "log_level", "displayName": "Log level" },
+          { "typeId": "service_name", "displayName": "Service name" }
+        ]
+      },
+      "expected": { "typeId": "log_level" },
+      "recordedResponse": "log_level"
+    },
+    {
+      "id": "payment-mode-vs-vendor-name",
+      "input": {
+        "columnName": "method",
+        "sqlType": "VARCHAR",
+        "samples": ["NEFT", "RTGS", "UPI", "IMPS"],
+        "candidates": [
+          { "typeId": "payment_mode", "displayName": "Payment mode" },
+          { "typeId": "vendor_name", "displayName": "Vendor name" }
+        ]
+      },
+      "expected": { "typeId": "payment_mode" },
+      "recordedResponse": "payment_mode"
+    }
+  ]
+}

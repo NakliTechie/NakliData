@@ -1,0 +1,115 @@
+{
+  "job": "explain-error",
+  "_note": "Held-out cases for the explain-query-error job. `recordedResponse` is a representative raw JSON model output used by --dry-run. Scoring = keyword coverage in the explanation (>=50% to pass) + suggested-fix check. Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "typo-table-name",
+      "input": {
+        "sql": "SELECT * FROM vendrs",
+        "errorMessage": "Catalog Error: Table with name vendrs does not exist! Did you mean \"vendors\"?",
+        "schemaHint": "vendors(vendor_id, vendor_name, gstin)"
+      },
+      "expected": { "keywords": ["vendrs", "vendors", "typo"], "suggestedFixContains": "vendors" },
+      "recordedResponse": "{\"explanation\":\"The table 'vendrs' doesn't exist — that looks like a typo for 'vendors'.\",\"suggested_fix\":\"SELECT * FROM vendors\"}"
+    },
+    {
+      "id": "typo-column-name",
+      "input": {
+        "sql": "SELECT vendor_nam FROM vendors",
+        "errorMessage": "Binder Error: Referenced column \"vendor_nam\" not found in FROM clause! Candidate bindings: \"vendor_name\"",
+        "schemaHint": "vendors(vendor_id, vendor_name, gstin)"
+      },
+      "expected": {
+        "keywords": ["vendor_nam", "vendor_name", "column"],
+        "suggestedFixContains": "vendor_name"
+      },
+      "recordedResponse": "{\"explanation\":\"The column 'vendor_nam' isn't in the vendors table; you likely meant the 'vendor_name' column.\",\"suggested_fix\":\"SELECT vendor_name FROM vendors\"}"
+    },
+    {
+      "id": "missing-group-by",
+      "input": {
+        "sql": "SELECT gstin, SUM(amount) FROM invoices",
+        "errorMessage": "Binder Error: column \"gstin\" must appear in the GROUP BY clause or must be part of an aggregate function.",
+        "schemaHint": "invoices(gstin, amount)"
+      },
+      "expected": { "keywords": ["group by", "aggregate"], "suggestedFixContains": "GROUP BY" },
+      "recordedResponse": "{\"explanation\":\"When you mix a plain column with an aggregate like SUM, the plain column has to appear in a GROUP BY clause.\",\"suggested_fix\":\"SELECT gstin, SUM(amount) FROM invoices GROUP BY gstin\"}"
+    },
+    {
+      "id": "unknown-function",
+      "input": {
+        "sql": "SELECT DATEDIF(day, a, b) FROM t",
+        "errorMessage": "Catalog Error: Scalar Function with name datedif does not exist! Did you mean \"date_diff\"?",
+        "schemaHint": "t(a, b)"
+      },
+      "expected": {
+        "keywords": ["datedif", "date_diff", "function"],
+        "suggestedFixContains": "date_diff"
+      },
+      "recordedResponse": "{\"explanation\":\"DuckDB has no function called DATEDIF; the correct name is date_diff.\",\"suggested_fix\":\"SELECT date_diff('day', a, b) FROM t\"}"
+    },
+    {
+      "id": "type-mismatch-cast",
+      "input": {
+        "sql": "SELECT amount + ' ' FROM invoices",
+        "errorMessage": "Binder Error: Could not choose a best candidate function for the function call \"+(DECIMAL, VARCHAR)\".",
+        "schemaHint": "invoices(amount DECIMAL)"
+      },
+      "expected": { "keywords": ["number", "text", "cast"], "suggestedFixContains": null },
+      "recordedResponse": "{\"explanation\":\"You're trying to add a number and a text value, which DuckDB can't do without an explicit cast.\",\"suggested_fix\":null}"
+    },
+    {
+      "id": "ambiguous-column",
+      "input": {
+        "sql": "SELECT gstin FROM vendors JOIN invoices USING (vendor_id)",
+        "errorMessage": "Binder Error: Ambiguous reference to column name \"gstin\" (use: \"vendors.gstin\" or \"invoices.gstin\")",
+        "schemaHint": "vendors(vendor_id, gstin), invoices(vendor_id, gstin)"
+      },
+      "expected": {
+        "keywords": ["ambiguous", "gstin", "qualify"],
+        "suggestedFixContains": "vendors.gstin"
+      },
+      "recordedResponse": "{\"explanation\":\"Both joined tables have a 'gstin' column, so the reference is ambiguous — qualify it with the table name.\",\"suggested_fix\":\"SELECT vendors.gstin FROM vendors JOIN invoices USING (vendor_id)\"}"
+    },
+    {
+      "id": "syntax-trailing-comma",
+      "input": {
+        "sql": "SELECT vendor_id, vendor_name, FROM vendors",
+        "errorMessage": "Parser Error: syntax error at or near \"FROM\"",
+        "schemaHint": "vendors(vendor_id, vendor_name)"
+      },
+      "expected": { "keywords": ["comma", "syntax"], "suggestedFixContains": "FROM vendors" },
+      "recordedResponse": "{\"explanation\":\"There's a trailing comma after 'vendor_name' before the FROM keyword — remove it.\",\"suggested_fix\":\"SELECT vendor_id, vendor_name FROM vendors\"}"
+    },
+    {
+      "id": "division-by-zero",
+      "input": {
+        "sql": "SELECT total / qty FROM line_items",
+        "errorMessage": "Out of Range Error: Division by zero!",
+        "schemaHint": "line_items(total, qty)"
+      },
+      "expected": { "keywords": ["division", "zero", "qty"], "suggestedFixContains": "NULLIF" },
+      "recordedResponse": "{\"explanation\":\"Some rows have qty = 0, and dividing by zero errors out. Guard the denominator with NULLIF.\",\"suggested_fix\":\"SELECT total / NULLIF(qty, 0) FROM line_items\"}"
+    },
+    {
+      "id": "no-fix-needs-context",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE status = 'shippd'",
+        "errorMessage": "",
+        "schemaHint": "orders(id, status)"
+      },
+      "expected": { "keywords": ["status", "value"], "suggestedFixContains": null },
+      "recordedResponse": "{\"explanation\":\"The query is valid SQL; if it returns no rows, 'shippd' may be a typo for a status value like 'shipped' — but I can't be sure without seeing the distinct status values.\",\"suggested_fix\":null}"
+    },
+    {
+      "id": "missing-order-by",
+      "input": {
+        "sql": "SELECT * FROM payments WHERE amount > 1000 ORDER amount",
+        "errorMessage": "Parser Error: syntax error at or near \"amount\"",
+        "schemaHint": "payments(id, amount)"
+      },
+      "expected": { "keywords": ["order by", "missing", "by"], "suggestedFixContains": "ORDER BY" },
+      "recordedResponse": "{\"explanation\":\"The ORDER clause is missing its 'BY' keyword — it should read ORDER BY amount.\",\"suggested_fix\":\"SELECT * FROM payments WHERE amount > 1000 ORDER BY amount\"}"
+    }
+  ]
+}
