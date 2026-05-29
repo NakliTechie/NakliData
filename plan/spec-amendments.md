@@ -294,8 +294,8 @@ for LoRA specialization. Shipping it now (prompted base model) gives the
 eval harness (W2.4) a fourth job to score, so the v1.3 base-vs-LoRA
 comparison covers it from day one.
 
-**Status:** Shipped 2026-05-24 (commit on `main`). Job runs against any
-configured provider (anthropic / openai / custom). DECISIONS 2026-05-24
+**Status:** Shipped 2026-05-29 (commit on `main`). Job runs against any
+configured provider (anthropic / openai / custom). DECISIONS 2026-05-29
 22:00.
 
 ---
@@ -313,7 +313,7 @@ configured provider (anthropic / openai / custom). DECISIONS 2026-05-24
 
 **Why the divergence:** silent fallback to a paid cloud API the moment a local model isn't ready would surprise a privacy-motivated user and leak schema context they expected to keep local. Explicit-and-actionable beats silent-and-surprising. A future opt-in "auto-fallback" toggle could be added if users ask, but off-by-default.
 
-**Status:** Slice A (the seam: provider union + dispatch routing + registry + settings persistence + tests) shipped 2026-05-24. The Settings toggle + the actual Transformers.js chunk + model inference are **slice B, deferred** — they need a real browser + WebGPU to verify (the headless smoke test can't exercise them). See DECISIONS 2026-05-24 22:30.
+**Status:** Slice A (the seam: provider union + dispatch routing + registry + settings persistence + tests) shipped 2026-05-29. The Settings toggle + the actual Transformers.js chunk + model inference are **slice B, deferred** — they need a real browser + WebGPU to verify (the headless smoke test can't exercise them). See DECISIONS 2026-05-29 22:30.
 
 ---
 

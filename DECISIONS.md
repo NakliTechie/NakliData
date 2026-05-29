@@ -2,7 +2,7 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
-## 2026-05-24 22:30 — W3.2 slice A: local-model sidecar seam (in-browser model deferred to slice B)
+## 2026-05-29 22:30 — W3.2 slice A: local-model sidecar seam (in-browser model deferred to slice B)
 **Context:** W3.2 is the local-model path — an in-browser model so the sidecar can run without a cloud API key. The full thing (Transformers.js + a ~150 MB Phi-3-mini-class ONNX model) is a genuinely-required new runtime dep + can't be exercised by the headless smoke test (needs a real browser + WebGPU/wasm + a big download). Per CLAUDE.md, a new runtime dep is a deliberate-decision case. Sliced: build the verifiable seam now; add the dep + real inference in a follow-up session with manual browser verification.
 
 **Decisions:**
@@ -22,7 +22,7 @@ Append-only. Format per AGENTHANDOFF §5.
 
 ---
 
-## 2026-05-24 22:00 — W3.1: Job 4 (report-template recommendation) — Wave 3 opener
+## 2026-05-29 22:00 — W3.1: Job 4 (report-template recommendation) — Wave 3 opener
 **Context:** First Wave 3 item. `sidecar-architecture.md` earmarked report-template recommendation as the user-visible sidecar win that fits inside the anti-narration boundary (structured output: template-ids + scores). Closes the v1.3-LoRA-prep loop: the eval harness (W2.4) now has a 4th job to score.
 
 **Decisions:**
@@ -44,7 +44,7 @@ Append-only. Format per AGENTHANDOFF §5.
 
 ---
 
-## 2026-05-24 21:30 — W2.4: sidecar eval harness (closes Wave 2)
+## 2026-05-29 21:30 — W2.4: sidecar eval harness (closes Wave 2)
 **Context:** The last Wave 2 item. Per `sidecar-architecture.md` §"v1.2 — build the eval harness": a held-out per-job evaluation set + a runner that scores prompted-base vs prompted+LoRA on the same set, foundation for the v1.3 LoRA work. Constraint: no new runtime dependency in the main app; lives under `eval/`.
 
 **Decisions:**
