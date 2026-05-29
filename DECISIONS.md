@@ -2,6 +2,26 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 22:30 — W3.2 slice A: local-model sidecar seam (in-browser model deferred to slice B)
+**Context:** W3.2 is the local-model path — an in-browser model so the sidecar can run without a cloud API key. The full thing (Transformers.js + a ~150 MB Phi-3-mini-class ONNX model) is a genuinely-required new runtime dep + can't be exercised by the headless smoke test (needs a real browser + WebGPU/wasm + a big download). Per CLAUDE.md, a new runtime dep is a deliberate-decision case. Sliced: build the verifiable seam now; add the dep + real inference in a follow-up session with manual browser verification.
+
+**Decisions:**
+
+- **(a) Library: `@huggingface/transformers`** (the maintained official successor to `@xenova/transformers`). Chosen for active maintenance, WebGPU + wasm backends, ONNX models, and built-in model-weight caching via the browser Cache API. **Not added as a dependency yet** — it lands with slice B, shipped exclusively as a lazy chunk (`src/lazy/local-model.ts`) so it never touches the 600 KB shell (same pattern as maplibre / cytoscape).
+- **(b) `'local'` is a new `SidecarProvider`, not a transport flag.** It slots into the existing provider union + dispatch. `dispatchJob` skips the API-key requirement for `'local'` and routes to a registered local generator.
+- **(c) A registry seam (`src/core/sidecar/local-runtime.ts`) decouples the dispatch layer from the chunk.** The lazy chunk calls `registerLocalGenerator(fn)` once the model is loaded; `dispatchJob`'s `'local'` branch reads `getLocalGenerator()`. Until the chunk registers, the generator is null.
+- **(d) Privacy-first: NO silent fallback to a cloud provider.** `pending.md` said "fallback to BYOK when not downloaded," but silently shipping the user's schema to OpenAI/Anthropic when they picked `'local'` (a "my data stays in the tab" choice) violates that expectation. Instead, an unloaded local model throws an actionable `'no-provider'` error ("Download it under Settings, or switch to a cloud provider"). The user's one-click provider switch IS the fallback — explicit, not silent. **Divergence from pending.md wording, logged here + in spec amendment A11.**
+- **(e) Settings persistence accepts `'local'` now; the Settings RADIO is gated to slice B.** Exposing a `'local'` toggle that always errors "not loaded" (no chunk yet) is poor UX. The provider type + persistence + dispatch + tests are in place; the user-facing toggle appears when the model actually works. A hand-saved `'local'` setting round-trips today and degrades gracefully (jobs surface the not-loaded error via toast).
+- **(f) Reuse the `sidecarModel` field for the local model id** (an HF ONNX repo) rather than a new setting — the field already means "the active provider's model."
+
+**Tests:** 5 new vitest specs in `tests/sidecar-local.test.ts` (registry ready-state; `'local'` routes to the stub generator with no key; unloaded → `'no-provider'`; `'local'` never demands a key while cloud providers do; recommend-reports routes through local too). 263 vitest total. tsc + biome clean (incl. eval/). Smoke + e2e green. Bundle unchanged (no new code in the shell path — seam is logic-only).
+
+**Reversibility:** Easy. Drop `local-runtime.ts` + the `'local'` arm of the provider union + the dispatch branch + the settings-normalize line. No persistence migration needed (unknown providers already fall back to the default on load).
+
+**Slice B (deferred, needs a real browser):** add `@huggingface/transformers`; `src/lazy/local-model.ts` loads a Phi-3-mini-class 4-bit ONNX model (WebGPU, wasm fallback), generates chat completions, registers via `registerLocalGenerator`; weights cached via the Cache API; Settings gains the `'local'` radio + a download-progress UI. CANNOT be smoke-tested headless — manual browser verification required before relying on it.
+
+---
+
 ## 2026-05-24 22:00 — W3.1: Job 4 (report-template recommendation) — Wave 3 opener
 **Context:** First Wave 3 item. `sidecar-architecture.md` earmarked report-template recommendation as the user-visible sidecar win that fits inside the anti-narration boundary (structured output: template-ids + scores). Closes the v1.3-LoRA-prep loop: the eval harness (W2.4) now has a 4th job to score.
 

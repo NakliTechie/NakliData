@@ -11,7 +11,7 @@
 //   - no auto-execute of generated SQL (we only EXPLAIN; we never RUN)
 //   - BYOK keys per spec amendment A2 (sessionStorage default, opt-in IDB)
 
-export type SidecarProvider = 'anthropic' | 'openai' | 'custom';
+export type SidecarProvider = 'anthropic' | 'openai' | 'custom' | 'local';
 
 export interface SidecarProviderConfig {
   provider: SidecarProvider;
@@ -27,6 +27,10 @@ export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderCon
   // The 'custom' default has no usable model + endpoint until the user
   // configures one in Settings — the UI surfaces that as a required step.
   custom: { provider: 'custom', model: '', endpointUrl: '' },
+  // 'local' runs an in-browser model (Transformers.js). No API key. The
+  // model id is an HF ONNX repo; default left blank until slice B picks
+  // the shipping model.
+  local: { provider: 'local', model: '' },
 };
 
 /** A sidecar job is a tagged input asking the model to do one specific thing. */

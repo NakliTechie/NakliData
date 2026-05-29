@@ -64,7 +64,10 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
   if (
     s.sidecarProvider === 'anthropic' ||
     s.sidecarProvider === 'openai' ||
-    s.sidecarProvider === 'custom'
+    s.sidecarProvider === 'custom' ||
+    // 'local' (in-browser model) is persistence-valid now so a saved
+    // choice round-trips once W3.2 slice B exposes the Settings toggle.
+    s.sidecarProvider === 'local'
   ) {
     out.sidecarProvider = s.sidecarProvider;
   }

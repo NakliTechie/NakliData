@@ -6,6 +6,7 @@
 // unit tests don't need real API access.
 
 import { loadKey } from './byok.ts';
+import { getLocalGenerator } from './local-runtime.ts';
 import { callAnthropic } from './providers/anthropic.ts';
 import { callCustomOpenAI } from './providers/custom-openai.ts';
 import { callOpenAI } from './providers/openai.ts';
@@ -70,6 +71,24 @@ const defaultTransport: SidecarTransport = (req) => {
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
+  if (req.provider === 'local') {
+    const generate = getLocalGenerator();
+    if (!generate) {
+      // Privacy-first: do NOT silently fall back to a cloud provider —
+      // picking 'local' is a "my data stays in the tab" choice. Surface
+      // an actionable error instead. (DECISIONS 2026-05-24 22:30.)
+      throw new SidecarError(
+        'Local model is not loaded yet. Download it under Settings → AI sidecar, or switch to a cloud provider.',
+        'no-provider',
+      );
+    }
+    return generate({
+      model: req.model,
+      system: req.system,
+      user: req.user,
+      ...(req.signal ? { signal: req.signal } : {}),
+    });
+  }
   return callOpenAI({
     apiKey: req.apiKey,
     model: req.model,
@@ -83,12 +102,18 @@ export async function dispatchJob(
   job: SidecarJob,
   opts: SidecarDispatchOpts,
 ): Promise<SidecarResponse> {
-  const key = await loadKey(opts.provider);
-  if (!key) {
-    throw new SidecarError(
-      `No API key configured for ${opts.provider}. Open Settings to add one.`,
-      'no-key',
-    );
+  // The 'local' provider runs in-browser — no API key. Every other
+  // provider requires a BYOK key before we'll build a prompt.
+  let key = '';
+  if (opts.provider !== 'local') {
+    const loaded = await loadKey(opts.provider);
+    if (!loaded) {
+      throw new SidecarError(
+        `No API key configured for ${opts.provider}. Open Settings to add one.`,
+        'no-key',
+      );
+    }
+    key = loaded;
   }
   const transport = opts.transport ?? defaultTransport;
   if (job.kind === 'explain-error') {

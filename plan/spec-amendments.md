@@ -300,6 +300,23 @@ configured provider (anthropic / openai / custom). DECISIONS 2026-05-24
 
 ---
 
+## A11 — Local-model sidecar provider (Wave 3 / W3.2) (amends spec §4.3 + §4.3a)
+
+**Original §4.3a (paraphrased, from sidecar-architecture.md):**
+> A v1.2+ enhancement may ship a local model (Transformers.js + Phi-3-mini-class, OPFS-cached). Opt-in via Settings; fallback to BYOK when not downloaded.
+
+**Amended:**
+
+> **A `'local'` sidecar provider runs an in-browser model — no API key, no network egress for inference.** It joins `anthropic` / `openai` / `custom` in the provider union. `dispatchJob` skips the API-key requirement for `'local'` and routes to a generator the local-model lazy chunk registers at runtime (`src/core/sidecar/local-runtime.ts`). The chunk (Transformers.js + a Phi-3-mini-class 4-bit ONNX model) ships only as a lazy chunk and is cached after first download.
+>
+> **"Fallback to BYOK when not downloaded" is reframed as EXPLICIT, not silent.** When the local model isn't loaded, a sidecar job surfaces an actionable error ("Download it under Settings, or switch to a cloud provider") rather than silently sending the user's schema to a cloud provider. Picking `'local'` is a privacy choice ("my data stays in the tab"); honoring it means never quietly overriding it. The one-click provider switch is the fallback.
+
+**Why the divergence:** silent fallback to a paid cloud API the moment a local model isn't ready would surprise a privacy-motivated user and leak schema context they expected to keep local. Explicit-and-actionable beats silent-and-surprising. A future opt-in "auto-fallback" toggle could be added if users ask, but off-by-default.
+
+**Status:** Slice A (the seam: provider union + dispatch routing + registry + settings persistence + tests) shipped 2026-05-24. The Settings toggle + the actual Transformers.js chunk + model inference are **slice B, deferred** — they need a real browser + WebGPU to verify (the headless smoke test can't exercise them). See DECISIONS 2026-05-24 22:30.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.
