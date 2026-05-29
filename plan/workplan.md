@@ -31,22 +31,39 @@ Next Wave 3 work is the bigger multi-week arc below (Chunk 2).
 
 ---
 
-## Chunk 3 — Wave 3 strategic prep (week-scale)
+## Chunk 2 — Wave 3 next coding steps (NakliData-repo, mockable)
 
-The Compute Bridge MVP is multi-week — not for a single sitting. But
-two opening moves are tractable:
+The two pieces that are real NakliData work + verifiable here (the
+multi-week external pieces — the real local model, the bridge binary —
+are in "Unbatched / separate-repo" below):
 
-- **W3.2** — Local-model path. Transformers.js + Phi-3-mini-class at
-  4-bit (~150 MB OPFS-cached). Opt-in via Settings; fallback to
-  BYOK when not downloaded. New sidecar transport in
-  `src/core/sidecar/`.
-- **W3.3** — Compute Bridge MVP project scaffolding. Sibling OSS
-  repo (target name `NakliTechie/nakli-compute` — but worth a
-  rename pass given the launcher positioning is dropped). Single
-  binary + Docker image, Arrow Flight + HTTP wire protocol, Bearer-
-  token auth.
+- **W3.4a — `compute-bridge` source kind.** Per the now-landed
+  [`compute-bridge-protocol.md`](./compute-bridge-protocol.md):
+  `src/core/bridge/bridge-client.ts` (health / listTables /
+  query→Arrow IPC, injected fetchImpl, mock-tested like the Iceberg
+  REST client) + a `'compute-bridge'` SourceKind + mount flow + Bearer
+  via source-secrets + graceful "unreachable → Reconnect" fallback +
+  `.naklidata` round-trip. Results ingest via the existing
+  `registerArrow` path. Half–full day. Builds against a mock; real
+  end-to-end waits for the binary.
+- **Chunk 4 maintenance items** (below) are good interleave fillers.
 
-Prerequisite for both: Wave 2 closed (so W2.4 ships first).
+---
+
+## Separate-repo / real-browser work (not this repo, or not headless-verifiable)
+
+- **W3.2 slice B — real local inference.** Add `@huggingface/transformers`;
+  `src/lazy/local-model.ts` loads a Phi-3-mini-class 4-bit ONNX model
+  (WebGPU + wasm fallback) + registers the generator; Cache-API
+  weights; Settings `'local'` radio + download UI. **Needs a real
+  browser + WebGPU — can't be smoke-tested headless.** Dedicated
+  session with manual verification. Seam (slice A) already shipped.
+- **W3.3 — the bridge binary.** Separate OSS repo (Rust single binary +
+  Docker; HTTP + Arrow IPC + Flight; Bearer auth; DuckDB engine).
+  Multi-week; cannot be built from the NakliData repo. The wire
+  contract (`compute-bridge-protocol.md`) unblocks it. Confirm
+  naming (rethink `nakli-compute` given independent-product
+  positioning) + license (Apache 2.0 lean) at repo creation.
 
 ---
 
