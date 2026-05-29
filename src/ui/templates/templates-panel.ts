@@ -15,10 +15,22 @@ import {
 export interface TemplatePanelState {
   sources: Array<{ tables: Array<{ id: string; name: string }> }>;
   assignments: Record<string, ColumnAssignment>;
+  /** When true, the "Ask sidecar to rank" affordance is shown (Job 4). */
+  sidecarEnabled?: boolean;
+  /** Sidecar ranking: templateId → score (0..1). When present, cards sort by it. */
+  ranking?: Record<string, number>;
+}
+
+export interface RankCandidate {
+  templateId: string;
+  name: string;
+  description: string;
 }
 
 export interface TemplatePanelHandlers {
   onInstantiate: (cells: CellState[], templateId: string) => void;
+  /** Job 4 — ask the sidecar to rank the applicable templates by fit. */
+  onRank?: (candidates: RankCandidate[], typeSummary: string) => void;
 }
 
 let _idSeq = 1;
@@ -44,15 +56,78 @@ export function renderTemplatePanel(
     return;
   }
 
-  for (const { template, matched } of applicable) {
-    region.append(renderTemplateCard(template, matched, handlers));
+  // Job 4 — when the sidecar has ranked the templates, sort by score
+  // (highest first); unranked templates fall to the end in their
+  // original order.
+  const ranking = state.ranking;
+  const ordered = [...applicable];
+  if (ranking) {
+    ordered.sort((a, b) => {
+      const sa = ranking[a.template.id];
+      const sb = ranking[b.template.id];
+      if (sa === undefined && sb === undefined) return 0;
+      if (sa === undefined) return 1;
+      if (sb === undefined) return -1;
+      return sb - sa;
+    });
   }
+
+  // "Ask sidecar to rank" affordance — only when the sidecar is enabled,
+  // a rank handler is wired, and there are at least two templates to
+  // order. Structured output only (template-ids + scores); no prose.
+  if (state.sidecarEnabled && handlers.onRank && applicable.length >= 2) {
+    const bar = document.createElement('div');
+    bar.className = 'templates-rank-bar';
+    bar.innerHTML = `
+      <button class="btn btn-ghost" data-action="rank-reports" style="font-size:11px;padding:3px 8px;">
+        ${iconSvg('chart', 12)} Ask sidecar to rank
+      </button>`;
+    bar.querySelector('[data-action="rank-reports"]')?.addEventListener('click', () => {
+      const candidates: RankCandidate[] = applicable.map(({ template }) => ({
+        templateId: template.id,
+        name: template.name,
+        description: template.description,
+      }));
+      handlers.onRank?.(candidates, buildTypeSummary(state));
+    });
+    region.append(bar);
+  }
+
+  for (const { template, matched } of ordered) {
+    const score = ranking ? ranking[template.id] : undefined;
+    region.append(renderTemplateCard(template, matched, handlers, score));
+  }
+}
+
+/**
+ * Compact, row-data-free summary of the workbook's assigned column
+ * types, grouped by table: "invoices: gstin, amount; payments: amount".
+ * Shipped to the sidecar as Job 4 context.
+ */
+function buildTypeSummary(state: TemplatePanelState): string {
+  const tableNameById: Record<string, string> = {};
+  for (const s of state.sources) for (const t of s.tables) tableNameById[t.id] = t.name;
+  const byTable = new Map<string, string[]>();
+  for (const [key, a] of Object.entries(state.assignments)) {
+    if (!a.assigned.typeId) continue;
+    const [, tableId] = key.split('::');
+    const tableName = tableId ? tableNameById[tableId] : undefined;
+    if (!tableName) continue;
+    const list = byTable.get(tableName) ?? [];
+    if (!list.includes(a.assigned.typeId)) list.push(a.assigned.typeId);
+    byTable.set(tableName, list);
+  }
+  return (
+    [...byTable.entries()].map(([table, types]) => `${table}: ${types.join(', ')}`).join('; ') ||
+    '(no recognized column types yet)'
+  );
 }
 
 function renderTemplateCard(
   template: Template,
   matched: Record<string, ColumnRef | undefined>,
   handlers: TemplatePanelHandlers,
+  score?: number,
 ): HTMLElement {
   const el = document.createElement('div');
   el.className = 'template-card';
@@ -60,9 +135,13 @@ function renderTemplateCard(
     .filter(([, v]) => v)
     .map(([typeId, ref]) => `${ref!.table}.${ref!.column} → ${typeId}`)
     .join('<br/>');
+  const badge =
+    score !== undefined
+      ? `<span class="template-score" title="Sidecar fit score">${Math.round(score * 100)}%</span>`
+      : '';
   el.innerHTML = `
     <div class="template-head">
-      <strong>${escapeHtml(template.name)}</strong>
+      <strong>${badge}${escapeHtml(template.name)}</strong>
       <button class="btn btn-primary" data-action="instantiate" style="font-size:11px;padding:2px 8px;">${iconSvg('plus', 12)} Add</button>
     </div>
     <p class="template-desc">${escapeHtml(template.description)}</p>
@@ -147,6 +226,24 @@ function injectCss(): void {
   color: var(--text-muted);
   margin: 4px 0 6px;
   line-height: 1.4;
+}
+.templates-rank-bar {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+.template-score {
+  display: inline-block;
+  min-width: 30px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent, #b5371c);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
 }
 `;
   document.head.appendChild(tag);

@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { scoreDefineType, scoreDisambiguateType, scoreExplainError } from '../eval/score.ts';
+import {
+  scoreDefineType,
+  scoreDisambiguateType,
+  scoreExplainError,
+  scoreRecommendReports,
+} from '../eval/score.ts';
 import type {
   DefineTypeResponse,
   DisambiguateTypeResponse,
   ExplainErrorResponse,
+  RecommendReportsResponse,
 } from '../src/core/sidecar/types.ts';
 
 // The eval fixtures use all-passing recorded responses (so --dry-run is a
@@ -148,6 +154,58 @@ describe('scoreExplainError', () => {
       r('Both tables have gstin; qualify the ambiguous reference.', 'SELECT gstin FROM x'),
       { keywords: ['ambiguous', 'gstin'], suggestedFixContains: 'vendors.gstin' },
     );
+    expect(res.pass).toBe(false);
+  });
+});
+
+describe('scoreRecommendReports', () => {
+  const r = (ranked: Array<[string, number]>): RecommendReportsResponse => ({
+    kind: 'recommend-reports',
+    recommendations: ranked.map(([templateId, score]) => ({ templateId, score })),
+  });
+
+  it('passes when the expected template ranks #1 and all must-includes appear', () => {
+    const res = scoreRecommendReports(
+      r([
+        ['vendor_concentration', 0.9],
+        ['ar_aging', 0.6],
+      ]),
+      { top: 'vendor_concentration', mustInclude: ['vendor_concentration', 'ar_aging'] },
+    );
+    expect(res.pass).toBe(true);
+    expect(res.score).toBeCloseTo(1, 5);
+  });
+
+  it('fails when the wrong template ranks #1', () => {
+    const res = scoreRecommendReports(
+      r([
+        ['ar_aging', 0.9],
+        ['vendor_concentration', 0.6],
+      ]),
+      { top: 'vendor_concentration', mustInclude: ['vendor_concentration'] },
+    );
+    expect(res.pass).toBe(false);
+    // Top-1 missed (0) but coverage full (0.4).
+    expect(res.score).toBeCloseTo(0.4, 5);
+  });
+
+  it('fails when a must-include template is absent from the ranking', () => {
+    const res = scoreRecommendReports(r([['vendor_concentration', 0.9]]), {
+      top: 'vendor_concentration',
+      mustInclude: ['vendor_concentration', 'ar_aging'],
+    });
+    expect(res.pass).toBe(false);
+    // Top-1 hit (0.6) + half coverage (0.2).
+    expect(res.score).toBeCloseTo(0.8, 5);
+  });
+
+  it('passes with no must-include constraint when top matches', () => {
+    const res = scoreRecommendReports(r([['gst_recon', 0.7]]), { top: 'gst_recon' });
+    expect(res.pass).toBe(true);
+  });
+
+  it('fails cleanly on an empty ranking', () => {
+    const res = scoreRecommendReports(r([]), { top: 'gst_recon' });
     expect(res.pass).toBe(false);
   });
 });

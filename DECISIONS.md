@@ -2,6 +2,28 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-24 22:00 — W3.1: Job 4 (report-template recommendation) — Wave 3 opener
+**Context:** First Wave 3 item. `sidecar-architecture.md` earmarked report-template recommendation as the user-visible sidecar win that fits inside the anti-narration boundary (structured output: template-ids + scores). Closes the v1.3-LoRA-prep loop: the eval harness (W2.4) now has a 4th job to score.
+
+**Decisions:**
+
+- **(a) Rank only the already-applicable templates, never discover new ones.** The job's `candidates` are the templates `findApplicableTemplates` already surfaced (their required types are present). The model re-orders them by fit; it can't pull in a template whose types aren't in the workbook. This keeps the sidecar advisory, not authoritative — the deterministic type-gating still decides what's *possible*; the sidecar only decides what's *promising*.
+- **(b) Hallucination guard in the parser, not just the prompt.** `parseRecommendReportsResponse(raw, candidateIds)` drops any `template_id` not in the candidate set, clamps scores to [0,1], de-dupes (first occurrence wins), and sorts desc. The prompt says "use only these ids" but we enforce it structurally — a model that invents `profit_and_loss` gets it silently discarded.
+- **(c) Opt-in affordance, never auto-rank.** The "Ask sidecar to rank" button shows only when the sidecar is enabled AND ≥2 templates are applicable. No automatic dispatch on mount/classify (Hard NOT #1 — no background traffic; and respects that the sidecar is BYOK + costs the user money/latency).
+- **(d) Ranking is ephemeral, cleared on workbook change.** A ranking is computed against a specific applicable-set; when sources/assignments change, the set may change, so the ranking is stale. `_reportRanking` in main.ts clears on every workbook change. Instantiating a template (notebook change, not workbook change) preserves the ranking — correct, since the applicable-set didn't change.
+- **(e) Row-data-free context.** The job ships a `typeSummary` ("invoices: gstin, amount; payments: amount") built from assignments — typeIds per table, never values. Consistent with "data never leaves the tab" (only the description of the schema goes to the BYOK provider, same as the other sidecar jobs).
+- **(f) Extended the eval harness with the 4th job.** New `recommend-reports.json` fixture (8 cases incl. a hallucinated-id case + a fenced-JSON case) + `scoreRecommendReports` (top-1 hit 60% + must-include coverage 40%). Dry-run now 42/42. Keeps the harness complete as new jobs land.
+
+**Tests:** 9 new vitest specs in `tests/sidecar-client.test.ts` (parser: sort, hallucination drop, clamp, de-dupe, fences, throws, empty; prompt; dispatch routing) + 5 in `tests/eval-score.test.ts` (scorer both directions). 272 vitest total. Eval dry-run 42/42. Full gate green (tsc + biome incl. eval/; smoke; e2e; 446 KB bundle).
+
+**Reversibility:** Easy. Drop the `recommend-reports` arm of the SidecarJob/Response unions + the prompt/parser in client.ts + the dispatch branch + the panel button + `_reportRanking`/`rankReports` in main.ts + the eval fixture/scorer. No persistence touched (ranking is in-memory only).
+
+**What's NOT in this slice (deferred):**
+- LoRA specialization of Job 4 (v1.3 — needs the eval harness baseline first; that baseline now exists).
+- A "why this ranking?" affordance — deliberately omitted (prose justification is the wrong side of the narration line).
+
+---
+
 ## 2026-05-24 21:30 — W2.4: sidecar eval harness (closes Wave 2)
 **Context:** The last Wave 2 item. Per `sidecar-architecture.md` §"v1.2 — build the eval harness": a held-out per-job evaluation set + a runner that scores prompted-base vs prompted+LoRA on the same set, foundation for the v1.3 LoRA work. Constraint: no new runtime dependency in the main app; lives under `eval/`.
 

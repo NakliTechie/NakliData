@@ -1,0 +1,172 @@
+{
+  "job": "recommend-reports",
+  "_note": "Held-out cases for Job 4 (report-template recommendation). `recordedResponse` is a representative raw JSON model output used by --dry-run. Scoring = top-1 hit (the right template ranks #1) + must-include coverage. Template ids are the real ones from src/ui/templates/templates.ts. Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "finance-vendor-heavy",
+      "input": {
+        "typeSummary": "invoices: gstin, vendor_name, amount, iso_date; payments: amount, payment_mode, iso_date",
+        "candidates": [
+          {
+            "templateId": "vendor_concentration",
+            "name": "Vendor concentration",
+            "description": "Top vendors by total spend"
+          },
+          {
+            "templateId": "ar_aging",
+            "name": "AR aging",
+            "description": "Receivables bucketed by age"
+          },
+          {
+            "templateId": "gst_recon",
+            "name": "GST reconciliation",
+            "description": "GST input vs output tax"
+          }
+        ]
+      },
+      "expected": {
+        "top": "vendor_concentration",
+        "mustInclude": ["vendor_concentration", "ar_aging"]
+      },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"vendor_concentration\",\"score\":0.93},{\"template_id\":\"ar_aging\",\"score\":0.71},{\"template_id\":\"gst_recon\",\"score\":0.4}]}"
+    },
+    {
+      "id": "gst-recon-data",
+      "input": {
+        "typeSummary": "sales: gstin, gst_state_code, amount, hsn_code; purchases: gstin, amount, hsn_code",
+        "candidates": [
+          {
+            "templateId": "gst_recon",
+            "name": "GST reconciliation",
+            "description": "GST input vs output tax"
+          },
+          {
+            "templateId": "vendor_concentration",
+            "name": "Vendor concentration",
+            "description": "Top vendors by total spend"
+          }
+        ]
+      },
+      "expected": { "top": "gst_recon", "mustInclude": ["gst_recon"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"gst_recon\",\"score\":0.9},{\"template_id\":\"vendor_concentration\",\"score\":0.35}]}"
+    },
+    {
+      "id": "logs-error-frequency",
+      "input": {
+        "typeSummary": "access_log: iso_datetime, log_level, service_name, http_status, endpoint",
+        "candidates": [
+          {
+            "templateId": "error_frequency",
+            "name": "Error frequency by service",
+            "description": "Counts of error-level logs per service over time"
+          },
+          {
+            "templateId": "p95_p99",
+            "name": "P95 / P99 latency",
+            "description": "Latency percentiles by endpoint"
+          }
+        ]
+      },
+      "expected": { "top": "error_frequency", "mustInclude": ["error_frequency", "p95_p99"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"error_frequency\",\"score\":0.88},{\"template_id\":\"p95_p99\",\"score\":0.6}]}"
+    },
+    {
+      "id": "logs-latency-heavy",
+      "input": {
+        "typeSummary": "requests: iso_datetime, endpoint, duration_ms, http_status",
+        "candidates": [
+          {
+            "templateId": "p95_p99",
+            "name": "P95 / P99 latency",
+            "description": "Latency percentiles by endpoint"
+          },
+          {
+            "templateId": "error_frequency",
+            "name": "Error frequency by service",
+            "description": "Counts of error-level logs per service over time"
+          }
+        ]
+      },
+      "expected": { "top": "p95_p99", "mustInclude": ["p95_p99"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"p95_p99\",\"score\":0.91},{\"template_id\":\"error_frequency\",\"score\":0.45}]}"
+    },
+    {
+      "id": "ar-aging-receivables",
+      "input": {
+        "typeSummary": "invoices: invoice_number, vendor_name, amount, iso_date, payment_status",
+        "candidates": [
+          {
+            "templateId": "ar_aging",
+            "name": "AR aging",
+            "description": "Receivables bucketed by age"
+          },
+          {
+            "templateId": "vendor_concentration",
+            "name": "Vendor concentration",
+            "description": "Top vendors by total spend"
+          }
+        ]
+      },
+      "expected": { "top": "ar_aging", "mustInclude": ["ar_aging", "vendor_concentration"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"ar_aging\",\"score\":0.86},{\"template_id\":\"vendor_concentration\",\"score\":0.64}]}"
+    },
+    {
+      "id": "generic-column-profile-only",
+      "input": {
+        "typeSummary": "misc: email, uuid",
+        "candidates": [
+          {
+            "templateId": "column_profile",
+            "name": "Column profile",
+            "description": "Cardinality, null %, top values per column"
+          }
+        ]
+      },
+      "expected": { "top": "column_profile", "mustInclude": ["column_profile"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"column_profile\",\"score\":0.7}]}"
+    },
+    {
+      "id": "hallucinated-id-dropped",
+      "input": {
+        "typeSummary": "invoices: gstin, amount",
+        "candidates": [
+          {
+            "templateId": "vendor_concentration",
+            "name": "Vendor concentration",
+            "description": "Top vendors by total spend"
+          },
+          {
+            "templateId": "gst_recon",
+            "name": "GST reconciliation",
+            "description": "GST input vs output tax"
+          }
+        ]
+      },
+      "expected": { "top": "vendor_concentration", "mustInclude": ["vendor_concentration"] },
+      "recordedResponse": "{\"recommendations\":[{\"template_id\":\"profit_and_loss\",\"score\":0.99},{\"template_id\":\"vendor_concentration\",\"score\":0.8},{\"template_id\":\"gst_recon\",\"score\":0.5}]}"
+    },
+    {
+      "id": "fenced-json-output",
+      "input": {
+        "typeSummary": "ledger: amount, iso_date, vendor_name",
+        "candidates": [
+          {
+            "templateId": "vendor_concentration",
+            "name": "Vendor concentration",
+            "description": "Top vendors by total spend"
+          },
+          {
+            "templateId": "ar_aging",
+            "name": "AR aging",
+            "description": "Receivables bucketed by age"
+          }
+        ]
+      },
+      "expected": {
+        "top": "vendor_concentration",
+        "mustInclude": ["vendor_concentration", "ar_aging"]
+      },
+      "recordedResponse": "```json\n{\"recommendations\":[{\"template_id\":\"vendor_concentration\",\"score\":0.82},{\"template_id\":\"ar_aging\",\"score\":0.55}]}\n```"
+    }
+  ]
+}

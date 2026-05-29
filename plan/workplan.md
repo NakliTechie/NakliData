@@ -19,21 +19,15 @@ Dry-run self-test 34/34. See DECISIONS 21:30.
 
 ---
 
-## Chunk 1 — Wave 3 opener: Job 4 (report-template recommendation) (half day)
+## ~~Chunk 1 — Wave 3 opener: Job 4 (report-template recommendation)~~ ✅ DONE (2026-05-24 evening)
 
-Wave 3's first item per `plan/pending.md`. The smallest user-visible
-addition that doesn't need the bigger Compute Bridge infrastructure.
+Shipped: `recommend-reports` sidecar job (types + prompt + parser +
+dispatch), "Ask sidecar to rank" affordance in the Suggested-reports
+panel (opt-in, reorders cards + score badge, ephemeral), eval harness
+extended with the 4th job (dry-run 42/42). DECISIONS 22:00; spec
+amendment A10.
 
-- **W3.1** — Job 4: report-template recommendation. Browser-side,
-  structured-output only (template-ids ranked by fit, no prose).
-  Wired into the schema-panel "Suggested reports" section as an
-  "Ask sidecar to rank" affordance. New job kind in
-  `src/core/sidecar/types.ts`; prompt + parser in `client.ts`;
-  UI hook in the schema-panel templates section.
-
-Prerequisites: none — reuses the existing sidecar dispatch surface.
-Custom-endpoint sidecar already works (W2.3), so the user can run
-Job 4 against a local model if they want.
+Next Wave 3 work is the bigger multi-week arc below (Chunk 2).
 
 ---
 

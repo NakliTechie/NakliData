@@ -257,6 +257,49 @@ session).
 
 ---
 
+## A10 — Job 4: report-template recommendation (Wave 3 / W3.1) (amends spec §4.3)
+
+**Original §4.3 (paraphrased):**
+> The v1.1 sidecar does three narrow jobs: explain query error, disambiguate type, define new type.
+
+**Amended:**
+
+> **A fourth sidecar job — `recommend-reports` — ranks the report
+> templates that are ALREADY applicable to the workbook by fit.** Input:
+> the candidate templates (id + name + description) + a compact,
+> row-data-free summary of the workbook's assigned column types. Output:
+> strictly `{ recommendations: [{ template_id, score }] }` — template-ids
+> + confidence scores, ranked highest-first. The parser drops any id not
+> in the candidate set (hallucination guard), clamps scores to [0, 1],
+> de-dupes, and sorts.
+>
+> Surfaced in the "Suggested reports" panel as an opt-in "Ask sidecar to
+> rank" affordance, shown only when the sidecar is enabled and ≥2
+> templates are applicable. Ranking reorders the existing cards and adds
+> a fit-score badge. It never surfaces a template that wasn't already
+> applicable, and templates still instantiate as un-run cells (the user
+> clicks Run — Hard NOT #4 unchanged).
+
+**Why this is inside the vision's anti-narration boundary:** the output
+is a structured action (ranked template-ids), not prose. A recommendation
+with prose justification ("you should run this because…") would be on
+the wrong side of the line; this job's schema makes that impossible —
+the system prompt forbids prose and the parser would discard it.
+(See [sidecar-architecture.md](./sidecar-architecture.md) §"Vision —
+narration boundary".)
+
+**Foundation note:** this is the Job 4 that
+[sidecar-architecture.md](./sidecar-architecture.md) §"v1.4" earmarked
+for LoRA specialization. Shipping it now (prompted base model) gives the
+eval harness (W2.4) a fourth job to score, so the v1.3 base-vs-LoRA
+comparison covers it from day one.
+
+**Status:** Shipped 2026-05-24 (commit on `main`). Job runs against any
+configured provider (anthropic / openai / custom). DECISIONS 2026-05-24
+22:00.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

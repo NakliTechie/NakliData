@@ -119,17 +119,10 @@ async function boot(): Promise<void> {
     renderSourcesList(root, wb.sources);
     setHasMounts(root, wb.sources.length > 0);
     renderSchemaPanelWithCurrentState(root, wb, engine);
-    renderTemplatePanel(
-      root,
-      { sources: wb.sources, assignments: wb.assignments },
-      {
-        onInstantiate: (cells, templateId) => {
-          const nb = getNotebook(engine);
-          nb.load([...nb.get().cells, ...cells]);
-          toast(`Instantiated "${templateId}" — ${cells.length} cells added.`);
-        },
-      },
-    );
+    // Workbook changed → the applicable-template set may have changed, so
+    // any prior sidecar ranking is stale. Clear it before re-rendering.
+    _reportRanking = null;
+    renderTemplatePanelWithCurrentState(root, wb, engine);
     // Mount and re-render the notebook into the center region whenever the
     // mount state changes (so the notebook appears on first mount).
     const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
@@ -250,6 +243,91 @@ let _activeSession: SessionMeta | null = null;
  * forces a schema-panel re-render so the new state lands.
  */
 const _columnProfiles = new Map<string, import('./core/engine.ts').ColumnProfile>();
+
+// Job 4 (Wave 3) — sidecar's report-template ranking (templateId → score).
+// Null when not yet ranked or stale; cleared on any workbook change.
+let _reportRanking: Record<string, number> | null = null;
+
+/**
+ * Render the "Suggested reports" panel with the current workbook + any
+ * sidecar ranking. Extracted so both the workbook subscriber and the
+ * onRank handler (which sets _reportRanking then re-renders) stay in
+ * sync. `sidecarEnabled` is read from the app-root class, which main.ts
+ * keeps in lockstep with the saved setting.
+ */
+function renderTemplatePanelWithCurrentState(
+  root: HTMLElement,
+  wb: ReturnType<ReturnType<typeof getWorkbook>['get']>,
+  engine: Engine,
+): void {
+  const sidecarEnabled =
+    document.getElementById('app')?.classList.contains('app-sidecar-enabled') ?? false;
+  renderTemplatePanel(
+    root,
+    {
+      sources: wb.sources,
+      assignments: wb.assignments,
+      sidecarEnabled,
+      ...(_reportRanking ? { ranking: _reportRanking } : {}),
+    },
+    {
+      onInstantiate: (cells, templateId) => {
+        const nb = getNotebook(engine);
+        nb.load([...nb.get().cells, ...cells]);
+        toast(`Instantiated "${templateId}" — ${cells.length} cells added.`);
+      },
+      onRank: (candidates, typeSummary) => {
+        void rankReports(root, engine, candidates, typeSummary);
+      },
+    },
+  );
+}
+
+/**
+ * Job 4 dispatch. Asks the sidecar to rank the applicable templates,
+ * stores the result in _reportRanking, and re-renders the panel. The
+ * sidecar can only rank ids from `candidates` (the parser drops the
+ * rest), so this never surfaces a template that wasn't already
+ * applicable — and it never auto-runs anything (Hard NOT #4).
+ */
+async function rankReports(
+  root: HTMLElement,
+  engine: Engine,
+  candidates: Array<{ templateId: string; name: string; description: string }>,
+  typeSummary: string,
+): Promise<void> {
+  const settings = await loadSettings();
+  if (!settings.sidecarEnabled) {
+    toast('Enable the sidecar in Settings to rank reports.');
+    return;
+  }
+  toast('Ranking reports…');
+  try {
+    const response = await dispatchJob(
+      { kind: 'recommend-reports', candidates, typeSummary },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
+      },
+    );
+    if (response.kind !== 'recommend-reports') return;
+    if (response.recommendations.length === 0) {
+      toast('Sidecar returned no usable ranking.');
+      return;
+    }
+    _reportRanking = Object.fromEntries(
+      response.recommendations.map((r) => [r.templateId, r.score]),
+    );
+    renderTemplatePanelWithCurrentState(root, getWorkbook().get(), engine);
+    toast(`Ranked ${response.recommendations.length} reports.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    toast(`Could not rank reports: ${msg}`, 'error');
+  }
+}
 
 /**
  * Render the schema panel with the current workbook + cached column

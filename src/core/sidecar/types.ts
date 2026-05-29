@@ -30,7 +30,11 @@ export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderCon
 };
 
 /** A sidecar job is a tagged input asking the model to do one specific thing. */
-export type SidecarJob = ExplainErrorJob | DisambiguateTypeJob | DefineTypeJob;
+export type SidecarJob =
+  | ExplainErrorJob
+  | DisambiguateTypeJob
+  | DefineTypeJob
+  | RecommendReportsJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -68,8 +72,31 @@ export interface DefineTypeJob {
   samples: string[];
 }
 
+/**
+ * Job 4 (Wave 3 / W3.1) — rank the report templates that are ALREADY
+ * applicable to the workbook by how well they fit. Structured output
+ * only — the model returns template-ids + scores, never prose
+ * justification (vision §"What it is not"). The model may only rank ids
+ * from `candidates`; the parser drops anything else.
+ */
+export interface RecommendReportsJob {
+  kind: 'recommend-reports';
+  /** Candidate templates — the model must only return these ids. */
+  candidates: Array<{ templateId: string; name: string; description: string }>;
+  /**
+   * Compact summary of the workbook's assigned column types, e.g.
+   * "invoices: gstin, amount, iso_date; payments: amount, payment_mode".
+   * Gives the model context without shipping any row data.
+   */
+  typeSummary: string;
+}
+
 /** A sidecar response is a tagged structured output. */
-export type SidecarResponse = ExplainErrorResponse | DisambiguateTypeResponse | DefineTypeResponse;
+export type SidecarResponse =
+  | ExplainErrorResponse
+  | DisambiguateTypeResponse
+  | DefineTypeResponse
+  | RecommendReportsResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -100,6 +127,15 @@ export interface DefineTypeResponse {
     /** JavaScript-compatible regex (anchors included, no `/` delimiters). */
     regex: string;
   };
+}
+
+export interface RecommendReportsResponse {
+  kind: 'recommend-reports';
+  /**
+   * Template-ids ranked by fit, highest first. Only ids from the job's
+   * candidate list survive parsing; scores are clamped to [0, 1].
+   */
+  recommendations: Array<{ templateId: string; score: number }>;
 }
 
 export class SidecarError extends Error {

@@ -10,6 +10,7 @@ import type {
   DefineTypeResponse,
   DisambiguateTypeResponse,
   ExplainErrorResponse,
+  RecommendReportsResponse,
 } from '../src/core/sidecar/types.ts';
 
 export interface ScoreResult {
@@ -138,6 +139,34 @@ export function scoreExplainError(
     pass,
     score,
     detail: `keywords ${hits.length}/${expected.keywords.length} · ${fixDetail}`,
+  };
+}
+
+// ---- recommend-reports: top-1 hit + must-include coverage -----------
+
+export interface RecommendReportsExpected {
+  /** The template that should rank #1. */
+  top: string;
+  /** Template ids that must appear somewhere in the ranking. */
+  mustInclude?: string[];
+}
+
+export function scoreRecommendReports(
+  parsed: RecommendReportsResponse,
+  expected: RecommendReportsExpected,
+): ScoreResult {
+  const ids = parsed.recommendations.map((r) => r.templateId);
+  const topOk = ids[0] === expected.top;
+  const must = expected.mustInclude ?? [];
+  const included = must.filter((m) => ids.includes(m));
+  const coverage = must.length === 0 ? 1 : included.length / must.length;
+  // 60% top-1 correctness, 40% must-include coverage.
+  const score = (topOk ? 0.6 : 0) + coverage * 0.4;
+  const pass = topOk && coverage === 1;
+  return {
+    pass,
+    score,
+    detail: `top=${ids[0] ?? '(none)'} ${topOk ? '✓' : `(want ${expected.top})`} · include ${included.length}/${must.length}`,
   };
 }
 

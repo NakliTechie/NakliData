@@ -72,7 +72,7 @@ Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"
 
 Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"Compute Bridge — sibling OSS project" and [sidecar-architecture.md](./sidecar-architecture.md) §"AI in the browser vs AI in the bridge".
 
-- [ ] **W3.1** — Job 4: report-template recommendation. Per `plan/sidecar-architecture.md`. Browser-side, structured-output only (template-ids ranked by fit), no prose. Wired into the schema panel's "Suggested reports" section as an "Ask sidecar to rank" affordance.
+- [x] **W3.1** — Job 4: report-template recommendation. **Landed 2026-05-24** (DECISIONS 22:00; spec amendment A10). `recommend-reports` sidecar job ranks the already-applicable templates; structured output only; parser drops unknown ids + clamps + sorts. Opt-in "Ask sidecar to rank" button in the Suggested-reports panel; ranking reorders cards + adds a fit-score badge; ephemeral (cleared on workbook change). Eval harness extended with the 4th job (dry-run 42/42). Ships the prompted-base baseline for v1.3 LoRA.
 - [ ] **W3.2** — Local-model path. Transformers.js + a Phi-3-mini-class model at 4-bit (~150 MB OPFS-cached). Opt-in via Settings; fallback to BYOK when not downloaded. Adds a new sidecar transport in `src/core/sidecar/`.
 - [ ] **W3.3** — Compute Bridge MVP (sibling OSS project `NakliTechie/nakli-compute`, Apache-2.0 lean). Single binary + Docker image. Arrow Flight + HTTP wire protocol. Bearer-token auth. Bridge-side sidecar uses a heavier LoRA-Gemma weight (Gemma 4 E4B at 4-bit, ~2.5 GB on bridge disk).
 - [ ] **W3.4** — `compute-bridge` source kind in NakliData's mount layer. Discovery + connection flow; falls back gracefully when bridge is unreachable.

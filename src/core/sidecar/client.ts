@@ -16,6 +16,8 @@ import {
   type DisambiguateTypeResponse,
   type ExplainErrorJob,
   type ExplainErrorResponse,
+  type RecommendReportsJob,
+  type RecommendReportsResponse,
   SidecarError,
   type SidecarJob,
   type SidecarProvider,
@@ -127,6 +129,22 @@ export async function dispatchJob(
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseDefineTypeResponse(raw);
+  }
+  if (job.kind === 'recommend-reports') {
+    const { system, user } = buildRecommendReportsPrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseRecommendReportsResponse(
+      raw,
+      job.candidates.map((c) => c.templateId),
+    );
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
@@ -347,4 +365,78 @@ export function parseExplainErrorResponse(raw: string): ExplainErrorResponse {
       ? parsed.suggested_fix.trim()
       : null;
   return { kind: 'explain-error', explanation, suggestedFix };
+}
+
+// ---- recommend-reports (Job 4 / Wave 3) prompt + parser -------------
+
+const RECOMMEND_REPORTS_SYSTEM = `You are NakliData's sidecar ranking report templates by how well they fit the user's data. You are given a list of CANDIDATE templates (each already applicable to the workbook) plus a summary of the workbook's column types.
+
+Rank the candidates by fit. Output strictly as JSON in this shape:
+
+{
+  "recommendations": [
+    { "template_id": "<id from the candidate list>", "score": 0.0 to 1.0 }
+  ]
+}
+
+Hard rules:
+- Output ONLY the JSON object. No markdown code fences. No commentary, no prose justification.
+- Use ONLY template_ids that appear in the candidate list. Never invent an id.
+- "score" is your confidence the template is a good fit (1.0 = perfect, 0.0 = poor), a number between 0 and 1.
+- Rank highest-fit first. You may omit candidates you think are poor fits, or include them with a low score.`;
+
+export function buildRecommendReportsPrompt(job: RecommendReportsJob): {
+  system: string;
+  user: string;
+} {
+  const candidatesBlock = job.candidates
+    .map((c) => `- ${c.templateId}: ${c.name} — ${c.description}`)
+    .join('\n');
+  const user = [
+    'Workbook column types (table: assigned types):',
+    job.typeSummary,
+    '',
+    'Candidate templates (rank these; use these template_ids exactly):',
+    candidatesBlock,
+  ].join('\n');
+  return { system: RECOMMEND_REPORTS_SYSTEM, user };
+}
+
+export function parseRecommendReportsResponse(
+  raw: string,
+  candidateIds: string[],
+): RecommendReportsResponse {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  let parsed: { recommendations?: unknown };
+  try {
+    parsed = JSON.parse(stripped) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  if (!Array.isArray(parsed.recommendations)) {
+    throw new SidecarError('Sidecar response missing "recommendations" array.', 'parse');
+  }
+  const allowed = new Set(candidateIds);
+  const seen = new Set<string>();
+  const recommendations: Array<{ templateId: string; score: number }> = [];
+  for (const item of parsed.recommendations) {
+    if (typeof item !== 'object' || item === null) continue;
+    const rec = item as { template_id?: unknown; score?: unknown };
+    const templateId = typeof rec.template_id === 'string' ? rec.template_id.trim() : '';
+    // Drop unknown ids (hallucination guard) and duplicates.
+    if (!allowed.has(templateId) || seen.has(templateId)) continue;
+    const rawScore = typeof rec.score === 'number' && Number.isFinite(rec.score) ? rec.score : 0;
+    const score = Math.min(1, Math.max(0, rawScore));
+    recommendations.push({ templateId, score });
+    seen.add(templateId);
+  }
+  recommendations.sort((a, b) => b.score - a.score);
+  return { kind: 'recommend-reports', recommendations };
 }

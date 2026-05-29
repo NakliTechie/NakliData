@@ -4,10 +4,12 @@ import {
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildRecommendReportsPrompt,
   dispatchJob,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseRecommendReportsResponse,
 } from '../src/core/sidecar/client.ts';
 import { SidecarError } from '../src/core/sidecar/types.ts';
 
@@ -396,5 +398,119 @@ describe('dispatchJob — define-type', () => {
     if (result.kind !== 'define-type') return;
     expect(result.suggestion.id).toBe('employee_id');
     expect(result.suggestion.regex).toBe('^EMP-[0-9]{4}$');
+  });
+});
+
+// ---- recommend-reports (Job 4 / Wave 3) -----------------------------
+
+const REPORT_CANDIDATES = [
+  {
+    templateId: 'vendor_concentration',
+    name: 'Vendor concentration',
+    description: 'Top vendors by spend',
+  },
+  { templateId: 'ar_aging', name: 'AR aging', description: 'Receivables by age bucket' },
+  { templateId: 'gst_recon', name: 'GST reconciliation', description: 'GST input vs output' },
+];
+const CANDIDATE_IDS = REPORT_CANDIDATES.map((c) => c.templateId);
+
+describe('buildRecommendReportsPrompt', () => {
+  it('lists candidate ids + names and includes the type summary', () => {
+    const { system, user } = buildRecommendReportsPrompt({
+      kind: 'recommend-reports',
+      candidates: REPORT_CANDIDATES,
+      typeSummary: 'invoices: gstin, amount',
+    });
+    expect(system).toMatch(/ONLY template_ids/i);
+    expect(user).toContain('vendor_concentration');
+    expect(user).toContain('invoices: gstin, amount');
+  });
+});
+
+describe('parseRecommendReportsResponse', () => {
+  it('parses + sorts recommendations by score descending', () => {
+    const raw = JSON.stringify({
+      recommendations: [
+        { template_id: 'ar_aging', score: 0.6 },
+        { template_id: 'vendor_concentration', score: 0.95 },
+      ],
+    });
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    expect(r.recommendations.map((x) => x.templateId)).toEqual([
+      'vendor_concentration',
+      'ar_aging',
+    ]);
+    expect(r.recommendations[0]?.score).toBe(0.95);
+  });
+
+  it('drops template_ids that are not in the candidate set (hallucination guard)', () => {
+    const raw = JSON.stringify({
+      recommendations: [
+        { template_id: 'made_up_report', score: 0.99 },
+        { template_id: 'gst_recon', score: 0.5 },
+      ],
+    });
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    expect(r.recommendations.map((x) => x.templateId)).toEqual(['gst_recon']);
+  });
+
+  it('clamps scores into [0, 1]', () => {
+    const raw = JSON.stringify({
+      recommendations: [
+        { template_id: 'vendor_concentration', score: 1.7 },
+        { template_id: 'ar_aging', score: -0.3 },
+      ],
+    });
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    const byId = Object.fromEntries(r.recommendations.map((x) => [x.templateId, x.score]));
+    expect(byId.vendor_concentration).toBe(1);
+    expect(byId.ar_aging).toBe(0);
+  });
+
+  it('de-duplicates repeated ids (keeps the first occurrence)', () => {
+    const raw = JSON.stringify({
+      recommendations: [
+        { template_id: 'ar_aging', score: 0.8 },
+        { template_id: 'ar_aging', score: 0.2 },
+      ],
+    });
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    expect(r.recommendations).toHaveLength(1);
+    expect(r.recommendations[0]?.score).toBe(0.8);
+  });
+
+  it('strips code fences', () => {
+    const raw = '```json\n{"recommendations":[{"template_id":"gst_recon","score":0.7}]}\n```';
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    expect(r.recommendations[0]?.templateId).toBe('gst_recon');
+  });
+
+  it('throws on non-JSON', () => {
+    expect(() => parseRecommendReportsResponse('not json', CANDIDATE_IDS)).toThrow(SidecarError);
+  });
+
+  it('throws when recommendations is missing', () => {
+    expect(() => parseRecommendReportsResponse('{}', CANDIDATE_IDS)).toThrow(/recommendations/);
+  });
+
+  it('returns an empty list when nothing matches (no throw)', () => {
+    const raw = JSON.stringify({ recommendations: [{ template_id: 'nope', score: 1 }] });
+    const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
+    expect(r.recommendations).toEqual([]);
+  });
+});
+
+describe('dispatchJob — recommend-reports', () => {
+  it('routes to the recommend-reports parser', async () => {
+    _idb.set('sidecar/byok/openai', 'sk-openai-stub');
+    const transport: SidecarTransport = async () =>
+      JSON.stringify({ recommendations: [{ template_id: 'vendor_concentration', score: 0.9 }] });
+    const result = await dispatchJob(
+      { kind: 'recommend-reports', candidates: REPORT_CANDIDATES, typeSummary: 'invoices: amount' },
+      { provider: 'openai', model: 'gpt-4o-mini', transport },
+    );
+    expect(result.kind).toBe('recommend-reports');
+    if (result.kind !== 'recommend-reports') return;
+    expect(result.recommendations[0]?.templateId).toBe('vendor_concentration');
   });
 });
