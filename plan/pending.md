@@ -45,7 +45,7 @@ This section is the load-bearing roadmap. Themes below (Theme 1 / 2 / 3 / 4 / 6)
 **Bonus (also landed 2026-05-24, commit `7a73bc4`):** Latent CSP-hash bug in `esbuild.config.mjs` — `String.prototype.replace` was interpreting `$&` in the minified script body as the matched substring, drifting the inlined CSP hash off the actual bytes. Fix is function-form replacers. The Wave 1 pie + facet additions tipped the minified bundle across the threshold where `$&` first appeared, which surfaced it.
 
 **Post-v1.1.0 housekeeping:**
-- [ ] **W1.8** — GitHub Pages deploy workflow. **Deferred — not near needing it.** A hosted build would be nice eventually but the runtime is the static page itself; users self-host. Pick up when we want a canonical hosted entry-point.
+- [x] **W1.8** — GitHub Pages deploy workflow. **Landed 2026-05-30.** `.github/workflows/deploy.yml` (build → upload-pages-artifact → deploy-pages). Pages enabled via API (`build_type=workflow`). Live at **[naklitechie.github.io/NakliData](https://naklitechie.github.io/NakliData/)**. CDN-load is the primary path; `?offline=1` opt-in still works against the deployed vendored fallback. Repo homepage + description set via `gh repo edit`.
 - [x] **W1.9** — Doc-cadence pinned in CLAUDE.md (commit `35f6226`). Windup summaries are canonical going forward; `checkpoint-*-eod.md` retired (existing files stay as historical record).
 - [x] **W1.10** — `.naklidata` format-version bump policy logged (DECISIONS 14:00; commit `35f6226`). Additive optional fields don't bump.
 - [x] **W1.11** — Schema-graph modal a11y (commit `35f6226`). Focus moves to close on open, restores to trigger on close, Escape-listener leak fixed.

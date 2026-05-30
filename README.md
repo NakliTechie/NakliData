@@ -25,7 +25,7 @@ Supported file formats today (15): CSV · TSV · JSONL · Parquet · Arrow IPC (
 
 ## Quick start
 
-For end users: visit the hosted build (URL TBD when published), click **Browse example data**, and start querying. No install. Your workspace persists in IndexedDB so reopening the tab restores everything. From the browser menu you can also "Install" NakliData as a PWA — it then opens in its own window and the shell works offline (the DuckDB engine still needs a one-time network fetch to warm its cache, or load with `?offline=1` to use the vendored fallback).
+For end users: visit **[naklitechie.github.io/NakliData](https://naklitechie.github.io/NakliData/)**, click **Browse example data**, and start querying. No install. Your workspace persists in IndexedDB so reopening the tab restores everything. From the browser menu you can also "Install" NakliData as a PWA — it then opens in its own window and the shell works offline (the DuckDB engine still needs a one-time network fetch to warm its cache, or load with `?offline=1` to use the vendored fallback).
 
 For developers cloning the repo:
 
