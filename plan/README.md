@@ -24,6 +24,7 @@ diverges from the original spec.**
 | [`sidecar-architecture.md`](./sidecar-architecture.md) | LoRA-Gemma vs prompted-base; the eval harness; report-recommendation (Job 4). |
 | [`wave-2-design.md`](./wave-2-design.md) | Wave 2 slicing + the CSP-broadening trade-off rationale. |
 | [`product-analytics-comparison.md`](./product-analytics-comparison.md) | NakliData vs Mixpanel / Amplitude / PostHog / Plausible / Heap. Feature matrix + Theme 5 (Wave 4) proposals: funnels, retention, paths, cohort cell, analytics templates. |
+| [`data-platform-comparison.md`](./data-platform-comparison.md) | NakliData vs Databricks / Snowflake / Microsoft Fabric / BigQuery + Looker / Hex / Mode. Three-axis (personal↔team × workbench↔platform × thin-client↔thick-platform) framing. Wave 5 + Wave 6 proposals. |
 | [`warehouse-and-bi-question.md`](./warehouse-and-bi-question.md) | Parked thinking: do we need a data warehouse / something like Superset? |
 
 ## Day summaries (windup output)

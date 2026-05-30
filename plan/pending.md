@@ -23,6 +23,7 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 - [sidecar-architecture.md](./sidecar-architecture.md) — base model vs LoRA-tuned specialist: when (and when not) to ship LoRA-finetuned Gemma 4 as the sidecar; the eval-harness foundation; the new report-recommendation job.
 - [product-shape.md](./product-shape.md) — the seven-axis view of the product, used for scoping.
 - [product-analytics-comparison.md](./product-analytics-comparison.md) — how NakliData stacks up against Mixpanel / Amplitude / PostHog / Plausible / Heap; what's in scope to add (Theme 5 / Wave 4) and what isn't.
+- [data-platform-comparison.md](./data-platform-comparison.md) — how NakliData stacks up against Databricks / Snowflake / Microsoft Fabric / BigQuery + Looker / Hex / Mode. Where we deliberately don't compete (RBAC, schedules, fabric) and what's worth borrowing (AI SQL, sensitivity labels, assertion cells). Proposes Wave 5 + Wave 6.
 - [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
 
 ---
@@ -94,6 +95,31 @@ Full writeup in [product-analytics-comparison.md](./product-analytics-comparison
 - [ ] **W4.5** — Top-K paths chart. Simpler "top-K transitions as horizontal bars"; Sankey deferred until a real workload demands it. ~1 hr.
 
 Total Wave 4 estimate: ~6 hr.
+
+### Wave 5 — borrowed-from-the-giants (proposed)
+
+**Pitch:** "Take the ergonomic patterns Databricks / Snowflake / Microsoft Fabric have proven, drop them into our workbench shape."
+
+Full writeup in [data-platform-comparison.md](./data-platform-comparison.md). Each item maps a feature from a server-side data platform onto our notebook + sidecar + taxonomy surface, without the server.
+
+- [ ] **W5.1** — Sidecar Job 5: "Answer this in SQL" (Databricks Genie / Hex Magic / Snowflake Cortex pattern). NL question → SQL against current workbook. Hallucination guard: parser rejects identifiers not in the current schema. ~2 hr.
+- [ ] **W5.2** — Sidecar Job 6: Result-summary cards (Hex Magic pattern). After a query runs, AI emits a one-line observation ("Top 3 vendors account for 67% of spend"). Template-validated against result-set shape. ~1.5 hr.
+- [ ] **W5.3** — Aggregation suggestions in the schema panel (Power BI quick-measure pattern). "This column is `amount`; chart sum by `vendor_name`?" — one-click into a templated cell. ~1.5 hr.
+- [ ] **W5.4** — Sensitivity labels in the taxonomy (Unity Catalog pattern). Add `sensitivity: 'pii' | 'financial' | 'public'` to each type spec. Demo-mode auto-masks based on label. ~30 min.
+- [ ] **W5.5** — Assertion cell kind (dbt-tests pattern). New `kind: 'assertion'` — SQL that should return 0 rows; cell goes red otherwise. Data-quality checks inline. ~1 hr.
+
+Total Wave 5 estimate: ~6.5 hr.
+
+### Wave 6 — workflow polish (proposed)
+
+**Pitch:** "Close the workflow gaps the comparison surfaced — parameters, presentation, static export, dashboards."
+
+- [ ] **W6.1** — Interactive-input cell (Observable `viewof` / Briefer pattern). Dropdown / date-picker / slider that parameterises downstream SQL via `@inputName`. ~3 hr.
+- [ ] **W6.2** — Presentation mode (Hex app-publish pattern). `?present=1` or settings toggle that hides SQL cells, shows only Markdown + charts. ~1 hr.
+- [ ] **W6.3** — Static-HTML export (Evidence Dev pattern). Render the active notebook to a self-contained HTML file (no engine on the export). New sink alongside KanZen / Bahi / NakliPoster. ~3 hr.
+- [ ] **W6.4** — Dashboard layout cell (Superset / Power BI pattern). New cell kind that arranges other cells in a grid. Closes the linear-notebook gap. ~3-4 hr.
+
+Total Wave 6 estimate: ~10 hr.
 
 ### Deferred / blocked / out-of-scope for these three waves
 
