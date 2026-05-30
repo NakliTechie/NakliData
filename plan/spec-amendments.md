@@ -4,6 +4,23 @@ Tracked divergences from the canonical spec (`02-SPEC.md` as uploaded with the o
 
 The original spec stays authoritative for everything not listed here.
 
+## Index
+
+| ID | What it amends | One-line summary |
+| --- | --- | --- |
+| [A1](#a1--persistent-workspace-state-amends-spec-23) | §2.3 | IndexedDB persists workspace state (sources, assignments, cells, sessions) — not just FSA handles + cache. |
+| [A2](#a2--byok-key-persistence-amends-spec-4-hard-not-2) | §4 Hard NOT #2 | BYOK keys are sessionStorage default + opt-in plaintext IDB with a Forget affordance; v1.2 passphrase-encrypted variant planned. |
+| [A3](#a3--project-name-and-file-extension) | Project name | "NakliData" + `.naklidata` save-file extension (was unspecified). |
+| [A4](#a4--data-plane--control-plane-distinction-amends-spec-41) | §4.1 | Five data-plane modes (local, signed-URL, S3 endpoint, Iceberg, Compute Bridge); a NakliData server is not part of the data plane. |
+| [A5](#a5--public-url-mount-wave-2-slice-1--csp-broadening-amends-spec-41-71) | §4.1, §7.1 | Public URL mount; CSP broadened to `connect-src 'self' https:` (was an explicit-host whitelist). |
+| [A6](#a6--s3-compatible-custom-endpoints-wave-2-slice-2-amends-spec-41) | §4.1 | S3-compatible endpoints (AWS, R2, MinIO) with anon or signed access; httpfs extension does the I/O. |
+| [A7](#a7--iceberg-table-by-url-with-bearer-auth-wave-2-slice-3a-amends-spec-31-41) | §3.1, §4.1 | Apache Iceberg by URL (catalog-less) with optional Bearer auth. |
+| [A8](#a8--iceberg-rest-catalog-navigation-wave-2-slice-3b-amends-spec-41) | §4.1 | Iceberg REST catalog navigation (Bearer auth supported). |
+| [A9](#a9--custom-endpoint-sidecar-provider-wave-2-w23-amends-spec-43) | §4.3 | Custom OpenAI-compatible sidecar endpoint (llamafile, vLLM, Ollama). |
+| [A10](#a10--job-4-report-template-recommendation-wave-3--w31-amends-spec-43) | §4.3 | Sidecar Job 4: rank candidate report templates against current schema. Hallucination guard in parser, not just prompt. |
+| [A11](#a11--local-model-sidecar-provider-wave-3--w32-amends-spec-43--43a) | §4.3 + §4.3a | `local` runtime seam wired through dispatch; runtime not bundled in v1.1; fails fast rather than silent fallback because picking local is a privacy choice. |
+| [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. |
+
 ---
 
 ## A1 — Persistent workspace state (amends spec §2.3)

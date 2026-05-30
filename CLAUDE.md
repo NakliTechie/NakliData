@@ -13,18 +13,22 @@ decision log, and `plan/pending.md` for what's queued next.
    classification regressions that `tsc` and `vitest` both let through.
    No exceptions for "small" changes — small changes break this surface
    most often.
-2. **`npm run check` clean.** `tsc --noEmit` and `biome check`.
-3. **`npm run test` green.** Vitest unit tests.
-4. **Bundle within budget.** `dist/index.html` ≤ 600 KB (spec §7.1).
+2. **`npm run test` green.** Vitest unit tests.
+3. **Bundle within budget.** `dist/index.html` ≤ 600 KB (spec §7.1).
    Check after any non-trivial dependency change.
-5. **Schema-panel-touching changes get a manual look.** It's the spec's
+4. **Schema-panel-touching changes get a manual look.** It's the spec's
    single most important surface (handoff §9). Render it, click it,
    override a column, then move on.
-6. **STATUS.md reflects reality.** Update "build status", "what's done",
+5. **STATUS.md reflects reality.** Update "build status", "what's done",
    "what's next" before pushing.
-7. **Non-trivial decisions logged.** New entry in `DECISIONS.md` per the
+6. **Non-trivial decisions logged.** New entry in `DECISIONS.md` per the
    format in handoff §5. If you decided not-to-do something, that's still
    a decision worth logging.
+7. **`npm run check` clean — run this LAST.** `tsc --noEmit` and
+   `biome check`. Last on purpose: biome can flag formatter drift
+   introduced by manual edits made between earlier gates, and running
+   it at the end guarantees the working tree is publish-clean. It's
+   fast (~1s) so the cost of putting it last is trivial.
 
 ## Don't do these
 
