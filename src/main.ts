@@ -155,7 +155,27 @@ async function boot(): Promise<void> {
     }
   });
 
-  const offline = new URLSearchParams(location.search).has('offline');
+  // Default to the vendored (same-origin) DuckDB bundle. CDN-load
+  // stays as an opt-in via `?cdn=1` for users who want fresh bytes.
+  //
+  // Rationale (W1.8.2): the CDN path SRI-fetches the worker JS + WASM
+  // bytes and wraps them in `URL.createObjectURL()` so we can pass
+  // them to `duckdb.AsyncDuckDB.instantiate()`. Blob URLs are scoped
+  // to the OWNING global — a Worker spawned out of one of those blobs
+  // can't fetch sibling blobs created on the document. db.instantiate
+  // hangs because the worker's `fetch(<wasm-blob>)` never resolves.
+  //
+  // The vendored path uses page-relative URLs throughout; the worker
+  // fetches the WASM via plain HTTP and the boot completes cleanly.
+  // We already ship the vendored bytes with every Pages deploy, so
+  // the only cost of being offline-by-default is not picking up
+  // upstream DuckDB updates without a redeploy.
+  //
+  // Back-compat: `?offline=1` still works (default true now); only
+  // `?cdn=1` flips back to the CDN path.
+  const params = new URLSearchParams(location.search);
+  const cdn = params.has('cdn');
+  const offline = !cdn;
   try {
     await engine.boot({ offline });
   } catch (err) {
