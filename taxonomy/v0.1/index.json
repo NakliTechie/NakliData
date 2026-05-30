@@ -20,6 +20,12 @@
       "label": "Generic logs",
       "description": "Log levels, services, endpoints, latency, HTTP status, IDs.",
       "domain_file": "domains/generic-logs.json"
+    },
+    {
+      "id": "product-analytics",
+      "label": "Product analytics",
+      "description": "Event-stream columns from Mixpanel / Amplitude / PostHog exports: event names, user/session IDs, properties, UTM attribution.",
+      "domain_file": "domains/product-analytics.json"
     }
   ],
   "types_file": "types.jsonl",

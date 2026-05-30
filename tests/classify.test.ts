@@ -109,3 +109,98 @@ describe('classifyColumn', () => {
     expect(result.candidates[0]?.confidence).toBeGreaterThan(0.5);
   });
 });
+
+// W4.1 — Event-shape taxonomy seeds for product analytics. Loads the
+// real types.jsonl (vs the inline TYPES above) and confirms each new
+// type wins on a representative event-stream column.
+
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+async function loadRealBundle(): Promise<TaxonomyBundle> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const typesText = await readFile(join(here, '..', 'taxonomy', 'v0.1', 'types.jsonl'), 'utf8');
+  const types = typesText
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as TypeSpec);
+  return { version: '0.1', released: '2026-05-15', domains: [], types };
+}
+
+describe('product-analytics taxonomy seeds (W4.1)', () => {
+  it('classifies event_name on a low-cardinality named column', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('event_name', [
+        'page_view',
+        'page_view',
+        'signup',
+        'signup',
+        'add_to_cart',
+        'purchase',
+      ]),
+    );
+    expect(result.candidates[0]?.typeId).toBe('event_name');
+  });
+
+  it('classifies user_id on a high-cardinality id column', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('user_id', ['u_abc123', 'u_def456', 'u_ghi789', 'u_jkl012', 'u_mno345']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('user_id');
+  });
+
+  it('classifies session_id on a session-named column', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('session_id', ['s_111', 's_222', 's_333', 's_444', 's_555']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('session_id');
+  });
+
+  it('classifies event_properties_json when values start with {', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('properties', ['{"price":12}', '{"price":34}', '{"qty":5}']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('event_properties_json');
+  });
+
+  it('classifies utm_source / utm_medium / utm_campaign on UTM-named columns', async () => {
+    const bundle = await loadRealBundle();
+    const src = classifyColumn(
+      bundle,
+      sample('utm_source', ['google', 'facebook', 'newsletter', 'twitter']),
+    );
+    expect(src.candidates[0]?.typeId).toBe('utm_source');
+    const med = classifyColumn(
+      bundle,
+      sample('utm_medium', ['cpc', 'cpc', 'organic', 'email', 'social']),
+    );
+    expect(med.candidates[0]?.typeId).toBe('utm_medium');
+    const camp = classifyColumn(
+      bundle,
+      sample('utm_campaign', ['spring_sale', 'summer_promo', 'launch_2026']),
+    );
+    expect(camp.candidates[0]?.typeId).toBe('utm_campaign');
+  });
+
+  it('iso_datetime header-match list now includes event_timestamp', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('event_timestamp', [
+        '2026-05-30T12:00:00Z',
+        '2026-05-30T12:00:01Z',
+        '2026-05-30T12:00:02Z',
+      ]),
+    );
+    expect(result.candidates[0]?.typeId).toBe('iso_datetime');
+  });
+});

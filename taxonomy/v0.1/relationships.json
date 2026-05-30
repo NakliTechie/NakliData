@@ -6,6 +6,13 @@
     { "from": "hsn_code", "to": "gst_rate", "kind": "implies" },
     { "from": "ifsc", "to": "indian_bank_account", "kind": "pairs_with" },
     { "from": "request_id", "to": "service_name", "kind": "scopes" },
-    { "from": "iso_datetime", "to": "duration_ms", "kind": "contextualizes" }
+    { "from": "iso_datetime", "to": "duration_ms", "kind": "contextualizes" },
+    { "from": "user_id", "to": "event_name", "kind": "performs", "note": "Each event row has a user_id and an event_name." },
+    { "from": "session_id", "to": "user_id", "kind": "scopes" },
+    { "from": "user_id", "to": "session_id", "kind": "pairs_with" },
+    { "from": "event_name", "to": "iso_datetime", "kind": "contextualizes" },
+    { "from": "event_name", "to": "event_properties_json", "kind": "embeds" },
+    { "from": "utm_source", "to": "utm_medium", "kind": "pairs_with" },
+    { "from": "utm_medium", "to": "utm_campaign", "kind": "pairs_with" }
   ]
 }
