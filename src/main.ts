@@ -22,6 +22,7 @@ import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import {
   type SessionMeta,
+  clearSnapshot,
   createSession,
   deleteSession,
   ensureActiveSession,
@@ -155,29 +156,44 @@ async function boot(): Promise<void> {
     }
   });
 
-  // Default to the vendored (same-origin) DuckDB bundle. CDN-load
-  // stays as an opt-in via `?cdn=1` for users who want fresh bytes.
+  // Three-tier DuckDB-wasm bundle source (spec amendment A14):
   //
-  // Rationale (W1.8.2): the CDN path SRI-fetches the worker JS + WASM
-  // bytes and wraps them in `URL.createObjectURL()` so we can pass
-  // them to `duckdb.AsyncDuckDB.instantiate()`. Blob URLs are scoped
-  // to the OWNING global — a Worker spawned out of one of those blobs
-  // can't fetch sibling blobs created on the document. db.instantiate
-  // hangs because the worker's `fetch(<wasm-blob>)` never resolves.
+  //   ?cdn=1     → jsDelivr (escape hatch)
+  //   ?offline=1 → same-origin vendored
+  //   (default)  → probe same-origin; on 404, cross-fetch from the
+  //                canonical GitHub Pages mirror.
   //
-  // The vendored path uses page-relative URLs throughout; the worker
-  // fetches the WASM via plain HTTP and the boot completes cleanly.
-  // We already ship the vendored bytes with every Pages deploy, so
-  // the only cost of being offline-by-default is not picking up
-  // upstream DuckDB updates without a redeploy.
+  // GitHub Pages serves the same vendored bytes with CORS open
+  // (access-control-allow-origin: *). Cloudflare Workers Static Assets
+  // can't host the bytes locally (25 MiB per-file limit blocks
+  // duckdb-eh.wasm at 34 MB) — public/.assetsignore skips
+  // duckdb-fallback/ on those deploys, and the probe 404s →
+  // cross-origin fallback kicks in.
   //
-  // Back-compat: `?offline=1` still works (default true now); only
-  // `?cdn=1` flips back to the CDN path.
+  // Trust boundary on the cross-origin paths: version pin in the URL
+  // + build-time SHA-384 verify against integrity.json when bytes are
+  // vendored (scripts/fetch-duckdb-fallback.mjs). Pre-fetch SRI was
+  // dropped in W1.8.2 because the blob-pre-wrap it required broke
+  // cross-blob worker access in current Chrome.
+  const FALLBACK_MIRROR = 'https://naklitechie.github.io/NakliData/duckdb-fallback/';
   const params = new URLSearchParams(location.search);
-  const cdn = params.has('cdn');
-  const offline = !cdn;
+  let bootOpts: { offline?: boolean; fallbackBase?: string };
+  if (params.has('cdn')) {
+    bootOpts = { offline: false };
+  } else if (params.has('offline')) {
+    bootOpts = { offline: true };
+  } else {
+    let sameOrigin = false;
+    try {
+      const probe = await fetch('./duckdb-fallback/integrity.json', { method: 'HEAD' });
+      sameOrigin = probe.ok;
+    } catch {
+      sameOrigin = false;
+    }
+    bootOpts = sameOrigin ? { offline: true } : { offline: true, fallbackBase: FALLBACK_MIRROR };
+  }
   try {
-    await engine.boot({ offline });
+    await engine.boot(bootOpts);
   } catch (err) {
     console.error('[naklidata] engine boot failed', err);
     return;
@@ -194,6 +210,7 @@ async function boot(): Promise<void> {
   await refreshSessionSwitcher(root);
 
   const lensParam = readLensFromLocation();
+  let restoredFromSnapshot = false;
   if (lensParam) {
     try {
       const file = await decodeLensParam(lensParam);
@@ -204,9 +221,41 @@ async function boot(): Promise<void> {
       console.warn('[naklidata] lens param decode failed', err);
       toast('Shared link is invalid or corrupted — using saved state instead.', 'error');
       await restoreFromActiveSession(engine);
+      restoredFromSnapshot = getWorkbook().get().sources.length > 0;
     }
   } else {
     await restoreFromActiveSession(engine);
+    restoredFromSnapshot = getWorkbook().get().sources.length > 0;
+  }
+  // If auto-restore brought back sources from a previous visit, surface
+  // that explicitly. Without this, a first-time user who returns to the
+  // page sees the empty state flicker away and the notebook view appear
+  // — they have no idea their work was restored or where it came from.
+  // The "Start fresh" action clears just the active session's snapshot
+  // and reloads, dropping them on the clean empty state.
+  if (restoredFromSnapshot) {
+    const wb = getWorkbook().get();
+    const sourceCount = wb.sources.length;
+    const tableCount = wb.sources.reduce((n, s) => n + s.tables.length, 0);
+    toast(
+      `Restored from your previous session (${sourceCount} source${
+        sourceCount === 1 ? '' : 's'
+      }, ${tableCount} table${tableCount === 1 ? '' : 's'}).`,
+      'info',
+      {
+        label: 'Start fresh',
+        onClick: () => {
+          void (async () => {
+            try {
+              await clearSnapshot(getActiveSessionId());
+            } catch (err) {
+              console.warn('[naklidata] clearSnapshot failed', err);
+            }
+            location.reload();
+          })();
+        },
+      },
+    );
   }
   installAutoSave(engine);
   installUserTypesSync();

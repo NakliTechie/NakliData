@@ -15,7 +15,6 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 // verified offline." When the CDN serves different bytes (mirror swap,
 // cache corruption, MITM), the fetch fails closed and we fall back to
 // the vendored copy.
-import duckdbIntegrity from '../../public/duckdb-fallback/integrity.json';
 
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'error';
 
@@ -24,6 +23,21 @@ export interface EngineBootOptions {
   offline?: boolean;
   /** Pinned CDN base. */
   cdnBase?: string;
+  /**
+   * Optional base URL for the vendored bundle (overrides both
+   * `offline`-page-relative AND `cdnBase`). Used by deploys that can't
+   * host the 75 MB locally (e.g., Cloudflare Workers Static Assets,
+   * 25 MiB per-file limit) — they cross-fetch from the canonical
+   * GitHub Pages mirror at `https://naklitechie.github.io/NakliData/duckdb-fallback/`.
+   *
+   * Trade-off (spec amendment A14): cross-origin fetches mean we drop
+   * pre-fetch SRI verification. Trust boundary = version-pin in the URL
+   * + build-time SHA-384 verify against `integrity.json` when bytes are
+   * vendored (`scripts/fetch-duckdb-fallback.mjs`). The official
+   * duckdb-wasm `importScripts(<url>)` blob-bootstrap pattern handles
+   * the cross-origin Worker spawn.
+   */
+  fallbackBase?: string;
 }
 
 export interface EngineEvents {
@@ -186,48 +200,43 @@ export class Engine {
         throw new EngineError('DuckDB bundle did not include a mainWorker URL');
       }
 
-      // For the CDN path, SRI-verify the worker JS + wasm before letting
-      // DuckDB load them. For the offline (vendored) path, the bytes
-      // are already same-origin and trusted by transitive trust of the
-      // build pipeline — skip the extra fetch.
-      let workerScriptUrl = bundle.mainWorker;
-      let mainModuleUrl = bundle.mainModule;
-      if (!opts.offline) {
-        const variant = (bundle.mainWorker.includes('-eh.worker') ? 'eh' : 'mvp') as 'eh' | 'mvp';
-        const wasmFile = `duckdb-${variant}.wasm`;
-        const workerFile = `duckdb-browser-${variant}.worker.js`;
-        const integrityFiles = duckdbIntegrity.files as Record<string, string | undefined>;
-        const workerHash = integrityFiles[workerFile];
-        const wasmHash = integrityFiles[wasmFile];
-        if (!workerHash || !wasmHash) {
-          throw new EngineError(
-            `Missing SRI hash for ${variant} bundle (expected ${workerFile} + ${wasmFile} in integrity.json)`,
-          );
-        }
-        const [workerBytes, wasmBytes] = await Promise.all([
-          fetchWithSri(bundle.mainWorker, workerHash),
-          fetchWithSri(bundle.mainModule, wasmHash),
-        ]);
-        workerScriptUrl = URL.createObjectURL(
-          new Blob([new Uint8Array(workerBytes)], { type: 'text/javascript' }),
+      // Worker spawn strategy depends on the worker URL's origin:
+      //
+      // (a) **same-origin** — spawn the Worker directly from the URL.
+      //     Used for vendored deploys (page-relative `./duckdb-fallback/`).
+      //     db.instantiate hands the WASM URL to the worker, which
+      //     fetches it via plain HTTP.
+      //
+      // (b) **cross-origin** — same-origin policy blocks
+      //     `new Worker(<cross-origin-url>)`. Use the official
+      //     duckdb-wasm pattern: spawn from a same-origin blob whose
+      //     content is `importScripts("<cross-origin-url>")`. The
+      //     imported script can be cross-origin as long as it serves
+      //     CORS (jsDelivr + GitHub Pages both do). db.instantiate
+      //     then passes the WASM URL straight to the worker, which
+      //     fetches it directly (also CORS-permitting).
+      //
+      // History: an earlier version (commit 5b10b93) SRI-fetched the
+      // worker + WASM bytes and blob-wrapped both before passing to
+      // db.instantiate. That broke in current Chrome because a Worker
+      // spawned from one blob can't fetch sibling blobs from the
+      // parent's blob registry. SRI was dropped in W1.8.2 + spec
+      // amendment A14 to restore the working pattern; trust is at the
+      // version-pin level + build-time vendor verification.
+      let worker: Worker;
+      let bootstrapToRevoke: string | null = null;
+      if (isCrossOriginWorkerUrl(bundle.mainWorker)) {
+        bootstrapToRevoke = URL.createObjectURL(
+          new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' }),
         );
-        mainModuleUrl = URL.createObjectURL(
-          new Blob([new Uint8Array(wasmBytes)], { type: 'application/wasm' }),
-        );
+        worker = new Worker(bootstrapToRevoke);
+      } else {
+        worker = new Worker(bundle.mainWorker);
       }
-
-      // workerScriptUrl is same-origin in BOTH paths now: a blob URL on
-      // the CDN path (worker bytes were SRI-fetched + blobbed), a
-      // page-relative URL on the offline path. Spawn the Worker
-      // directly — the historical `importScripts(<otherBlob>)`
-      // bootstrap chain isn't needed here and fails in current Chrome
-      // (the nested blob isn't reachable from a worker spawned out of a
-      // sibling blob; the official duckdb-wasm chain pattern assumes the
-      // imported script is a same-origin URL, not a blob).
-      const worker = new Worker(workerScriptUrl);
       const logger = new duckdb.ConsoleLogger();
       const db = new duckdb.AsyncDuckDB(logger, worker);
-      await db.instantiate(mainModuleUrl, bundle.pthreadWorker ?? null);
+      await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
+      if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
 
       this.db = db;
       this.worker = worker;
@@ -987,20 +996,25 @@ export class Engine {
   }
 }
 
-/**
- * Fetch a URL with subresource-integrity verification. Returns the bytes
- * once the browser has confirmed the SHA-384 matches. Throws on hash
- * mismatch or HTTP error.
- */
-async function fetchWithSri(url: string, integrity: string): Promise<Uint8Array> {
-  const res = await fetch(url, { integrity, mode: 'cors' });
-  if (!res.ok) {
-    throw new EngineError(`SRI fetch failed: ${url} → HTTP ${res.status}`);
-  }
-  return new Uint8Array(await res.arrayBuffer());
-}
-
 function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {
+  // Precedence:
+  // 1. `fallbackBase` — explicit cross-origin mirror (e.g., GH Pages
+  //    canonical for deploys that can't host the bytes).
+  // 2. `offline` — same-origin `./duckdb-fallback/`.
+  // 3. CDN — jsDelivr.
+  if (opts.fallbackBase) {
+    const base = opts.fallbackBase.endsWith('/') ? opts.fallbackBase : `${opts.fallbackBase}/`;
+    return {
+      mvp: {
+        mainModule: `${base}duckdb-mvp.wasm`,
+        mainWorker: `${base}duckdb-browser-mvp.worker.js`,
+      },
+      eh: {
+        mainModule: `${base}duckdb-eh.wasm`,
+        mainWorker: `${base}duckdb-browser-eh.worker.js`,
+      },
+    };
+  }
   if (opts.offline) {
     return {
       mvp: {
@@ -1024,6 +1038,23 @@ function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {
       mainWorker: `${base}duckdb-browser-eh.worker.js`,
     },
   };
+}
+
+/**
+ * Detect whether a Worker URL is cross-origin to the page. When it is,
+ * we can't pass the URL straight to `new Worker()` — same-origin policy
+ * blocks it. The official duckdb-wasm workaround is a same-origin blob
+ * containing `importScripts("<url>")`; the imported URL itself can be
+ * cross-origin as long as it serves CORS (jsDelivr + GitHub Pages
+ * both do).
+ */
+function isCrossOriginWorkerUrl(url: string): boolean {
+  if (typeof location === 'undefined') return false;
+  try {
+    return new URL(url, location.href).origin !== location.origin;
+  } catch {
+    return false;
+  }
 }
 
 const IDENT_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;

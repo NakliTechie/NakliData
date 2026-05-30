@@ -1,0 +1,16 @@
+# Cloudflare Workers Static Assets — files matched here are skipped on
+# upload (CF has a 25 MiB per-file limit and 20k file limit).
+#
+# We skip the vendored DuckDB-wasm fallback (~75 MB of WASM + workers)
+# because (a) the eh.wasm + mvp.wasm files are 34 MB and 39 MB — both
+# blow past the 25 MiB ceiling, and (b) the engine's CDN-load path
+# fetches the same bytes from jsDelivr with version pinning. On
+# Cloudflare deploys, NakliData falls back to the CDN path
+# automatically (see src/main.ts boot — the HEAD probe of
+# duckdb-fallback/integrity.json returns 404 here, so the runtime
+# picks CDN-load).
+#
+# On GitHub Pages (which has a 100 MB per-file limit), the same
+# directory ships fine — the HEAD probe returns 200 and the runtime
+# uses the same-origin vendored bytes.
+duckdb-fallback/

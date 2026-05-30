@@ -21,6 +21,7 @@ The original spec stays authoritative for everything not listed here.
 | [A11](#a11--local-model-sidecar-provider-wave-3--w32-amends-spec-43--43a) | §4.3 + §4.3a | `local` runtime seam wired through dispatch; runtime not bundled in v1.1; fails fast rather than silent fallback because picking local is a privacy choice. |
 | [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. W3.4b follow-up: catalog picker SourceKind that materialises N tables via SELECT * LIMIT cap. |
 | [A13](#a13--optional-map-cell-basemap-wave-1-stretch--w16-amends-spec-31--6) | §3.1, §6 | Optional OpenStreetMap raster basemap on map cells. Default off — tile-less canvas preserves the no-third-party-fetch posture. Explicit opt-in via Settings; CSP `img-src` carves out `tile.openstreetmap.org` only. |
+| [A14](#a14--three-tier-duckdb-wasm-bundle-source-w182--cloudflare-deploy-amends-spec-71) | §7.1 | DuckDB-wasm bundle sourcing: three-tier (same-origin → GH Pages canonical → jsDelivr). Pre-fetch SRI dropped because the blob-pre-wrap it required broke cross-blob worker access in current Chrome. Trust = version pin + build-time SHA-384 verify against `integrity.json`. |
 
 ---
 
@@ -494,6 +495,74 @@ users cross the line when they want context.
 **Future-us:**
 - If a user wants a different tile source (Stamen, MapTiler, Carto, an enterprise tile server), the design supports it — but each new host needs a deliberate CSP carve-out + a Settings option + the OSM-policy-equivalent attribution. Don't quietly add hosts.
 - The previous "no third-party scripts" framing is preserved; if a future basemap option DOES need scripts (e.g., a vector-tile renderer with off-origin glyphs), that's a bigger spec amendment and should be rejected by default.
+
+---
+
+## A14 — Three-tier DuckDB-wasm bundle source (W1.8.2 + Cloudflare deploy) (amends spec §7.1)
+
+**Original §7.1 (paraphrased):**
+> DuckDB-wasm boots from CDN with SRI; vendored fallback verified offline.
+
+The original gate baked in two assumptions that today don't hold:
+
+1. **"Boot from CDN with SRI"** — the way to do SRI on a worker was to pre-fetch the bytes with `fetch(url, { integrity })`, blob the bytes, and pass the blob URL to `db.instantiate`. Current Chrome (≥ ~125, ~Jan 2026) tightened blob URL scoping: a Worker spawned from one blob can't fetch sibling blobs from the parent's blob registry. The pre-fetch SRI path therefore HANGS at `db.instantiate` because the worker's `fetch(<wasm-blob>)` never resolves. The smoke / e2e tests never hit this because they boot with `?offline=1` (vendored, page-relative URLs, no blob chain).
+2. **"Vendored fallback"** — the assumption was "if CDN fails, vendored kicks in." But the vendored bytes (~75 MB total; `duckdb-eh.wasm` alone is 34 MB) exceed Cloudflare Workers Static Assets' 25 MiB per-file limit, so the Cloudflare deploy can't ship them.
+
+**Amended:**
+
+> **The runtime picks a DuckDB-wasm bundle source in three tiers, in order:**
+>
+> 1. **Same-origin** — `./duckdb-fallback/`. HEAD-probed at boot via
+>    `./duckdb-fallback/integrity.json`. When the probe returns 200
+>    (GitHub Pages deploys, local dev, any deploy with the vendored
+>    bytes shipped), the engine loads from there and spawns the Worker
+>    directly with `new Worker(<url>)`.
+> 2. **GitHub Pages canonical mirror** — `https://naklitechie.github.io/NakliData/duckdb-fallback/`.
+>    Used when the same-origin probe 404s (Cloudflare deploys that
+>    skipped duckdb-fallback/ via `.assetsignore`). The Worker URL is
+>    cross-origin, so the engine uses the official duckdb-wasm
+>    blob-bootstrap pattern: a same-origin blob containing
+>    `importScripts("<cross-origin-url>");`. GitHub Pages serves CORS
+>    open (`access-control-allow-origin: *`) so the import resolves
+>    and the worker boots.
+> 3. **jsDelivr CDN** — `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/`.
+>    Escape hatch behind `?cdn=1`. Same blob-bootstrap pattern as tier
+>    2.
+>
+> **SRI is dropped on the cross-origin paths (tiers 2 and 3).** The
+> pre-fetch SRI verification that originally guarded §7.1 required
+> blob-pre-wrapping the bytes, and the resulting blob chain doesn't
+> work in current Chrome. The trust boundary moves to:
+>
+> - **Version pin in the URL.** The URL includes a fixed version
+>   (`@1.29.0` for jsDelivr; deployed at a build-pinned path for the
+>   GitHub Pages mirror) — anyone serving different bytes at that URL
+>   would be in active breach of HTTPS origin trust.
+> - **Build-time SHA-384 verification of the vendored copy** by
+>   `scripts/fetch-duckdb-fallback.mjs` against
+>   `public/duckdb-fallback/integrity.json`. The vendored bytes that
+>   ship to GitHub Pages (tier 1 + tier 2) are SHA-384-verified at
+>   `npm install` time before the build. So when a Cloudflare deploy
+>   cross-fetches tier 2, it's fetching bytes that NakliData itself
+>   vendored and verified at build time, served from naklitechie's
+>   GitHub Pages — not third-party trust.
+>
+> The first-party-build-then-cross-fetch story is materially stronger
+> than the original CDN-then-SRI story, even without runtime SRI:
+> the original story trusted whatever jsDelivr served as long as the
+> hash matched; the new story trusts what NakliData built + uploaded.
+
+**Cloudflare Workers Static Assets compatibility:** `public/.assetsignore` skips `duckdb-fallback/` so the deploy clears CF's 25 MiB per-file limit. The runtime probe 404s on Cloudflare, tier 2 kicks in. GitHub Pages keeps shipping the vendored bytes so it's both the canonical mirror AND a stand-alone working deploy.
+
+**CSP:** `connect-src 'self' https:` (A5) already allows the cross-origin fetch. No CSP change.
+
+**Status:** Landed 2026-05-30 alongside W1.8.2.
+
+**Reversibility:** Easy. Revert `EngineBootOptions.fallbackBase` + the probe in `main.ts`; the engine still supports `offline=true` (page-relative) and `offline=false` (jsDelivr) as standalone paths.
+
+**Known limitations / follow-ups:**
+- **GH Pages is a single point of failure for the cross-fetch tier.** If naklitechie.github.io goes down, Cloudflare deploys break (until they redeploy with `?cdn=1` or their own vendored copy). Mitigation: the engine still supports the jsDelivr tier; users can flip the URL to `?cdn=1` to escape.
+- **Repo rename / move would break the canonical URL.** If `naklitechie/NakliData` moves, every deploy depending on tier 2 breaks until they redeploy. Treat the canonical URL as a versioned API surface.
 
 ---
 
