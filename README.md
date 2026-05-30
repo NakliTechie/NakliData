@@ -6,7 +6,7 @@
 
 ## What it is
 
-A single-HTML-shell tool that reads tabular data from your local disk (via the File System Access API) and runs SQL against it using DuckDB-wasm. A versioned semantic taxonomy classifies your columns into types you recognize — GSTIN, HSN code, IFSC, ISO currency, email, vendor name, timestamp, log level, and so on. From a query result you can chart it, pivot it, map it, write CSV / Parquet to a folder you choose, push to KanZen as cards, propose a Bahi journal, or parametrize a NakliPoster collection. Notebook, schema panel, chart / pivot / map cells, action sinks — all in the browser tab.
+A single-HTML-shell tool that reads tabular data — from your local disk (via the File System Access API), from S3-compatible cloud storage, from public URLs, from Apache Iceberg tables, or from a local Compute Bridge sidecar — and runs SQL against it using DuckDB-wasm. A versioned semantic taxonomy classifies your columns into types you recognize — GSTIN, HSN code, IFSC, ISO currency, email, vendor name, timestamp, log level, and so on. From a query result you can chart it, pivot it, map it, write CSV / Parquet to a folder you choose, push to KanZen as cards, propose a Bahi journal, or parametrize a NakliPoster collection. Notebook, schema panel, chart / pivot / map cells, action sinks — all in the browser tab.
 
 Supported file formats today (15): CSV · TSV · JSONL · Parquet · Arrow IPC (`.arrow` / `.feather`) · SQLite · DuckDB (`.duckdb`) · Excel `.xlsx` · SPSS (`.sav` / `.zsav` / `.por`) · Stata `.dta` · SAS (`.sas7bdat` / `.xpt`) · GeoJSON (`.geojson` / `.geo.json`) · KML. The statistical formats, SQLite, Excel, and spatial formats mount via DuckDB extensions on first use.
 
@@ -14,7 +14,7 @@ Supported file formats today (15): CSV · TSV · JSONL · Parquet · Arrow IPC (
 
 - **Not a hosted SaaS.** No server, no accounts, no login, no telemetry. NakliData is a static page; you can self-host it on a USB stick.
 - **Not an ingestion pipeline.** The data stays on your disk. Even with cloud-storage sources (v1.1), bytes go from the bucket directly to your browser — no third party in the middle.
-- **Not an "AI insights" generator.** The optional BYOK sidecar does three narrow jobs (see below). It never writes prose narration of your results and never auto-executes SQL.
+- **Not an "AI insights" generator.** The optional BYOK sidecar does four narrow jobs (see below). It never writes prose narration of your results and never auto-executes SQL.
 - **Not multi-user.** The `.naklidata` save file (or a `?lens=` share link, which carries no data) is the sharing primitive — send the file, not a login.
 
 ## Browser support
@@ -44,6 +44,7 @@ npm run test             # vitest unit tests
 npm run smoke            # build + headless browser smoke test
 npm run test:e2e         # build + Playwright e2e tests
 npm run build            # → dist/index.html (the shell) + dist/chunks/ (lazy chunks)
+npm run eval -- --dry-run # offline eval harness for the sidecar (recorded fixtures + HTML report)
 ```
 
 `SKIP_DUCKDB_FETCH=1` on `npm install` skips the postinstall vendoring (useful in network-restricted CI).
@@ -53,6 +54,18 @@ npm run build            # → dist/index.html (the shell) + dist/chunks/ (lazy 
 `public/examples/` ships a small synthetic bundle of Indian-SMB-finance shape (~25 vendors, 80 invoices, 65 payments with valid-checksum GSTINs, PANs, IFSCs, HSN codes) plus a small NDJSON access-log fixture. On first mount, the schema panel auto-classifies ~25 columns — the fastest way to see the taxonomy in action without bringing your own data.
 
 Regenerate the fixtures with `node scripts/gen-examples.mjs` (deterministic; same seed → same output). The GSTIN generator implements the real base-36 check-digit algorithm so the GSTIN-checksum detector lights up.
+
+## Remote data sources
+
+Beyond local files, NakliData can mount tabular data from five remote source kinds. Bytes flow from the source directly to your browser; nothing relays through a NakliData server (there isn't one). CORS or signed-URL access still applies — the source has to be reachable from your browser context.
+
+- **HTTPS by URL.** Paste a URL to a CSV / Parquet / Arrow / JSONL file. The server must send CORS headers your browser will accept. Bearer tokens (for protected URLs) follow the same BYOK posture as sidecar keys — `sessionStorage` by default, opt-in plaintext IDB with a Forget affordance.
+- **S3-compatible endpoint.** AWS S3, Cloudflare R2, MinIO, etc. Anonymous public buckets or signed access (access key + secret); region + endpoint configurable. DuckDB's `httpfs` extension does the I/O.
+- **Apache Iceberg by URL.** Catalog-less — point at a table directory or `metadata.json` and the latest snapshot is mounted via DuckDB's `iceberg` extension. Useful when a warehouse exposes table prefixes directly.
+- **Iceberg REST catalog.** A catalog server (Nessie, Polaris, AWS Glue with REST adapter, etc.); Bearer auth supported. List namespaces + tables, pick a table to mount.
+- **Compute Bridge.** A small sidecar binary that fronts your warehouse (DuckDB, Snowflake, BigQuery, Trino…) over HTTP + Arrow IPC. You write SQL against the warehouse; the bridge returns the result; NakliData registers it as a bounded Arrow buffer in the browser. The browser↔bridge wire is HTTP + Arrow IPC, not Flight (browsers can't do native gRPC). Spec amendment [A12](./plan/spec-amendments.md); protocol details in [`plan/compute-bridge-protocol.md`](./plan/compute-bridge-protocol.md). The bridge binary itself ships from a separate OSS repo.
+
+Credentials for the remote sources (Bearer tokens, S3 secrets) follow the same BYOK posture described for sidecar keys below.
 
 ## The notebook
 
@@ -85,18 +98,21 @@ The taxonomy is what makes NakliData feel different — it knows what your colum
 
 ## AI sidecar (BYOK, optional)
 
-Off by default. Open the gear icon → AI sidecar to enter a key. Three narrow jobs:
+Off by default. Open the gear icon → AI sidecar to enter a key. Four narrow jobs:
 
 1. **Explain query error.** When a SQL cell errors, an inline affordance asks the sidecar what went wrong; the response is plain prose with an optional "Copy SQL" suggested-fix block (you decide whether to run it — never auto-executed).
 2. **Disambiguate type.** Shown on schema-panel columns where two or more taxonomy candidates remain plausible (confidence ∈ [0.5, 0.9) and origin = detector). One-token answer matched against the candidate list; applied via the standard override path.
 3. **Define a new type.** In the "+ Define new type from this column…" modal, an optional "Suggest with sidecar" button fills regex / checksum / sql_type guesses. You edit and save.
+4. **Recommend reports.** In the Reports panel, "Ask sidecar to rank" scores up to N candidate report templates against your current schema + column-type summary and returns a ranked list with confidence scores. Hallucination guard lives in the parser, not just the prompt — any `template_id` the sidecar emits that isn't in the candidate set is dropped, so it can't invent reports that don't exist. You decide which of the ranked reports to run.
 
 **BYOK posture** (spec amendment [A2](./plan/spec-amendments.md)):
 - Keys live in `sessionStorage` by default (cleared on tab close).
 - "Remember on this device" stores plaintext in IndexedDB with honest labelling: "Stored on this device. Anyone with access to this browser profile can read it. [Forget]"
 - A "Forget all stored keys" action lives in settings.
 
-Providers shipped: Anthropic, OpenAI. Custom OpenAI-compatible endpoints (local llamafiles, vLLM) are v1.2 work — needs a CSP rework first.
+Providers shipped: Anthropic, OpenAI, and Custom OpenAI-compatible endpoints (local llamafiles, vLLM, Ollama via its `/v1` adapter, …). A "Test connection" button in settings verifies the endpoint speaks the dialect before you commit to it. CSP was broadened to `connect-src 'self' https:` to enable this (spec amendment [A5](./plan/spec-amendments.md)).
+
+A `local` runtime is wired through the dispatch layer for future fully-in-browser models (Transformers.js / WebLLM). The runtime itself isn't bundled in v1.1 — picking `local` today fails fast with a clear message rather than silently falling back to a cloud provider, because choosing local is a privacy choice (spec amendment [A11](./plan/spec-amendments.md)).
 
 ## The `.naklidata` file format
 
@@ -127,7 +143,7 @@ Your data never leaves the tab. The shell HTML is static. DuckDB-wasm loads from
 
 Workspace state (sources, assignments, cells, settings, sessions) persists across tab reloads via IndexedDB on your machine. BYOK API keys for the optional sidecar live in `sessionStorage` by default (cleared on tab close); opt-in IDB persistence is plaintext with a "Forget" affordance, and a passphrase-encrypted variant is planned for v1.2. See [`plan/spec-amendments.md`](./plan/spec-amendments.md) A2.
 
-The sidecar talks only to the provider URL you configured (`api.anthropic.com` or `api.openai.com` today). No telemetry, no error reporting, no analytics — the static shell has no place to send those even if we wanted to.
+The sidecar talks only to the provider URL you configured — `api.anthropic.com`, `api.openai.com`, or your own custom endpoint (a local llamafile, vLLM, Ollama, etc.). Remote-source I/O goes only to the bucket / URL / catalog / bridge you pointed at. No telemetry, no error reporting, no analytics — the static shell has no place to send those even if we wanted to.
 
 ## License
 
