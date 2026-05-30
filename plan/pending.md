@@ -22,6 +22,7 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 - [remote-sources.md](./remote-sources.md) — the filestores-as-database question: what v1.1 Relay covers, where it falls short, and the five options (lakehouse catalogs, S3-compatible endpoints, Compute Bridge, DB Relay, edge compute) for closing the gap.
 - [sidecar-architecture.md](./sidecar-architecture.md) — base model vs LoRA-tuned specialist: when (and when not) to ship LoRA-finetuned Gemma 4 as the sidecar; the eval-harness foundation; the new report-recommendation job.
 - [product-shape.md](./product-shape.md) — the seven-axis view of the product, used for scoping.
+- [product-analytics-comparison.md](./product-analytics-comparison.md) — how NakliData stacks up against Mixpanel / Amplitude / PostHog / Plausible / Heap; what's in scope to add (Theme 5 / Wave 4) and what isn't.
 - [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
 
 ---
@@ -79,6 +80,20 @@ Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"
 - [x] **W3.4b** — Multi-table picker. **Landed 2026-05-30** (spec amendment A12 W3.4b follow-up). New `'compute-bridge-catalog'` SourceKind: connect → list `/v1/tables` → multi-select with per-table row caps → mount each via `SELECT * FROM "<name>" LIMIT <cap>`. All picks share one MountedSource. Per-table failures are non-fatal. 6 vitest specs against mocked fetch. Modal uses two-phase reveal (Connect → table list with checkboxes + cap inputs → Mount). Reload re-fetches the saved selection at then-current bridge state.
 - [ ] **W3.5** — Routing logic for jobs that benefit from the bridge (batch classification of 10k+ columns, heavy semantic search). Browser-side stays the baseline; bridge-side is the enhancement layer.
 - [ ] **W3.6** *(stretch / opportunistic)* — Resume vendoring `excel` + `read_stat` extensions if/when DuckDB-wasm bumps to a version where they're published for wasm_eh. Resume SQLite ATTACH-on-wasm work if the upstream VFS bridge lands.
+
+### Wave 4 — Product analytics surface (proposed)
+
+**Pitch:** "Drop a Mixpanel / Amplitude export, get useful analyses in 60 seconds."
+
+Full writeup in [product-analytics-comparison.md](./product-analytics-comparison.md). Brings NakliData to credible parity with the analytics-tool 80% — funnels, retention, paths — without touching the spec's no-server / no-ingestion / no-streaming Hard NOTs.
+
+- [ ] **W4.1** — Event-shape taxonomy seeds. Add `event_name`, `user_id`, `session_id`, `event_timestamp`, `event_properties_json`, `country_code` (extend), `utm_source` / `utm_medium` / `utm_campaign` to `taxonomy/v0.1/types.jsonl`. ~30 min.
+- [ ] **W4.2** — Pre-built analytics report templates: DAU, top events by user-count, funnel A→B→C, 30-day retention, conversion rate by source. Add alongside "Vendor concentration" in `src/ui/templates/templates.ts`. ~2 hr.
+- [ ] **W4.3** — Funnel chart type. Custom SVG renderer (mirrors the existing `pie` pattern). Horizontal bars with absolute counts + drop-off percentages. ~1 hr.
+- [ ] **W4.4** — Cohort cell. New `CellState` kind that emits a cached `user_id` list; downstream cells reference via `@<cohort_name>`. Reuses the `@cellName` resolution machinery. ~1.5 hr.
+- [ ] **W4.5** — Top-K paths chart. Simpler "top-K transitions as horizontal bars"; Sankey deferred until a real workload demands it. ~1 hr.
+
+Total Wave 4 estimate: ~6 hr.
 
 ### Deferred / blocked / out-of-scope for these three waves
 

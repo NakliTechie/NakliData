@@ -23,6 +23,7 @@ diverges from the original spec.**
 | [`compute-bridge-protocol.md`](./compute-bridge-protocol.md) | The wire contract: browser uses HTTP + Arrow IPC (not Flight); the four endpoints; client-integration shape. Unblocks the sibling-repo binary + W3.4 client. |
 | [`sidecar-architecture.md`](./sidecar-architecture.md) | LoRA-Gemma vs prompted-base; the eval harness; report-recommendation (Job 4). |
 | [`wave-2-design.md`](./wave-2-design.md) | Wave 2 slicing + the CSP-broadening trade-off rationale. |
+| [`product-analytics-comparison.md`](./product-analytics-comparison.md) | NakliData vs Mixpanel / Amplitude / PostHog / Plausible / Heap. Feature matrix + Theme 5 (Wave 4) proposals: funnels, retention, paths, cohort cell, analytics templates. |
 | [`warehouse-and-bi-question.md`](./warehouse-and-bi-question.md) | Parked thinking: do we need a data warehouse / something like Superset? |
 
 ## Day summaries (windup output)
