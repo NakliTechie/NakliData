@@ -1,0 +1,68 @@
+name: Deploy to GitHub Pages
+
+# W1.8 — public hosted build. Runs on every push to main, plus on
+# manual dispatch. The dist/ directory is uploaded as a Pages artifact
+# and deployed; the page is fully static so there's nothing else to
+# orchestrate.
+#
+# Repo must have Pages enabled: Settings → Pages → Source = GitHub
+# Actions. That's a one-time manual step the first time this workflow
+# is wired up.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required for the deploy job to publish to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy can be in flight at a time; cancel in-progress runs
+# so the latest commit wins.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # The `postinstall` script downloads the DuckDB-wasm fallback
+        # (~75 MB) and the vendored extensions; both end up in
+        # public/ and get copied to dist/ by the build.
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Sanity-check build
+        # Fail loudly if the build didn't produce the inlined shell.
+        run: |
+          test -f dist/index.html
+          ls -lh dist/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
