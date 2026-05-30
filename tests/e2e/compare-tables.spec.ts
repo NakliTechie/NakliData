@@ -34,6 +34,13 @@ test.describe('compare-tables modal (Theme 4 wave 2 / B2)', () => {
     await page.click('[data-action="compare-tables"]');
     await page.waitForSelector('.compare-tables-modal', { timeout: 2_000 });
 
+    // a11y: focus should move into the modal (close button is the
+    // predictable initial-focus target — see W1.11 pattern).
+    const focusedOnOpen = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedOnOpen).toBe('close-compare-tables');
+
     // Default selections are first two tables — for the example bundle
     // those are `vendors` and `invoices`. Both have a GSTIN-typed
     // column so the key picker auto-populates.
@@ -71,6 +78,16 @@ test.describe('compare-tables modal (Theme 4 wave 2 / B2)', () => {
       null,
       { timeout: 2_000 },
     );
+
+    // a11y: focus returns to the trigger after close. The schema panel
+    // may have re-rendered during the long-running compare (workbook
+    // subscribers fire on tick), so the close-side restoration falls
+    // back to a live `[data-action]` lookup when the stored element ref
+    // has been detached.
+    const focusedAfterClose = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedAfterClose).toBe('compare-tables');
 
     await context.close();
     await server.close();

@@ -106,6 +106,29 @@ test.describe('override rules (Theme 4 wave 2 / B3)', () => {
     // Open the manage-rules modal.
     await page.click('[data-action="manage-override-rules"]');
     await page.waitForSelector('.override-rules-modal', { timeout: 2_000 });
+
+    // a11y: focus moves to close button on open (W1.11 pattern).
+    const focusedOnOpen = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedOnOpen).toBe('close-override-rules');
+
+    // a11y: close via Escape + assert focus restoration to trigger,
+    // BEFORE the remove-rule flow below destroys the trigger button.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(
+      () => document.querySelector('.override-rules-modal') === null,
+      null,
+      { timeout: 2_000 },
+    );
+    const focusedAfterClose = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
+    );
+    expect(focusedAfterClose).toBe('manage-override-rules');
+
+    // Re-open for the remove-rule continuation.
+    await page.click('[data-action="manage-override-rules"]');
+    await page.waitForSelector('.override-rules-modal', { timeout: 2_000 });
     const ruleRowVisible = await page.locator('.override-rules-row code').first().textContent();
     expect(ruleRowVisible).toBe('vendor_name');
 

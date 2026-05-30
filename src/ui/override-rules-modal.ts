@@ -8,6 +8,7 @@
 import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _keyHandler: ((ev: KeyboardEvent) => void) | null = null;
@@ -96,7 +97,7 @@ export function closeOverrideRulesModal(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
-  _previouslyFocused?.focus();
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

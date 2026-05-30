@@ -13,6 +13,7 @@ import { dispatchJob } from '../core/sidecar/client.ts';
 import { SidecarError } from '../core/sidecar/types.ts';
 import { type UserType, getWorkbook } from '../core/workbook.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 import { assignmentKey } from './schema-panel.ts';
 
 let _modalEl: HTMLElement | null = null;
@@ -49,7 +50,7 @@ export function closeDefineTypeModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

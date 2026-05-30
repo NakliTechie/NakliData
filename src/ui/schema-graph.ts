@@ -7,6 +7,7 @@
 import { loadChunk } from '../core/lazy-loader.ts';
 import { getTaxonomyClient } from '../taxonomy/client.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _activeHandle: { destroy: () => void } | null = null;
 let _modalEl: HTMLElement | null = null;
@@ -102,10 +103,10 @@ export function closeSchemaGraph(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  // Restore focus to whatever had it before the modal opened. focus()
-  // on a detached node is a safe no-op, so we don't need to verify
-  // the element is still in the DOM.
-  _previouslyFocused?.focus();
+  // Restore focus to whatever had it before the modal opened. The
+  // helper handles the case where the surrounding panel re-rendered
+  // mid-modal and the stored ref is now detached.
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

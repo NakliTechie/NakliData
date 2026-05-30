@@ -15,6 +15,7 @@ import {
 import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
 
@@ -43,7 +44,7 @@ export function closeSettingsModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

@@ -102,6 +102,17 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     // --- Open Settings, enable sidecar, save an Anthropic key.
     await page.click('[data-action="open-settings"]');
     await page.waitForSelector('.settings-modal', { timeout: 5_000 });
+
+    // a11y: focus moves to close button on open (W1.11 pattern). Settings
+    // does an async refresh + focus, so wait for it to land rather than
+    // sampling immediately.
+    await page.waitForFunction(
+      () =>
+        (document.activeElement as HTMLElement | null)?.dataset?.action === 'close-settings',
+      null,
+      { timeout: 2_000 },
+    );
+
     // Sidecar is off by default; flip the enable checkbox.
     await page.evaluate(() => {
       const cb = document.querySelector<HTMLInputElement>('[data-action="settings-enable"]');
@@ -136,6 +147,14 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     await page.waitForFunction(() => document.querySelector('.settings-modal') === null, null, {
       timeout: 2_000,
     });
+
+    // a11y: focus returns to the header trigger after close.
+    await page.waitForFunction(
+      () =>
+        (document.activeElement as HTMLElement | null)?.dataset?.action === 'open-settings',
+      null,
+      { timeout: 2_000 },
+    );
 
     // --- Trigger a SQL error. Use a known-bad keyword so DuckDB rejects it.
     await writeIntoSqlCell(page, 'SELEKT * FROM invoices LIMIT 1');

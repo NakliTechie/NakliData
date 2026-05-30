@@ -7,6 +7,7 @@
 import type { Engine, TableComparison } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 import type { ColumnAssignment } from './schema-panel.ts';
 import { assignmentKey } from './schema-panel.ts';
 
@@ -128,7 +129,7 @@ export function closeCompareTablesModal(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
-  _previouslyFocused?.focus();
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 
