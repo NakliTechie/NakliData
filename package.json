@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs --dev",
-    "check": "tsc --noEmit && biome check src tests eval",
+    "check": "tsc --noEmit && biome check src tests eval && node scripts/check-bundle-size.mjs",
     "fmt": "biome format --write src tests eval",
     "lint": "biome lint src tests eval",
     "test": "vitest run",

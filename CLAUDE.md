@@ -15,7 +15,11 @@ decision log, and `plan/pending.md` for what's queued next.
    most often.
 2. **`npm run test` green.** Vitest unit tests.
 3. **Bundle within budget.** `dist/index.html` ≤ 600 KB (spec §7.1).
-   Check after any non-trivial dependency change.
+   Enforced by `scripts/check-bundle-size.mjs`, which runs as the
+   bundle-gate step of `npm run check` (skipped if `dist/` is absent —
+   run `npm run build` first to force the gate). Manual inspection
+   only needed if you're sizing up a new dep that hasn't been bundled
+   yet.
 4. **Schema-panel-touching changes get a manual look.** It's the spec's
    single most important surface (handoff §9). Render it, click it,
    override a column, then move on.
