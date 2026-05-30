@@ -573,6 +573,25 @@ export class Engine {
   }
 
   /**
+   * Wave 3 W3.4a — like registerArrow but takes the IPC bytes as a
+   * Uint8Array directly (e.g. from a Compute Bridge HTTP response,
+   * where there's no File to wrap). Same DROP+CREATE semantics.
+   */
+  async registerArrowBuffer({
+    tableName,
+    bytes,
+  }: {
+    tableName: string;
+    bytes: Uint8Array;
+  }): Promise<string[]> {
+    const conn = this.requireConn();
+    const safeTable = sanitizeIdent(tableName);
+    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(safeTable)}`);
+    await conn.insertArrowFromIPCStream(bytes, { name: safeTable, create: true });
+    return [safeTable];
+  }
+
+  /**
    * Mount a statistical-format file (SPSS `.sav` / `.zsav` / `.por`,
    * Stata `.dta`, SAS `.sas7bdat` / `.xpt`) via the `read_stat`
    * community extension. Single-table per file.

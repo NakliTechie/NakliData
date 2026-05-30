@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-29 23:30 — W3.4a: Compute Bridge source kind (client side; binary in separate repo)
+**Context:** W3.4 is the NakliData-side companion to the Compute Bridge MVP — a `'compute-bridge'` SourceKind that runs SQL against a user-deployed bridge and registers the Arrow IPC result as a local DuckDB table. The wire protocol was spec'd 2026-05-29 in [`compute-bridge-protocol.md`](./compute-bridge-protocol.md). This slice (W3.4a) ships the client end-to-end against a mockable bridge; the binary remains a separate multi-week OSS repo.
+
+**Decisions:**
+
+- **(a) HTTP + Arrow IPC, NOT Arrow Flight, for the browser↔bridge wire.** Browsers can't speak native gRPC; gRPC-web needs a proxy and doesn't stream cleanly. Bridge result bytes (Arrow IPC stream) drop straight into DuckDB-wasm via `insertArrowFromIPCStream` — no `apache-arrow` JS dep, no Flight machinery. Flight stays the canonical API for non-browser clients (BI tools, CLI).
+- **(b) New thin `Engine.registerArrowBuffer({ tableName, bytes })`** sibling of `registerArrow`. The existing `registerArrow` takes a `File`; bridge results are `ArrayBuffer`. Same `DROP TABLE IF EXISTS` + `insertArrowFromIPCStream(create: true)` semantics. Tiny addition; keeps the file-mount path untouched.
+- **(c) Health-check handshake BEFORE the SQL.** `mountComputeBridge` calls `client.health()` first so misconfiguration (URL, auth, network) surfaces a clear error before any SQL is sent. On `.naklidata` reload, failure routes to `reconnectNeeded` (graceful — the rest of the workbook keeps loading), mirroring how FSA folders and Iceberg handle unreachable sources.
+- **(d) Single-table-per-source for slice W3.4a; a multi-table picker is W3.4b.** The protocol's `/v1/tables` endpoint IS implemented (`listTables()` exposed on `BridgeClient`), but slice W3.4a's modal asks for one (URL, bearer, local table name, SQL) and produces one local table. A future picker UX can compose `listTables` + multi-mount.
+- **(e) Persistence stores URL + SQL + local table name; secrets stay in `source-secrets`.** New optional `bridge` field on `PersistedSource` (additive, no format-version bump). Bearer secret name `bearer_token` (same as Iceberg). On reload the SQL re-runs against the bridge — fresh data, not a stale snapshot. (If the user wants a frozen snapshot they can re-save the result locally.)
+- **(f) Reuse the existing modal + source-card patterns.** No new CSS surface beyond extending `.mount-url-field` to cover `textarea` (the SQL field). The bridge modal mirrors the Iceberg / S3 modal shape: focus management, Escape/backdrop/X close, inline error display.
+- **(g) e2e for the full Arrow-IPC round-trip is deferred.** Generating valid Arrow IPC stub bytes for a Playwright route mock is fragile without an `apache-arrow` dep. The bridge-client (10 vitest specs) + mountComputeBridge (5 vitest specs) are mocked-fetch tested thoroughly. End-to-end against a real binary is a separate manual / staging pass once the binary exists.
+
+**Tests:** 10 new vitest specs in `tests/bridge-client.test.ts` (health auth headers, URL normalization, camelCase tolerance, table parsing + drop-malformed, query POSTs JSON + returns ArrayBuffer, BridgeError with status + code, plain-text body fallback, empty-URL constructor rejection). 5 new vitest specs in `tests/mount.test.ts` for `mountComputeBridge` (full health+query+register round-trip, no-bearer omits Authorization, health failure → MountError, query failure → distinct MountError, required-field + non-http(s) rejection before any fetch). **278 vitest total** (was 263).
+
+**Reversibility:** Easy. Drop `src/core/bridge/`, the `'compute-bridge'` branch on the SourceKind union + `BridgeConfig` + `BRIDGE_SECRET_NAMES`, the `applyLoadedFile` branch in main.ts, the modal + button, and the `Engine.registerArrowBuffer` method. No persistence migration — additive only.
+
+**Known limitations / follow-ups:**
+- **No e2e against a real bridge.** The bridge binary doesn't exist yet (separate repo). Manual smoke against the binary is a once-the-binary-exists pass.
+- **Result size cap is the SQL's responsibility.** Slice W3.4a doesn't enforce a row/byte cap client-side. A future enhancement could parse `LIMIT` or refuse responses above a threshold; for now the modal hint nudges the user to add LIMIT.
+- **Auth: Bearer only.** OAuth2 + mTLS land with the bridge binary's v1.4.
+- **No CSP issue** because the bridge URL is user-configured `https:` and `connect-src 'self' https:` (A5) already covers it.
+
+---
+
 ## 2026-05-29 22:30 — W3.2 slice A: local-model sidecar seam (in-browser model deferred to slice B)
 **Context:** W3.2 is the local-model path — an in-browser model so the sidecar can run without a cloud API key. The full thing (Transformers.js + a ~150 MB Phi-3-mini-class ONNX model) is a genuinely-required new runtime dep + can't be exercised by the headless smoke test (needs a real browser + WebGPU/wasm + a big download). Per CLAUDE.md, a new runtime dep is a deliberate-decision case. Sliced: build the verifiable seam now; add the dep + real inference in a follow-up session with manual browser verification.
 

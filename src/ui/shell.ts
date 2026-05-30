@@ -183,6 +183,11 @@ function renderEmptyState(): HTMLElement {
         <span class="label">Iceberg catalog</span>
         <span class="hint">REST + namespace.table.</span>
       </button>
+      <button class="opt" data-action="mount-compute-bridge" title="Run SQL against a Compute Bridge in your VPC; result lands as a local DuckDB table">
+        ${iconSvg('link', 28)}
+        <span class="label">Compute Bridge</span>
+        <span class="hint">SQL in-VPC, Arrow result.</span>
+      </button>
     </div>
     <div class="examples-link">
       Or <button data-action="browse-examples">browse example data</button>.

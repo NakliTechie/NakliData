@@ -62,6 +62,13 @@ export interface PersistedSource {
     table: string;
     requires_bearer: boolean;
   };
+  /** Wave 3 W3.4a — present when kind is 'compute-bridge'. Bearer token (if any) is NOT persisted. */
+  bridge?: {
+    bridge_url: string;
+    sql: string;
+    table_name: string;
+    requires_bearer: boolean;
+  };
 }
 
 export interface PersistedAssignment {
@@ -143,6 +150,17 @@ export function serialize(input: SerializeInput): NakliDataFile {
               namespace: s.icebergCatalog.namespace,
               table: s.icebergCatalog.table,
               requires_bearer: s.icebergCatalog.requiresBearer,
+            },
+          }
+        : {}),
+      // Wave 3 W3.4a — compute-bridge. Bearer token NOT persisted.
+      ...(s.bridge
+        ? {
+            bridge: {
+              bridge_url: s.bridge.bridgeUrl,
+              sql: s.bridge.sql,
+              table_name: s.bridge.tableName,
+              requires_bearer: s.bridge.requiresBearer,
             },
           }
         : {}),

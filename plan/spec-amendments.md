@@ -317,6 +317,79 @@ configured provider (anthropic / openai / custom). DECISIONS 2026-05-29
 
 ---
 
+## A12 — Compute Bridge source kind, client side (Wave 3 / W3.4a) (amends spec §4.1)
+
+**Original §4.1 (paraphrased):**
+> Remote sources are signed-URL reads (Relay) only.
+
+The Compute Bridge architecture (see
+[`enterprise-strategy.md`](./enterprise-strategy.md)) introduces a third
+data-plane mode: a user-deployed binary that runs DuckDB inside the
+customer's VPC. The wire protocol is spec'd separately in
+[`compute-bridge-protocol.md`](./compute-bridge-protocol.md).
+
+**Amended:**
+
+> **A `'compute-bridge'` `SourceKind` mounts the result of a SQL query
+> run against a Compute Bridge as a local DuckDB table.** The bridge
+> exposes an HTTP API (per `compute-bridge-protocol.md`):
+> `GET /v1/health` (discovery + capability handshake),
+> `GET /v1/tables` (catalog), `POST /v1/query` body `{ sql }` →
+> `Content-Type: application/vnd.apache.arrow.stream` body. NakliData's
+> browser client (`src/core/bridge/bridge-client.ts`) speaks only this
+> HTTP + Arrow IPC surface — **not Arrow Flight** (browsers can't do
+> native gRPC; gRPC-web needs a proxy and doesn't stream cleanly).
+> Flight stays the canonical API for non-browser clients.
+>
+> **Result ingestion reuses `Engine.registerArrowBuffer`** (a thin
+> sibling of `registerArrow` that takes a `Uint8Array` directly) —
+> which in turn uses DuckDB-wasm's existing
+> `insertArrowFromIPCStream`. The Arrow bytes from `POST /v1/query`
+> drop straight into a local table: the heavy scan/join runs in-VPC
+> next to the data, and only the (bounded) result set crosses to the
+> browser.
+>
+> **Reachability handshake before SQL.** `mountComputeBridge` calls
+> `/v1/health` first; failure (network, 401, non-2xx) surfaces a clear
+> error before any SQL is sent, and routes reload-time failures to the
+> existing `reconnectNeeded` graceful-fallback path (same as FSA
+> handles + Iceberg). A bridge dependency never takes down the tab.
+>
+> **`'compute-bridge'` Bearer secret** uses the W2.2 `source-secrets`
+> module (sessionStorage default + opt-in IDB). Secret name:
+> `bearer_token`. Secrets are NEVER persisted in `.naklidata`;
+> reload looks them up from `source-secrets` and routes to reconnect
+> if missing.
+>
+> **Persistence:** new optional `bridge` field on `PersistedSource`
+> (`bridge_url`, `sql`, `table_name`, `requires_bearer`). Additive
+> only; no format-version bump (per DECISIONS 2026-05-24 14:00). On
+> reload the SQL re-runs against the bridge → fresh data.
+>
+> **CSP:** the bridge URL is a user-configured `https:` endpoint —
+> already allowed by `connect-src 'self' https:` (A5). Plain
+> `http://` is blocked; the bridge should serve TLS (self-signed is
+> fine over a VPN).
+
+**Status of the binary:** Wave 3 W3.4a ships the **client side** in
+NakliData (this repo, mockable against canned responses). The bridge
+**binary** is a separate OSS project (target name to be confirmed at
+repo creation given the independent-product positioning; Rust single
+binary + Docker; Bearer auth v1.3 MVP; OAuth2 / mTLS v1.4+). The
+client and the binary share this wire contract. See DECISIONS
+2026-05-29 (W3.4a entry).
+
+**Slice scope this commit:**
+- Single-table mount per source (paste URL + bearer + table name +
+  SQL). A multi-table picker that uses `/v1/tables` is a follow-up
+  W3.4b slice — the client already exposes `listTables()` for it.
+- e2e for the full Arrow-IPC round-trip is deferred; generating valid
+  Arrow IPC stub bytes for Playwright is fragile (no `apache-arrow`
+  JS dep). The bridge-client + mountComputeBridge are unit-tested
+  thoroughly against mocked fetch.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

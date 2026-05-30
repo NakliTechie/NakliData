@@ -1,64 +1,69 @@
-# Workplan — 2026-05-29 snapshot
+# Workplan — 2026-05-29 snapshot (post-W3.4a)
 
-Wave 2 is COMPLETE. Wave 3 is in progress: W3.1 (Job 4), W3.2 slice A
-(local-model seam), and W3.3 design all shipped. What's left splits
-into one buildable-here chunk (W3.4a) and external work (the bridge
-binary, the real local model) that can't be built/verified from this
-repo.
+Wave 3 is substantially complete on the NakliData-repo side. W3.1
+(Job 4), W3.2 slice A (local-model seam), W3.3 (wire-protocol design),
+and W3.4a (compute-bridge client) all shipped today.
 
-Top chunk is the next thing to grab.
-
----
-
-## Chunk 1 — W3.4a: `compute-bridge` source kind (half–full day)
-
-The one remaining Wave 3 piece that's real NakliData-repo work +
-verifiable here (against a mock). Spec'd in
-[`compute-bridge-protocol.md`](./compute-bridge-protocol.md).
-
-- **`src/core/bridge/bridge-client.ts`** — `health()` / `listTables()`
-  / `query(sql) → Arrow IPC ArrayBuffer`. Injected `fetchImpl`,
-  mock-tested exactly like `iceberg/rest-client.ts`.
-- **`'compute-bridge'` SourceKind** + mount flow: health handshake →
-  list tables → user picks → bounded `SELECT` → register the Arrow
-  result via the EXISTING `Engine.registerArrow` path (becomes a local
-  DuckDB table).
-- **Bearer token** via the W2.2 `source-secrets` module (session
-  default + opt-in IDB). 401 → reconnect.
-- **Graceful fallback:** `health()` fail on mount/reload → "Compute
-  Bridge unreachable — Reconnect" state (reuse FSA `reconnectNeeded`).
-  Never takes down the session.
-- **`.naklidata` round-trip:** persist bridge URL + table selection
-  (NOT the token); additive `PersistedSource.bridge` field, no
-  format-version bump.
-- Tests: bridge-client against canned `/v1/health` + `/v1/tables` +
-  `/v1/query` (Arrow IPC) responses; mount + fallback e2e with a
-  mocked endpoint.
-
-Prereq: none (mockable). Real end-to-end waits for the binary.
+What's left here divides cleanly into:
+1. **Maintenance + polish** — small, interleavable, ship in short
+   sessions (Chunk 1).
+2. **W3.4b — multi-table picker** — meaningful follow-up, but
+   speculative until a real bridge binary exists to test against
+   (Chunk 2).
+3. **External-blocked** — separate-repo (bridge binary) or real-browser
+   (local-model slice B). Listed in Unbatched, not actionable here.
 
 ---
 
-## Chunk 2 — Maintenance + nice-to-haves (under an hour each)
+## Chunk 1 — Maintenance + polish (interleavable, 30 min – 1 hour each)
 
-Good interleave fillers:
+Concrete items that don't depend on anything external. Pick off
+opportunistically; each ships its own gate pass.
 
-- **Modal focus/Escape audit** beyond schema-graph — apply the W1.11
-  focus-restore + Escape-listener-cleanup pattern to the other modals
-  (settings, define-type, override-rules, compare-tables, the 4
-  mount-* modals). 1–2 real leaks likely hiding.
+- **Modal a11y audit pass** beyond schema-graph and slice-3 modals.
+  Apply the W1.11 focus-restore + Escape-listener-cleanup pattern to
+  the older modals (settings, define-type, override-rules,
+  compare-tables). 1–2 real leaks likely hiding; the pattern is
+  proven.
 - **"Test connection" button** for the custom-endpoint sidecar
-  (Settings) — revisit if config friction shows up.
-- **Multi-bucket S3 / multi-token Iceberg** via DuckDB `CREATE SECRET`
-  once wasm supports it (tracked limitation, DECISIONS 2026-05-24
-  15:30 + 16:00).
-- **`checkpoint-*-eod.md` cleanup** — old pre-windup files still on
-  disk; archive or leave as history (doc-cadence decided summaries are
-  canonical).
+  (Settings). Probe the configured URL + key with a minimal
+  `chat/completions` call → surface the real HTTP error inline
+  instead of waiting for the first job. Small, user-visible.
+- **`checkpoint-*-eod.md` cleanup**. Old pre-windup files still on
+  disk; archive into a `plan/archive/` subdir or leave as history.
+  Doc-cadence already decided summaries are canonical.
+- **`registerArrowBuffer` exposed in vitest mock helpers** — the
+  mount.test.ts `mockEngine` already lists every register*; the
+  new `registerArrowBuffer` could join for consistency (not strictly
+  needed, but tidies the surface).
+
+Prereq: none. None of these touch a new external surface.
 
 ---
 
-## Unbatched / separate-repo / real-browser (not buildable headless here)
+## Chunk 2 — W3.4b: Compute Bridge multi-table picker (half day, speculative until binary exists)
+
+The follow-up the W3.4a slice deliberately deferred. The protocol
+endpoint `/v1/tables` is already implemented in `BridgeClient.listTables()`.
+
+- A connect-then-browse modal flow: paste URL + Bearer → fetch the
+  catalog → render table list with schemas → multi-select → for each
+  picked table, issue a bounded `SELECT * FROM <t> LIMIT <cap>` and
+  register the result. Similar shape to the Iceberg-catalog
+  namespace+table picker (`mount-iceberg-catalog-modal.ts`).
+- Persistence: a `'compute-bridge-catalog'` SourceKind that tracks
+  the catalog URL + selection, distinct from `'compute-bridge'`
+  (single-table-via-SQL). Two source kinds because the persistence
+  shape differs.
+- Tests: bridge-client `listTables()` is already covered; the
+  multi-select mount needs new vitest specs.
+
+Useful even pre-binary as a design clarifier — but live verification
+waits for the binary.
+
+---
+
+## Unbatched / separate-repo / real-browser (not actionable from this repo)
 
 - **W3.2 slice B — real local inference.** Add `@huggingface/transformers`;
   `src/lazy/local-model.ts` loads a Phi-3-mini-class 4-bit ONNX model
@@ -66,14 +71,17 @@ Good interleave fillers:
   weights; Settings `'local'` radio + download UI. **Needs a real
   browser + WebGPU — dedicated session + manual verification.** Seam
   (slice A) already shipped.
-- **W3.3 — the bridge binary.** Separate OSS repo (Rust single binary +
-  Docker; HTTP + Arrow IPC + Flight; Bearer auth; DuckDB engine).
-  Multi-week. The wire contract (`compute-bridge-protocol.md`) unblocks
-  it. Confirm naming (rethink `nakli-compute`) + license (Apache 2.0
-  lean) at repo creation.
+- **The Compute Bridge binary** — separate OSS repo (Rust single
+  binary + Docker; HTTP + Arrow IPC + Flight; Bearer auth; DuckDB
+  engine). Multi-week. The wire contract
+  ([`compute-bridge-protocol.md`](./compute-bridge-protocol.md))
+  unblocks it. Confirm naming (`nakli-compute` was chosen under the
+  launcher-portfolio framing we dropped — rethink given the
+  independent-product positioning) + license (Apache 2.0 lean) at
+  repo creation.
 - **W3.5** — routing logic (which jobs benefit from the bridge:
-  batch-classify 10k+ columns, heavy semantic search). After W3.3 +
-  W3.4a exist.
+  batch-classify 10k+ columns, heavy semantic search). After the
+  binary exists.
 - **W2.1c — Iceberg OAuth2 device flow + AWS SigV4.** v1.3, with
   multi-tenant enterprise work.
 - **W1.8 deploy / W1.6 basemap / W2.6 deck.gl** — see pending.md

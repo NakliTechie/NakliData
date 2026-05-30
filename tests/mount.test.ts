@@ -582,3 +582,169 @@ describe('mountIcebergCatalog (Wave 2 slice 3b)', () => {
     );
   });
 });
+
+// ---- mountComputeBridge (Wave 3 W3.4a) -----------------------------------
+
+import { mountComputeBridge } from '../src/core/mount.ts';
+
+function bridgeMockEngine() {
+  return {
+    registerArrowBuffer: vi.fn().mockResolvedValue(['result_table']),
+    query: vi.fn().mockResolvedValue([{ n: 17n }]),
+  };
+}
+
+describe('mountComputeBridge (Wave 3 W3.4a)', () => {
+  const fakeArrowBytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57]);
+
+  it('health-checks + queries the bridge + registers the Arrow result', async () => {
+    const engine = bridgeMockEngine();
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const u = String(url);
+      calls.push(`${init?.method ?? 'GET'} ${u}`);
+      if (u.endsWith('/v1/health')) {
+        return new Response(
+          JSON.stringify({
+            name: 'nakli-compute',
+            version: '0.1',
+            auth: 'bearer',
+            single_tenant: true,
+            capabilities: ['query'],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (u.endsWith('/v1/query')) {
+        return new Response(fakeArrowBytes.buffer as ArrayBuffer, {
+          status: 200,
+          headers: { 'content-type': 'application/vnd.apache.arrow.stream' },
+        });
+      }
+      throw new Error(`unexpected URL ${u}`);
+    };
+    const src = await mountComputeBridge(engine as never, {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com:8088',
+      sql: 'SELECT * FROM lakehouse.sales LIMIT 100',
+      tableName: 'sales',
+      bearerToken: 'tok',
+      fetchImpl,
+    });
+    expect(calls[0]).toBe('GET https://bridge.example.com:8088/v1/health');
+    expect(calls[1]).toBe('POST https://bridge.example.com:8088/v1/query');
+    expect(engine.registerArrowBuffer).toHaveBeenCalledWith({
+      tableName: 'sales',
+      bytes: fakeArrowBytes,
+    });
+    expect(src.kind).toBe('compute-bridge');
+    expect(src.bridge?.bridgeUrl).toBe('https://bridge.example.com:8088');
+    expect(src.bridge?.sql).toBe('SELECT * FROM lakehouse.sales LIMIT 100');
+    expect(src.bridge?.requiresBearer).toBe(true);
+    expect(src.tables[0]?.format).toBe('arrow');
+    expect(src.label).toBe('sales (bridge)');
+  });
+
+  it('omits Bearer when no token is supplied', async () => {
+    const engine = bridgeMockEngine();
+    let sawAuth: string | undefined;
+    const fetchImpl: typeof fetch = async (url, init) => {
+      sawAuth = new Headers(init?.headers).get('authorization') ?? undefined;
+      const u = String(url);
+      if (u.endsWith('/v1/health')) {
+        return new Response(
+          JSON.stringify({ name: 'x', version: '0', auth: 'none', capabilities: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(fakeArrowBytes.buffer as ArrayBuffer, {
+        status: 200,
+        headers: { 'content-type': 'application/vnd.apache.arrow.stream' },
+      });
+    };
+    const src = await mountComputeBridge(engine as never, {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com',
+      sql: 'SELECT 1',
+      tableName: 't',
+      bearerToken: null,
+      fetchImpl,
+    });
+    expect(sawAuth).toBeUndefined();
+    expect(src.bridge?.requiresBearer).toBe(false);
+  });
+
+  it('wraps health-check failures as MountError', async () => {
+    const engine = bridgeMockEngine();
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'bad token' } }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      });
+    await expect(
+      mountComputeBridge(engine as never, {
+        label: '',
+        bridgeUrl: 'https://bridge.example.com',
+        sql: 'SELECT 1',
+        tableName: 't',
+        bearerToken: 'bad',
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/Compute Bridge: .*401/);
+    expect(engine.registerArrowBuffer).not.toHaveBeenCalled();
+  });
+
+  it('wraps query failures as MountError (separate message from health)', async () => {
+    const engine = bridgeMockEngine();
+    const fetchImpl: typeof fetch = async (url) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) {
+        return new Response(
+          JSON.stringify({ name: 'x', version: '0', auth: 'none', capabilities: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      // Query path errors.
+      return new Response(JSON.stringify({ error: { code: 'query_error', message: 'syntax' } }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    await expect(
+      mountComputeBridge(engine as never, {
+        label: '',
+        bridgeUrl: 'https://bridge.example.com',
+        sql: 'SELEKT *',
+        tableName: 't',
+        bearerToken: null,
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/Compute Bridge query failed:.*400/);
+    expect(engine.registerArrowBuffer).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty URL / SQL / table name + non-http(s) URLs before any fetch', async () => {
+    const engine = bridgeMockEngine();
+    const fetchImpl: typeof fetch = async () => new Response('{}', { status: 200 });
+    const base = {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com',
+      sql: 'SELECT 1',
+      tableName: 't',
+      bearerToken: null,
+      fetchImpl,
+    };
+    await expect(mountComputeBridge(engine as never, { ...base, bridgeUrl: '' })).rejects.toThrow(
+      /Compute Bridge URL is required/,
+    );
+    await expect(mountComputeBridge(engine as never, { ...base, sql: '   ' })).rejects.toThrow(
+      /SQL is required/,
+    );
+    await expect(mountComputeBridge(engine as never, { ...base, tableName: '' })).rejects.toThrow(
+      /Local table name is required/,
+    );
+    await expect(
+      mountComputeBridge(engine as never, { ...base, bridgeUrl: 'file:///tmp/bridge' }),
+    ).rejects.toThrow(/must start with https/);
+  });
+});

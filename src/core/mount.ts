@@ -37,7 +37,8 @@ export type SourceKind =
   | 'http'
   | 's3-endpoint'
   | 'iceberg-table'
-  | 'iceberg-catalog';
+  | 'iceberg-catalog'
+  | 'compute-bridge';
 
 /**
  * Per-source kind metadata that travels alongside `MountedSource` for
@@ -58,6 +59,28 @@ export const S3_SECRET_NAMES = ['access_key_id', 'secret_access_key'] as const;
 
 /** Canonical secret names for the iceberg-table kind (slice 3a — Bearer only). */
 export const ICEBERG_SECRET_NAMES = ['bearer_token'] as const;
+
+/** Canonical secret names for the compute-bridge kind (W3.4a — Bearer only). */
+export const BRIDGE_SECRET_NAMES = ['bearer_token'] as const;
+
+/**
+ * W3.4a metadata for `kind: 'compute-bridge'`. A bridge mount is a
+ * materialized result from a SQL query against the Compute Bridge —
+ * the bridge does the heavy scan in-VPC, returns a (small) Arrow IPC
+ * stream, and NakliData registers it as a local DuckDB table.
+ *
+ * On reload the SQL re-runs against the bridge (fresh data); the
+ * Bearer token (if required) is looked up via source-secrets.
+ */
+export interface BridgeConfig {
+  bridgeUrl: string;
+  /** SQL the bridge executes; result becomes the local table. */
+  sql: string;
+  /** Local DuckDB table name the result is registered as. */
+  tableName: string;
+  /** Whether to send a Bearer token to the bridge. */
+  requiresBearer: boolean;
+}
 
 /**
  * Slice 3a metadata for `kind: 'iceberg-table'`. The Iceberg table is
@@ -108,6 +131,8 @@ export interface MountedSource {
   iceberg?: IcebergTableConfig;
   /** Wave 2 slice 3b — populated for `kind: 'iceberg-catalog'`. */
   icebergCatalog?: IcebergCatalogConfig;
+  /** Wave 3 W3.4a — populated for `kind: 'compute-bridge'`. */
+  bridge?: BridgeConfig;
   tables: MountedTable[];
 }
 
@@ -708,6 +733,100 @@ export async function mountIcebergTable(
         name: tableLabel,
         format: 'parquet', // Iceberg tables are Parquet-backed by spec
         origin: metadataUrl,
+        rowCount,
+        registered: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Wave 3 W3.4a — mount the result of a SQL query against a Compute
+ * Bridge as a local DuckDB table. The bridge runs the heavy scan
+ * inside the customer's VPC and returns the (small) result set as an
+ * Arrow IPC stream; we register those bytes via the existing
+ * `insertArrowFromIPCStream` path (Engine.registerArrowBuffer). Bytes
+ * never cross out of the customer's cloud except the rows the
+ * analyst's query actually returns.
+ *
+ * Reachability is probed via `/v1/health` first so a misconfigured /
+ * unreachable bridge surfaces a clear error before we send any SQL,
+ * and so reload-time failures route to `reconnectNeeded` rather than
+ * tanking the whole load.
+ *
+ * Slice W3.4a ships Bearer-only auth (matching the bridge's v1.3 MVP).
+ * OAuth2 / mTLS land with the bridge's v1.4.
+ */
+export async function mountComputeBridge(
+  engine: Engine,
+  opts: {
+    label: string;
+    bridgeUrl: string;
+    sql: string;
+    tableName: string;
+    bearerToken: string | null;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<MountedSource> {
+  if (!opts.bridgeUrl.trim()) throw new MountError('Compute Bridge URL is required.');
+  if (!opts.sql.trim()) throw new MountError('SQL is required.');
+  if (!opts.tableName.trim()) throw new MountError('Local table name is required.');
+  if (!/^https?:\/\//i.test(opts.bridgeUrl.trim())) {
+    throw new MountError(
+      'Compute Bridge URL must start with https:// (http:// only works for localhost via a tunnel — CSP blocks plain http otherwise).',
+    );
+  }
+  const bearerToken = opts.bearerToken?.trim() || null;
+  const { BridgeClient } = await import('./bridge/bridge-client.ts');
+  const client = new BridgeClient({
+    bridgeUrl: opts.bridgeUrl.trim(),
+    bearerToken,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  // 1) Reachability + auth probe. Surfaces a clear "unreachable / 401"
+  // before we send the SQL.
+  try {
+    await client.health();
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new MountError(`Compute Bridge: ${err.message}`);
+    }
+    throw err;
+  }
+  // 2) Run the user's SQL on the bridge; receive Arrow IPC bytes.
+  let bytes: Uint8Array;
+  try {
+    const buffer = await client.query(opts.sql.trim());
+    bytes = new Uint8Array(buffer);
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new MountError(`Compute Bridge query failed: ${err.message}`);
+    }
+    throw err;
+  }
+  // 3) Register the result as a local DuckDB table.
+  const sourceId = genId('src');
+  const tableLabel = sanitizeTableName(opts.tableName.trim());
+  await engine.registerArrowBuffer({ tableName: tableLabel, bytes });
+  const rowCount = await getRowCount(engine, tableLabel);
+  return {
+    id: sourceId,
+    kind: 'compute-bridge',
+    label: opts.label.trim() || `${opts.tableName.trim()} (bridge)`,
+    ref: opts.bridgeUrl.trim(),
+    bridge: {
+      bridgeUrl: opts.bridgeUrl.trim(),
+      sql: opts.sql.trim(),
+      tableName: tableLabel,
+      requiresBearer: bearerToken !== null,
+    },
+    tables: [
+      {
+        id: genId('tbl'),
+        sourceId,
+        name: tableLabel,
+        format: 'arrow',
+        origin: `${opts.bridgeUrl.trim()} :: ${opts.sql.trim().slice(0, 60)}${opts.sql.trim().length > 60 ? '…' : ''}`,
         rowCount,
         registered: true,
       },

@@ -631,7 +631,8 @@ button {
   color: var(--text-muted);
   font-style: normal;
 }
-.mount-url-field input {
+.mount-url-field input,
+.mount-url-field textarea {
   font-family: var(--font-mono);
   font-size: ${Type.size.sm};
   width: 100%;
@@ -639,6 +640,10 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
+}
+.mount-url-field textarea {
+  resize: vertical;
+  line-height: 1.4;
 }
 .mount-url-hint {
   margin: 0;
