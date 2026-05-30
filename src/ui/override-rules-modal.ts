@@ -11,6 +11,7 @@ import { iconSvg } from '../tokens/icons.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _keyHandler: ((ev: KeyboardEvent) => void) | null = null;
+let _previouslyFocused: HTMLElement | null = null;
 
 export interface OverrideRulesModalState {
   rules: OverrideRule[];
@@ -45,6 +46,7 @@ export function openOverrideRulesModal(
     renderList(_modalEl, initial, handlers);
     return;
   }
+  _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   const overlay = document.createElement('div');
   overlay.className = 'override-rules-overlay';
   overlay.setAttribute('role', 'dialog');
@@ -80,6 +82,9 @@ export function openOverrideRulesModal(
   _modalEl = overlay;
   injectOverrideRulesCss();
   renderList(overlay, initial, handlers);
+  // Move focus to the close button so keyboard users can interact +
+  // dismiss without Tab gymnastics.
+  overlay.querySelector<HTMLElement>('[data-action="close-override-rules"]')?.focus();
 }
 
 export function closeOverrideRulesModal(): void {
@@ -91,6 +96,8 @@ export function closeOverrideRulesModal(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
+  _previouslyFocused?.focus();
+  _previouslyFocused = null;
 }
 
 /**

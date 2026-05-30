@@ -16,6 +16,8 @@ import { iconSvg } from '../tokens/icons.ts';
 import { assignmentKey } from './schema-panel.ts';
 
 let _modalEl: HTMLElement | null = null;
+let _previouslyFocused: HTMLElement | null = null;
+let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 
 export interface OpenDefineTypeOpts {
   sourceId: string;
@@ -28,17 +30,27 @@ export interface OpenDefineTypeOpts {
 
 export async function openDefineTypeModal(opts: OpenDefineTypeOpts): Promise<void> {
   if (_modalEl && document.body.contains(_modalEl)) return;
+  _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   const overlay = renderModal(opts);
   document.body.append(overlay);
   _modalEl = overlay;
   // Pre-populate id slot with a snake_case guess from the column name.
   setField(overlay, 'id', defaultIdFromColumn(opts.columnName));
   setField(overlay, 'display_name', humaniseColumn(opts.columnName));
+  // Focus the first user-editable field (the id input) so keyboard
+  // users can start typing immediately.
+  overlay.querySelector<HTMLInputElement>('[data-define-field="id"]')?.focus();
 }
 
 export function closeDefineTypeModal(): void {
   if (_modalEl?.parentElement) _modalEl.parentElement.removeChild(_modalEl);
   _modalEl = null;
+  if (_onKey) {
+    document.removeEventListener('keydown', _onKey);
+    _onKey = null;
+  }
+  _previouslyFocused?.focus();
+  _previouslyFocused = null;
 }
 
 function defaultIdFromColumn(column: string): string {
@@ -149,16 +161,14 @@ function renderModal(opts: OpenDefineTypeOpts): HTMLElement {
     if (action === 'define-suggest') return runSuggest(overlay, opts);
     if (action === 'define-save') return runSave(overlay, opts);
   });
-  document.addEventListener(
-    'keydown',
-    function onKey(ev) {
-      if (ev.key === 'Escape') {
-        closeDefineTypeModal();
-        document.removeEventListener('keydown', onKey);
-      }
-    },
-    { once: false },
-  );
+  // Stash at module scope so closeDefineTypeModal() can detach it
+  // regardless of which path closed the modal (X / backdrop / Escape).
+  // The previous inline self-removing handler leaked when the user
+  // closed via Cancel / X — same bug fixed in schema-graph (W1.11).
+  _onKey = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') closeDefineTypeModal();
+  };
+  document.addEventListener('keydown', _onKey);
   return overlay;
 }
 

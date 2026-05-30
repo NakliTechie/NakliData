@@ -76,6 +76,7 @@ function mockEngine(overrides: Record<string, unknown> = {}) {
     registerDuckdb: vi.fn().mockResolvedValue(['t1', 't2']),
     registerXlsx: vi.fn().mockResolvedValue(['sheet1']),
     registerArrow: vi.fn().mockResolvedValue(['observations']),
+    registerArrowBuffer: vi.fn().mockResolvedValue(['arrow_buffer_table']),
     registerReadStat: vi.fn().mockResolvedValue(['data']),
     query: vi.fn().mockResolvedValue([{ n: 42n }]),
     ...overrides,

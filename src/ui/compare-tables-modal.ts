@@ -12,6 +12,7 @@ import { assignmentKey } from './schema-panel.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _keyHandler: ((ev: KeyboardEvent) => void) | null = null;
+let _previouslyFocused: HTMLElement | null = null;
 
 export interface CompareTablesModalInput {
   sources: MountedSource[];
@@ -82,6 +83,7 @@ export function findJoinKeyCandidates(
 
 export function openCompareTablesModal(input: CompareTablesModalInput): void {
   if (_modalEl && document.body.contains(_modalEl)) return;
+  _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   injectCompareCss();
   const overlay = document.createElement('div');
   overlay.className = 'compare-tables-overlay';
@@ -112,6 +114,9 @@ export function openCompareTablesModal(input: CompareTablesModalInput): void {
   document.body.append(overlay);
   _modalEl = overlay;
   renderPickerStep(overlay, input);
+  // Move focus to the close button (the picker dropdowns are render-
+  // step content; landing on the close button is safe + predictable).
+  overlay.querySelector<HTMLElement>('[data-action="close-compare-tables"]')?.focus();
 }
 
 export function closeCompareTablesModal(): void {
@@ -123,6 +128,8 @@ export function closeCompareTablesModal(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
+  _previouslyFocused?.focus();
+  _previouslyFocused = null;
 }
 
 /**

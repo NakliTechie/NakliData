@@ -17,18 +17,32 @@ import { iconSvg } from '../tokens/icons.ts';
 const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
 
 let _modalEl: HTMLElement | null = null;
+let _previouslyFocused: HTMLElement | null = null;
+let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 
 export async function openSettingsModal(): Promise<void> {
   if (_modalEl && document.body.contains(_modalEl)) return;
+  _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   const overlay = renderModal();
   document.body.append(overlay);
   _modalEl = overlay;
   await refresh();
+  // Move focus into the modal so keyboard users can interact + Escape works
+  // even when focus was last on a now-hidden element.
+  overlay.querySelector<HTMLElement>('[data-action="close-settings"]')?.focus();
 }
 
 export function closeSettingsModal(): void {
   if (_modalEl?.parentElement) _modalEl.parentElement.removeChild(_modalEl);
   _modalEl = null;
+  // Unconditional listener teardown — the inline self-removing handler
+  // leaked when the user closed via the X button (not Escape).
+  if (_onKey) {
+    document.removeEventListener('keydown', _onKey);
+    _onKey = null;
+  }
+  _previouslyFocused?.focus();
+  _previouslyFocused = null;
 }
 
 async function refresh(): Promise<void> {
@@ -256,16 +270,12 @@ function renderModal(): HTMLElement {
       await patchSettings({ sidecarCustomEndpoint: target.value });
     }
   });
-  document.addEventListener(
-    'keydown',
-    function onKey(ev) {
-      if (ev.key === 'Escape') {
-        closeSettingsModal();
-        document.removeEventListener('keydown', onKey);
-      }
-    },
-    { once: false },
-  );
+  // Stash at module scope so closeSettingsModal() can detach it
+  // regardless of which path closed the modal (X / backdrop / Escape).
+  _onKey = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') closeSettingsModal();
+  };
+  document.addEventListener('keydown', _onKey);
   return overlay;
 }
 
