@@ -216,14 +216,18 @@ export class Engine {
         );
       }
 
-      const workerBootstrapUrl = URL.createObjectURL(
-        new Blob([`importScripts("${workerScriptUrl}");`], { type: 'text/javascript' }),
-      );
-      const worker = new Worker(workerBootstrapUrl);
+      // workerScriptUrl is same-origin in BOTH paths now: a blob URL on
+      // the CDN path (worker bytes were SRI-fetched + blobbed), a
+      // page-relative URL on the offline path. Spawn the Worker
+      // directly — the historical `importScripts(<otherBlob>)`
+      // bootstrap chain isn't needed here and fails in current Chrome
+      // (the nested blob isn't reachable from a worker spawned out of a
+      // sibling blob; the official duckdb-wasm chain pattern assumes the
+      // imported script is a same-origin URL, not a blob).
+      const worker = new Worker(workerScriptUrl);
       const logger = new duckdb.ConsoleLogger();
       const db = new duckdb.AsyncDuckDB(logger, worker);
       await db.instantiate(mainModuleUrl, bundle.pthreadWorker ?? null);
-      URL.revokeObjectURL(workerBootstrapUrl);
 
       this.db = db;
       this.worker = worker;
