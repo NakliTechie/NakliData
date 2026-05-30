@@ -13,6 +13,7 @@
 import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
+import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
@@ -21,6 +22,7 @@ import type {
   CellHandlers,
   CellState,
   ChartCellState,
+  CohortCellState,
   MapCellState,
   MarkdownCellState,
   PivotCellState,
@@ -112,6 +114,23 @@ export class Notebook {
         geometryCol: null,
         colorBy: null,
       } satisfies MapCellState;
+    } else if (kind === 'cohort') {
+      cell = {
+        id: genCellId(),
+        kind: 'cohort',
+        order,
+        // Cohorts must be named to be reference-able via @name. Seed
+        // a placeholder; user edits via the name input.
+        name: `cohort_${order + 1}`,
+        code: `-- Cohort: define the user set this template applies to.
+-- Result must have a \`user_id\` column. Reference downstream via @cohort_${order + 1}.
+SELECT DISTINCT user_id
+FROM events  -- adjust to your event table
+WHERE event_name = 'signup'  -- adjust to your criterion`,
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+      } satisfies CohortCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -154,7 +173,9 @@ export class Notebook {
 
   async runCell(id: string, codeOverride?: string): Promise<void> {
     const cell = this.state.cells.find((c) => c.id === id);
-    if (!cell || cell.kind !== 'sql') return;
+    // Cohort cells (W4.4) run the same path as SQL cells — same view
+    // creation, same result shape; only the rendered chrome differs.
+    if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort')) return;
     const code = codeOverride ?? cell.code;
     this.patchCell(id, { code, status: 'running', lastError: null });
     const ac = new AbortController();
@@ -189,7 +210,7 @@ export class Notebook {
     // in document order; cells reference views which are created by prior
     // cells, so document-order matches DAG order in the common case.
     for (const c of this.state.cells) {
-      if (c.kind === 'sql') {
+      if (c.kind === 'sql' || c.kind === 'cohort') {
         await this.runCell(c.id);
       }
     }
@@ -202,8 +223,10 @@ export class Notebook {
    */
   private rewriteReferences(sql: string): string {
     return sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_m, name) => {
+      // Both SQL cells and Cohort cells (W4.4) materialise as
+      // `cell_<id>` views and are valid @-reference targets.
       const ref = this.state.cells.find(
-        (c): c is SqlCellState => c.kind === 'sql' && c.name === name,
+        (c) => (c.kind === 'sql' || c.kind === 'cohort') && c.name === name,
       );
       if (!ref) return `"${name}"`;
       return `"cell_${ref.id}"`;
@@ -281,6 +304,7 @@ export function renderNotebook(
     else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
     else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
   }
 
   const addRow = document.createElement('div');
@@ -291,6 +315,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-chart">${iconSvg('plus', 12)} Chart</button>
     <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
+    <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')
@@ -307,5 +332,8 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-map"]')
     ?.addEventListener('click', () => notebook.addCell('map'));
+  addRow
+    .querySelector('[data-nb-action="add-cohort"]')
+    ?.addEventListener('click', () => notebook.addCell('cohort'));
   root.append(addRow);
 }

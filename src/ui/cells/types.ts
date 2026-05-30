@@ -1,6 +1,6 @@
 // Cell state types used by the notebook UI.
 
-export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map';
+export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map' | 'cohort';
 
 export interface SqlCellState {
   id: string;
@@ -77,12 +77,35 @@ export interface MapCellState {
   colorBy: string | null;
 }
 
+/**
+ * Cohort cell — Wave 4 W4.4. Structurally a SQL cell whose result is
+ * a single `user_id` column. Downstream cells reference the cohort
+ * via `@<cohort_name>` using the same machinery that resolves any
+ * `@cellName` SQL ref. The separate kind exists only to:
+ *   - render distinct UI chrome (header label, count badge),
+ *   - hint the user that the cell defines a reusable user filter.
+ * Runs the same DuckDB query path as a regular SQL cell.
+ */
+export interface CohortCellState {
+  id: string;
+  kind: 'cohort';
+  order: number;
+  /** Cohort name — required to be reference-able via @<name>. */
+  name: string | null;
+  /** SQL predicate returning a `user_id` column. */
+  code: string;
+  status: 'idle' | 'running' | 'success' | 'error';
+  lastError: string | null;
+  lastResult: SqlResult | null;
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
   | ChartCellState
   | PivotCellState
-  | MapCellState;
+  | MapCellState
+  | CohortCellState;
 
 export interface SqlResult {
   columns: string[];

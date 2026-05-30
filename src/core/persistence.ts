@@ -204,7 +204,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
 
 /** Strip transient runtime state (results, errors) before persisting. */
 function cellWithoutResults(c: CellState): CellState {
-  if (c.kind === 'sql') {
+  if (c.kind === 'sql' || c.kind === 'cohort') {
     return {
       ...c,
       status: 'idle',
