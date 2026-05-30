@@ -107,8 +107,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     // does an async refresh + focus, so wait for it to land rather than
     // sampling immediately.
     await page.waitForFunction(
-      () =>
-        (document.activeElement as HTMLElement | null)?.dataset?.action === 'close-settings',
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action === 'close-settings',
       null,
       { timeout: 2_000 },
     );
@@ -150,8 +149,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
 
     // a11y: focus returns to the header trigger after close.
     await page.waitForFunction(
-      () =>
-        (document.activeElement as HTMLElement | null)?.dataset?.action === 'open-settings',
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action === 'open-settings',
       null,
       { timeout: 2_000 },
     );
