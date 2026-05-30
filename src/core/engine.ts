@@ -9,12 +9,7 @@
 //   §3.7 — CSP allows wasm-unsafe-eval and the jsdelivr CDN origin
 
 import * as duckdb from '@duckdb/duckdb-wasm';
-// Subresource-integrity hashes for the DuckDB-wasm CDN bundle, generated
-// at install time from the same bytes the vendored fallback contains.
-// Spec §7.1 gate: "DuckDB-wasm boots from CDN with SRI; vendored fallback
-// verified offline." When the CDN serves different bytes (mirror swap,
-// cache corruption, MITM), the fetch fails closed and we fall back to
-// the vendored copy.
+import { loadChunk } from './lazy-loader.ts';
 
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'error';
 
@@ -540,41 +535,36 @@ export class Engine {
   }
 
   /**
-   * Mount an Excel `.xlsx` file via DuckDB's `excel` core extension.
-   * `read_xlsx` returns one table per sheet; we discover the sheets
-   * and create one NakliData view per sheet.
+   * Mount an Excel `.xlsx` file. Parses via SheetJS (a lazy chunk) and
+   * feeds each sheet through the existing CSV mount path.
+   *
+   * Why not DuckDB's `excel` extension? It isn't published at
+   * extensions.duckdb.org for our DuckDB-wasm revision (v1.1.1/
+   * wasm_eh). The original spec called for it (see pending.md "Theme
+   * 1") but the deferred-since-upstream-bump status meant Excel was a
+   * dead surface for 90%+ of common cases. SheetJS is Apache-2,
+   * loads only when the user actually mounts xlsx, and emits CSV
+   * which we already ingest natively.
+   *
+   * Returns one view per non-empty sheet, named `<tableName>` (single
+   * sheet) or `<tableName>__<sheetName>` (multi-sheet).
    */
   async registerXlsx({ tableName, file }: RegisterFileOptions): Promise<string[]> {
-    await this.ensureExtension('excel');
-    const fname = sanitizeFileName(file.name);
-    await this.registerFile(fname, file);
-    // Probe sheet names; fall back to a single all_sheets=false call if probing fails.
-    let sheets: string[] = [];
-    try {
-      const rows = await this.query<{ name: string }>(
-        `SELECT name FROM excel_sheets('${escapeLiteral(fname)}')`,
+    const sheetjs = await loadChunk('sheetjs');
+    const sheets = await sheetjs.parseXlsxToSheets(file);
+    if (sheets.length === 0) {
+      throw new Error(
+        `No usable sheets in "${file.name}" — the workbook is empty or all sheets are blank.`,
       );
-      sheets = rows.map((r) => r.name);
-    } catch {
-      sheets = [];
     }
     const created: string[] = [];
-    if (sheets.length === 0) {
-      // No sheets discovered — fall back to the default read_xlsx call.
-      const view = sanitizeIdent(tableName);
-      await this.exec(
-        `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM read_xlsx('${escapeLiteral(fname)}')`,
-      );
+    for (const { name, csv } of sheets) {
+      const view = sanitizeIdent(sheets.length === 1 ? tableName : `${tableName}__${name}`);
+      // Wrap the CSV in a File so the existing registerCsv path can
+      // pick it up — same code path used for any other CSV mount.
+      const csvBlob = new File([csv], `${file.name}__${name}.csv`, { type: 'text/csv' });
+      await this.registerCsv({ tableName: view, file: csvBlob });
       created.push(view);
-    } else {
-      for (const sheet of sheets) {
-        const view = sanitizeIdent(sheets.length === 1 ? tableName : `${tableName}__${sheet}`);
-        await this.exec(
-          `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
-           SELECT * FROM read_xlsx('${escapeLiteral(fname)}', sheet = '${escapeLiteral(sheet)}')`,
-        );
-        created.push(view);
-      }
     }
     return created;
   }

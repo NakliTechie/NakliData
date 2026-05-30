@@ -23,6 +23,8 @@ export interface LazyChunkRegistry {
   'maplibre-map': typeof import('../lazy/maplibre-map.ts');
   /** Wave 2 W2.6 — deck.gl scatter overlay (loaded above point-count threshold). */
   'deckgl-points': typeof import('../lazy/deckgl-points.ts');
+  /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
+  sheetjs: typeof import('../lazy/sheetjs.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;
