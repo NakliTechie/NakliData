@@ -749,3 +749,214 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
     ).rejects.toThrow(/must start with https/);
   });
 });
+
+// ---- mountComputeBridgeCatalog (Wave 3 W3.4b) ---------------------------
+
+import { BRIDGE_CATALOG_ROW_CAP_DEFAULT, mountComputeBridgeCatalog } from '../src/core/mount.ts';
+
+function bridgeCatalogMockEngine() {
+  // Each registerArrowBuffer call returns the registered table name.
+  return {
+    registerArrowBuffer: vi
+      .fn()
+      .mockImplementation(async ({ tableName }: { tableName: string }) => [tableName]),
+    query: vi.fn().mockResolvedValue([{ n: 42n }]),
+  };
+}
+
+describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
+  const fakeArrowBytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57]);
+
+  function arrowResponse(): Response {
+    return new Response(fakeArrowBytes.buffer as ArrayBuffer, {
+      status: 200,
+      headers: { 'content-type': 'application/vnd.apache.arrow.stream' },
+    });
+  }
+
+  function healthResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        name: 'nakli-compute',
+        version: '0.1',
+        auth: 'bearer',
+        single_tenant: true,
+        capabilities: ['query'],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  it('health-checks then mounts each picked table via SELECT * LIMIT <cap>', async () => {
+    const engine = bridgeCatalogMockEngine();
+    const queryBodies: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) return healthResponse();
+      if (u.endsWith('/v1/query')) {
+        // The bridge accepts a JSON body with { sql }.
+        const body =
+          typeof init?.body === 'string'
+            ? init.body
+            : new TextDecoder().decode(init?.body as Uint8Array);
+        try {
+          const parsed = JSON.parse(body) as { sql: string };
+          queryBodies.push(parsed.sql);
+        } catch {
+          queryBodies.push(body);
+        }
+        return arrowResponse();
+      }
+      throw new Error(`unexpected URL ${u}`);
+    };
+    const src = await mountComputeBridgeCatalog(engine as never, {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com:8088',
+      bearerToken: 'tok',
+      tables: [
+        { name: 'sales', rowCap: 25000 },
+        { name: 'customers', rowCap: 5000 },
+      ],
+      fetchImpl,
+    });
+    // One health check + two queries.
+    expect(engine.registerArrowBuffer).toHaveBeenCalledTimes(2);
+    expect(queryBodies).toEqual([
+      'SELECT * FROM "sales" LIMIT 25000',
+      'SELECT * FROM "customers" LIMIT 5000',
+    ]);
+    expect(src.kind).toBe('compute-bridge-catalog');
+    expect(src.bridgeCatalog?.tables).toEqual([
+      { name: 'sales', localName: 'sales', rowCap: 25000 },
+      { name: 'customers', localName: 'customers', rowCap: 5000 },
+    ]);
+    expect(src.bridgeCatalog?.requiresBearer).toBe(true);
+    expect(src.tables).toHaveLength(2);
+    expect(src.tables.map((t) => t.name)).toEqual(['sales', 'customers']);
+    // Auto-label derives from the host.
+    expect(src.label).toBe('bridge.example.com (bridge catalog)');
+  });
+
+  it('falls back to the default cap when rowCap is missing', async () => {
+    const engine = bridgeCatalogMockEngine();
+    const queryBodies: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) return healthResponse();
+      const body = typeof init?.body === 'string' ? init.body : '';
+      try {
+        queryBodies.push((JSON.parse(body) as { sql: string }).sql);
+      } catch {
+        // ignore
+      }
+      return arrowResponse();
+    };
+    await mountComputeBridgeCatalog(engine as never, {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      tables: [{ name: 'sales' }],
+      fetchImpl,
+    });
+    expect(queryBodies[0]).toBe(`SELECT * FROM "sales" LIMIT ${BRIDGE_CATALOG_ROW_CAP_DEFAULT}`);
+  });
+
+  it('escapes internal double-quotes in table names so the SELECT stays valid', async () => {
+    const engine = bridgeCatalogMockEngine();
+    const queryBodies: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) return healthResponse();
+      const body = typeof init?.body === 'string' ? init.body : '';
+      try {
+        queryBodies.push((JSON.parse(body) as { sql: string }).sql);
+      } catch {
+        // ignore
+      }
+      return arrowResponse();
+    };
+    await mountComputeBridgeCatalog(engine as never, {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      tables: [{ name: 'has"quote', rowCap: 100 }],
+      fetchImpl,
+    });
+    expect(queryBodies[0]).toBe('SELECT * FROM "has""quote" LIMIT 100');
+  });
+
+  it('records partial failures but still mounts the successful tables', async () => {
+    const engine = bridgeCatalogMockEngine();
+    let queryCount = 0;
+    const fetchImpl: typeof fetch = async (url) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) return healthResponse();
+      queryCount++;
+      // Second query fails with a bridge-side error.
+      if (queryCount === 2) {
+        return new Response(
+          JSON.stringify({ error: { code: 'query_error', message: 'no such table' } }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return arrowResponse();
+    };
+    const src = await mountComputeBridgeCatalog(engine as never, {
+      label: 'demo',
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      tables: [
+        { name: 'sales', rowCap: 1000 },
+        { name: 'missing', rowCap: 1000 },
+        { name: 'customers', rowCap: 1000 },
+      ],
+      fetchImpl,
+    });
+    expect(src.tables).toHaveLength(2);
+    expect(src.tables.map((t) => t.name)).toEqual(['sales', 'customers']);
+    expect(src.bridgeCatalog?.tables).toHaveLength(2);
+  });
+
+  it('throws MountError when all picked tables fail', async () => {
+    const engine = bridgeCatalogMockEngine();
+    const fetchImpl: typeof fetch = async (url) => {
+      const u = String(url);
+      if (u.endsWith('/v1/health')) return healthResponse();
+      return new Response(JSON.stringify({ error: { code: 'query_error', message: 'oops' } }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    await expect(
+      mountComputeBridgeCatalog(engine as never, {
+        label: '',
+        bridgeUrl: 'https://bridge.example.com',
+        bearerToken: null,
+        tables: [{ name: 'a' }, { name: 'b' }],
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/No tables mounted/);
+    expect(engine.registerArrowBuffer).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty inputs + non-http(s) URLs before any fetch', async () => {
+    const engine = bridgeCatalogMockEngine();
+    const fetchImpl: typeof fetch = async () => new Response('{}', { status: 200 });
+    const base = {
+      label: '',
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      tables: [{ name: 'sales' }],
+      fetchImpl,
+    };
+    await expect(
+      mountComputeBridgeCatalog(engine as never, { ...base, bridgeUrl: '' }),
+    ).rejects.toThrow(/Compute Bridge URL is required/);
+    await expect(
+      mountComputeBridgeCatalog(engine as never, { ...base, bridgeUrl: 'ftp://nope' }),
+    ).rejects.toThrow(/must start with https/);
+    await expect(
+      mountComputeBridgeCatalog(engine as never, { ...base, tables: [] }),
+    ).rejects.toThrow(/Pick at least one table/);
+  });
+});

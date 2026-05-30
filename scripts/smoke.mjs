@@ -134,6 +134,7 @@ async function main() {
     { trigger: 'mount-iceberg', overlay: '.mount-iceberg-overlay' },
     { trigger: 'mount-iceberg-catalog', overlay: '.mount-iceberg-catalog-overlay' },
     { trigger: 'mount-compute-bridge', overlay: '.mount-bridge-overlay' },
+    { trigger: 'mount-compute-bridge-catalog', overlay: '.mount-bridge-catalog-overlay' },
   ];
   const errorsBeforeModalCycle = consoleErrors.length;
   for (const m of REMOTE_MODALS) {

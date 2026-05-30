@@ -38,7 +38,8 @@ export type SourceKind =
   | 's3-endpoint'
   | 'iceberg-table'
   | 'iceberg-catalog'
-  | 'compute-bridge';
+  | 'compute-bridge'
+  | 'compute-bridge-catalog';
 
 /**
  * Per-source kind metadata that travels alongside `MountedSource` for
@@ -78,6 +79,33 @@ export interface BridgeConfig {
   sql: string;
   /** Local DuckDB table name the result is registered as. */
   tableName: string;
+  /** Whether to send a Bearer token to the bridge. */
+  requiresBearer: boolean;
+}
+
+/**
+ * W3.4b metadata for `kind: 'compute-bridge-catalog'`. The catalog
+ * mount fetches `/v1/tables` from the bridge once, lets the user pick N
+ * tables, and materialises each as `SELECT * FROM <name> LIMIT
+ * <rowCap>` against the bridge. Each picked table lands as its own
+ * local DuckDB table under one MountedSource.
+ *
+ * Persistence shape diverges from `BridgeConfig` (single-SQL) — a
+ * catalog source tracks the per-table selection + cap, not a raw SQL
+ * string. On reload, the bridge is re-probed via `/v1/health` and each
+ * remembered table is re-pulled.
+ */
+export interface BridgeCatalogConfig {
+  bridgeUrl: string;
+  /** Tables selected from `/v1/tables` and their row caps. */
+  tables: Array<{
+    /** Table name as the bridge reports it (server-side identifier). */
+    name: string;
+    /** Local DuckDB table name; defaults to a sanitised `name`. */
+    localName: string;
+    /** Bounded fetch cap — the result has to fit in the tab. */
+    rowCap: number;
+  }>;
   /** Whether to send a Bearer token to the bridge. */
   requiresBearer: boolean;
 }
@@ -133,6 +161,8 @@ export interface MountedSource {
   icebergCatalog?: IcebergCatalogConfig;
   /** Wave 3 W3.4a — populated for `kind: 'compute-bridge'`. */
   bridge?: BridgeConfig;
+  /** Wave 3 W3.4b — populated for `kind: 'compute-bridge-catalog'`. */
+  bridgeCatalog?: BridgeCatalogConfig;
   tables: MountedTable[];
 }
 
@@ -832,4 +862,140 @@ export async function mountComputeBridge(
       },
     ],
   };
+}
+
+/**
+ * Row-cap floor/ceiling for compute-bridge-catalog table picks. The
+ * floor is a sanity guard (no-op cap is suspicious); the ceiling is a
+ * heuristic — browser DuckDB starts to feel sluggish around 1M rows
+ * depending on column count + types.
+ */
+export const BRIDGE_CATALOG_ROW_CAP_MIN = 100;
+export const BRIDGE_CATALOG_ROW_CAP_MAX = 1_000_000;
+export const BRIDGE_CATALOG_ROW_CAP_DEFAULT = 100_000;
+
+/**
+ * Quote an identifier for safe inclusion in SQL sent to the bridge.
+ * DuckDB / Postgres convention: wrap in `"..."` and double any internal
+ * `"`. The bridge is trusted to interpret quoted identifiers
+ * consistently — listTables returns names verbatim.
+ */
+function quoteBridgeIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Wave 3 W3.4b — Compute Bridge catalog mount. Lists the bridge's
+ * tables (`/v1/tables`), takes the user's multi-select + per-table row
+ * caps, and materialises each table locally via
+ * `SELECT * FROM <name> LIMIT <cap>` against the bridge. Each picked
+ * table becomes a `MountedTable` under one `MountedSource`.
+ *
+ * Mirrors `mountComputeBridge` on the wire (HTTP + Arrow IPC, health
+ * probe before queries, Bearer auth via source-secrets). Differs in
+ * persistence shape: the catalog tracks `tables[]` + `rowCap` rather
+ * than a raw SQL string, so reload re-fetches the same selection at
+ * the (then-)current bridge state.
+ *
+ * Per-table failures are caught + reported; the source still mounts
+ * with the tables that succeeded. The caller may surface partial
+ * failures (a future hook — for now a `MountError` lists the names).
+ */
+export async function mountComputeBridgeCatalog(
+  engine: Engine,
+  opts: {
+    label: string;
+    bridgeUrl: string;
+    bearerToken: string | null;
+    tables: Array<{ name: string; localName?: string; rowCap?: number }>;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<MountedSource> {
+  if (!opts.bridgeUrl.trim()) throw new MountError('Compute Bridge URL is required.');
+  if (!/^https?:\/\//i.test(opts.bridgeUrl.trim())) {
+    throw new MountError(
+      'Compute Bridge URL must start with https:// (http:// only works for localhost via a tunnel — CSP blocks plain http otherwise).',
+    );
+  }
+  if (!opts.tables.length) {
+    throw new MountError('Pick at least one table to mount.');
+  }
+  const bearerToken = opts.bearerToken?.trim() || null;
+  const { BridgeClient } = await import('./bridge/bridge-client.ts');
+  const client = new BridgeClient({
+    bridgeUrl: opts.bridgeUrl.trim(),
+    bearerToken,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  // 1) Reachability + auth probe.
+  try {
+    await client.health();
+  } catch (err) {
+    if (err instanceof Error) throw new MountError(`Compute Bridge: ${err.message}`);
+    throw err;
+  }
+  // 2) Materialise each picked table.
+  const sourceId = genId('src');
+  const mountedTables: MountedTable[] = [];
+  const persistedTables: BridgeCatalogConfig['tables'] = [];
+  const failures: Array<{ name: string; reason: string }> = [];
+  for (const pick of opts.tables) {
+    if (!pick.name.trim()) continue;
+    const cap = clampRowCap(pick.rowCap);
+    const localName = sanitizeTableName(pick.localName?.trim() || pick.name.trim());
+    const sql = `SELECT * FROM ${quoteBridgeIdent(pick.name.trim())} LIMIT ${cap}`;
+    try {
+      const buffer = await client.query(sql);
+      const bytes = new Uint8Array(buffer);
+      await engine.registerArrowBuffer({ tableName: localName, bytes });
+      const rowCount = await getRowCount(engine, localName);
+      mountedTables.push({
+        id: genId('tbl'),
+        sourceId,
+        name: localName,
+        format: 'arrow',
+        origin: `${opts.bridgeUrl.trim()} :: ${pick.name.trim()} (≤${cap.toLocaleString()})`,
+        rowCount,
+        registered: true,
+      });
+      persistedTables.push({ name: pick.name.trim(), localName, rowCap: cap });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      failures.push({ name: pick.name, reason });
+    }
+  }
+  if (!mountedTables.length) {
+    const detail = failures.map((f) => `${f.name}: ${f.reason}`).join('; ');
+    throw new MountError(`No tables mounted. ${detail || 'No usable tables in selection.'}`);
+  }
+  // Partial-failure reporting is intentionally non-fatal — the caller
+  // surfaces the list to the user; the successful mounts already
+  // landed.
+  if (failures.length) {
+    console.warn(
+      `[mountComputeBridgeCatalog] ${failures.length} table(s) failed: ${failures
+        .map((f) => f.name)
+        .join(', ')}`,
+    );
+  }
+  return {
+    id: sourceId,
+    kind: 'compute-bridge-catalog',
+    label: opts.label.trim() || `${new URL(opts.bridgeUrl.trim()).hostname} (bridge catalog)`,
+    ref: opts.bridgeUrl.trim(),
+    bridgeCatalog: {
+      bridgeUrl: opts.bridgeUrl.trim(),
+      tables: persistedTables,
+      requiresBearer: bearerToken !== null,
+    },
+    tables: mountedTables,
+  };
+}
+
+function clampRowCap(n: number | undefined): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return BRIDGE_CATALOG_ROW_CAP_DEFAULT;
+  const i = Math.floor(n);
+  if (i < BRIDGE_CATALOG_ROW_CAP_MIN) return BRIDGE_CATALOG_ROW_CAP_MIN;
+  if (i > BRIDGE_CATALOG_ROW_CAP_MAX) return BRIDGE_CATALOG_ROW_CAP_MAX;
+  return i;
 }

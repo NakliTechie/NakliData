@@ -2,6 +2,30 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-30 — W3.4b: Compute Bridge catalog picker (multi-table mount)
+
+**Context:** W3.4a's slice deferred multi-table mounts behind a TODO: the client already exposes `BridgeClient.listTables()` but the user-facing flow only supports paste-URL + Bearer + SQL → one local table. W3.4b ships the picker UX.
+
+**Decisions:**
+
+- **(a) New `'compute-bridge-catalog'` SourceKind, distinct from `'compute-bridge'`.** Persistence shape diverges: a catalog source tracks `{ name, local_name, row_cap }[]` rather than a raw SQL string. Reload re-runs the same selection at the (then-)current bridge state — fresh data per table, same picks. One SourceKind per persistence shape is the rule we've been following (cf. iceberg-table vs iceberg-catalog).
+- **(b) Materialise via `SELECT * FROM "<name>" LIMIT <cap>` against the bridge.** Each picked table issues one `/v1/query` call. The cap is integer-clamped to `[100, 1_000_000]` with a 100k default — heuristic ceiling for browser DuckDB perf, floor is just a sanity guard. Names are quoted with double-quote escaping (DuckDB / Postgres convention: `"foo"bar"` → `"foo""bar"`).
+- **(c) Per-table failures are non-fatal.** One bad table doesn't take down the whole mount — the successful tables still register and a console warning lists the failed names. If ALL picks fail, `mountComputeBridgeCatalog` throws `MountError` with the failure list. Matches the "graceful degradation" pattern used elsewhere in mount.ts.
+- **(d) Two-phase modal reveal.** Phase 1: URL + Bearer + Connect. Phase 2 (after listTables resolves): table list with checkboxes + per-table cap inputs + Mount selected. A "Reconnect" button lets the user retry with different URL/Bearer. The modal uses the W1.11 a11y pattern via the shared `restoreModalFocus` helper.
+- **(e) Same Bearer-secret + applyLoadedFile pattern as W3.4a.** Secrets via `source-secrets` (sessionStorage default + opt-in IDB plaintext); secret name `bearer_token`; never persisted in `.naklidata`. Reload-time failures route to `reconnectNeeded` (graceful).
+- **(f) Smoke test cycles 6 modals now (was 5).** The empty-state modal-cycle guard added in commit ec89d3d gets one new entry.
+
+**Tests:** 6 new vitest specs in `tests/mount.test.ts` for `mountComputeBridgeCatalog` (happy path with 2 tables, default-cap fallback, identifier escaping for embedded `"`, partial-failure path leaves successful mounts alive, all-fail throws, pre-flight validations for empty URL / non-http(s) / empty tables list). **284 vitest total** (was 278).
+
+**Reversibility:** Easy. Drop the `'compute-bridge-catalog'` branch on the SourceKind union + `BridgeCatalogConfig` + `mountComputeBridgeCatalog` + the `bridge_catalog` field on `PersistedSource` + the new modal + the shell button + the action handler + the applyLoadedFile branch. No persistence migration — additive only.
+
+**Known limitations / follow-ups:**
+- **No e2e** — same reason as W3.4a (no real bridge binary; valid Arrow IPC stubs are fragile to generate). The vitest specs against mocked fetch are the verification.
+- **Schema view in the picker is read-only and best-effort** — we display the first 6 columns from `BridgeTable.schema` so the user has context, but don't validate types or surface mismatches. The bridge is trusted.
+- **No per-table label** — local table names default to the bridge name; the user can sanitise later by re-mounting (or, with the future bridge-side schema browser, by editing the pick before Mount).
+
+---
+
 ## 2026-05-29 23:30 — W3.4a: Compute Bridge source kind (client side; binary in separate repo)
 **Context:** W3.4 is the NakliData-side companion to the Compute Bridge MVP — a `'compute-bridge'` SourceKind that runs SQL against a user-deployed bridge and registers the Arrow IPC result as a local DuckDB table. The wire protocol was spec'd 2026-05-29 in [`compute-bridge-protocol.md`](./compute-bridge-protocol.md). This slice (W3.4a) ships the client end-to-end against a mockable bridge; the binary remains a separate multi-week OSS repo.
 

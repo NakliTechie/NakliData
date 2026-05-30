@@ -8,6 +8,7 @@ import {
   type MountedSource,
   S3_SECRET_NAMES,
   mountComputeBridge,
+  mountComputeBridgeCatalog,
   mountExampleBundle,
   mountFile,
   mountFolder,
@@ -44,6 +45,7 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
 import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
@@ -641,7 +643,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             console.warn(`[naklidata] iceberg secret cleanup failed for ${id}`, err);
           }
         }
-        if (src.kind === 'compute-bridge') {
+        if (src.kind === 'compute-bridge' || src.kind === 'compute-bridge-catalog') {
           try {
             await forgetSource(id, [...BRIDGE_SECRET_NAMES]);
           } catch (err) {
@@ -990,6 +992,41 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       });
       return;
     }
+    case 'mount-compute-bridge-catalog': {
+      if (engine.getStatus() !== 'ready') {
+        toast('Engine still booting — try again in a moment.');
+        return;
+      }
+      openMountComputeBridgeCatalogModal({
+        onConnect: async ({ bridgeUrl, bearerToken }) => {
+          // Probe + list. Constructed transiently — once the user picks
+          // tables and confirms, mountComputeBridgeCatalog builds its own
+          // client with the same URL + token for the actual queries.
+          const { BridgeClient } = await import('./core/bridge/bridge-client.ts');
+          const client = new BridgeClient({
+            bridgeUrl: bridgeUrl.trim(),
+            bearerToken: bearerToken.trim() || null,
+          });
+          await client.health();
+          return await client.listTables();
+        },
+        onMount: async (input) => {
+          const source = await mountComputeBridgeCatalog(engine, {
+            label: input.label,
+            bridgeUrl: input.bridgeUrl,
+            bearerToken: input.bearerToken.trim() || null,
+            tables: input.tables,
+          });
+          if (input.bearerToken.trim()) {
+            await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
+          }
+          workbook.addSources([source]);
+          toast(`Mounted ${source.tables.length} table(s) from "${source.label}".`);
+          void classifyMountedSources(engine, [source]);
+        },
+      });
+      return;
+    }
     case 'add-source':
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
@@ -1199,6 +1236,43 @@ async function doApplyLoadedFile(
         }
       } catch (err) {
         console.warn('[naklidata] Compute Bridge remount failed', err);
+        reconnectNeeded.push({ id: ps.id, label: ps.label });
+      }
+    } else if (ps.kind === 'compute-bridge-catalog' && ps.bridge_catalog) {
+      // Wave 3 W3.4b — re-mount a Compute Bridge catalog. Each picked
+      // table re-runs as SELECT * FROM <name> LIMIT <cap> against the
+      // bridge so fresh data is pulled. Bearer token (if required) is
+      // looked up via source-secrets; missing or unreachable → reconnect.
+      try {
+        const bearerToken = ps.bridge_catalog.requires_bearer
+          ? await loadSecret(ps.id, 'bearer_token')
+          : null;
+        if (ps.bridge_catalog.requires_bearer && !bearerToken) {
+          reconnectNeeded.push({ id: ps.id, label: ps.label });
+        } else {
+          const remounted = await mountComputeBridgeCatalog(engine, {
+            label: ps.label,
+            bridgeUrl: ps.bridge_catalog.bridge_url,
+            bearerToken,
+            tables: ps.bridge_catalog.tables.map((t) => ({
+              name: t.name,
+              localName: t.local_name,
+              rowCap: t.row_cap,
+            })),
+          });
+          remounted.id = ps.id;
+          for (let i = 0; i < remounted.tables.length; i++) {
+            const persistedTable = ps.tables[i];
+            const t = remounted.tables[i];
+            if (persistedTable && t) {
+              t.id = persistedTable.id;
+              t.sourceId = remounted.id;
+            }
+          }
+          restoredSources.push(remounted);
+        }
+      } catch (err) {
+        console.warn('[naklidata] Compute Bridge catalog remount failed', err);
         reconnectNeeded.push({ id: ps.id, label: ps.label });
       }
     } else if (ps.kind === 'iceberg-table' && ps.iceberg) {

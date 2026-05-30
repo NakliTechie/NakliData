@@ -19,7 +19,7 @@ The original spec stays authoritative for everything not listed here.
 | [A9](#a9--custom-endpoint-sidecar-provider-wave-2-w23-amends-spec-43) | §4.3 | Custom OpenAI-compatible sidecar endpoint (llamafile, vLLM, Ollama). |
 | [A10](#a10--job-4-report-template-recommendation-wave-3--w31-amends-spec-43) | §4.3 | Sidecar Job 4: rank candidate report templates against current schema. Hallucination guard in parser, not just prompt. |
 | [A11](#a11--local-model-sidecar-provider-wave-3--w32-amends-spec-43--43a) | §4.3 + §4.3a | `local` runtime seam wired through dispatch; runtime not bundled in v1.1; fails fast rather than silent fallback because picking local is a privacy choice. |
-| [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. |
+| [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. W3.4b follow-up: catalog picker SourceKind that materialises N tables via SELECT * LIMIT cap. |
 
 ---
 
@@ -404,6 +404,31 @@ client and the binary share this wire contract. See DECISIONS
   Arrow IPC stub bytes for Playwright is fragile (no `apache-arrow`
   JS dep). The bridge-client + mountComputeBridge are unit-tested
   thoroughly against mocked fetch.
+
+**Follow-up (W3.4b, 2026-05-30):** the multi-table picker. A second
+SourceKind — `'compute-bridge-catalog'` — lists `/v1/tables`, lets the
+user pick N tables with per-table row caps, and runs
+`SELECT * FROM "<name>" LIMIT <cap>` against the bridge for each pick.
+All picks land under one MountedSource with N MountedTables. The
+persistence shape differs from `'compute-bridge'`: the catalog tracks
+`{ name, local_name, row_cap }[]` rather than a raw SQL string, so
+reload re-fetches the same selection at the (then-)current bridge
+state.
+
+> **Per-table failures are non-fatal** — `mountComputeBridgeCatalog`
+> mounts every table that succeeded and warns about the rest, so a
+> single broken table doesn't take down the whole mount. If every
+> picked table fails the function throws `MountError` with the failure
+> list, matching the W3.4a single-SQL behavior.
+>
+> **Table-name escaping** — picks come back verbatim from `/v1/tables`
+> and are quoted via `"<name>"` with internal `"` doubled (DuckDB /
+> Postgres convention) before being interpolated into the SELECT. The
+> row cap is integer-clamped to `[100, 1_000_000]`.
+>
+> **Persistence:** new optional `bridge_catalog` field on
+> `PersistedSource` — `{ bridge_url, tables, requires_bearer }`.
+> Additive, no format-version bump.
 
 ---
 

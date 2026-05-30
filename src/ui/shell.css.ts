@@ -754,4 +754,74 @@ button {
   height: auto;
   max-height: 90vh;
 }
+
+/* Wave 3 W3.4b — Compute Bridge catalog table picker. Row layout:
+   checkbox + table name + column summary on the left, row-cap input on
+   the right. Reuses .mount-iceberg-modal width via shared class. */
+.mount-url-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-3) 0 0;
+}
+.mount-bridge-catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+.mount-bridge-catalog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.mount-bridge-catalog-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-direction: row;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.mount-bridge-catalog-pick input[type='checkbox'] {
+  flex: 0 0 auto;
+}
+.mount-bridge-catalog-name {
+  font-size: ${Type.size.sm};
+  color: var(--text);
+}
+.mount-bridge-catalog-cols {
+  font-size: ${Type.size.xs};
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.mount-bridge-catalog-cap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+.mount-bridge-catalog-cap span {
+  font-size: ${Type.size.xs};
+  color: var(--text-muted);
+}
+.mount-bridge-catalog-cap input[type='number'] {
+  width: 96px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: ${Type.size.sm};
+  background: var(--surface);
+}
 `;

@@ -188,6 +188,11 @@ function renderEmptyState(): HTMLElement {
         <span class="label">Compute Bridge</span>
         <span class="hint">SQL in-VPC, Arrow result.</span>
       </button>
+      <button class="opt" data-action="mount-compute-bridge-catalog" title="Pick multiple tables from a Compute Bridge catalog; each becomes a local DuckDB table">
+        ${iconSvg('link', 28)}
+        <span class="label">Bridge catalog</span>
+        <span class="hint">Browse + pick tables.</span>
+      </button>
     </div>
     <div class="examples-link">
       Or <button data-action="browse-examples">browse example data</button>.
