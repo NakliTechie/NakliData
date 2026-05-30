@@ -60,6 +60,10 @@ async function refresh(): Promise<void> {
   if (enableInput) enableInput.checked = settings.sidecarEnabled;
   const demoInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-demo-mode"]');
   if (demoInput) demoInput.checked = settings.demoMode;
+  const basemapInput = overlay.querySelector<HTMLInputElement>(
+    '[data-action="settings-map-basemap"]',
+  );
+  if (basemapInput) basemapInput.checked = settings.mapBasemap === 'osm';
   // Wave 2 W2.3 — custom endpoint URL field is only relevant when the
   // provider is `'custom'`. Hide the row otherwise to keep the form
   // shape compact.
@@ -195,6 +199,20 @@ function renderModal(): HTMLElement {
           <p class="settings-hint">For screenshots and demos. Row values, SQL cell text, and the underlying engine queries are NOT masked — clear cells before screenshotting if they contain sensitive data. Toggle off any time to reveal real labels.</p>
         </section>
         <section class="settings-section">
+          <h2>Map basemap</h2>
+          <label class="settings-remember">
+            <input type="checkbox" data-action="settings-map-basemap" />
+            <span>Show OpenStreetMap tiles behind map cells <em>(opt-in — see below)</em></span>
+          </label>
+          <p class="settings-hint">
+            Default is a tile-less canvas: nothing leaves the tab. Enabling this
+            fetches raster tiles from <code>tile.openstreetmap.org</code> for
+            whichever extent each map cell renders — area-of-interest leaks to
+            OSM's servers. Tiles are images only (no scripts). Attribution shown
+            on the map. Spec amendment A13.
+          </p>
+        </section>
+        <section class="settings-section">
           <h2>Active provider</h2>
           <div class="settings-radio-row">
             <label><input type="radio" name="settings-provider" value="anthropic" /> Anthropic (Claude)</label>
@@ -255,6 +273,13 @@ function renderModal(): HTMLElement {
       document.dispatchEvent(
         new CustomEvent('naklidata-demo-mode-changed', { detail: { enabled } }),
       );
+    }
+    if (action === 'settings-map-basemap') {
+      const enabled = (target as HTMLInputElement).checked;
+      await patchSettings({ mapBasemap: enabled ? 'osm' : 'none' });
+      // Existing map cells keep their current canvas until re-rendered;
+      // a notebook re-run picks up the new setting via loadSettings() on
+      // each map cell render. No live event needed.
     }
     if (
       target instanceof HTMLInputElement &&

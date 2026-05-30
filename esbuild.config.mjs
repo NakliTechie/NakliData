@@ -82,12 +82,18 @@ async function buildShell() {
     // Iceberg / public-URL mounts; explicit-host whitelist is no longer
     // feasible). script-src stays tight — that's the primary XSS defence.
     // See DECISIONS 2026-05-24 for the trade-off rationale.
+    // img-src includes https://tile.openstreetmap.org — the only host
+    // we allow tile fetches to. Opt-in per A13 (mapBasemap === 'osm'); a
+    // user with the setting off issues no requests despite the policy.
+    // Keep this an explicit-host carve-out, NOT a blanket `https:` (img
+    // requests don't run scripts, but they still reveal area-of-interest
+    // to whichever host serves them; explicit-only preserves intent).
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}'`,
       "worker-src 'self' blob:",
       "connect-src 'self' https:",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: https://tile.openstreetmap.org",
       "style-src 'self' 'unsafe-inline'",
     ].join('; ');
     const shellHtml = await readFile('src/index.html', 'utf8');

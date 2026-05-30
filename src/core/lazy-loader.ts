@@ -21,6 +21,8 @@ export interface LazyChunkRegistry {
   'observable-plot': typeof import('../lazy/observable-plot.ts');
   'cytoscape-graph': typeof import('../lazy/cytoscape-graph.ts');
   'maplibre-map': typeof import('../lazy/maplibre-map.ts');
+  /** Wave 2 W2.6 — deck.gl scatter overlay (loaded above point-count threshold). */
+  'deckgl-points': typeof import('../lazy/deckgl-points.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;

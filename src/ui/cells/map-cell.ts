@@ -8,6 +8,7 @@
 // actually renders.
 
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { loadSettings } from '../../core/settings.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, MapCellState, SqlCellState } from './types.ts';
 
@@ -145,18 +146,68 @@ async function renderMap(
   mount.innerHTML = '';
   // MapLibre needs an explicit-sized container.
   mount.style.height = '420px';
+  // Wave 2 W2.6 — count points up-front. Above the threshold we hand
+  // point rendering off to deck.gl (GPU-accelerated scatter); below it
+  // the native MapLibre circle layer is fine and cheaper.
+  const pointCount = features.reduce((n, f) => {
+    if (f.geometry?.type === 'Point') return n + 1;
+    if (f.geometry?.type === 'MultiPoint') {
+      return n + (f.geometry.coordinates?.length ?? 0);
+    }
+    return n;
+  }, 0);
+  const useDeckGl = pointCount >= MANY_POINTS_THRESHOLD;
   try {
+    // Read the basemap preference per-render — `mapBasemap` is a global
+    // user setting; flipping it in Settings takes effect on the next
+    // map cell render (we don't watch the change live).
+    const { mapBasemap } = await loadSettings();
     const mod = await loadChunk('maplibre-map');
-    mod.mountMap({
+    const handle = mod.mountMap({
       container: mount,
       data: { type: 'FeatureCollection', features },
       colorBy: cell.colorBy ?? null,
+      basemap: mapBasemap,
+      skipNativePoints: useDeckGl,
     });
+    if (useDeckGl) {
+      // Defer deck.gl until the map's GL context is alive — otherwise
+      // the overlay attaches before the map has a canvas to interleave
+      // with, and the scatter doesn't appear.
+      handle.map.on('load', () => {
+        void loadChunk('deckgl-points')
+          .then((deck) => {
+            deck.mountDeckGlPoints({
+              map: handle.map as unknown as {
+                addControl: (c: unknown) => unknown;
+                removeControl: (c: unknown) => unknown;
+              },
+              features,
+              colorBy: cell.colorBy ?? null,
+            });
+          })
+          .catch((err) => {
+            console.warn(
+              '[naklidata-map] deck.gl overlay failed; the native point layer is suppressed at this density',
+              err,
+            );
+          });
+      });
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     mount.innerHTML = `<div class="cell-output-empty">Couldn't render map: ${escapeHtml(msg)}</div>`;
   }
 }
+
+/**
+ * Point-count threshold for switching from MapLibre native circles to a
+ * deck.gl ScatterplotLayer overlay (W2.6). 5_000 is a soft heuristic:
+ * below it native circles render fast enough on commodity laptops;
+ * above it the GPU-accelerated batch is meaningfully faster + visually
+ * cleaner under zoom.
+ */
+const MANY_POINTS_THRESHOLD = 5_000;
 
 function escapeHtml(s: string): string {
   return s

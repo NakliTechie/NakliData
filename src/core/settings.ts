@@ -32,6 +32,15 @@ export interface Settings {
    * default; users opt in for screenshots and demos.
    */
   demoMode: boolean;
+  /**
+   * Wave 1 W1.6 — Map cell basemap. `'none'` (default) keeps the
+   * tile-less, privacy-clean canvas. `'osm'` enables OpenStreetMap
+   * raster tiles (https://tile.openstreetmap.org/...). Opting in
+   * crosses a privacy line: the OSM servers see tile requests for
+   * whichever extent the map cell renders. Default off; explicit
+   * opt-in. Spec amendment A13.
+   */
+  mapBasemap: 'none' | 'osm';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarModel: 'claude-3-5-haiku-latest',
   sidecarCustomEndpoint: '',
   demoMode: false,
+  mapBasemap: 'none',
 };
 
 const KEY = 'settings/v1';
@@ -78,6 +88,7 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
     out.sidecarCustomEndpoint = s.sidecarCustomEndpoint.trim();
   }
   if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
+  if (s.mapBasemap === 'none' || s.mapBasemap === 'osm') out.mapBasemap = s.mapBasemap;
   return out;
 }
 

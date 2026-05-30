@@ -1,7 +1,9 @@
 // Lazy chunk for MapLibre GL JS — renders a GeoJSON FeatureCollection
-// on a tile-less canvas. No third-party tiles (CSP would need a
-// connect-src exception; deferred to a future "configurable basemap"
-// pass). Geometries render on the project's background color.
+// on a tile-less canvas (default) or atop an OpenStreetMap raster
+// basemap (W1.6 opt-in; spec amendment A13). When the basemap is on,
+// MapLibre fetches `https://tile.openstreetmap.org/{z}/{x}/{y}.png` —
+// the only host the CSP `img-src` lets through. Off by default;
+// honours the user's settings.mapBasemap.
 //
 // Loaded only when a map cell tries to render — keeps MapLibre + its
 // dependencies (a sizable lazy chunk) out of the inlined shell.
@@ -13,16 +15,32 @@
 
 import maplibre from 'maplibre-gl';
 
+export type MapBasemap = 'none' | 'osm';
+
 export interface MapRenderOpts {
   container: HTMLElement;
   /** GeoJSON FeatureCollection or single Feature. */
   data: GeoJSON.FeatureCollection | GeoJSON.Feature;
   /** Property name to drive the fill / circle color (categorical). */
   colorBy?: string | null;
+  /** Optional raster basemap. Default `'none'` — tile-less canvas. */
+  basemap?: MapBasemap;
+  /**
+   * When true, skip the native MapLibre `points` layer. Used when
+   * caller is going to attach a deck.gl ScatterplotLayer overlay
+   * instead (W2.6). Polygon + line layers still render natively.
+   */
+  skipNativePoints?: boolean;
 }
 
 export interface MapHandle {
   destroy: () => void;
+  /**
+   * The live MapLibre `Map` instance. Exposed for additive overlays
+   * (W2.6 deck.gl pairing). Treat as read-mostly — the lazy chunk
+   * keeps responsibility for the layers it added.
+   */
+  map: maplibre.Map;
 }
 
 const ACCENT = '#B5371C';
@@ -41,16 +59,52 @@ const EMPTY_STYLE: maplibre.StyleSpecification = {
   ],
 };
 
-export function mountMap({ container, data, colorBy }: MapRenderOpts): MapHandle {
+/**
+ * Style preset for the OpenStreetMap raster basemap. The CSP `img-src`
+ * directive carves out `https://tile.openstreetmap.org` (and only that
+ * host). Per OSM tile usage policy, attribution is required — the map
+ * cell renders a small "© OpenStreetMap contributors" link beneath the
+ * canvas (see ui/cells/map-cell.ts).
+ *
+ * Subdomains a/b/c are deprecated as of ~2022; the single-host URL is
+ * the modern path. We do not run any glyph or sprite fetches — labels
+ * are baked into the tile.
+ */
+const OSM_STYLE: maplibre.StyleSpecification = {
+  version: 8,
+  glyphs: '',
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution:
+        '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+      maxzoom: 19,
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
+
+export function mountMap({
+  container,
+  data,
+  colorBy,
+  basemap,
+  skipNativePoints,
+}: MapRenderOpts): MapHandle {
   const features = data.type === 'FeatureCollection' ? data.features : [data];
   const collection: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features,
   };
+  const useOsm = basemap === 'osm';
   const map = new maplibre.Map({
     container,
-    style: EMPTY_STYLE,
-    attributionControl: false,
+    style: useOsm ? OSM_STYLE : EMPTY_STYLE,
+    // OSM tile usage policy: attribution is required. Render it via the
+    // MapLibre built-in control when the basemap is on.
+    attributionControl: useOsm ? { compact: true } : false,
   });
 
   map.on('load', () => {
@@ -105,18 +159,20 @@ export function mountMap({ container, data, colorBy }: MapRenderOpts): MapHandle
       filter: ['in', ['geometry-type'], ['literal', ['LineString', 'MultiLineString']]],
       paint: { 'line-color': fillColorPaint, 'line-width': 2 },
     });
-    map.addLayer({
-      id: 'points',
-      type: 'circle',
-      source: 'features',
-      filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
-      paint: {
-        'circle-color': fillColorPaint,
-        'circle-radius': 5,
-        'circle-stroke-color': '#1F1B16',
-        'circle-stroke-width': 0.75,
-      },
-    });
+    if (!skipNativePoints) {
+      map.addLayer({
+        id: 'points',
+        type: 'circle',
+        source: 'features',
+        filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
+        paint: {
+          'circle-color': fillColorPaint,
+          'circle-radius': 5,
+          'circle-stroke-color': '#1F1B16',
+          'circle-stroke-width': 0.75,
+        },
+      });
+    }
     map.addLayer({
       id: 'polygons-outline',
       type: 'line',
@@ -139,7 +195,7 @@ export function mountMap({ container, data, colorBy }: MapRenderOpts): MapHandle
     }
   });
 
-  return { destroy: () => map.remove() };
+  return { destroy: () => map.remove(), map };
 }
 
 function extendBounds(bounds: maplibre.LngLatBounds, geom: GeoJSON.Geometry | null): void {

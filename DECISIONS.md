@@ -2,6 +2,55 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-30 — W2.6: deck.gl pairing for many-points (>5k threshold)
+
+**Context:** Map cell renders points via MapLibre's native `circle` layer. At ~5k+ points it starts to feel sluggish under zoom; deck.gl's GPU-accelerated ScatterplotLayer is the well-known fix. The original W2.6 was tagged "only if a real workload appears." Landing the seam + integration now means the moment a real workload appears, we just bump the threshold (or remove it) — no architectural work pending.
+
+**Decisions:**
+
+- **(a) deck.gl as an ADDITIVE overlay, not a replacement.** `@deck.gl/mapbox` ships `MapboxOverlay`, an `IControl` that attaches to a live MapLibre map via `map.addControl(...)`. The existing tile-less / OSM-basemap canvas continues to render polygons + lines natively; deck.gl only takes over `Point` / `MultiPoint`. Threshold flip is binary — below 5k, native circles; at or above, deck.gl scatter.
+- **(b) Separate lazy chunk (`deckgl-points.js`), not bundled into `maplibre-map.js`.** Below the threshold the user pays zero bytes for deck.gl. Above the threshold the chunk loads after MapLibre is already up. Cost: 605 KB minified for the deck.gl chunk; only paid on demand.
+- **(c) `mountMap()` gains `skipNativePoints` + returns the live Map.** The maplibre-map chunk needs to (1) skip its own circle layer when deck.gl will provide it, and (2) hand out the live `maplibre.Map` so the caller can attach the deck.gl IControl. Polygon + line layers always render native — they're cheap and they don't need deck.gl.
+- **(d) Defer deck.gl mount until MapLibre's `load` event fires.** The overlay needs a live GL context; attaching too early means the scatter never appears. The map-cell.ts wiring registers a one-shot `load` listener and only then chains `loadChunk('deckgl-points')` → `mountDeckGlPoints(...)`.
+- **(e) Heuristic threshold 5_000, not user-configurable.** Rationale: a real point-density workload hasn't shown up; the threshold is a guess that can be tuned later. If it turns out to be wrong, change a single constant. No need for a settings knob yet.
+- **(f) The chunk imports a narrow `Map` shape** (`addControl` / `removeControl` only) rather than the full `maplibre.Map`. Keeps the deck.gl chunk free of a hard maplibre-gl import — they share an interface, not a build dep.
+
+**Tests:** Existing map-cell e2e (`tests/e2e/map-cell.spec.ts`) still passes — the fixtures use <5k points, so the dispatch picks the native path and behavior is unchanged. The deck.gl path is exercised at build time (chunk emits cleanly, 605 KB) but the >5k path is hard to e2e without a stress fixture; we leave that to manual verification when a real workload arrives.
+
+**Reversibility:** Easy. Drop `src/lazy/deckgl-points.ts`, the deck.gl deps from package.json, the `'deckgl-points'` entry on `LazyChunkRegistry`, and the `useDeckGl` branch in `src/ui/cells/map-cell.ts`. Revert `mountMap()` to its pre-W2.6 shape (no `skipNativePoints`, no exposed `map`). Below-threshold maps were never affected.
+
+**Known limitations / follow-ups:**
+- **No e2e for the >5k path.** When a real workload shows up, add a stress fixture + e2e that asserts the deck.gl chunk loaded.
+- **Categorical color palette is copied between the two chunks.** If the palette changes, both files need an update. Lightweight duplication; not worth a shared module yet.
+- **Bundle gate watches the SHELL, not lazy chunks.** A future "max chunk size" gate is possible but explicitly not scoped here.
+
+---
+
+## 2026-05-30 — W1.6: Map cell basemap (opt-in OSM tiles)
+
+**Context:** The map cell shipped tile-less (privacy-clean) because the original §6 Hard NOT forbade third-party scripts and the privacy posture was strict-by-default. A real ergonomics cost emerged: maps without geographic reference are hard to read. W1.6 adds the OSM raster basemap as an explicit opt-in, preserving the default.
+
+**Decisions:**
+
+- **(a) Opt-in via `settings.mapBasemap: 'none' | 'osm'`; default `'none'`.** Setting persists in IDB alongside other workspace settings. New section in the Settings modal with a verbose privacy hint. No persistence-format bump (additive optional field).
+- **(b) CSP `img-src` carve-out is EXPLICIT-HOST, not blanket `https:`.** `img-src 'self' data: blob: https://tile.openstreetmap.org`. The rationale: img requests don't execute scripts, but they still reveal area-of-interest to whichever host serves them. Explicit-host preserves the "only the user-opted-in OSM host is reachable" intent. Compare to `connect-src 'self' https:` from A5, which is a blanket carve-out for data-plane mounts where the user picks the URL each time.
+- **(c) §6 Hard NOT clarification stays: "no third-party scripts at runtime."** Tiles are images, not scripts. A user opting into OSM basemap does not enable any third-party script execution. SRI-pinned DuckDB CDN remains the only off-origin script.
+- **(d) New `src/lazy/maplibre-map.ts` `OSM_STYLE` preset** with a single raster source pointing at `tile.openstreetmap.org/{z}/{x}/{y}.png`. Subdomains a/b/c are deprecated; the single-host URL is the modern path.
+- **(e) MapLibre's built-in attribution control renders the OSM copyright link** when the basemap style is active, satisfying the OSM tile usage policy.
+- **(f) Setting changes take effect on the next map cell render, not live.** `map-cell.ts` calls `loadSettings()` on each render and reads `mapBasemap`. No live event needed; the cost is acceptable (loadSettings is an IDB read, ~ms).
+
+**Tests:** Existing map-cell e2e continues to pass (default `'none'` is unchanged behavior). No new automated test for the OSM mode — would require allowing real network fetches in the test runner, which is fragile. Manual verification: toggle the Settings checkbox, re-run a map cell, confirm tiles render and attribution shows.
+
+**Spec amendment:** A13.
+
+**Reversibility:** Easy. Drop `mapBasemap` from `Settings`, revert the CSP, revert the maplibre-map.ts `OSM_STYLE` + `basemap` opt, drop the Settings modal section. No persistence migration needed (additive optional field).
+
+**Known limitations / follow-ups:**
+- **Only OSM is offered.** Other tile providers (Stamen, MapTiler, Carto) would each need their own deliberate CSP carve-out + Settings option + policy-compliance check. Don't quietly add hosts.
+- **No per-cell basemap override.** Setting is global. If a workspace wants mixed basemaps, the design supports it (pass `basemap` per-call to mountMap), but the Settings UI is global-only for now.
+
+---
+
 ## 2026-05-30 — W3.4b: Compute Bridge catalog picker (multi-table mount)
 
 **Context:** W3.4a's slice deferred multi-table mounts behind a TODO: the client already exposes `BridgeClient.listTables()` but the user-facing flow only supports paste-URL + Bearer + SQL → one local table. W3.4b ships the picker UX.

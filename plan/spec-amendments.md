@@ -20,6 +20,7 @@ The original spec stays authoritative for everything not listed here.
 | [A10](#a10--job-4-report-template-recommendation-wave-3--w31-amends-spec-43) | §4.3 | Sidecar Job 4: rank candidate report templates against current schema. Hallucination guard in parser, not just prompt. |
 | [A11](#a11--local-model-sidecar-provider-wave-3--w32-amends-spec-43--43a) | §4.3 + §4.3a | `local` runtime seam wired through dispatch; runtime not bundled in v1.1; fails fast rather than silent fallback because picking local is a privacy choice. |
 | [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. W3.4b follow-up: catalog picker SourceKind that materialises N tables via SELECT * LIMIT cap. |
+| [A13](#a13--optional-map-cell-basemap-wave-1-stretch--w16-amends-spec-31--6) | §3.1, §6 | Optional OpenStreetMap raster basemap on map cells. Default off — tile-less canvas preserves the no-third-party-fetch posture. Explicit opt-in via Settings; CSP `img-src` carves out `tile.openstreetmap.org` only. |
 
 ---
 
@@ -429,6 +430,70 @@ state.
 > **Persistence:** new optional `bridge_catalog` field on
 > `PersistedSource` — `{ bridge_url, tables, requires_bearer }`.
 > Additive, no format-version bump.
+
+---
+
+## A13 — Optional map cell basemap (Wave 1 stretch — W1.6) (amends spec §3.1 + §6)
+
+**Original §3.1 (paraphrased):**
+> Map cell: tile-less MapLibre canvas; no third-party tiles.
+
+**Original §6 (Hard NOT):**
+> No third-party scripts at runtime beyond the SRI-pinned DuckDB CDN load.
+
+The "no tile basemap" rule kept the map cell privacy-clean by default
+but came with a real ergonomics cost: a points-only or polygons-only
+map with no geographic reference is hard to read. W1.6 adds the OSM
+basemap as an opt-in, preserving the default posture while letting
+users cross the line when they want context.
+
+**Amended:**
+
+> **The default map cell still renders tile-less.** No bytes leave the
+> tab unless the user explicitly opts in via Settings → "Map basemap"
+> ("Show OpenStreetMap tiles behind map cells"). Default `settings.mapBasemap === 'none'`.
+>
+> **When the user opts in (`'osm'`)**, MapLibre fetches raster tiles
+> from `https://tile.openstreetmap.org/{z}/{x}/{y}.png` for the extent
+> each map cell renders. Subdomains a/b/c are deprecated as of ~2022;
+> the single-host URL is the modern path. No glyph / sprite / vector
+> tile fetches — labels are baked into the raster tile.
+>
+> **CSP carve-out is explicit-host, not blanket `https:`.**
+> `img-src 'self' data: blob: https://tile.openstreetmap.org`. The
+> rationale: img requests don't execute scripts, but they still reveal
+> area-of-interest to whichever host serves them; explicit-host
+> preserves the intent that *only* the user-opted-in OSM host is
+> reachable. (Compare to `connect-src 'self' https:` from A5, which is
+> a blanket carve-out for data-plane mounts — connect-src is
+> fundamentally a data-flow channel where the user picks the URL each
+> time.)
+>
+> **§6 Hard NOT clarification.** "No third-party scripts at runtime"
+> still holds — tiles are images, not scripts. A user opting into OSM
+> basemap does not enable any third-party script execution. The
+> SRI-pinned DuckDB CDN load remains the only script that can come from
+> off-origin (and only when the user is online + the SRI hash matches).
+>
+> **OSM tile usage policy compliance.** Per
+> https://operations.osmfoundation.org/policies/tiles/ tiles require
+> attribution. MapLibre's built-in attribution control renders the
+> "© OpenStreetMap contributors" link automatically when the basemap
+> style is active. Heavy users should host their own tile server; the
+> NakliData app is a casual-use client and stays inside policy bounds.
+
+**Implementation surface:**
+- `settings.mapBasemap: 'none' | 'osm'` with `'none'` default; persisted in IDB alongside other settings; normalize() rejects other values.
+- Settings modal: a new section "Map basemap" with a single checkbox + a verbose hint explaining the privacy trade-off.
+- `src/lazy/maplibre-map.ts`: new `OSM_STYLE` preset and a `basemap` option on `mountMap()`; default `'none'` (unchanged behavior).
+- `src/ui/cells/map-cell.ts`: reads `mapBasemap` from settings before mounting; live setting changes take effect on the next map cell render (no live event).
+- CSP: `img-src` extended with the OSM host in both `src/index.html` (dev) and `esbuild.config.mjs` (build).
+
+**Status:** Wave 1 stretch (W1.6). Landed 2026-05-30.
+
+**Future-us:**
+- If a user wants a different tile source (Stamen, MapTiler, Carto, an enterprise tile server), the design supports it — but each new host needs a deliberate CSP carve-out + a Settings option + the OSM-policy-equivalent attribution. Don't quietly add hosts.
+- The previous "no third-party scripts" framing is preserved; if a future basemap option DOES need scripts (e.g., a vector-tile renderer with off-origin glyphs), that's a bigger spec amendment and should be rejected by default.
 
 ---
 
