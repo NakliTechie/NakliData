@@ -269,7 +269,7 @@ export class MountError extends Error {
  */
 export async function mountExampleBundle(
   engine: Engine,
-  manifestUrl = '/examples/manifest.json',
+  manifestUrl = './examples/manifest.json',
 ): Promise<MountedSource[]> {
   const res = await fetch(manifestUrl);
   if (!res.ok) {

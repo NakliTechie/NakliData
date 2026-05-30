@@ -15,7 +15,7 @@ interface IndexJson {
 
 let cache: TaxonomyBundle | null = null;
 
-export async function loadTaxonomy(base = '/taxonomy/v0.1/'): Promise<TaxonomyBundle> {
+export async function loadTaxonomy(base = './taxonomy/v0.1/'): Promise<TaxonomyBundle> {
   if (cache) return cache;
   const indexUrl = `${base}index.json`;
   const idxRes = await fetch(indexUrl);

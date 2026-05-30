@@ -94,14 +94,22 @@ export interface QueryOptions {
 }
 
 const DEFAULT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
-const FALLBACK_BASE = '/duckdb-fallback/';
 
-function fallbackOrigin(): string {
-  // The worker is created from a blob: URL whose base is opaque, so
-  // importScripts can't resolve a root-relative path. Resolve it against
-  // the page's origin instead.
-  if (typeof location !== 'undefined' && location.origin) return location.origin;
-  return '';
+/**
+ * Absolute URL of a same-origin asset relative to the page. Used for
+ * the vendored DuckDB fallback bundles + the local extension repo:
+ * the DuckDB worker is created from a blob: URL whose base is opaque
+ * (importScripts can't resolve a root-relative path), AND the
+ * deploy may sit under a path prefix (e.g., GitHub Pages serves us at
+ * `/NakliData/`). Resolving against `document.baseURI` covers both.
+ */
+function pageAsset(relative: string): string {
+  if (typeof document !== 'undefined' && document.baseURI) {
+    return new URL(relative, document.baseURI).href;
+  }
+  // SSR / test environment fallback. The only practical scenario is
+  // vitest, where these URLs are never actually fetched.
+  return relative;
 }
 
 export class EngineError extends Error {
@@ -229,7 +237,9 @@ export class Engine {
       // fetch any extension on demand. The path is form-required:
       // DuckDB appends `${REVISION}/${PLATFORM}/${NAME}.duckdb_extension.wasm`.
       if (opts.offline && typeof location !== 'undefined' && location.origin) {
-        const localRepo = `${location.origin}/duckdb-extensions`;
+        // Drop the trailing slash — DuckDB appends its own
+        // `/${VERSION}/${PLATFORM}/${NAME}.duckdb_extension.wasm`.
+        const localRepo = pageAsset('./duckdb-extensions').replace(/\/$/, '');
         try {
           await this.conn.query(
             `SET custom_extension_repository = '${localRepo.replace(/'/g, "''")}'`,
@@ -988,15 +998,14 @@ async function fetchWithSri(url: string, integrity: string): Promise<Uint8Array>
 
 function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {
   if (opts.offline) {
-    const origin = fallbackOrigin();
     return {
       mvp: {
-        mainModule: `${origin}${FALLBACK_BASE}duckdb-mvp.wasm`,
-        mainWorker: `${origin}${FALLBACK_BASE}duckdb-browser-mvp.worker.js`,
+        mainModule: pageAsset('./duckdb-fallback/duckdb-mvp.wasm'),
+        mainWorker: pageAsset('./duckdb-fallback/duckdb-browser-mvp.worker.js'),
       },
       eh: {
-        mainModule: `${origin}${FALLBACK_BASE}duckdb-eh.wasm`,
-        mainWorker: `${origin}${FALLBACK_BASE}duckdb-browser-eh.worker.js`,
+        mainModule: pageAsset('./duckdb-fallback/duckdb-eh.wasm'),
+        mainWorker: pageAsset('./duckdb-fallback/duckdb-browser-eh.worker.js'),
       },
     };
   }

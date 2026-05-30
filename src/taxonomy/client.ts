@@ -58,7 +58,11 @@ export class TaxonomyClient {
   async ensureReady(): Promise<void> {
     if (this.worker && this.bundle) return;
     this.bundle = await loadTaxonomy();
-    const worker = new Worker('/taxonomy.worker.js', { type: 'module' });
+    // Resolve the worker URL against the document's base URI so the
+    // path holds under any deploy prefix (e.g., GitHub Pages serves us
+    // at `/NakliData/` — a leading-slash URL would 404 there).
+    const workerUrl = new URL('./taxonomy.worker.js', document.baseURI).href;
+    const worker = new Worker(workerUrl, { type: 'module' });
     await new Promise<void>((resolve, reject) => {
       const onInit = (ev: MessageEvent<FromWorker>) => {
         if (ev.data.type === 'init_ok') {

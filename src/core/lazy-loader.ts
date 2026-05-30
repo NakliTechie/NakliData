@@ -39,7 +39,10 @@ export type LazyChunkName = keyof LazyChunkRegistry;
 export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRegistry[K]> {
   let p = cache.get(name);
   if (!p) {
-    const url = `/chunks/${name}.js`;
+    // Resolve against document.baseURI so deploys under a subpath
+    // (e.g., GitHub Pages at `/NakliData/`) work — a leading-slash URL
+    // would 404 there.
+    const url = new URL(`./chunks/${name}.js`, document.baseURI).href;
     p = import(/* @vite-ignore */ url);
     cache.set(name, p);
   }
