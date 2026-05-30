@@ -80,21 +80,21 @@ Full strategic context in [enterprise-strategy.md](./enterprise-strategy.md) §"
 - [x] **W3.4a** — `compute-bridge` source kind in NakliData. **Landed 2026-05-29** (DECISIONS 23:30; spec amendment A12). `src/core/bridge/bridge-client.ts` (health / listTables / query→ArrayBuffer, injected fetchImpl) + `Engine.registerArrowBuffer` + `mountComputeBridge` + modal + Bearer via source-secrets + graceful "unreachable → Reconnect" fallback + `.naklidata` round-trip. 10 vitest specs for bridge-client + 5 for mountComputeBridge. Browser uses HTTP + Arrow IPC (not Flight); results land via existing `insertArrowFromIPCStream`. Real end-to-end against a live binary is a once-the-binary-exists pass.
 - [x] **W3.4b** — Multi-table picker. **Landed 2026-05-30** (spec amendment A12 W3.4b follow-up). New `'compute-bridge-catalog'` SourceKind: connect → list `/v1/tables` → multi-select with per-table row caps → mount each via `SELECT * FROM "<name>" LIMIT <cap>`. All picks share one MountedSource. Per-table failures are non-fatal. 6 vitest specs against mocked fetch. Modal uses two-phase reveal (Connect → table list with checkboxes + cap inputs → Mount). Reload re-fetches the saved selection at then-current bridge state.
 - [ ] **W3.5** — Routing logic for jobs that benefit from the bridge (batch classification of 10k+ columns, heavy semantic search). Browser-side stays the baseline; bridge-side is the enhancement layer.
-- [ ] **W3.6** *(stretch / opportunistic)* — Resume vendoring `excel` + `read_stat` extensions if/when DuckDB-wasm bumps to a version where they're published for wasm_eh. Resume SQLite ATTACH-on-wasm work if the upstream VFS bridge lands.
+- [~] **W3.6** *(stretch / opportunistic)* — Resume vendoring `read_stat` if/when DuckDB-wasm bumps to a version where it's published for wasm_eh. Resume SQLite ATTACH-on-wasm work if the upstream VFS bridge lands. **Excel split out 2026-05-30**: shipped via SheetJS lazy chunk (commit `3f20a0b`) — the original "wait for excel extension" path is no longer the constraint.
 
-### Wave 4 — Product analytics surface (proposed)
+### Wave 4 — Product analytics surface — ✅ COMPLETE (2026-05-30)
 
 **Pitch:** "Drop a Mixpanel / Amplitude export, get useful analyses in 60 seconds."
 
 Full writeup in [product-analytics-comparison.md](./product-analytics-comparison.md). Brings NakliData to credible parity with the analytics-tool 80% — funnels, retention, paths — without touching the spec's no-server / no-ingestion / no-streaming Hard NOTs.
 
-- [ ] **W4.1** — Event-shape taxonomy seeds. Add `event_name`, `user_id`, `session_id`, `event_timestamp`, `event_properties_json`, `country_code` (extend), `utm_source` / `utm_medium` / `utm_campaign` to `taxonomy/v0.1/types.jsonl`. ~30 min.
-- [ ] **W4.2** — Pre-built analytics report templates: DAU, top events by user-count, funnel A→B→C, 30-day retention, conversion rate by source. Add alongside "Vendor concentration" in `src/ui/templates/templates.ts`. ~2 hr.
-- [ ] **W4.3** — Funnel chart type. Custom SVG renderer (mirrors the existing `pie` pattern). Horizontal bars with absolute counts + drop-off percentages. ~1 hr.
-- [ ] **W4.4** — Cohort cell. New `CellState` kind that emits a cached `user_id` list; downstream cells reference via `@<cohort_name>`. Reuses the `@cellName` resolution machinery. ~1.5 hr.
-- [ ] **W4.5** — Top-K paths chart. Simpler "top-K transitions as horizontal bars"; Sankey deferred until a real workload demands it. ~1 hr.
+- [x] **W4.1** — Event-shape taxonomy seeds (commit `a32bbbd`). 7 new types + `product-analytics` domain; `iso_datetime`/`unix_timestamp_ms` headers extended with `event_timestamp`/`event_ts`. 6 new classify specs.
+- [x] **W4.2** — Pre-built analytics templates (commit `98eb283`). DAU, Top events, Funnel A→B→C, 30-day retention, Conversion-by-source. ALL_TEMPLATES 6→11.
+- [x] **W4.3** — Funnel chart type (commit `ec82668`). Custom SVG; horizontal bars + drop-off % annotations. FUNNEL_A_B_C template re-wired to use it.
+- [x] **W4.4** — Cohort cell (commit `d661c4b`). New `kind: 'cohort'`; downstream cells reference via `@<cohort_name>`; user-count badge.
+- [x] **W4.5** — Top-K paths chart (commit `ec82668`, same as W4.3). New TOP_PATHS template using it. Sankey still deferred until a real workload demands d3-sankey.
 
-Total Wave 4 estimate: ~6 hr.
+**Open follow-up (carried to 2026-05-31):** verify Wave 4 templates against a real Mixpanel/Amplitude export (the user's `Retention Rate Analysis_Ecommerce.xlsx` is the candidate).
 
 ### Wave 5 — borrowed-from-the-giants (proposed)
 

@@ -1,96 +1,78 @@
-# Workplan — 2026-05-29 snapshot (post-W3.4a)
+# Workplan — 2026-05-30 snapshot (post-Wave 4)
 
-Wave 3 is substantially complete on the NakliData-repo side. W3.1
-(Job 4), W3.2 slice A (local-model seam), W3.3 (wire-protocol design),
-and W3.4a (compute-bridge client) all shipped today.
+Today closed the F→G→H→I→K polish slate, Wave 3 (W3.4b catalog
+picker), Wave 1+2 stretches (basemap, deck.gl, deploy), Cloudflare on
+a custom domain, Excel via SheetJS, and the full **Wave 4 product
+analytics surface** (W4.1–W4.5). Plus the Databricks comparison +
+Wave 5 + Wave 6 proposals. 27 commits, all on `origin/main`.
 
-What's left here divides cleanly into:
-1. **Maintenance + polish** — small, interleavable, ship in short
-   sessions (Chunk 1).
-2. **W3.4b — multi-table picker** — meaningful follow-up, but
-   speculative until a real bridge binary exists to test against
-   (Chunk 2).
-3. **External-blocked** — separate-repo (bridge binary) or real-browser
-   (local-model slice B). Listed in Unbatched, not actionable here.
+Tomorrow's slate, in pickup order:
 
 ---
 
-## Chunk 1 — Maintenance + polish (interleavable, 30 min – 1 hour each)
+## Chunk 1 — Demo verification with real event data (keystone, ~1 hr)
 
-Concrete items that don't depend on anything external. Pick off
-opportunistically; each ships its own gate pass.
+The Wave 4 templates haven't been end-to-end-verified with a real
+Mixpanel/Amplitude/PostHog-shaped dataset yet — only at the
+build/typecheck level. The user has
+`~/Downloads/Retention Rate Analysis_Ecommerce.xlsx` queued for
+exactly this verification. Chrome MCP's `file_upload` requires the
+file to be shared through the Claude UI first.
 
-- **Modal a11y audit pass** beyond schema-graph and slice-3 modals.
-  Apply the W1.11 focus-restore + Escape-listener-cleanup pattern to
-  the older modals (settings, define-type, override-rules,
-  compare-tables). 1–2 real leaks likely hiding; the pattern is
-  proven.
-- **"Test connection" button** for the custom-endpoint sidecar
-  (Settings). Probe the configured URL + key with a minimal
-  `chat/completions` call → surface the real HTTP error inline
-  instead of waiting for the first job. Small, user-visible.
-- **`checkpoint-*-eod.md` cleanup**. Old pre-windup files still on
-  disk; archive into a `plan/archive/` subdir or leave as history.
-  Doc-cadence already decided summaries are canonical.
-- **`registerArrowBuffer` exposed in vitest mock helpers** — the
-  mount.test.ts `mockEngine` already lists every register*; the
-  new `registerArrowBuffer` could join for consistency (not strictly
-  needed, but tidies the surface).
+- [ ] User attaches `Retention Rate Analysis_Ecommerce.xlsx` to the next chat OR clicks "Add file" in their own browser. (Decision needed up-front.)
+- [ ] [test] Mount the xlsx → confirm SheetJS lazy chunk loads, each sheet emits CSV → registerCsv path.
+- [ ] [test] Schema panel auto-classifies. Confirm any of the W4.1 types (`event_name`, `user_id`, `session_id`, `event_timestamp`, `utm_*`) fire on this dataset's columns.
+- [ ] [test] Reports panel surfaces W4.2 templates that fit the schema. Pick one (likely Retention or Top events) and run. Confirm chart renders.
+- [ ] [test] If event-shaped: also exercise Funnel (W4.3) + Cohort (W4.4) + TOP_PATHS (W4.5).
+- [ ] If anything misfires: capture the gap (which type missed, which SQL didn't match the column shape) into pending.md as a W4 follow-up.
 
-Prereq: none. None of these touch a new external surface.
+Why keystone: it converts "Wave 4 ships" from build-time evidence to actual-user-data evidence. If the templates don't light up on a real workbook, the order changes — fix taxonomy/templates first, then move on.
 
 ---
 
-## Chunk 2 — W3.4b: Compute Bridge multi-table picker (half day, speculative until binary exists)
+## Chunk 2 — Wave 5: borrowed-from-the-giants (~6.5 hr)
 
-The follow-up the W3.4a slice deliberately deferred. The protocol
-endpoint `/v1/tables` is already implemented in `BridgeClient.listTables()`.
+Five items proposed in [`plan/data-platform-comparison.md`](./data-platform-comparison.md). Each maps a Databricks/Snowflake/Microsoft Fabric/Hex ergonomic onto our workbench. Pick in this order — smallest leverage-on-leverage first:
 
-- A connect-then-browse modal flow: paste URL + Bearer → fetch the
-  catalog → render table list with schemas → multi-select → for each
-  picked table, issue a bounded `SELECT * FROM <t> LIMIT <cap>` and
-  register the result. Similar shape to the Iceberg-catalog
-  namespace+table picker (`mount-iceberg-catalog-modal.ts`).
-- Persistence: a `'compute-bridge-catalog'` SourceKind that tracks
-  the catalog URL + selection, distinct from `'compute-bridge'`
-  (single-table-via-SQL). Two source kinds because the persistence
-  shape differs.
-- Tests: bridge-client `listTables()` is already covered; the
-  multi-select mount needs new vitest specs.
+- [ ] **W5.4** — Sensitivity labels in the taxonomy (~30 min). Per-type `sensitivity: 'pii' | 'financial' | 'public' | …` field. Demo-mode auto-masks based on label. Smallest, lifts demo-mode + future PII guards.
+- [ ] **W5.5** — Assertion cell kind (~1 hr). New `kind: 'assertion'` — SQL that should return 0 rows; cell goes red otherwise. Data-quality checks inline. Follows the W4.4 cohort pattern (new kind, reuses SQL execution path).
+- [ ] **W5.3** — Aggregation suggestions in the schema panel (~1.5 hr). "This column is `amount`; chart sum by `vendor_name`?" — one-click into a templated cell. Power BI quick-measure pattern.
+- [ ] **W5.2** — Sidecar Job 6: Result-summary cards (~1.5 hr). Hex Magic pattern; one-line observation after a query runs. Template-validated against result-set shape (same hallucination-guard pattern as W3.1 Job 4).
+- [ ] **W5.1** — Sidecar Job 5: NL → SQL (~2 hr). Genie / Magic / Cortex pattern. Parser rejects identifiers not in current schema. Biggest of the five.
 
-Useful even pre-binary as a design clarifier — but live verification
-waits for the binary.
+Prereqs: none. None of these touch external systems. The eval harness should grow new fixtures per new sidecar job (Job 5 + Job 6).
 
 ---
 
-## Unbatched / separate-repo / real-browser (not actionable from this repo)
+## Chunk 3 — Wave 6: workflow polish (~10 hr, depth-first)
 
-- **W3.2 slice B — real local inference.** Add `@huggingface/transformers`;
-  `src/lazy/local-model.ts` loads a Phi-3-mini-class 4-bit ONNX model
-  (WebGPU + wasm fallback) + registers the generator; Cache-API
-  weights; Settings `'local'` radio + download UI. **Needs a real
-  browser + WebGPU — dedicated session + manual verification.** Seam
-  (slice A) already shipped.
-- **The Compute Bridge binary** — separate OSS repo (Rust single
-  binary + Docker; HTTP + Arrow IPC + Flight; Bearer auth; DuckDB
-  engine). Multi-week. The wire contract
-  ([`compute-bridge-protocol.md`](./compute-bridge-protocol.md))
-  unblocks it. Confirm naming (`nakli-compute` was chosen under the
-  launcher-portfolio framing we dropped — rethink given the
-  independent-product positioning) + license (Apache 2.0 lean) at
-  repo creation.
-- **W3.5** — routing logic (which jobs benefit from the bridge:
-  batch-classify 10k+ columns, heavy semantic search). After the
-  binary exists.
-- **W2.1c — Iceberg OAuth2 device flow + AWS SigV4.** v1.3, with
-  multi-tenant enterprise work.
-- **W1.8 deploy / W1.6 basemap / W2.6 deck.gl** — see pending.md
-  Deferred section.
+Four items proposed in [`plan/data-platform-comparison.md`](./data-platform-comparison.md). Each closes a workflow gap the Databricks comparison surfaced. Pick in this order:
+
+- [ ] **W6.2** — Presentation mode (~1 hr). `?present=1` or settings toggle that hides SQL cells, shows only Markdown + charts. Hex app-publish pattern. Cheapest of the four; immediate demo value.
+- [ ] **W6.3** — Static-HTML export (~3 hr). Render the active notebook to a self-contained HTML file (no engine on the export). New sink alongside KanZen / Bahi / NakliPoster. Evidence Dev pattern.
+- [ ] **W6.1** — Interactive-input cell (~3 hr). Dropdown / date-picker / slider that parameterises downstream SQL via `@inputName`. Observable `viewof` / Briefer pattern.
+- [ ] **W6.4** — Dashboard layout cell (~3–4 hr). New cell kind that arranges other cells in a grid. Superset / Power BI pattern. Closes the linear-notebook gap once and for all.
+
+Prereqs: W6.1 + W6.4 may want W5.5 (assertion cells) to surface in the layout. Otherwise independent.
 
 ---
 
-## Dropped (no longer planned)
+## Unbatched / external-blocked / out-of-scope
 
-- **W1.4 mirror** — naklios.dev launcher mirror. NakliData is an
-  independent product; cross-repo `sync-mirrors.sh` work off the
-  roadmap.
+Carried forward; not actionable in the next session:
+
+- **W3.2 slice B** — Real Transformers.js local-model inference. Needs a real browser + WebGPU verification session. Seam (slice A) shipped 2026-05-29.
+- **The Compute Bridge binary** — separate OSS repo (Rust + Docker; multi-week). Wire contract is fully designed in [`plan/compute-bridge-protocol.md`](./compute-bridge-protocol.md). Naming (`nakli-compute` → reconsider) + license + repo creation TBD.
+- **W3.5** — Routing logic for jobs that benefit from the bridge. Waits for the binary to exist.
+- **W2.1c** — Iceberg OAuth2 device flow + AWS SigV4. v1.3 enterprise scope.
+- **W3.6** — Resume vendoring `read_stat` + SQLite-VFS-on-wasm when upstream lands. (Excel split out — shipped via SheetJS today.)
+- **W1.4 mirror** (dropped earlier) and **v1.4+ multi-team / DB Relay / edge / widget** items in pending.md "Deferred" — long-term roadmap, not actionable this week.
+- **`@cellName` cycle detection** — currently relies on DuckDB error if a view references a not-yet-materialised view. Could pre-walk the DAG; nothing pressing.
+
+---
+
+## Sequencing rationale
+
+- **Chunk 1 is the keystone** because it converts assumptions into evidence. If templates misfire on real data, Wave 5/6 work is premature.
+- **Wave 5 before Wave 6** because Wave 5 enhances the existing surface (more taxonomy power, more sidecar jobs, schema-panel polish) while Wave 6 adds new surface (presentation mode, export, parameters, layout). Enhance-then-extend.
+- **Within each wave, smallest-leverage-on-leverage first.** W5.4 (sensitivity labels, 30 min) unlocks demo-mode-by-label across the app for one line of type-spec change per type. W5.5 (assertions, 1 hr) follows the just-shipped W4.4 cohort pattern verbatim, so the dev cost is mostly typing.
