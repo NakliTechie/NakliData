@@ -723,6 +723,29 @@ button {
   font-style: normal;
 }
 
+/* Settings — Test connection (custom endpoint). Inline button + result
+   row beneath the URL input. */
+.settings-test-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.settings-test-result {
+  font-size: ${Type.size.sm};
+  color: var(--text-muted);
+}
+.settings-test-result[data-state='ok'] {
+  color: var(--ok, #5a8f4a);
+}
+.settings-test-result[data-state='error'] {
+  color: var(--danger);
+}
+.settings-test-result[data-state='pending'] {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* Wave 2 slice 3a — Mount Iceberg table. Same modal width as
    mount-url-modal (fewer fields than mount-s3); body uses .mount-s3-body
    so we can share the row + remember styles. */

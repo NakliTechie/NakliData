@@ -8,9 +8,11 @@ import {
   type BYOKEntry,
   forgetAllKeys,
   forgetKey,
+  loadKey,
   locateKey,
   saveKey,
 } from '../core/sidecar/byok.ts';
+import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 
@@ -205,6 +207,10 @@ function renderModal(): HTMLElement {
           <label class="settings-field" data-region="settings-custom-endpoint-row" hidden>
             <span>Custom endpoint URL <em>(OpenAI-compatible — local llamafile, vLLM, Ollama, LM Studio)</em></span>
             <input type="url" data-action="settings-custom-endpoint" placeholder="https://my-llm.example.com" autocomplete="off" spellcheck="false" />
+            <div class="settings-test-row">
+              <button class="btn btn-ghost" data-action="settings-test-custom">Test connection</button>
+              <span class="settings-test-result" data-region="settings-test-result"></span>
+            </div>
           </label>
         </section>
         <section class="settings-section">
@@ -325,6 +331,70 @@ async function handleAction(
     flashStatus(overlay, 'All stored keys forgotten.');
     await refresh();
     return;
+  }
+  if (action === 'settings-test-custom') {
+    await testCustomConnection(overlay, target);
+    return;
+  }
+}
+
+/**
+ * Probe the configured custom endpoint with the smallest possible
+ * chat-completion request. Surfaces real HTTP errors inline so the
+ * user can debug config without waiting for the first job to fail.
+ */
+async function testCustomConnection(overlay: HTMLElement, target: HTMLElement): Promise<void> {
+  const resultEl = overlay.querySelector<HTMLElement>('[data-region="settings-test-result"]');
+  const buttonEl = target as HTMLButtonElement;
+  const settings = await loadSettings();
+  if (!settings.sidecarCustomEndpoint.trim()) {
+    if (resultEl) {
+      resultEl.textContent = 'Enter an endpoint URL first.';
+      resultEl.dataset.state = 'error';
+    }
+    return;
+  }
+  if (!settings.sidecarModel.trim()) {
+    if (resultEl) {
+      resultEl.textContent = 'Set a model id (above) first.';
+      resultEl.dataset.state = 'error';
+    }
+    return;
+  }
+  const apiKey = await loadKey('custom');
+  if (!apiKey) {
+    if (resultEl) {
+      resultEl.textContent =
+        'No API key saved for "custom" — save one below (use any placeholder if the endpoint is unauthenticated).';
+      resultEl.dataset.state = 'error';
+    }
+    return;
+  }
+  if (resultEl) {
+    resultEl.textContent = 'Probing…';
+    resultEl.dataset.state = 'pending';
+  }
+  buttonEl.disabled = true;
+  try {
+    const text = await callCustomOpenAI({
+      endpointUrl: settings.sidecarCustomEndpoint,
+      apiKey,
+      model: settings.sidecarModel,
+      system: 'Reply with the single character "k".',
+      user: 'ping',
+      maxTokens: 4,
+    });
+    if (resultEl) {
+      resultEl.textContent = `✓ OK · returned "${text.slice(0, 24)}${text.length > 24 ? '…' : ''}"`;
+      resultEl.dataset.state = 'ok';
+    }
+  } catch (err) {
+    if (resultEl) {
+      resultEl.textContent = `✗ ${err instanceof Error ? err.message : String(err)}`;
+      resultEl.dataset.state = 'error';
+    }
+  } finally {
+    buttonEl.disabled = false;
   }
 }
 
