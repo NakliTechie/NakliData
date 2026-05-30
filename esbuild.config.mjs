@@ -91,11 +91,16 @@ async function buildShell() {
     const csp = [
       "default-src 'self'",
       // `blob:` is required so the DuckDB worker can `importScripts(blob:…)`
-      // — the engine SRI-verifies the worker bytes, blobs them, and
-      // bootstraps via a chained blob (see src/core/engine.ts). The
-      // SHA-256 hash still pins the INLINED main script; blob: only
-      // unlocks worker-internal script loading.
-      `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}' blob:`,
+      // — the engine spawns a same-origin blob worker that imports the
+      // actual duckdb-wasm worker JS. The SHA-256 hash pins the
+      // INLINED main script; blob: + the cross-origin hosts below
+      // only unlock worker-internal script loading.
+      //
+      // Cross-origin hosts (spec amendment A14, three-tier bundle source):
+      //   - naklitechie.github.io serves the canonical vendored bundle
+      //     (used when the same-origin probe 404s — e.g., Cloudflare).
+      //   - cdn.jsdelivr.net is the `?cdn=1` escape hatch.
+      `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}' blob: https://naklitechie.github.io https://cdn.jsdelivr.net`,
       "worker-src 'self' blob:",
       "connect-src 'self' https:",
       "img-src 'self' data: blob: https://tile.openstreetmap.org",
