@@ -90,7 +90,12 @@ async function buildShell() {
     // to whichever host serves them; explicit-only preserves intent).
     const csp = [
       "default-src 'self'",
-      `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}'`,
+      // `blob:` is required so the DuckDB worker can `importScripts(blob:…)`
+      // — the engine SRI-verifies the worker bytes, blobs them, and
+      // bootstraps via a chained blob (see src/core/engine.ts). The
+      // SHA-256 hash still pins the INLINED main script; blob: only
+      // unlocks worker-internal script loading.
+      `script-src 'self' 'wasm-unsafe-eval' 'sha256-${scriptHash}' blob:`,
       "worker-src 'self' blob:",
       "connect-src 'self' https:",
       "img-src 'self' data: blob: https://tile.openstreetmap.org",
