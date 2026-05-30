@@ -65,6 +65,12 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
       case 'pie':
         renderPie(wrap, cell, result);
         break;
+      case 'funnel':
+        renderFunnel(wrap, cell, result);
+        break;
+      case 'path':
+        renderPaths(wrap, cell, result);
+        break;
     }
   }
 
@@ -592,6 +598,172 @@ function buildPieSvg(
     svg.appendChild(more);
   }
   return svg;
+}
+
+// --- W4.3 Funnel + W4.5 Paths -------------------------------------------
+
+/**
+ * Funnel chart. Expects a 2-column result: step name + numeric value
+ * (user count per step). Renders horizontal bars left-aligned, each
+ * sized as a fraction of the FIRST step (so the visual stairsteps
+ * downward to the right). Annotations: count, % retained from the
+ * previous step, % retained from the start.
+ *
+ * The seed SQL is a UNION ALL of three CTEs so order is preserved by
+ * the query author; we render rows in the order they arrive.
+ */
+function renderFunnel(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
+  const x = pickCategoricalCol(cell.x, result);
+  const y = pickNumericCol(cell.y, result);
+  if (!x || !y) {
+    mount.innerHTML = `<div class="cell-output-empty">Pick a step column (x) and a count column (y).</div>`;
+    return;
+  }
+  const rows: Array<{ step: string; count: number }> = [];
+  for (const row of result.rows) {
+    const step = String(row[x] ?? '');
+    const count = Number(row[y]);
+    if (Number.isFinite(count)) rows.push({ step, count });
+  }
+  if (rows.length === 0) {
+    mount.innerHTML = `<div class="cell-output-empty">No funnel rows to plot.</div>`;
+    return;
+  }
+  const top = rows[0]?.count ?? 0;
+  if (top <= 0) {
+    mount.innerHTML = `<div class="cell-output-empty">Top step has no users.</div>`;
+    return;
+  }
+  const width = 720;
+  const rowH = 44;
+  const padL = 170;
+  const padR = 24;
+  const height = rowH * rows.length + 18;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Funnel chart');
+  const innerW = width - padL - padR;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const y = i * rowH + 6;
+    const fracOfTop = top > 0 ? r.count / top : 0;
+    const w = innerW * fracOfTop;
+    // Step label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', String(padL - 8));
+    label.setAttribute('y', String(y + rowH / 2 + 4));
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('font-size', '12');
+    label.setAttribute('fill', Neutral.text);
+    label.textContent = r.step.length > 28 ? `${r.step.slice(0, 26)}…` : r.step;
+    svg.appendChild(label);
+    // Bar
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', String(padL));
+    rect.setAttribute('y', String(y));
+    rect.setAttribute('width', String(Math.max(w, 1)));
+    rect.setAttribute('height', String(rowH - 12));
+    rect.setAttribute('fill', categorical(0));
+    rect.setAttribute('rx', '2');
+    svg.appendChild(rect);
+    // Count + % from start
+    const fromStartPct = (fracOfTop * 100).toFixed(1);
+    const count = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    count.setAttribute('x', String(padL + w + 6));
+    count.setAttribute('y', String(y + rowH / 2 + 4));
+    count.setAttribute('font-size', '12');
+    count.setAttribute('fill', Neutral.text);
+    count.textContent = `${formatNumber(r.count)} (${fromStartPct}%)`;
+    svg.appendChild(count);
+    // Drop-off from previous step
+    if (i > 0) {
+      const prev = rows[i - 1]?.count ?? 0;
+      const fromPrevPct = prev > 0 ? (100 * (1 - r.count / prev)).toFixed(1) : '—';
+      const drop = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      drop.setAttribute('x', String(padL - 8));
+      drop.setAttribute('y', String(y - 4));
+      drop.setAttribute('text-anchor', 'end');
+      drop.setAttribute('font-size', '10');
+      drop.setAttribute('fill', Neutral.textMuted);
+      drop.textContent = `↓ ${fromPrevPct}% drop`;
+      svg.appendChild(drop);
+    }
+  }
+  mount.append(svg);
+}
+
+/**
+ * Paths chart. Expects a 2-column result: a path/sequence label
+ * (e.g., "page_view → signup → purchase") + a numeric count. Renders
+ * as horizontal bars with bigger labels than the standard bar chart
+ * — paths are typically long composite strings, so we give them
+ * room.
+ *
+ * Caps at top 20 rows; the underlying SQL should LIMIT 20.
+ */
+function renderPaths(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
+  const x = pickCategoricalCol(cell.x, result);
+  const y = pickNumericCol(cell.y, result);
+  if (!x || !y) {
+    mount.innerHTML = `<div class="cell-output-empty">Pick a path column (x) and a count column (y).</div>`;
+    return;
+  }
+  const data: Array<{ label: string; value: number }> = [];
+  for (const row of result.rows.slice(0, 20)) {
+    const lbl = String(row[x] ?? '');
+    const v = Number(row[y]);
+    if (Number.isFinite(v)) data.push({ label: lbl, value: v });
+  }
+  if (data.length === 0) {
+    mount.innerHTML = `<div class="cell-output-empty">No paths to plot.</div>`;
+    return;
+  }
+  const width = 760;
+  const rowH = 26;
+  const padL = 320; // wider than bar to hold path strings
+  const padR = 24;
+  const height = Math.max(rowH * data.length + 20, 80);
+  const maxV = data.reduce((m, d) => Math.max(m, d.value), 0);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Top paths chart');
+  for (let i = 0; i < data.length; i++) {
+    const d = data[i];
+    if (!d) continue;
+    const w = maxV > 0 ? ((width - padL - padR) * d.value) / maxV : 0;
+    const y = i * rowH + 6;
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', String(padL - 8));
+    label.setAttribute('y', String(y + rowH / 2 + 4));
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('fill', Neutral.text);
+    label.textContent = d.label.length > 56 ? `${d.label.slice(0, 54)}…` : d.label;
+    svg.appendChild(label);
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', String(padL));
+    rect.setAttribute('y', String(y));
+    rect.setAttribute('width', String(Math.max(w, 0.5)));
+    rect.setAttribute('height', String(rowH - 10));
+    rect.setAttribute('fill', categorical(i));
+    rect.setAttribute('rx', '2');
+    svg.appendChild(rect);
+
+    const val = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    val.setAttribute('x', String(padL + w + 4));
+    val.setAttribute('y', String(y + rowH / 2 + 4));
+    val.setAttribute('font-size', '11');
+    val.setAttribute('fill', Neutral.textMuted);
+    val.textContent = formatNumber(d.value);
+    svg.appendChild(val);
+  }
+  mount.append(svg);
 }
 
 function pickNumericCol(hint: string | null | undefined, result: SqlResult): string | null {

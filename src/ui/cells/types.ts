@@ -39,7 +39,9 @@ export interface ChartCellState {
     | 'pie'
     | 'stacked-bar'
     | 'area-stacked'
-    | 'heatmap';
+    | 'heatmap'
+    | 'funnel'
+    | 'path';
   x: string | null;
   y: string | null;
   /** Optional column whose values drive small-multiples faceting. */

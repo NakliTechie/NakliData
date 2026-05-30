@@ -490,7 +490,51 @@ SELECT 'B: ' || (SELECT ${q(e.column)} FROM ${q(e.table)} GROUP BY 1 ORDER BY CO
 UNION ALL
 SELECT 'C: ' || (SELECT ${q(e.column)} FROM ${q(e.table)} GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1 OFFSET 2), COUNT(*) FROM step_c`,
       ),
-      chart('bar', 'funnel_steps', 'step', 'users'),
+      chart('funnel', 'funnel_steps', 'step', 'users'),
+    ];
+  },
+};
+
+export const TOP_PATHS: Template = {
+  id: 'top_paths',
+  name: 'Top user paths',
+  description: 'Most common 3-event sequences users take.',
+  requiredTypes: ['event_name', 'user_id', 'iso_datetime'],
+  instantiate(m) {
+    const e = m.event_name!;
+    const u = m.user_id!;
+    const ts = m.iso_datetime!;
+    return [
+      md(
+        '# Top user paths\n\n' +
+          'Each path = the first three events a user fires, in time order. ' +
+          'Sankey is overkill for the eyeball question "what do users actually do?"; ' +
+          'a top-20 list of triplets answers it cleaner.',
+      ),
+      sql(
+        'top_paths',
+        `WITH ordered AS (
+  SELECT ${q(u.column)} AS user_id,
+         ${q(e.column)} AS event,
+         CAST(${q(ts.column)} AS TIMESTAMP) AS ts,
+         ROW_NUMBER() OVER (PARTITION BY ${q(u.column)} ORDER BY CAST(${q(ts.column)} AS TIMESTAMP)) AS rn
+  FROM ${q(e.table)}
+),
+triplets AS (
+  SELECT a.user_id,
+         a.event || ' → ' || b.event || ' → ' || c.event AS path
+  FROM ordered a
+  JOIN ordered b ON b.user_id = a.user_id AND b.rn = 2
+  JOIN ordered c ON c.user_id = a.user_id AND c.rn = 3
+  WHERE a.rn = 1
+)
+SELECT path, COUNT(*) AS users
+FROM triplets
+GROUP BY 1
+ORDER BY users DESC
+LIMIT 20`,
+      ),
+      chart('path', 'top_paths', 'path', 'users'),
     ];
   },
 };
@@ -608,5 +652,6 @@ export const ALL_TEMPLATES: Template[] = [
   FUNNEL_A_B_C,
   RETENTION_30D,
   CONVERSION_BY_SOURCE,
+  TOP_PATHS,
   COLUMN_PROFILE,
 ];
