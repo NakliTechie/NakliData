@@ -370,10 +370,10 @@ Wave 2 result: spec §3.1 supported formats list at 13 (CSV, TSV, JSONL, Parquet
 - [x] Wave 2 — **type-disambiguation** job (spec §4.3 job 1). Schema-panel "Ask sidecar" button on ambiguous columns (≥2 candidates + confidence ∈ [0.5, 0.9) + origin='detector'). One-token answer matched case-insensitively to the candidate list (or `null` for `unknown` / off-list). Chosen typeId applied via the existing `overrideAssignment` path (origin = `user_override`). DECISIONS 2026-05-18 18:00.
 - [x] Wave 3 — **define-new-type assist** job (spec §4.3 job 3). "+ Define new type from this column…" in the Override dropdown opens a modal: re-samples values, shows column context, lets the user fill the spec by hand OR click "Suggest with sidecar". Save → `workbook.addUserType` + apply via `overrideAssignment`. User types persist per-workbook (via `.naklidata` `user_types` field — was a placeholder). DECISIONS 2026-05-18 19:00.
 - [x] **Classifier integration of user types** — `src/taxonomy/user-types.ts` synthesises regex + header_match detectors per user type; `set_user_types` worker message rebuilds the effective bundle; `installUserTypesSync` in main.ts pushes on workbook change; "Re-classify with user types" button in the schema-panel toolbar preserves user accepts/overrides. DECISIONS 2026-05-19 14:00.
-- [ ] Custom-endpoint support — OpenAI-compatible URL field for local llamafiles / vLLM. CSP rethink required (current explicit-host whitelist won't work).
-- [ ] Eval harness (v1.2) — held-out per-job evals so prompted-vs-LoRA can be measured honestly. Per `plan/sidecar-architecture.md`.
-- [ ] Local-model path (v1.2+) — Transformers.js + Phi-3-mini-class (~150 MB OPFS). Opt-in fallback to BYOK if not downloaded.
-- [ ] LoRA-Gemma 4 E2B (v1.3+) — opt-in "high-accuracy mode"; never the default. See `plan/sidecar-architecture.md`.
+- [x] Custom-endpoint support — **shipped 2026-05-29 as W2.3** (canonical entry in Wave 2 section above). `'custom'` SidecarProvider; CSP `connect-src 'self' https:` from slice 1 enables runtime URL config. "Test connection" button added 2026-05-29.
+- [x] Eval harness — **shipped 2026-05-29 as W2.4** (canonical entry in Wave 2 section above). `eval/` with rubric scoring, recorded-response dry-run, HTML report. 4 jobs covered.
+- [~] Local-model path — **partial: slice A shipped 2026-05-29 as W3.2a** (canonical entry in Wave 3 section above). Seam + dispatch routing + settings persistence. Slice B (real Transformers.js model) deferred — needs a real browser + WebGPU.
+- [ ] LoRA-Gemma 4 E2B (v1.3+) — opt-in "high-accuracy mode"; never the default. Builds on the W3.2 seam + W2.4 eval harness baseline. See `plan/sidecar-architecture.md`.
 
 ### Theme 3 — Shareability + persistence ⏳ wave 1 done (2026-05-17)
 
