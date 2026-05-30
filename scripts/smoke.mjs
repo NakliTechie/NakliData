@@ -125,6 +125,31 @@ async function main() {
   if (!heading?.includes('What do you have?')) fail(`empty-state heading: ${heading}`);
   log('✓ empty state visible');
 
+  // 3a. Remote-source mount buttons open + close cleanly without
+  // console errors. Spec gates for Wave 2/3 modal hygiene — each modal
+  // should mount, accept Escape, tear down cleanly.
+  const REMOTE_MODALS = [
+    { trigger: 'mount-url', overlay: '.mount-url-overlay' },
+    { trigger: 'mount-s3', overlay: '.mount-s3-overlay' },
+    { trigger: 'mount-iceberg', overlay: '.mount-iceberg-overlay' },
+    { trigger: 'mount-iceberg-catalog', overlay: '.mount-iceberg-catalog-overlay' },
+    { trigger: 'mount-compute-bridge', overlay: '.mount-bridge-overlay' },
+  ];
+  const errorsBeforeModalCycle = consoleErrors.length;
+  for (const m of REMOTE_MODALS) {
+    await page.click(`[data-action="${m.trigger}"]`);
+    await page.waitForSelector(m.overlay, { timeout: 3000 });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction((sel) => document.querySelector(sel) === null, m.overlay, {
+      timeout: 2000,
+    });
+  }
+  const modalCycleErrors = consoleErrors.length - errorsBeforeModalCycle;
+  if (modalCycleErrors > 0) {
+    fail(`remote-source modal open/close cycle produced ${modalCycleErrors} console error(s)`);
+  }
+  log(`✓ remote-source modals open + Escape-close cleanly (${REMOTE_MODALS.length} modals)`);
+
   // 4. Click "Browse example data" to mount the bundled sources.
   await page.click('[data-action="browse-examples"]');
   log('clicked browse-examples');
