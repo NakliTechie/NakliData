@@ -1,6 +1,6 @@
 // Cell state types used by the notebook UI.
 
-export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map' | 'cohort';
+export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map' | 'cohort' | 'assertion';
 
 export interface SqlCellState {
   id: string;
@@ -99,13 +99,37 @@ export interface CohortCellState {
   lastResult: SqlResult | null;
 }
 
+/**
+ * Assertion cell — Wave 5 W5.5. A SQL query that should return zero
+ * rows under healthy data conditions; any returned row is a counter-
+ * example to the assertion (the cell goes red). Reuses the SQL
+ * execution path entirely; differs from `SqlCellState` only in:
+ *   - render chrome ("ASSERTION" label, pass/fail status badge,
+ *     count of counter-examples instead of result-table),
+ *   - intent — assertions document invariants ("no negative amounts",
+ *     "every invoice has a vendor_id", "no duplicate user_ids").
+ * dbt's `tests:` block is the closest analog.
+ */
+export interface AssertionCellState {
+  id: string;
+  kind: 'assertion';
+  order: number;
+  name: string | null;
+  /** SQL that should return 0 rows when the invariant holds. */
+  code: string;
+  status: 'idle' | 'running' | 'success' | 'error';
+  lastError: string | null;
+  lastResult: SqlResult | null;
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
   | ChartCellState
   | PivotCellState
   | MapCellState
-  | CohortCellState;
+  | CohortCellState
+  | AssertionCellState;
 
 export interface SqlResult {
   columns: string[];

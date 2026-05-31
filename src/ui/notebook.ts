@@ -12,6 +12,7 @@
 
 import type { Engine } from '../core/engine.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
@@ -19,6 +20,7 @@ import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import type {
+  AssertionCellState,
   CellHandlers,
   CellState,
   ChartCellState,
@@ -131,6 +133,23 @@ WHERE event_name = 'signup'  -- adjust to your criterion`,
         lastError: null,
         lastResult: null,
       } satisfies CohortCellState;
+    } else if (kind === 'assertion') {
+      cell = {
+        id: genCellId(),
+        kind: 'assertion',
+        order,
+        name: `assertion_${order + 1}`,
+        code: `-- Assertion: SQL that should return 0 rows when the invariant holds.
+-- Any returned row is a counter-example; the cell goes red.
+-- Adjust the SELECT to encode the invariant you want to enforce.
+SELECT *
+FROM invoices  -- adjust to your table
+WHERE amount IS NULL OR amount < 0  -- adjust to your invariant
+LIMIT 100`,
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+      } satisfies AssertionCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -173,9 +192,11 @@ WHERE event_name = 'signup'  -- adjust to your criterion`,
 
   async runCell(id: string, codeOverride?: string): Promise<void> {
     const cell = this.state.cells.find((c) => c.id === id);
-    // Cohort cells (W4.4) run the same path as SQL cells — same view
-    // creation, same result shape; only the rendered chrome differs.
-    if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort')) return;
+    // Cohort cells (W4.4) and assertion cells (W5.5) run the same
+    // path as SQL cells — same view creation, same result shape;
+    // only the rendered chrome differs.
+    if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion'))
+      return;
     const code = codeOverride ?? cell.code;
     this.patchCell(id, { code, status: 'running', lastError: null });
     const ac = new AbortController();
@@ -210,7 +231,7 @@ WHERE event_name = 'signup'  -- adjust to your criterion`,
     // in document order; cells reference views which are created by prior
     // cells, so document-order matches DAG order in the common case.
     for (const c of this.state.cells) {
-      if (c.kind === 'sql' || c.kind === 'cohort') {
+      if (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') {
         await this.runCell(c.id);
       }
     }
@@ -223,10 +244,13 @@ WHERE event_name = 'signup'  -- adjust to your criterion`,
    */
   private rewriteReferences(sql: string): string {
     return sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_m, name) => {
-      // Both SQL cells and Cohort cells (W4.4) materialise as
-      // `cell_<id>` views and are valid @-reference targets.
+      // SQL, Cohort (W4.4), and Assertion (W5.5) cells all
+      // materialise as `cell_<id>` views and are valid @-reference
+      // targets — assertions are rarely referenced downstream but
+      // there's no reason to forbid it.
       const ref = this.state.cells.find(
-        (c) => (c.kind === 'sql' || c.kind === 'cohort') && c.name === name,
+        (c) =>
+          (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') && c.name === name,
       );
       if (!ref) return `"${name}"`;
       return `"cell_${ref.id}"`;
@@ -305,6 +329,7 @@ export function renderNotebook(
     else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
+    else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
   }
 
   const addRow = document.createElement('div');
@@ -316,6 +341,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
+    <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')
@@ -335,5 +361,8 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-cohort"]')
     ?.addEventListener('click', () => notebook.addCell('cohort'));
+  addRow
+    .querySelector('[data-nb-action="add-assertion"]')
+    ?.addEventListener('click', () => notebook.addCell('assertion'));
   root.append(addRow);
 }
