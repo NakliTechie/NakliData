@@ -19,10 +19,12 @@ import {
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
   buildRecommendReportsPrompt,
+  buildSummariseResultPrompt,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
   parseRecommendReportsResponse,
+  parseSummariseResultResponse,
 } from '../src/core/sidecar/client.ts';
 import { callAnthropic } from '../src/core/sidecar/providers/anthropic.ts';
 import { callCustomOpenAI } from '../src/core/sidecar/providers/custom-openai.ts';
@@ -32,6 +34,7 @@ import type {
   DisambiguateTypeJob,
   ExplainErrorJob,
   RecommendReportsJob,
+  SummariseResultJob,
 } from '../src/core/sidecar/types.ts';
 import { type CaseResult, type RunMeta, aggregate, renderReport } from './report.ts';
 import {
@@ -39,19 +42,27 @@ import {
   type DisambiguateExpected,
   type ExplainErrorExpected,
   type RecommendReportsExpected,
+  type SummariseResultExpected,
   scoreDefineType,
   scoreDisambiguateType,
   scoreExplainError,
   scoreRecommendReports,
+  scoreSummariseResult,
 } from './score.ts';
 
 export type Provider = 'anthropic' | 'openai' | 'custom';
-export type JobName = 'explain-error' | 'disambiguate-type' | 'define-type' | 'recommend-reports';
+export type JobName =
+  | 'explain-error'
+  | 'disambiguate-type'
+  | 'define-type'
+  | 'recommend-reports'
+  | 'summarise-result';
 export const ALL_JOBS: JobName[] = [
   'explain-error',
   'disambiguate-type',
   'define-type',
   'recommend-reports',
+  'summarise-result',
 ];
 
 export interface HarnessOpts {
@@ -84,6 +95,7 @@ type ExplainInput = Omit<ExplainErrorJob, 'kind'>;
 type DisambiguateInput = Omit<DisambiguateTypeJob, 'kind'>;
 type DefineInput = Omit<DefineTypeJob, 'kind'>;
 type RecommendInput = Omit<RecommendReportsJob, 'kind'>;
+type SummariseInput = Omit<SummariseResultJob, 'kind'>;
 
 // ---- main -----------------------------------------------------------
 
@@ -156,6 +168,15 @@ async function runCase(
         input.candidates.map((cand) => cand.templateId),
       );
       const s = scoreRecommendReports(parsed, c.expected as RecommendReportsExpected);
+      return mk(job, c.id, s, raw, started);
+    }
+    if (job === 'summarise-result') {
+      const input = c.input as SummariseInput;
+      const raw = await getRaw(opts, c.recordedResponse, () =>
+        buildSummariseResultPrompt({ kind: 'summarise-result', ...input }),
+      );
+      const parsed = parseSummariseResultResponse(raw, input.columns);
+      const s = scoreSummariseResult(parsed, c.expected as SummariseResultExpected);
       return mk(job, c.id, s, raw, started);
     }
     // explain-error

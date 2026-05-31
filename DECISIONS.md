@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-31 — W5.2: Sidecar Job 6 — result-summary cards (Hex Magic pattern)
+
+**Context:** Wave-5 ergonomics borrow. Hex's notebook surfaces an inline AI summary card after a query runs ("Acme is the top vendor by spend at $12.3k"). Cheap, high-signal, low-risk if the parser is strict. NakliData already had a 5-strong sidecar job union (explain-error / disambiguate-type / define-type / recommend-reports / *summarise-result is the 6th — first new job since W3.1 Job 4*). The shape needs to mirror Job 4's hallucination guard so the surface stays trustworthy.
+
+**Decisions:**
+
+- **(a) Single observation field, not a structured card.** Response is `{ observation: string }`. We tried to imagine a richer schema (top values, range, null %, etc.) but every richer field would also need its own hallucination guard, and the user already sees the result table. One sentence is enough. The model is told to be specific ("Top vendor is Acme at 12.3k" beats "There are several vendors"), but the sentence is opaque to NakliData — we don't try to extract numbers or top-k from it.
+- **(b) Hallucination guard via backtick-fenced columns.** The system prompt says "Reference columns by name wrapped in backticks". The parser pulls every \`(.+?)\` match and validates the contents (case-insensitive) against the input `columns`. Any unknown ref → drop the entire response, return `observation: ''`. This is intentionally aggressive: a card pointing at a column the user doesn't have is worse than no card. (Alternative considered: just-warn-and-show. Rejected — silent rejection of suspicious output is the safer default for a non-actionable AI surface.)
+- **(c) 200-char hard cap with ellipsis truncation.** Models overshoot one-sentence instructions routinely. We collapse internal whitespace + newlines, then truncate at 200 chars and add `…`. We don't reject for being long; truncation is fine for a card.
+- **(d) Sample size at the caller, not the prompt.** main.ts caps `sampleRows` at 5 before dispatching, regardless of the cell's actual `rowCount`. Privacy posture matches W4 (results stay local; sidecar only sees a small sample + counts). Keeps prompts tight even when the table has 50k rows.
+- **(e) Trigger lives on the existing `cell-sidecar-trigger` class.** No new CSS rule needed for visibility — the same class hides when `.app-sidecar-enabled` is missing on the app root. Same hide/show wiring as the explain-error button. Trigger appears beside the row-count meta on a successful SQL/cohort/assertion result.
+- **(f) Cohort + assertion cells get the surface too.** Both wrap renderSqlCell, so the trigger flows through automatically; the dispatch handler accepts any of `sql | cohort | assertion`. Costs nothing extra and is more useful (assertion FAIL cells especially benefit from "what does the counter-example data look like" prose).
+- **(g) Eval gate at 50 cases.** 8 new fixtures for summarise-result, covering: real-data observations (vendor-by-spend, count-by-mode, single-row stat, time-series), edge cases (empty result, decline-vague), and guard exercises (hallucinated column → drop, fenced JSON → strip, over-cap → ellipsis truncate). Scorer = keyword coverage (60%) + non-empty (20%) + under-cap (20%); `expectDropped: true` cases flip the scorer to "observation must equal ''".
+
+**Tests:** 12 new unit tests (build/parse/dispatch + 5 guard-exercising parser cases); eval-harness dry-run 50/50 across 5 jobs; full vitest 300/300; smoke green; bundle 491.7 KB (81.9% of 600 KB budget — well within).
+
+**Reversibility:** Easy. Drop `SummariseResultJob` / `SummariseResultResponse` from the union (types.ts), the dispatch branch + builder + parser (client.ts), the trigger + region in sql-cell.ts, the `summarise-result` case in main.ts, the runSummariseResult function, the eval fixture + scorer + harness branch. No data on disk depends on this; no spec amendment needed.
+
+**Known limitations / follow-ups:**
+- **The guard rejects observations referring to columns by unfenced text.** A model that omits backticks entirely will pass the parser (we only validate the things wrapped in backticks). This is by design — most observations don't NEED to reference column names at all (they can describe values). The strict guard kicks in only when the model claims to be talking about a column.
+- **No PII-redaction in sampleRows.** When W5.4 sensitivity labels gate the sidecar (future work), the dispatch path should drop columns labeled `pii` / `financial` / `secret` from sampleRows before shipping. Substrate is in place; gate isn't wired yet.
+- **No "Insert as markdown" affordance.** A future polish: paste the observation into a markdown cell so the user keeps it across re-runs. Out of scope for the smallest-W5.2 slice.
+
+---
+
 ## 2026-05-30 — W2.6: deck.gl pairing for many-points (>5k threshold)
 
 **Context:** Map cell renders points via MapLibre's native `circle` layer. At ~5k+ points it starts to feel sluggish under zoom; deck.gl's GPU-accelerated ScatterplotLayer is the well-known fix. The original W2.6 was tagged "only if a real workload appears." Landing the seam + integration now means the moment a real workload appears, we just bump the threshold (or remove it) — no architectural work pending.

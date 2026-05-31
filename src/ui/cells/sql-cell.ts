@@ -241,8 +241,19 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     <span>${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'}</span>
     <span>${elapsedMs.toFixed(0)} ms</span>
     ${rows.length > 50 ? '<span>showing first 50</span>' : ''}
+    <button class="btn btn-ghost cell-sidecar-trigger" data-action="summarise-result" data-cell-id="${cell.id}" title="Ask the sidecar for a one-line observation about this result">
+      ${iconSvg('info', 12)} <span>Summarise</span>
+    </button>
   `;
   container.append(meta);
+
+  // Region the sidecar handler writes its one-line observation into.
+  // Empty unless the user clicks the trigger. CSS hides empty results
+  // automatically (`.cell-sidecar-result:empty { display: none }`).
+  const sidecar = document.createElement('div');
+  sidecar.className = 'cell-sidecar-result';
+  sidecar.dataset.region = `sidecar-result-${cell.id}`;
+  container.append(sidecar);
 }
 
 function formatCell(v: unknown): { text: string; numeric: boolean } {

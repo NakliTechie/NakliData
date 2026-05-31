@@ -34,10 +34,10 @@ Why keystone: it converts "Wave 4 ships" from build-time evidence to actual-user
 
 Five items proposed in [`plan/data-platform-comparison.md`](./data-platform-comparison.md). Each maps a Databricks/Snowflake/Microsoft Fabric/Hex ergonomic onto our workbench. Pick in this order — smallest leverage-on-leverage first:
 
-- [ ] **W5.4** — Sensitivity labels in the taxonomy (~30 min). Per-type `sensitivity: 'pii' | 'financial' | 'public' | …` field. Demo-mode auto-masks based on label. Smallest, lifts demo-mode + future PII guards.
-- [ ] **W5.5** — Assertion cell kind (~1 hr). New `kind: 'assertion'` — SQL that should return 0 rows; cell goes red otherwise. Data-quality checks inline. Follows the W4.4 cohort pattern (new kind, reuses SQL execution path).
-- [ ] **W5.3** — Aggregation suggestions in the schema panel (~1.5 hr). "This column is `amount`; chart sum by `vendor_name`?" — one-click into a templated cell. Power BI quick-measure pattern.
-- [ ] **W5.2** — Sidecar Job 6: Result-summary cards (~1.5 hr). Hex Magic pattern; one-line observation after a query runs. Template-validated against result-set shape (same hallucination-guard pattern as W3.1 Job 4).
+- [x] **W5.4** — Sensitivity labels in the taxonomy. Per-type `sensitivity: 'pii' | 'financial' | 'public'` field, badge rendered in the schema panel. Substrate for future demo-mode + PII guards. (Shipped 2026-05-31.)
+- [x] **W5.5** — Assertion cell kind. New `kind: 'assertion'` — SQL that should return 0 rows; PASS/FAIL pill; FAIL paints the cell red. Reuses the SQL execution path. (Shipped 2026-05-31.)
+- [x] **W5.3** — Aggregation suggestions in the schema panel. "Quick chart ▾" per column emits SQL + chart + markdown cells (Power BI quick-measure pattern). Partners-by-table map drives sum-by, count-by, count-over-time, GSTIN-state-spend, COUNT DISTINCT for ids. (Shipped 2026-05-31.)
+- [x] **W5.2** — Sidecar Job 6: Result-summary cards. Hex Magic one-line observation card; hallucination guard validates backticked column refs; 200-char cap with ellipsis. 8-case eval fixture, 12 unit tests. (Shipped 2026-05-31.)
 - [ ] **W5.1** — Sidecar Job 5: NL → SQL (~2 hr). Genie / Magic / Cortex pattern. Parser rejects identifiers not in current schema. Biggest of the five.
 
 Prereqs: none. None of these touch external systems. The eval harness should grow new fixtures per new sidecar job (Job 5 + Job 6).

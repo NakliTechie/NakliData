@@ -5,11 +5,13 @@ import {
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
   buildRecommendReportsPrompt,
+  buildSummariseResultPrompt,
   dispatchJob,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
   parseRecommendReportsResponse,
+  parseSummariseResultResponse,
 } from '../src/core/sidecar/client.ts';
 import { SidecarError } from '../src/core/sidecar/types.ts';
 
@@ -512,5 +514,109 @@ describe('dispatchJob — recommend-reports', () => {
     expect(result.kind).toBe('recommend-reports');
     if (result.kind !== 'recommend-reports') return;
     expect(result.recommendations[0]?.templateId).toBe('vendor_concentration');
+  });
+});
+
+// ---- summarise-result (Job 6 / Wave 5 W5.2) -------------------------
+
+const SUMMARY_COLUMNS = ['vendor_name', 'total'];
+
+describe('buildSummariseResultPrompt', () => {
+  it('includes the SQL, columns, row count, and sample rows', () => {
+    const { system, user } = buildSummariseResultPrompt({
+      kind: 'summarise-result',
+      sql: 'SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1',
+      columns: SUMMARY_COLUMNS,
+      rowCount: 42,
+      sampleRows: [
+        { vendor_name: 'Acme', total: '1000' },
+        { vendor_name: 'Globex', total: '900' },
+      ],
+    });
+    expect(system).toMatch(/one short sentence/i);
+    expect(system).toMatch(/wrapped in backticks/i);
+    expect(user).toContain('vendor_name, total');
+    expect(user).toContain('Total rows: 42');
+    expect(user).toContain('Acme');
+  });
+});
+
+describe('parseSummariseResultResponse', () => {
+  it('parses a normal observation', () => {
+    const raw = JSON.stringify({
+      observation: 'Top vendor is Acme at 1000 on `total`.',
+    });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.kind).toBe('summarise-result');
+    expect(r.observation).toContain('Acme');
+  });
+
+  it('drops the response when a backticked column is not in the input (hallucination guard)', () => {
+    const raw = JSON.stringify({
+      observation: 'The dominant `country` is Acme.',
+    });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation).toBe('');
+  });
+
+  it('allows backticks around real columns case-insensitively', () => {
+    const raw = JSON.stringify({
+      observation: 'Largest `Total` belongs to `Vendor_Name` Acme.',
+    });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation).toContain('Acme');
+  });
+
+  it('caps overlong observations with an ellipsis', () => {
+    const long = `Top vendor is Acme at 1000 on \`total\`. ${'x'.repeat(300)}`;
+    const raw = JSON.stringify({ observation: long });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation.length).toBeLessThanOrEqual(200);
+    expect(r.observation.endsWith('…')).toBe(true);
+  });
+
+  it('collapses internal whitespace and newlines', () => {
+    const raw = JSON.stringify({
+      observation: 'Top vendor   is\nAcme\twith total 1000.',
+    });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation).toBe('Top vendor is Acme with total 1000.');
+  });
+
+  it('returns empty observation when the model declines (empty string)', () => {
+    const raw = JSON.stringify({ observation: '' });
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation).toBe('');
+  });
+
+  it('strips code fences', () => {
+    const raw = '```json\n{"observation":"Top vendor is Acme on `total`."}\n```';
+    const r = parseSummariseResultResponse(raw, SUMMARY_COLUMNS);
+    expect(r.observation).toContain('Acme');
+  });
+
+  it('throws on non-JSON', () => {
+    expect(() => parseSummariseResultResponse('not json', SUMMARY_COLUMNS)).toThrow(SidecarError);
+  });
+});
+
+describe('dispatchJob — summarise-result', () => {
+  it('routes to the summarise-result parser', async () => {
+    _idb.set('sidecar/byok/openai', 'sk-openai-stub');
+    const transport: SidecarTransport = async () =>
+      JSON.stringify({ observation: 'Top vendor is Acme at 1000 on `total`.' });
+    const result = await dispatchJob(
+      {
+        kind: 'summarise-result',
+        sql: 'SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1',
+        columns: SUMMARY_COLUMNS,
+        rowCount: 5,
+        sampleRows: [{ vendor_name: 'Acme', total: '1000' }],
+      },
+      { provider: 'openai', model: 'gpt-4o-mini', transport },
+    );
+    expect(result.kind).toBe('summarise-result');
+    if (result.kind !== 'summarise-result') return;
+    expect(result.observation).toContain('Acme');
   });
 });

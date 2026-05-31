@@ -905,6 +905,12 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await runExplainError(engine, cellId);
       return;
     }
+    case 'summarise-result': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      await runSummariseResult(engine, cellId);
+      return;
+    }
     case 'ask-sidecar-disambiguate': {
       const sourceId = el?.dataset.sourceId;
       const tableId = el?.dataset.tableId;
@@ -2009,6 +2015,82 @@ function escapeText(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Sidecar wave 5 W5.2 — Job 6: one-line result summary card.
+ *
+ * Triggered from the "Summarise" button under the result table on a
+ * successfully-run SQL cell. Ships the columns + first 5 rows to the
+ * sidecar; renders a single sentence (or nothing if the model bailed)
+ * underneath the table.
+ *
+ * Privacy posture: only 5 sample rows are shipped, even if the cell
+ * returned millions. Caller (this function) is responsible for the cap.
+ */
+async function runSummariseResult(engine: Engine, cellId: string): Promise<void> {
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion')) {
+    toast('Nothing to summarise (no SQL result on this cell).');
+    return;
+  }
+  if (!cell.lastResult) {
+    toast('Run the cell first — there is no result yet.');
+    return;
+  }
+  const mount = document.querySelector<HTMLElement>(`[data-region="sidecar-result-${cellId}"]`);
+  if (!mount) return;
+  mount.innerHTML = '<div class="cell-sidecar-loading">Asking the sidecar…</div>';
+
+  const settings = await loadSettings();
+  const { columns, rows, rowCount } = cell.lastResult;
+  const sampleRows = rows.slice(0, 5).map((row) => {
+    const out: Record<string, string> = {};
+    for (const col of columns) {
+      const v = row[col];
+      out[col] =
+        v === null || v === undefined ? '∅' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    }
+    return out;
+  });
+
+  try {
+    const result = await dispatchJob(
+      {
+        kind: 'summarise-result',
+        sql: cell.code,
+        columns,
+        sampleRows,
+        rowCount,
+      },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
+      },
+    );
+    if (result.kind !== 'summarise-result') {
+      throw new Error(`Unexpected sidecar response kind: ${result.kind}`);
+    }
+    if (!result.observation) {
+      mount.innerHTML = `<div class="cell-sidecar-explanation" style="font-style:italic;color:var(--text-muted)">The sidecar didn't have anything useful to add about this result.</div>`;
+      return;
+    }
+    mount.innerHTML = `
+      <div class="cell-sidecar-explanation">${escapeText(result.observation)}</div>
+      <div class="cell-sidecar-footnote">via ${escapeText(settings.sidecarProvider)} · ${escapeText(settings.sidecarModel)}</div>
+    `;
+  } catch (err) {
+    const msg =
+      err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
+    mount.innerHTML = `<div class="cell-sidecar-error">Sidecar: ${escapeText(msg)}</div>`;
+    if (err instanceof SidecarError && err.kind === 'no-key') {
+      mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
+    }
+  }
 }
 
 /**

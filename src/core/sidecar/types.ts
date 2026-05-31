@@ -38,7 +38,8 @@ export type SidecarJob =
   | ExplainErrorJob
   | DisambiguateTypeJob
   | DefineTypeJob
-  | RecommendReportsJob;
+  | RecommendReportsJob
+  | SummariseResultJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -95,12 +96,40 @@ export interface RecommendReportsJob {
   typeSummary: string;
 }
 
+/**
+ * Job 6 (Wave 5 / W5.2) — given a small result set produced by an SQL
+ * cell, ask the sidecar to emit a one-line observation. Hex Magic's
+ * "explain this result" cards are the closest analog; we constrain
+ * the model to text under 200 chars, no SQL, no formatting. The
+ * caller ships only column names + a tiny sample (first 5 rows
+ * typically) — never the full result.
+ *
+ * Hallucination guard lives in the parser: drop any observation that
+ * references a column name not in `columns`. Anchors the model to the
+ * data it was actually given.
+ */
+export interface SummariseResultJob {
+  kind: 'summarise-result';
+  /** SQL the cell ran (one-line preview, helps the model frame intent). */
+  sql: string;
+  /** Result column names, in order. */
+  columns: string[];
+  /**
+   * First N rows of the result, stringified. Caller caps at ~5 rows
+   * to keep prompts tight + privacy posture clear.
+   */
+  sampleRows: Array<Record<string, string>>;
+  /** Total row count (the sample may be smaller). */
+  rowCount: number;
+}
+
 /** A sidecar response is a tagged structured output. */
 export type SidecarResponse =
   | ExplainErrorResponse
   | DisambiguateTypeResponse
   | DefineTypeResponse
-  | RecommendReportsResponse;
+  | RecommendReportsResponse
+  | SummariseResultResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -140,6 +169,16 @@ export interface RecommendReportsResponse {
    * candidate list survive parsing; scores are clamped to [0, 1].
    */
   recommendations: Array<{ templateId: string; score: number }>;
+}
+
+export interface SummariseResultResponse {
+  kind: 'summarise-result';
+  /**
+   * One-line observation (≤ 200 chars). Parser drops the response
+   * entirely if the model emitted text referencing columns not in
+   * the input. Empty string means the model declined to summarise.
+   */
+  observation: string;
 }
 
 export class SidecarError extends Error {

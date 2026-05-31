@@ -1,0 +1,144 @@
+{
+  "job": "summarise-result",
+  "_note": "Held-out cases for Job 6 (one-line result-summary cards / Hex Magic). `recordedResponse` is a representative raw model output for --dry-run. Scoring = keyword coverage + length cap + non-empty (or empty when the parser is expected to drop the response for hallucinating a column).",
+  "cases": [
+    {
+      "id": "top-vendor-by-spend",
+      "input": {
+        "sql": "SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1 ORDER BY total DESC LIMIT 5",
+        "columns": ["vendor_name", "total"],
+        "rowCount": 5,
+        "sampleRows": [
+          { "vendor_name": "Acme Corp", "total": "12340.50" },
+          { "vendor_name": "Globex", "total": "9821.10" },
+          { "vendor_name": "Initech", "total": "8420.00" },
+          { "vendor_name": "Umbrella", "total": "5102.75" },
+          { "vendor_name": "Hooli", "total": "3105.25" }
+        ]
+      },
+      "expected": {
+        "keywords": ["Acme"],
+        "maxChars": 200
+      },
+      "recordedResponse": "{\"observation\":\"Top vendor by spend is Acme Corp at 12,340.50 on `total`, ahead of Globex at 9,821.10 — top 5 captures most of the long tail.\"}"
+    },
+    {
+      "id": "count-by-payment-mode",
+      "input": {
+        "sql": "SELECT payment_mode, COUNT(*) AS n FROM payments GROUP BY 1 ORDER BY n DESC",
+        "columns": ["payment_mode", "n"],
+        "rowCount": 4,
+        "sampleRows": [
+          { "payment_mode": "UPI", "n": "1240" },
+          { "payment_mode": "Card", "n": "920" },
+          { "payment_mode": "Cash", "n": "210" },
+          { "payment_mode": "Bank Transfer", "n": "55" }
+        ]
+      },
+      "expected": {
+        "keywords": ["upi"],
+        "maxChars": 200
+      },
+      "recordedResponse": "{\"observation\":\"UPI dominates with 1,240 of 2,425 payments — more than the next two `payment_mode` values combined.\"}"
+    },
+    {
+      "id": "empty-result-graceful",
+      "input": {
+        "sql": "SELECT * FROM invoices WHERE amount > 1000000",
+        "columns": ["invoice_no", "amount", "vendor_name"],
+        "rowCount": 0,
+        "sampleRows": []
+      },
+      "expected": {
+        "expectDropped": true
+      },
+      "recordedResponse": "{\"observation\":\"\"}"
+    },
+    {
+      "id": "hallucinated-column-dropped",
+      "input": {
+        "sql": "SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1",
+        "columns": ["vendor_name", "total"],
+        "rowCount": 3,
+        "sampleRows": [
+          { "vendor_name": "A", "total": "100" },
+          { "vendor_name": "B", "total": "80" },
+          { "vendor_name": "C", "total": "60" }
+        ]
+      },
+      "expected": {
+        "expectDropped": true
+      },
+      "recordedResponse": "{\"observation\":\"`country` is the dominant grouping with `A` at 100.\"}"
+    },
+    {
+      "id": "over-cap-truncated",
+      "input": {
+        "sql": "SELECT iso_date, COUNT(*) AS n FROM events GROUP BY 1 ORDER BY iso_date",
+        "columns": ["iso_date", "n"],
+        "rowCount": 30,
+        "sampleRows": [
+          { "iso_date": "2026-04-01", "n": "120" },
+          { "iso_date": "2026-04-02", "n": "98" },
+          { "iso_date": "2026-04-03", "n": "115" },
+          { "iso_date": "2026-04-04", "n": "201" },
+          { "iso_date": "2026-04-05", "n": "55" }
+        ]
+      },
+      "expected": {
+        "keywords": ["events"],
+        "maxChars": 200
+      },
+      "recordedResponse": "{\"observation\":\"Daily events range from 55 to 201 over the sampled 30 day window, with a noticeable peak around 2026-04-04; the rest of the window stays in the high two-digit to low three-digit band, suggesting steady traffic with one outlier worth a closer look.\"}"
+    },
+    {
+      "id": "fenced-json-output",
+      "input": {
+        "sql": "SELECT log_level, COUNT(*) AS n FROM access_log GROUP BY 1",
+        "columns": ["log_level", "n"],
+        "rowCount": 3,
+        "sampleRows": [
+          { "log_level": "INFO", "n": "8400" },
+          { "log_level": "WARN", "n": "320" },
+          { "log_level": "ERROR", "n": "44" }
+        ]
+      },
+      "expected": {
+        "keywords": ["error"],
+        "maxChars": 200
+      },
+      "recordedResponse": "```json\n{\"observation\":\"ERRORs are only 44 of 8,764 log lines (≈0.5%), with WARN sitting ~7× higher; `log_level` is heavily INFO-skewed.\"}\n```"
+    },
+    {
+      "id": "single-row-stat",
+      "input": {
+        "sql": "SELECT COUNT(DISTINCT user_id) AS unique_user_id FROM events",
+        "columns": ["unique_user_id"],
+        "rowCount": 1,
+        "sampleRows": [{ "unique_user_id": "18432" }]
+      },
+      "expected": {
+        "keywords": ["18,432"],
+        "maxChars": 200
+      },
+      "recordedResponse": "{\"observation\":\"18,432 unique users in the result; `unique_user_id` is a single-row stat.\"}"
+    },
+    {
+      "id": "decline-vague",
+      "input": {
+        "sql": "SELECT * FROM users LIMIT 3",
+        "columns": ["user_id", "created_at"],
+        "rowCount": 3,
+        "sampleRows": [
+          { "user_id": "u1", "created_at": "2026-05-30T10:00:00Z" },
+          { "user_id": "u2", "created_at": "2026-05-30T11:00:00Z" },
+          { "user_id": "u3", "created_at": "2026-05-30T12:00:00Z" }
+        ]
+      },
+      "expected": {
+        "expectDropped": true
+      },
+      "recordedResponse": "{\"observation\":\"\"}"
+    }
+  ]
+}

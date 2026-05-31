@@ -30,7 +30,13 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ALL_JOBS = ['explain-error', 'disambiguate-type', 'define-type', 'recommend-reports'];
+const ALL_JOBS = [
+  'explain-error',
+  'disambiguate-type',
+  'define-type',
+  'recommend-reports',
+  'summarise-result',
+];
 const DEFAULT_MODEL = { anthropic: 'claude-3-5-haiku-latest', openai: 'gpt-4o-mini', custom: '' };
 const ENV_KEY = {
   anthropic: 'ANTHROPIC_API_KEY',

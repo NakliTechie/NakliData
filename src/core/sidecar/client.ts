@@ -23,6 +23,8 @@ import {
   type SidecarJob,
   type SidecarProvider,
   type SidecarResponse,
+  type SummariseResultJob,
+  type SummariseResultResponse,
 } from './types.ts';
 
 export interface SidecarDispatchOpts {
@@ -170,6 +172,19 @@ export async function dispatchJob(
       raw,
       job.candidates.map((c) => c.templateId),
     );
+  }
+  if (job.kind === 'summarise-result') {
+    const { system, user } = buildSummariseResultPrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseSummariseResultResponse(raw, job.columns);
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
@@ -464,4 +479,101 @@ export function parseRecommendReportsResponse(
   }
   recommendations.sort((a, b) => b.score - a.score);
   return { kind: 'recommend-reports', recommendations };
+}
+
+// ---- summarise-result (Job 6 / Wave 5 W5.2) prompt + parser ---------
+//
+// Hex Magic's "summary card" pattern: after a query runs, ask the
+// sidecar for a one-line plain-English observation about the result.
+// The hallucination guard (same shape as Job 4's id-allowlist) lives
+// in the parser: any backtick-wrapped column reference must be a
+// real column in the result. Anything outside that set → drop the
+// whole response.
+
+const SUMMARISE_RESULT_MAX_CHARS = 200;
+
+const SUMMARISE_RESULT_SYSTEM = `You are NakliData's sidecar emitting a one-line observation about a query result. The user has already seen the table — you are summarising in prose what stands out (top value, distribution, range, presence of nulls, simple skew).
+
+Output strictly as JSON in this shape:
+
+{
+  "observation": "<one short sentence, ≤ 200 chars>"
+}
+
+Hard rules:
+- Output ONLY the JSON object. No markdown code fences. No commentary outside the JSON.
+- "observation" is a single plain-English sentence. No bullets, no markdown, no SQL, no code fences.
+- Reference columns by name wrapped in backticks (e.g., \`total\`). Only mention columns that appear in the result.
+- Never invent numbers. If you cite a value, it must appear in the sample rows you were given.
+- If the result is empty or you cannot say anything useful, return an empty string for "observation".
+- Stay under 200 characters. Be specific, not generic ("Top vendor is Acme at 12.3k" beats "There are several vendors").`;
+
+export function buildSummariseResultPrompt(job: SummariseResultJob): {
+  system: string;
+  user: string;
+} {
+  const sampleBlock = job.sampleRows
+    .map((row, i) => `Row ${i + 1}: ${JSON.stringify(row)}`)
+    .join('\n');
+  const user = [
+    'SQL that produced this result:',
+    '```sql',
+    job.sql,
+    '```',
+    '',
+    `Columns (in order): ${job.columns.join(', ')}`,
+    `Total rows: ${job.rowCount}`,
+    '',
+    `Sample rows (first ${job.sampleRows.length} of ${job.rowCount}):`,
+    sampleBlock || '(no rows)',
+  ].join('\n');
+  return { system: SUMMARISE_RESULT_SYSTEM, user };
+}
+
+export function parseSummariseResultResponse(
+  raw: string,
+  columns: string[],
+): SummariseResultResponse {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  let parsed: { observation?: unknown };
+  try {
+    parsed = JSON.parse(stripped) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  const rawObservation = typeof parsed.observation === 'string' ? parsed.observation.trim() : '';
+  if (!rawObservation) {
+    return { kind: 'summarise-result', observation: '' };
+  }
+  // Collapse whitespace + cap length. Models sometimes emit newlines or
+  // run long despite the instruction.
+  const collapsed = rawObservation.replace(/\s+/g, ' ').trim();
+  const truncated =
+    collapsed.length > SUMMARISE_RESULT_MAX_CHARS
+      ? `${collapsed.slice(0, SUMMARISE_RESULT_MAX_CHARS - 1).trimEnd()}…`
+      : collapsed;
+
+  // Hallucination guard — every backtick-wrapped identifier must be a
+  // column in the result. If the model invented one, drop the entire
+  // observation: a card pointing at a nonexistent column is worse than
+  // no card.
+  const allowed = new Set(columns.map((c) => c.toLowerCase()));
+  const refMatcher = /`([^`]+)`/g;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
+  while ((m = refMatcher.exec(truncated)) !== null) {
+    const ref = m[1]?.trim().toLowerCase() ?? '';
+    if (!ref) continue;
+    if (!allowed.has(ref)) {
+      return { kind: 'summarise-result', observation: '' };
+    }
+  }
+  return { kind: 'summarise-result', observation: truncated };
 }

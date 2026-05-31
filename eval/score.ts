@@ -11,6 +11,7 @@ import type {
   DisambiguateTypeResponse,
   ExplainErrorResponse,
   RecommendReportsResponse,
+  SummariseResultResponse,
 } from '../src/core/sidecar/types.ts';
 
 export interface ScoreResult {
@@ -167,6 +168,63 @@ export function scoreRecommendReports(
     pass,
     score,
     detail: `top=${ids[0] ?? '(none)'} ${topOk ? '✓' : `(want ${expected.top})`} · include ${included.length}/${must.length}`,
+  };
+}
+
+// ---- summarise-result: keyword coverage + length cap + safety -------
+
+export interface SummariseResultExpected {
+  /**
+   * Keywords (case-insensitive substrings) the observation should
+   * contain. Each keyword the observation hits adds to coverage.
+   */
+  keywords?: string[];
+  /**
+   * When `true`, the parser is expected to have dropped the response
+   * because it referenced a column not in the result (hallucination
+   * guard). `parsed.observation` must be `''` to pass.
+   */
+  expectDropped?: boolean;
+  /** Upper bound on length, characters. Default 200 (matches the parser cap). */
+  maxChars?: number;
+}
+
+export function scoreSummariseResult(
+  parsed: SummariseResultResponse,
+  expected: SummariseResultExpected,
+): ScoreResult {
+  const obs = parsed.observation;
+  const maxChars = expected.maxChars ?? 200;
+
+  // (1) Hallucination-drop case — observation must be empty.
+  if (expected.expectDropped) {
+    const pass = obs === '';
+    return {
+      pass,
+      score: pass ? 1 : 0,
+      detail: pass
+        ? 'response correctly dropped'
+        : `expected drop, got "${obs.slice(0, 80)}${obs.length > 80 ? '…' : ''}"`,
+    };
+  }
+
+  // (2) Normal case — non-empty, under the cap, mentions the expected keywords.
+  const nonEmpty = obs.length > 0;
+  const underCap = obs.length <= maxChars;
+  const keywords = expected.keywords ?? [];
+  const lower = obs.toLowerCase();
+  const hits = keywords.filter((k) => lower.includes(k.toLowerCase()));
+  const coverage = keywords.length === 0 ? (nonEmpty ? 1 : 0) : hits.length / keywords.length;
+
+  // Composite: 60% keyword coverage, 20% non-empty, 20% under-cap.
+  const score = coverage * 0.6 + (nonEmpty ? 0.2 : 0) + (underCap ? 0.2 : 0);
+  // Pass requires non-empty, under cap, and majority keyword coverage
+  // (or non-empty when no keywords were specified).
+  const pass = nonEmpty && underCap && (keywords.length === 0 || coverage >= 0.5);
+  return {
+    pass,
+    score,
+    detail: `len=${obs.length}/${maxChars} · keywords ${hits.length}/${keywords.length}${nonEmpty ? '' : ' · empty'}`,
   };
 }
 
