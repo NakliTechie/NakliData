@@ -10,6 +10,8 @@ import type { MountedSource, MountedTable } from '../core/mount.ts';
 import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import type { CellState } from './cells/types.ts';
+import { getQuickActions } from './quick-aggregations.ts';
 
 export interface ColumnAssignment {
   columnName: string;
@@ -73,6 +75,19 @@ export interface SchemaPanelHandlers {
   onManageOverrideRules: () => void;
   /** Open the "Compare tables" modal. Theme 4 wave 2 (B2). */
   onCompareTables: () => void;
+  /**
+   * W5.3 — drop a list of cell partials into the notebook. Used by
+   * the per-column "Quick chart" affordance; cells come from
+   * `getQuickActions` in `quick-aggregations.ts`. Same shape the
+   * templates panel emits.
+   */
+  onAddCells?: (cells: Array<Omit<CellState, 'order' | 'id'>>, sourceLabel: string) => void;
+  /**
+   * W5.3 — full per-table column-type map. Lets the column row's
+   * quick-action menu know about partner columns (e.g., "sum amount
+   * by vendor_name" needs both columns in the same table).
+   */
+  partnersByTable?: Map<string, Array<{ column: string; typeId: string | null }>>;
 }
 
 export function assignmentKey(sourceId: string, tableId: string, columnName: string): string {
@@ -209,6 +224,7 @@ function renderTableBlock(
       renderColumnRow(
         src.id,
         table.id,
+        table.name,
         a,
         state.bundle,
         state.userTypes,
@@ -223,6 +239,7 @@ function renderTableBlock(
 function renderColumnRow(
   sourceId: string,
   tableId: string,
+  tableName: string,
   a: ColumnAssignment,
   bundle: TaxonomyBundle | null,
   userTypes: UserType[],
@@ -250,6 +267,12 @@ function renderColumnRow(
   const confidencePct = (a.assigned.confidence * 100).toFixed(0);
   const confidenceColor = confidenceToColor(a.assigned.confidence);
   const originBadge = renderOriginBadge(a.assigned.origin);
+  // W5.3 — Quick chart actions per column. Computed lazily from the
+  // assigned type + partner-column type map. Returns an empty array
+  // for types we don't have suggestions for; the affordance hides
+  // entirely in that case.
+  const partners = handlers.partnersByTable?.get(tableName) ?? [];
+  const quickActions = getQuickActions(a, tableName, partners);
 
   const detailsId = `evidence-${sourceId}-${tableId}-${a.columnName}`;
 
@@ -280,6 +303,21 @@ function renderColumnRow(
         <summary class="btn btn-ghost" aria-label="Override type for ${escapeHtml(a.columnName)}">${iconSvg('pencil', 12)} Override</summary>
         <div class="override-menu" data-region="override-menu"></div>
       </details>
+      ${
+        quickActions.length > 0
+          ? `<details class="schema-quick-chart">
+        <summary class="btn btn-ghost" aria-label="Quick chart for ${escapeHtml(a.columnName)}">${iconSvg('chart', 12)} Quick chart</summary>
+        <div class="quick-chart-menu" data-region="quick-chart-menu">
+          ${quickActions
+            .map(
+              (q, i) =>
+                `<button class="btn btn-ghost quick-chart-item" data-quick-idx="${i}">${escapeHtml(q.label)}</button>`,
+            )
+            .join('')}
+        </div>
+      </details>`
+          : ''
+      }
       <button class="btn btn-ghost" data-action="evidence" aria-controls="${detailsId}" aria-expanded="false">
         ${iconSvg('info', 12)} Evidence
       </button>
@@ -295,6 +333,18 @@ function renderColumnRow(
   li.querySelector('[data-action="accept"]')?.addEventListener('click', () => {
     handlers.onAccept(sourceId, tableId, a.columnName);
   });
+  // W5.3 — Quick chart menu clicks dispatch into the notebook via the
+  // onAddCells handler. Picking an action collapses the <details>.
+  for (const btn of li.querySelectorAll<HTMLButtonElement>('.quick-chart-item')) {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.quickIdx);
+      const action = quickActions[idx];
+      if (!action || !handlers.onAddCells) return;
+      handlers.onAddCells(action.generate(), action.label);
+      const details = btn.closest<HTMLDetailsElement>('details.schema-quick-chart');
+      if (details) details.open = false;
+    });
+  }
   li.querySelector('[data-action="evidence"]')?.addEventListener('click', (ev) => {
     const btn = ev.currentTarget as HTMLButtonElement;
     const panel = li.querySelector<HTMLElement>('.schema-evidence');
@@ -729,6 +779,36 @@ const SCHEMA_CSS = `
   box-shadow: var(--shadow-md);
   z-index: 50;
   min-width: 240px;
+}
+.schema-quick-chart {
+  position: relative;
+  display: inline-block;
+}
+.schema-quick-chart summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.schema-quick-chart summary::-webkit-details-marker { display: none; }
+.schema-quick-chart[open] .quick-chart-menu {
+  position: absolute;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+  min-width: 280px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.quick-chart-item {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 12px;
+  padding: 6px 8px;
 }
 .schema-evidence {
   margin-top: 6px;

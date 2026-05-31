@@ -44,6 +44,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import type { CellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
@@ -441,6 +442,58 @@ function renderSchemaPanelWithCurrentState(
           assignments: wb.assignments,
           engine,
         }),
+      // W5.3 — quick-chart actions drop cells into the notebook via
+      // the same load() path the templates panel uses.
+      onAddCells: (partials, label) => {
+        const nb = getNotebook(engine);
+        const existing = nb.get().cells;
+        const startOrder = existing.length;
+        const cells = partials.map((p, i) => ({
+          ...p,
+          id: `c_${Date.now().toString(36)}_${startOrder + i}`,
+          order: startOrder + i,
+        })) as CellState[];
+        // Resolve any chart-cell `inputCell: null` references to the
+        // most-recent named SQL cell within this batch (templates panel
+        // does the same dance).
+        const idByName = new Map<string, string>();
+        for (const c of cells) {
+          if ((c.kind === 'sql' || c.kind === 'cohort') && c.name) idByName.set(c.name, c.id);
+        }
+        for (let i = 0; i < cells.length; i++) {
+          const c = cells[i];
+          if (c?.kind === 'chart' && c.inputCell === null) {
+            for (let j = i - 1; j >= 0; j--) {
+              const prev = cells[j];
+              if ((prev?.kind === 'sql' || prev?.kind === 'cohort') && prev.name) {
+                c.inputCell = prev.id;
+                break;
+              }
+            }
+          }
+        }
+        nb.load([...existing, ...cells]);
+        toast(`Added "${label}" — ${cells.length} cell${cells.length === 1 ? '' : 's'}.`);
+      },
+      // W5.3 — partner-column index for quick-chart's "Sum X by Y"
+      // suggestions. Maps table name → list of (column, typeId) in
+      // that table, so a per-column action can find sibling columns.
+      partnersByTable: (() => {
+        const m = new Map<string, Array<{ column: string; typeId: string | null }>>();
+        for (const s of wb.sources) {
+          for (const t of s.tables) {
+            const list: Array<{ column: string; typeId: string | null }> = [];
+            for (const [key, a] of Object.entries(wb.assignments)) {
+              const [, tId] = key.split('::');
+              if (tId === t.id) {
+                list.push({ column: a.columnName, typeId: a.assigned.typeId ?? null });
+              }
+            }
+            m.set(t.name, list);
+          }
+        }
+        return m;
+      })(),
     },
   );
 }
