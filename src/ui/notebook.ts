@@ -230,8 +230,17 @@ LIMIT 100`,
     // Topologically sort by @name dependencies — simple version: just run
     // in document order; cells reference views which are created by prior
     // cells, so document-order matches DAG order in the common case.
+    //
+    // Cells with empty `code` are skipped silently. The notebook seeds a
+    // single empty SQL cell on first mount as a "type here" affordance;
+    // letting Run-all hit it surfaces a noisy DuckDB "syntax error at
+    // end of input" that has nothing to do with the user's intent. This
+    // matches what every notebook (Jupyter, Hex, Observable) does — the
+    // "Run all" affordance treats empty cells as no-ops.
+    // (Demo-verification finding 2026-05-31; see plan/pending.md.)
     for (const c of this.state.cells) {
       if (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') {
+        if (!c.code.trim()) continue;
         await this.runCell(c.id);
       }
     }

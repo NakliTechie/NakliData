@@ -625,6 +625,19 @@ ORDER BY conversion_pct DESC`,
   },
 };
 
+/**
+ * Legacy "always applicable" fallback template. Kept exported (the
+ * recommend-reports eval fixture still references the id), but NOT
+ * registered in ALL_TEMPLATES — its body shipped a `SELECT * FROM
+ * your_table LIMIT 5` placeholder string that DuckDB rejected on Run,
+ * confusing real users (demo-verification finding 2026-05-31). The
+ * templates panel now shows a helpful empty state ("Mount sources
+ * with recognized columns…") when nothing else applies. A future
+ * iteration could resurrect this template by plumbing the first
+ * mounted table name into instantiate() so `your_table` becomes a
+ * real reference; until then, removing it is the smallest correct
+ * fix.
+ */
 export const COLUMN_PROFILE: Template = {
   id: 'column_profile',
   name: 'Column profile (first table)',
@@ -653,5 +666,4 @@ export const ALL_TEMPLATES: Template[] = [
   RETENTION_30D,
   CONVERSION_BY_SOURCE,
   TOP_PATHS,
-  COLUMN_PROFILE,
 ];

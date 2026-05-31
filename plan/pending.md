@@ -96,6 +96,46 @@ Full writeup in [product-analytics-comparison.md](./product-analytics-comparison
 
 **Open follow-up (carried to 2026-05-31):** verify Wave 4 templates against a real Mixpanel/Amplitude export (the user's `Retention Rate Analysis_Ecommerce.xlsx` is the candidate).
 
+**Demo verification ran 2026-05-31** (`scripts/verify-demo-ecommerce.mjs` →
+`plan/demo-verification-ecommerce.json`). The queued xlsx is a 14-sheet
+pre-aggregated retention analysis (per-cohort percentages, dialer counts,
+funnel summaries), NOT raw event rows. Findings:
+
+- ✅ **xlsx mount path is healthy.** SheetJS lazy chunk loaded, 14 sheets
+  registered as tables, 85 columns classified, 0 console errors.
+- ✅ **Date classification works on real-world data.** `iso_date` detector
+  fired correctly on `start_date` + `end_date` (6 hits total across the
+  sheets that carry them). W5.4 sensitivity badges rendered.
+- ⚠️ **Zero W4.1 event-shape hits — but it's the data, not the taxonomy.**
+  The xlsx has no `event_name`, no `user_id`, no `event_timestamp` — it's
+  precomputed retention metrics, so none of the event-shape detectors are
+  expected to fire. Verification of Wave 4 templates needs a raw events
+  fixture (Mixpanel export, PostHog dump, or a synthetic stand-in). This
+  is the real "next step" of the keystone.
+- ✅ **W4 follow-up #1 — `COLUMN_PROFILE` template ships a placeholder
+  SQL that errors on Run.** Fixed 2026-05-31: COLUMN_PROFILE removed from
+  `ALL_TEMPLATES`. The export is kept (the recommend-reports eval fixture
+  still references the id) but the templates panel now correctly shows
+  "Mount sources with recognized columns…" for data that doesn't match a
+  real template. A future iteration could resurrect the template by
+  plumbing the first mounted table name into instantiate() so `your_table`
+  becomes a real reference.
+- ✅ **W4 follow-up #2 — extra empty SQL cell errors during Run-all.**
+  Fixed 2026-05-31: `notebook.ts` `runAll()` now skips cells whose code
+  trims to empty. Matches what every notebook (Jupyter / Hex / Observable)
+  does — empty cells are no-ops in "Run all". The default seed cell the
+  notebook ships on first mount no longer surfaces a noisy
+  "syntax error at end of input" when a user clicks Run-all without
+  typing anything first.
+- 🐛 **W4 follow-up #3 — need a real raw-events fixture.** Until we have
+  a raw event log to feed in (Mixpanel events.csv, PostHog snapshot.json,
+  or a small synthetic JSONL we ship), the W4.1/W4.2/W4.3/W4.4/W4.5
+  surfaces have only build-time evidence. Synthesising a 1–2k-row JSONL
+  matching the expected shape (`event_name`, `user_id`, `iso_datetime`,
+  optional `utm_*` + `event_properties`) and adding it to `public/examples/`
+  would let `scripts/verify-demo-ecommerce.mjs` be re-pointed at it for a
+  real W4 verification.
+
 ### Wave 5 — borrowed-from-the-giants (proposed)
 
 **Pitch:** "Take the ergonomic patterns Databricks / Snowflake / Microsoft Fabric have proven, drop them into our workbench shape."
