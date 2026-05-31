@@ -240,6 +240,13 @@ function renderColumnRow(
       userTypes.find((t) => t.id === a.assigned.typeId)?.display_name ??
       a.assigned.typeId)
     : `unknown<${a.sqlType}>`;
+  // W5.4 — Sensitivity label badge. Renders only for non-public types.
+  // PII / financial / secret each get their own muted-color chip; the
+  // title attribute carries the long-form explanation for hover.
+  const assignedSensitivity = a.assigned.typeId
+    ? (bundle?.types.find((t) => t.id === a.assigned.typeId)?.sensitivity ?? null)
+    : null;
+  const sensitivityBadge = renderSensitivityBadge(assignedSensitivity);
   const confidencePct = (a.assigned.confidence * 100).toFixed(0);
   const confidenceColor = confidenceToColor(a.assigned.confidence);
   const originBadge = renderOriginBadge(a.assigned.origin);
@@ -251,6 +258,7 @@ function renderColumnRow(
       <div class="schema-col-name">
         <span class="col-name">${escapeHtml(maskLabel('column', a.columnName))}</span>
         <span class="col-sql-type">${escapeHtml(a.sqlType)}</span>
+        ${sensitivityBadge}
       </div>
       <div class="schema-col-type">
         <span class="type-pill" data-confidence-pill>
@@ -406,6 +414,36 @@ function renderOriginBadge(origin: ColumnAssignment['assigned']['origin']): stri
   if (!entry) return '';
   const [label, color] = entry;
   return `<span class="origin-badge" style="color:${color}">· ${label}</span>`;
+}
+
+/**
+ * W5.4 — Sensitivity chip per the type's classification. Public (or
+ * absent) returns ''; PII / financial / secret each get a small
+ * muted-color chip with a hover title. The chip sits next to
+ * `col-sql-type` so it travels with the column-name cluster.
+ */
+function renderSensitivityBadge(sensitivity: string | null): string {
+  if (!sensitivity || sensitivity === 'public') return '';
+  const map: Record<string, { label: string; title: string; color: string }> = {
+    pii: {
+      label: 'PII',
+      title: 'Personally identifiable information — handle with care.',
+      color: 'var(--accent)',
+    },
+    financial: {
+      label: 'financial',
+      title: 'Financial values or identifiers (money, GST IDs, account numbers).',
+      color: 'var(--text-muted)',
+    },
+    secret: {
+      label: 'secret',
+      title: 'Credentials, tokens, keys — should never be persisted in clear.',
+      color: 'var(--danger)',
+    },
+  };
+  const entry = map[sensitivity];
+  if (!entry) return '';
+  return `<span class="sensitivity-badge" style="color:${entry.color}" title="${escapeHtml(entry.title)}">${escapeHtml(entry.label)}</span>`;
 }
 
 function renderEvidence(a: ColumnAssignment): string {
@@ -621,6 +659,17 @@ const SCHEMA_CSS = `
   font-size: 10px;
   color: var(--text-muted);
   text-transform: lowercase;
+}
+.sensitivity-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.75;
+  white-space: nowrap;
+  cursor: help;
 }
 .schema-col-type { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .type-pill {

@@ -30,6 +30,26 @@ export interface DetectorSpec {
   max_length?: number;
 }
 
+/**
+ * Sensitivity classification for a semantic type. Drives badge
+ * rendering in the schema panel (W5.4) and is the substrate for
+ * future PII guards (e.g., warn-on-save if a `.naklidata` carries
+ * PII columns; sensitivity-aware demo mode that masks values, not
+ * just headers).
+ *
+ * - `'public'` (default if absent) — no sensitivity concerns
+ *   (vendor_name, sku, log_level, http_status, country_code, …).
+ * - `'pii'` — identifies an individual (email, phone_e164, user_id,
+ *   session_id, ip_v4/v6, event_properties_json — JSON payloads
+ *   commonly carry name/email/etc.).
+ * - `'financial'` — money or financial-system identifiers (amount,
+ *   gstin, pan, iban, swift_bic, indian_bank_account, gst_rate,
+ *   gl_account, hsn_code, currency_iso).
+ * - `'secret'` — credentials, tokens, keys. Not currently used in
+ *   v0.1 taxonomy but reserved.
+ */
+export type TypeSensitivity = 'public' | 'pii' | 'financial' | 'secret';
+
 export interface TypeSpec {
   id: string;
   display_name: string;
@@ -38,6 +58,8 @@ export interface TypeSpec {
   detectors: DetectorSpec[];
   confidence_floor: number;
   seed_origin?: string;
+  /** Sensitivity classification — see {@link TypeSensitivity}. Optional; defaults to `'public'`. */
+  sensitivity?: TypeSensitivity;
 }
 
 export interface DomainSpec {
