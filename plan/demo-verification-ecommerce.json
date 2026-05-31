@@ -1,880 +1,263 @@
 {
-  "xlsx": "/Users/chiragpatnaik/Downloads/Retention Rate Analysis_Ecommerce.xlsx",
-  "timestamp": "2026-05-31T09:47:22.272Z",
+  "xlsx": "/Users/chiragpatnaik/Code/Apps/NakliData/public/examples/events/events.jsonl",
+  "timestamp": "2026-05-31T10:16:17.497Z",
   "sources": [
     {
-      "label": "retention_rate_analysis_ecommerce__JAS_quarter_data\n          280 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Sheet13\n          280 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Sheet14\n          11 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Reachable_Counts\n          292 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Ecommerce_final\n          30 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Ajio_numbers\n          1 row"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Travel_and_Hospitality\n          13 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Unique_Sent\n          285 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Main_Full_sheet\n          1,168 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Travel\n          52 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Sheet8\n          39 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Ecommerce\n          120 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Sheet5\n          90 rows"
-    },
-    {
-      "label": "retention_rate_analysis_ecommerce__Sheet2\n          290 rows"
+      "label": "events\n          1,500 rows"
     }
   ],
   "classification": [
     {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "cid",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Industry_new",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "start_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "end_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Total_Reachable_Base",
-      "typeId": "amount",
-      "origin": "detector",
-      "sqlType": "BIGINT",
-      "confidence": "91%",
-      "sensitivity": "financial"
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "uniq_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "uniq_openers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "uniq_clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Base_touched_last_quarter",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Sent_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Open Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Click Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Clickers_Open_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "intersect_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "intersect_openers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "intersect_clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "Openers/Past Clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "cid",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Industry_new",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "start_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "end_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Reachable_Base_Manual",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Total_Reachable_Base",
-      "typeId": "amount",
-      "origin": "detector",
-      "sqlType": "BIGINT",
-      "confidence": "91%",
-      "sensitivity": "financial"
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "uniq_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "uniq_openers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "uniq_clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Base_touched_last_quarter",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Sent_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Open Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Click Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Clickers_Open_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "intersect_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "intersect_openers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "intersect_clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "Openers/Past Clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Number of Opens in the last 30 days",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Count of users",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Number of Clients",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "column03",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "cid",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "unique sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "no of",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "column07",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "uid",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "cids",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "number of Opens in 30 days",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "number of Clicks in 30 days",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "column12",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "column13",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Total Relationships",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Live relationsips",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet14",
-      "column": "Active relationships",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Reachable_Counts",
-      "column": "Client_ID",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Reachable_Counts",
-      "column": "Contact_List_size",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "AVERAGE of uniq_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "AVERAGE of Sent_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "AVERAGE of Open Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "AVERAGE of Click Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ecommerce_final",
-      "column": "AVERAGE of Clickers_Open_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Enterprise Name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Region",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Industry",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "start_date",
-      "typeId": "iso_date",
+      "table": "events",
+      "column": "event_name",
+      "typeId": "event_name",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "85%",
+      "confidence": "100%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "end_date",
-      "typeId": "iso_date",
+      "table": "events",
+      "column": "user_id",
+      "typeId": "user_id",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "85%",
-      "sensitivity": ""
+      "confidence": "100%",
+      "sensitivity": "PII"
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "uniq_sent",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "session_id",
+      "typeId": "session_id",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
+      "confidence": "76%",
+      "sensitivity": "PII"
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "uniq_openers",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "event_timestamp",
+      "typeId": "iso_datetime",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
+      "confidence": "100%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "uniq_clickers",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "page_url",
+      "typeId": "url",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
+      "confidence": "100%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "intersect_sent",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "utm_source",
+      "typeId": "utm_source",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
+      "confidence": "76%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "intersect_openers",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "utm_medium",
+      "typeId": "utm_medium",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
+      "confidence": "92%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "intersect_clickers",
-      "typeId": "",
-      "origin": "unknown",
+      "table": "events",
+      "column": "utm_campaign",
+      "typeId": "utm_campaign",
+      "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "0%",
+      "confidence": "76%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Openers/Past Clickers",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Click Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Open Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "Sent_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Travel_and_Hospitality",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Travel_and_Hospitality",
-      "column": "Users_touched_Quarterly",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Travel_and_Hospitality",
-      "column": "AVERAGE of Sent_Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Travel_and_Hospitality",
-      "column": "AVERAGE of Open Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Travel_and_Hospitality",
-      "column": "AVERAGE of Click Retention",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "DOUBLE",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Unique_Sent",
-      "column": "client_name",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "VARCHAR",
-      "confidence": "0%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Unique_Sent",
-      "column": "MAX of uniq_sent",
-      "typeId": "",
-      "origin": "unknown",
-      "sqlType": "BIGINT",
-      "confidence": "0%",
-      "sensitivity": ""
+      "table": "events",
+      "column": "event_properties",
+      "typeId": "event_properties_json",
+      "origin": "detector",
+      "sqlType": "STRUCT(query VARCHAR, product_id VARCHAR, price DOUBLE, quantity BIGINT, video_id VARCHAR, duration_ms BIGINT)",
+      "confidence": "100%",
+      "sensitivity": "PII"
     }
   ],
   "typeIdHistogram": {
-    "<unknown>": 77,
-    "iso_date": 6,
-    "amount": 2
+    "event_name": 1,
+    "user_id": 1,
+    "session_id": 1,
+    "iso_datetime": 1,
+    "url": 1,
+    "utm_source": 1,
+    "utm_medium": 1,
+    "utm_campaign": 1,
+    "event_properties_json": 1
   },
   "eventShapeHits": [
     {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "start_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__JAS_quarter_data",
-      "column": "end_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "start_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Sheet13",
-      "column": "end_date",
-      "typeId": "iso_date",
-      "origin": "detector",
-      "sqlType": "DATE",
-      "confidence": "94%",
-      "sensitivity": ""
-    },
-    {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "start_date",
-      "typeId": "iso_date",
+      "table": "events",
+      "column": "event_name",
+      "typeId": "event_name",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "85%",
+      "confidence": "100%",
       "sensitivity": ""
     },
     {
-      "table": "retention_rate_analysis_ecommerce__Ajio_numbers",
-      "column": "end_date",
-      "typeId": "iso_date",
+      "table": "events",
+      "column": "user_id",
+      "typeId": "user_id",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "85%",
+      "confidence": "100%",
+      "sensitivity": "PII"
+    },
+    {
+      "table": "events",
+      "column": "session_id",
+      "typeId": "session_id",
+      "origin": "detector",
+      "sqlType": "VARCHAR",
+      "confidence": "76%",
+      "sensitivity": "PII"
+    },
+    {
+      "table": "events",
+      "column": "event_timestamp",
+      "typeId": "iso_datetime",
+      "origin": "detector",
+      "sqlType": "VARCHAR",
+      "confidence": "100%",
       "sensitivity": ""
+    },
+    {
+      "table": "events",
+      "column": "utm_source",
+      "typeId": "utm_source",
+      "origin": "detector",
+      "sqlType": "VARCHAR",
+      "confidence": "76%",
+      "sensitivity": ""
+    },
+    {
+      "table": "events",
+      "column": "utm_medium",
+      "typeId": "utm_medium",
+      "origin": "detector",
+      "sqlType": "VARCHAR",
+      "confidence": "92%",
+      "sensitivity": ""
+    },
+    {
+      "table": "events",
+      "column": "utm_campaign",
+      "typeId": "utm_campaign",
+      "origin": "detector",
+      "sqlType": "VARCHAR",
+      "confidence": "76%",
+      "sensitivity": ""
+    },
+    {
+      "table": "events",
+      "column": "event_properties",
+      "typeId": "event_properties_json",
+      "origin": "detector",
+      "sqlType": "STRUCT(query VARCHAR, product_id VARCHAR, price DOUBLE, quantity BIGINT, video_id VARCHAR, duration_ms BIGINT)",
+      "confidence": "100%",
+      "sensitivity": "PII"
     }
   ],
-  "templates": [],
-  "applicableTemplates": [],
-  "run": null,
+  "templates": [
+    {
+      "name": "Daily active users (DAU)",
+      "desc": "Distinct users per day from your event stream.",
+      "applicable": true,
+      "btnLabel": "Add"
+    },
+    {
+      "name": "Top events by user-count",
+      "desc": "Which event names drive the most unique users.",
+      "applicable": true,
+      "btnLabel": "Add"
+    },
+    {
+      "name": "Funnel: A → B → C",
+      "desc": "Three-step conversion funnel. Pick the steps in the SQL (the seed picks the three most common event names).",
+      "applicable": true,
+      "btnLabel": "Add"
+    },
+    {
+      "name": "30-day retention (cohort)",
+      "desc": "For each weekly cohort, how many came back N weeks later.",
+      "applicable": true,
+      "btnLabel": "Add"
+    },
+    {
+      "name": "Conversion rate by source",
+      "desc": "For each UTM source, what fraction of users converted (default: signup event).",
+      "applicable": true,
+      "btnLabel": "Add"
+    },
+    {
+      "name": "Top user paths",
+      "desc": "Most common 3-event sequences users take.",
+      "applicable": true,
+      "btnLabel": "Add"
+    }
+  ],
+  "applicableTemplates": [
+    "Daily active users (DAU)",
+    "Top events by user-count",
+    "Funnel: A → B → C",
+    "30-day retention (cohort)",
+    "Conversion rate by source",
+    "Top user paths"
+  ],
+  "run": {
+    "cells": [
+      {
+        "kind": "sql",
+        "errored": false,
+        "hasResultTable": false,
+        "resultRows": 0,
+        "errorMsg": "",
+        "chartSvg": false
+      },
+      {
+        "kind": "markdown",
+        "errored": false,
+        "hasResultTable": false,
+        "resultRows": 0,
+        "errorMsg": "",
+        "chartSvg": false
+      },
+      {
+        "kind": "sql",
+        "errored": false,
+        "hasResultTable": true,
+        "resultRows": 30,
+        "errorMsg": "",
+        "chartSvg": true
+      },
+      {
+        "kind": "chart",
+        "errored": false,
+        "hasResultTable": false,
+        "resultRows": 0,
+        "errorMsg": "",
+        "chartSvg": true
+      }
+    ],
+    "anyChart": true,
+    "anyError": false,
+    "totalCells": 4
+  },
   "consoleErrors": []
 }

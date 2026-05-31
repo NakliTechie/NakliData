@@ -151,14 +151,28 @@ funnel summaries), NOT raw event rows. Findings:
   contains "rate" / "retention" / "ratio" / "pct" / "percent". Lower
   priority than the next item; raw-events data wouldn't typically hit
   this calibration.
-- 🐛 **W4 follow-up #3 — need a real raw-events fixture.** Until we have
-  a raw event log to feed in (Mixpanel events.csv, PostHog snapshot.json,
-  or a small synthetic JSONL we ship), the W4.1/W4.2/W4.3/W4.4/W4.5
-  surfaces have only build-time evidence. Synthesising a 1–2k-row JSONL
-  matching the expected shape (`event_name`, `user_id`, `iso_datetime`,
-  optional `utm_*` + `event_properties`) and adding it to `public/examples/`
-  would let `scripts/verify-demo-ecommerce.mjs` be re-pointed at it for a
-  real W4 verification.
+- ✅ **W4 follow-up #3 — raw-events fixture.** Fixed 2026-05-31.
+  `scripts/gen-raw-events-fixture.mjs` deterministically generates
+  a 1500-row JSONL (220 users / 30-day window) under
+  `public/examples/events/events.jsonl`. Mixpanel/Amplitude/PostHog-
+  shaped: event_name + user_id + session_id + event_timestamp + page_url
+  + utm_* (first-touch) + event_properties. Registered in manifest.json
+  as a third example source. Surfaced + fixed two taxonomy bugs as
+  byproducts:
+  - **`user_id` detector weight rebalance.** header was 0.6 / distribution
+    was 0.4 (with `high_cardinality: true`). Real-world events have many
+    rows per user → low cardinality in sample → distribution multiplier
+    0.2 → confidence ~0.68, below the 0.7 resolution bar → classified
+    as "unknown". Now header=0.8, distribution=0.2 (length-only — no
+    high_cardinality requirement, since events fundamentally have
+    repeats). Confidence on the fixture is now 1.0.
+  - **`url` regex extended.** Was `^https?://...$`. Now also accepts
+    relative paths: `^(/[^\s]*|https?://...)$`. Header-match patterns
+    grew `page_url`, `page_path`, `path`, `endpoint`. `page_url` values
+    like `/products` now classify as `url` at 100%.
+  Result on the fixture: 9/9 columns classify, all 6 W4 templates
+  surface, DAU instantiation + run-all renders a chart cleanly. Wave 4
+  has its first end-to-end evidence on real raw events.
 
 ### Wave 5 — borrowed-from-the-giants (proposed)
 

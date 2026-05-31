@@ -2,6 +2,32 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-31 — W4 #3: raw-events fixture + 2 taxonomy bugs surfaced & fixed
+
+**Context:** Wave 4 (product analytics surface — DAU, Top events, Funnel A→B→C, 30-day retention cohort, conversion-by-source, Top user paths) had shipped at build/typecheck level but no end-to-end evidence on real raw event data. The demo verification keystone earlier had used the user's pre-aggregated retention xlsx, which didn't have raw event rows. Without a raw-events fixture, the W4 templates were a black box. The plan called for synthesising one.
+
+**Decisions:**
+
+- **(a) Synthesise deterministically in a Node script.** `scripts/gen-raw-events-fixture.mjs` uses a Mulberry32 seeded PRNG so the file regenerates byte-identically every run. Important so the bundle-size gate stays stable, and so test diffs are minimal when we tweak generation parameters later.
+- **(b) Mixpanel/Amplitude/PostHog-shaped, biased toward funnel realism.** 1500 events / 220 users / 30-day window. Event vocabulary is weighted (`page_view` and `product_view` dominate, down-funnel events progressively rarer) so Top-Events has a meaningful Pareto curve. Users have a `cohortDayOffset` (signup day in window) + `sessionsPerUser` drawn from a skewed distribution (most churn quickly; a handful persist) so retention/cohort templates show real shapes. UTM only on first-touch (typical attribution semantics) — most rows omit utm_* and a handful carry it.
+- **(c) Bundle as the third example source, not a smoke-test-only fixture.** Registered in `public/examples/manifest.json` as `events` so users discover it via the "Browse example data" affordance. Cost: 270 KB on disk. Acceptable for the value (live demo data for the W4 surface).
+- **(d) Surfacing two taxonomy bugs was the unexpected benefit.** Running the verify-demo script against the new fixture lit them up. We could have ignored them ("the fixture works for 7/9 columns, ship it") but both bugs hurt real-world data:
+  - **`user_id` detector weight rebalance** — was `header_match: 0.6` + `distribution: 0.4` (with `high_cardinality: true`). Events fundamentally have many rows per user (that's the WHOLE POINT of product analytics — repeat users), so any reasonable sample has moderate distinct ratio. The cardinality bucket multiplier 0.2 pulled confidence down to ~0.68, just below the 0.7 resolution bar in `classify.ts:99`, so the column classified as "unknown" despite a perfect header match. **Rebalanced to `header_match: 0.8` + `distribution: 0.2` and removed the `high_cardinality` requirement entirely** (kept only length 4..80). Header match alone now carries 0.8 confidence; with the 0.2-weight distribution any-length match, the column hits 1.0. Robust against any sane cardinality.
+  - **`url` regex required full `http(s)://...` URL** — `page_url` values like `/products` (paths, not full URLs) never matched. Extended to `^(/[^\s]*|https?://...)$` and added `page_url`, `page_path`, `path`, `endpoint` to header patterns. Internal paths now classify as `url` at 100%.
+- **(e) Did NOT lower the global 0.7 resolution bar.** Tempting: would have fixed user_id without rebalancing the detector. Rejected — the global bar protects every other type from being auto-applied on weak signals. Better to fix the detector that has miscalibrated weights than relax a load-bearing safety net.
+- **(f) Did NOT split URL into `page_url` vs `url`.** Considered: separate type for in-app paths. Rejected — the user can already disambiguate via the Override menu (and templates that need a URL don't care if it's relative or absolute). A separate type would have meant a second confusing pill.
+
+**Tests:** Existing 320 vitest pass (the rebalance doesn't break the classify-test fixtures because those use 100%-distinct high-cardinality samples that pass both old and new logic). Smoke green. The verify-demo run is itself the evidence — 9/9 columns classify, 6/6 W4 templates surface, DAU renders.
+
+**Reversibility:** Easy. Revert the two type-definition lines in `taxonomy/v0.1/types.jsonl`. Drop `scripts/gen-raw-events-fixture.mjs` + `public/examples/events/` + the manifest entry.
+
+**Known limitations / follow-ups:**
+- **No regression test that locks the new classify behaviour.** A vitest case asserting `user_id` classifies on a multi-event sample (e.g. 200 rows with 50 unique users) would prevent a future detector tweak from re-breaking. Captured as a soft follow-up.
+- **The retention-data xlsx still has 77 unknown columns** (counts like `uniq_sent`, fractional retention rates) because those are calibration issues (count types not in the taxonomy; percentage detector wants 0..100 but fractions arrive as 0..1). W4 follow-up #4 covers the percentage calibration.
+- **The events fixture is small (1500 rows).** Larger volumes (50k+) would exercise the smoke/perf path more aggressively, but a small fixture keeps the bundle gate cheap and is enough to surface real templates.
+
+---
+
 ## 2026-05-31 — SheetJS rawNumbers fix (silent xlsx VARCHAR everything)
 
 **Context:** Demo verification on the user's real `Retention Rate Analysis_Ecommerce.xlsx` surfaced an ugly root-cause that had been quietly making Wave 4 useless on real-world Excel data: every numeric column was coming through as VARCHAR. `start_date`/`end_date` classified correctly (the iso_date detector fired on text patterns), but `uniq_sent`, `Sent_Retention`, `Open Retention`, `Click Retention`, etc. — all clearly numeric — were typed VARCHAR by DuckDB's CSV sniffer. Trace: `XLSX.utils.sheet_to_csv` defaults to emitting each cell's FORMATTED display string (uses `cell.w`). For a cell containing `830706` with format `#,##0`, that's the literal text `"830,706"`. For a percent-formatted cell, it's `"55%"`. DuckDB sees commas and `%` and infers VARCHAR. W4 detectors miss; templates don't surface; the entire product-analytics value prop is dark on xlsx inputs.

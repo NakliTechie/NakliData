@@ -35,6 +35,18 @@
           "format": "jsonl"
         }
       ]
+    },
+    {
+      "id": "events",
+      "label": "Product events",
+      "description": "Synthetic 1.5k-row event log (Mixpanel/Amplitude/PostHog-shaped) for funnel + retention + cohort + paths templates.",
+      "files": [
+        {
+          "path": "events/events.jsonl",
+          "table": "events",
+          "format": "jsonl"
+        }
+      ]
     }
   ]
 }
