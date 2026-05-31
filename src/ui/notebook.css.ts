@@ -123,6 +123,8 @@ export const notebookCss = `
   display: flex;
   gap: 8px;
   justify-content: center;
+  flex-wrap: wrap;
+  padding: 8px 0 24px;
 }
 .markdown-preview {
   padding: 12px 16px;

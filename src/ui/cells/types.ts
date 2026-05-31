@@ -8,7 +8,8 @@ export type CellKind =
   | 'map'
   | 'cohort'
   | 'assertion'
-  | 'input';
+  | 'input'
+  | 'dashboard';
 
 export interface SqlCellState {
   id: string;
@@ -161,6 +162,33 @@ export interface InputCellState {
   options: string[];
 }
 
+/**
+ * Dashboard cell — Wave 6 W6.4. Arranges other cells (markdown,
+ * chart, pivot, map) in a CSS grid. Closes the "linear notebook can't
+ * show a real dashboard" gap that Superset / Power BI fill.
+ *
+ * `items` is a list of cell names (@refs). Each name resolves to a
+ * cell in the notebook; the dashboard re-renders that cell's output
+ * inside its grid slot WITHOUT the editing chrome (no name input,
+ * no delete/run buttons — those still live on the original cell in
+ * the notebook).
+ *
+ * Only markdown / chart / pivot / map cells are valid items. SQL,
+ * cohort, assertion, and input cells are queries / parameters, not
+ * presentation surfaces. A reference to an unsupported kind renders
+ * a small "not supported" note in the slot.
+ */
+export interface DashboardCellState {
+  id: string;
+  kind: 'dashboard';
+  order: number;
+  name: string | null;
+  /** Grid columns. UI clamps to 1–4. */
+  columns: number;
+  /** Ordered list of @names; each resolves to a cell in the notebook. */
+  items: string[];
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
@@ -169,7 +197,8 @@ export type CellState =
   | MapCellState
   | CohortCellState
   | AssertionCellState
-  | InputCellState;
+  | InputCellState
+  | DashboardCellState;
 
 export interface SqlResult {
   columns: string[];

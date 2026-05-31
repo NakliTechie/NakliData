@@ -22,7 +22,10 @@ export function renderChartCell(
   el.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">CHART</span>
-      <span style="color: var(--text-muted); font-size:11px;">Chart of</span>
+      <input class="cell-name" data-region="cell-name" value="${escapeAttr(cell.name ?? '')}"
+             placeholder="@name (optional)" aria-label="Chart cell name"
+             style="border:0;background:transparent;width:120px;outline:none;font-family:var(--font-mono);font-size:11px;" />
+      <span style="color: var(--text-muted); font-size:11px;">of</span>
       <select data-action="chart-input" aria-label="Input cell" style="font-size:12px;">
         <option value="">— pick a SQL cell —</option>
         ${upstreamCells
@@ -75,6 +78,12 @@ export function renderChartCell(
     });
   }
 
+  // Bind the name input (W6.4 — dashboards reference cells by name).
+  const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
+  nameInput?.addEventListener('change', () => {
+    handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
+  });
+
   el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () =>
     handlers.onDelete(cell.id),
   );
@@ -122,6 +131,10 @@ function renderColPickers(cell: ChartCellState, cols: string[]): string {
     </label>`;
   const xy = sel('x', 'chart-x', cell.x) + sel('y', 'chart-y', cell.y);
   return FACETABLE.has(cell.chartType) ? xy + sel('facet', 'chart-facet', cell.facet) : xy;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function escapeHtml(s: string): string {

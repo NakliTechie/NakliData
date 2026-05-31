@@ -15,6 +15,7 @@ import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
+import { renderDashboardCell } from './cells/dashboard-cell.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
@@ -26,6 +27,7 @@ import type {
   CellState,
   ChartCellState,
   CohortCellState,
+  DashboardCellState,
   InputCellState,
   MapCellState,
   MarkdownCellState,
@@ -166,6 +168,17 @@ LIMIT 100`,
         value: '',
         options: [],
       } satisfies InputCellState;
+    } else if (kind === 'dashboard') {
+      // Default 2-column dashboard, empty items list. The user fills
+      // the items via the inline name list in the cell-head.
+      cell = {
+        id: genCellId(),
+        kind: 'dashboard',
+        order,
+        name: null,
+        columns: 2,
+        items: [],
+      } satisfies DashboardCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -365,6 +378,7 @@ export function renderNotebook(
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
+    else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
   }
 
   const addRow = document.createElement('div');
@@ -378,6 +392,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
+    <button class="btn" data-nb-action="add-dashboard" title="Grid layout for markdown / chart / pivot / map cells. Type the cell names to embed.">${iconSvg('plus', 12)} Dashboard</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
   addRow
@@ -404,6 +419,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-input"]')
     ?.addEventListener('click', () => notebook.addCell('input'));
+  addRow
+    .querySelector('[data-nb-action="add-dashboard"]')
+    ?.addEventListener('click', () => notebook.addCell('dashboard'));
   // The "Ask in plain English" button is wired up in main.ts (it needs
   // workbook + engine context to gather the schema and insert the
   // generated cell). The button itself is rendered here so its

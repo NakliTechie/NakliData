@@ -13,7 +13,9 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
   el.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">MD</span>
-      <span style="color: var(--text-muted); font-size:11px;">Markdown</span>
+      <input class="cell-name" data-region="cell-name" value="${escapeAttr(cell.name ?? '')}"
+             placeholder="@name (optional)" aria-label="Markdown cell name"
+             style="border:0;background:transparent;width:140px;outline:none;font-family:var(--font-mono);font-size:11px;" />
       <div class="cell-actions">
         <button class="btn btn-ghost" data-action="cell-toggle" title="Edit / preview">
           ${iconSvg('pencil', 12)}
@@ -25,6 +27,12 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
     </div>
     <div data-region="markdown-body"></div>
   `;
+
+  // Bind the name input (W6.4 — dashboards reference cells by name).
+  const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
+  nameInput?.addEventListener('change', () => {
+    handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
+  });
 
   const body = el.querySelector<HTMLElement>('[data-region="markdown-body"]');
   let editing = cell.code.trim().length === 0;
@@ -71,6 +79,10 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
 
   render();
   return el;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function renderMarkdown(src: string): string {
