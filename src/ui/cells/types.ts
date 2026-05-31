@@ -1,6 +1,14 @@
 // Cell state types used by the notebook UI.
 
-export type CellKind = 'sql' | 'chart' | 'markdown' | 'pivot' | 'map' | 'cohort' | 'assertion';
+export type CellKind =
+  | 'sql'
+  | 'chart'
+  | 'markdown'
+  | 'pivot'
+  | 'map'
+  | 'cohort'
+  | 'assertion'
+  | 'input';
 
 export interface SqlCellState {
   id: string;
@@ -122,6 +130,37 @@ export interface AssertionCellState {
   lastResult: SqlResult | null;
 }
 
+/**
+ * Input cell — Wave 6 W6.1. An interactive parameter widget
+ * (text / number / date / select) whose current `value` is
+ * substituted into downstream SQL via `@<name>` reference resolution.
+ *
+ * Observable's `viewof` + Briefer's interactive-input pattern. A
+ * downstream SQL cell like:
+ *   SELECT * FROM events WHERE event_name = @event
+ * becomes (when event input has value 'purchase'):
+ *   SELECT * FROM events WHERE event_name = 'purchase'
+ *
+ * Unlike SQL/cohort/assertion cells, input cells don't materialise
+ * a DuckDB view — there's nothing to query, just a literal to
+ * inline. Reference resolution lives in notebook.ts.
+ */
+export interface InputCellState {
+  id: string;
+  kind: 'input';
+  order: number;
+  /** Required: the @reference name. Without it, the cell is unreachable. */
+  name: string | null;
+  /** Display label shown next to the widget. Defaults to `name`. */
+  label: string | null;
+  /** Widget kind. Drives both render + SQL-literal coercion. */
+  inputType: 'text' | 'number' | 'date' | 'select';
+  /** Current value. Always serialised as string; coerced at substitution. */
+  value: string;
+  /** For inputType='select': allowed options. */
+  options: string[];
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
@@ -129,7 +168,8 @@ export type CellState =
   | PivotCellState
   | MapCellState
   | CohortCellState
-  | AssertionCellState;
+  | AssertionCellState
+  | InputCellState;
 
 export interface SqlResult {
   columns: string[];

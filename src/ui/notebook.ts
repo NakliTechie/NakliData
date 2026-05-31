@@ -15,6 +15,7 @@ import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
+import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
@@ -25,6 +26,7 @@ import type {
   CellState,
   ChartCellState,
   CohortCellState,
+  InputCellState,
   MapCellState,
   MarkdownCellState,
   PivotCellState,
@@ -150,6 +152,20 @@ LIMIT 100`,
         lastError: null,
         lastResult: null,
       } satisfies AssertionCellState;
+    } else if (kind === 'input') {
+      // Seed a named input cell. Without a name, downstream @ref
+      // resolution can't reach it. Default to 'text' inputType + empty
+      // value; the user picks a type and types a value.
+      cell = {
+        id: genCellId(),
+        kind: 'input',
+        order,
+        name: `input_${order + 1}`,
+        label: null,
+        inputType: 'text',
+        value: '',
+        options: [],
+      } satisfies InputCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -247,12 +263,21 @@ LIMIT 100`,
   }
 
   /**
-   * Rewrites @name references to the corresponding `cell_<id>` view.
-   * Cycles aren't checked here; a SELECT against a not-yet-existing view
-   * will surface as a DuckDB error inline.
+   * Rewrites @name references to the corresponding `cell_<id>` view
+   * or — for W6.1 input cells — the cell's current value as a SQL
+   * literal. Cycles aren't checked here; a SELECT against a not-yet-
+   * existing view will surface as a DuckDB error inline.
    */
   private rewriteReferences(sql: string): string {
     return sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_m, name) => {
+      // W6.1 — Input cells inline their `value` as a SQL literal
+      // (text → quoted, number → bare, date → DATE 'YYYY-MM-DD').
+      // Checked first so they shadow same-named SQL cells (which
+      // would be a user error to have both anyway).
+      const inputRef = this.state.cells.find(
+        (c): c is InputCellState => c.kind === 'input' && c.name === name,
+      );
+      if (inputRef) return inputAsSqlLiteral(inputRef);
       // SQL, Cohort (W4.4), and Assertion (W5.5) cells all
       // materialise as `cell_<id>` views and are valid @-reference
       // targets — assertions are rarely referenced downstream but
@@ -339,6 +364,7 @@ export function renderNotebook(
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
+    else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
   }
 
   const addRow = document.createElement('div');
@@ -351,6 +377,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
+    <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
   addRow
@@ -374,6 +401,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-assertion"]')
     ?.addEventListener('click', () => notebook.addCell('assertion'));
+  addRow
+    .querySelector('[data-nb-action="add-input"]')
+    ?.addEventListener('click', () => notebook.addCell('input'));
   // The "Ask in plain English" button is wired up in main.ts (it needs
   // workbook + engine context to gather the schema and insert the
   // generated cell). The button itself is rendered here so its
