@@ -47,6 +47,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklidata (Ctrl+S)">
         ${iconSvg('download', 14)} <span>Save</span>
       </button>
+      <button class="btn btn-ghost" data-action="export-html" title="Export the notebook as a self-contained HTML file (markdown + charts + tables, no engine).">
+        ${iconSvg('download', 14)} <span>Export HTML</span>
+      </button>
       <button class="btn btn-ghost" data-action="share-link" title="Copy share link (no data, just the workbook description)">
         ${iconSvg('link', 14)} <span>Share</span>
       </button>

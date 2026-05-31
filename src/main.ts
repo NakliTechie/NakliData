@@ -47,6 +47,7 @@ import type { ClassificationResult } from './taxonomy/types.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
@@ -927,6 +928,35 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'ask-nl-to-sql': {
       openNlToSqlSidecar(engine);
+      return;
+    }
+    case 'export-html': {
+      const wb = workbook.get();
+      if (wb.sources.length === 0) {
+        toast('Nothing to export yet — mount a source first.');
+        return;
+      }
+      const notebookEl = document.querySelector<HTMLElement>('[data-region="notebook"]');
+      if (!notebookEl) {
+        toast('Notebook not ready yet.');
+        return;
+      }
+      try {
+        const title = _activeSession?.name?.trim() || 'NakliData notebook';
+        const html = buildStandaloneHtml({ notebookRoot: notebookEl, title });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const fileName = `${
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'notebook'
+        }-${stamp}.html`;
+        const written = await saveHtmlFile(html, fileName);
+        if (written) toast(`Exported ${written}.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(`Export failed: ${msg}`, 'error');
+      }
       return;
     }
     case 'exit-presentation': {
