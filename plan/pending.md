@@ -141,16 +141,19 @@ funnel summaries), NOT raw event rows. Findings:
   detector catches recognisable patterns). 3 vitest regression tests
   added (`tests/sheetjs.test.ts`) — positive assertions on raw values,
   negative assertions on formatted forms.
-- 🐛 **W4 follow-up #4 — percentage detector misses fractional decimals.**
-  After the SheetJS fix, retention-rate columns now come through as
-  `0.55` (= 55%) but the `percentage` type uses `range_numeric: min=0,
-  max=100` which expects whole-number percentages. A column carrying
-  fractions never falls in range. Two fixes possible: (a) split into
-  `percentage_whole` (0..100) and `percentage_fraction` (0..1) types;
-  (b) extend the detector to allow either range when the header
-  contains "rate" / "retention" / "ratio" / "pct" / "percent". Lower
-  priority than the next item; raw-events data wouldn't typically hit
-  this calibration.
+- ✅ **W4 follow-up #4 — percentage detector calibration.** Fixed
+  2026-05-31. Diagnosis turned out simpler than expected: `range_numeric:
+  [0, 100]` already covers BOTH fractions (0.55 ∈ [0, 100]) and whole
+  percentages (55). The real miss was the header_match: patterns were
+  `["percent","pct","percentage","rate"]` only — column names like
+  `Sent_Retention`, `Open Retention`, `Click Retention`,
+  `Clickers_Open_Retention` failed the header match, so the type didn't
+  clear its 0.6 floor. Extended patterns to include `retention`,
+  `ratio`, `share`, `conversion`. Renamed display from "Percentage
+  (0–100)" → "Percentage" (the type now correctly covers both shapes).
+  Result on the xlsx demo: percentage hits went 0 → **18** (was 75
+  unknowns → 57). Events fixture unaffected (still 9/9 classifies,
+  6/6 templates surface).
 - ✅ **W4 follow-up #3 — raw-events fixture.** Fixed 2026-05-31.
   `scripts/gen-raw-events-fixture.mjs` deterministically generates
   a 1500-row JSONL (220 users / 30-day window) under
