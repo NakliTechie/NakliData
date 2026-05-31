@@ -18,11 +18,13 @@ import {
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildNlToSqlPrompt,
   buildRecommendReportsPrompt,
   buildSummariseResultPrompt,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseNlToSqlResponse,
   parseRecommendReportsResponse,
   parseSummariseResultResponse,
 } from '../src/core/sidecar/client.ts';
@@ -33,6 +35,7 @@ import type {
   DefineTypeJob,
   DisambiguateTypeJob,
   ExplainErrorJob,
+  NlToSqlJob,
   RecommendReportsJob,
   SummariseResultJob,
 } from '../src/core/sidecar/types.ts';
@@ -41,11 +44,13 @@ import {
   type DefineTypeExpected,
   type DisambiguateExpected,
   type ExplainErrorExpected,
+  type NlToSqlExpected,
   type RecommendReportsExpected,
   type SummariseResultExpected,
   scoreDefineType,
   scoreDisambiguateType,
   scoreExplainError,
+  scoreNlToSql,
   scoreRecommendReports,
   scoreSummariseResult,
 } from './score.ts';
@@ -56,13 +61,15 @@ export type JobName =
   | 'disambiguate-type'
   | 'define-type'
   | 'recommend-reports'
-  | 'summarise-result';
+  | 'summarise-result'
+  | 'nl-to-sql';
 export const ALL_JOBS: JobName[] = [
   'explain-error',
   'disambiguate-type',
   'define-type',
   'recommend-reports',
   'summarise-result',
+  'nl-to-sql',
 ];
 
 export interface HarnessOpts {
@@ -96,6 +103,7 @@ type DisambiguateInput = Omit<DisambiguateTypeJob, 'kind'>;
 type DefineInput = Omit<DefineTypeJob, 'kind'>;
 type RecommendInput = Omit<RecommendReportsJob, 'kind'>;
 type SummariseInput = Omit<SummariseResultJob, 'kind'>;
+type NlToSqlInput = Omit<NlToSqlJob, 'kind'>;
 
 // ---- main -----------------------------------------------------------
 
@@ -177,6 +185,18 @@ async function runCase(
       );
       const parsed = parseSummariseResultResponse(raw, input.columns);
       const s = scoreSummariseResult(parsed, c.expected as SummariseResultExpected);
+      return mk(job, c.id, s, raw, started);
+    }
+    if (job === 'nl-to-sql') {
+      const input = c.input as NlToSqlInput;
+      const raw = await getRaw(opts, c.recordedResponse, () =>
+        buildNlToSqlPrompt({ kind: 'nl-to-sql', ...input }),
+      );
+      const parsed = parseNlToSqlResponse(
+        raw,
+        input.tables.map((t) => t.name),
+      );
+      const s = scoreNlToSql(parsed, c.expected as NlToSqlExpected);
       return mk(job, c.id, s, raw, started);
     }
     // explain-error

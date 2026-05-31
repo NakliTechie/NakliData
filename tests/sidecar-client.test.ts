@@ -4,12 +4,14 @@ import {
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildNlToSqlPrompt,
   buildRecommendReportsPrompt,
   buildSummariseResultPrompt,
   dispatchJob,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseNlToSqlResponse,
   parseRecommendReportsResponse,
   parseSummariseResultResponse,
 } from '../src/core/sidecar/client.ts';
@@ -618,5 +620,151 @@ describe('dispatchJob — summarise-result', () => {
     expect(result.kind).toBe('summarise-result');
     if (result.kind !== 'summarise-result') return;
     expect(result.observation).toContain('Acme');
+  });
+});
+
+// ---- nl-to-sql (Job 5 / Wave 5 W5.1) --------------------------------
+
+const NL_TABLES = [
+  { name: 'invoices', columns: ['invoice_no', 'vendor_name', 'amount', 'iso_date'] },
+  { name: 'payments', columns: ['payment_id', 'amount', 'payment_mode', 'iso_date'] },
+];
+const NL_TABLE_NAMES = NL_TABLES.map((t) => t.name);
+
+describe('buildNlToSqlPrompt', () => {
+  it('emits the schema block, dialect, and the user question', () => {
+    const { system, user } = buildNlToSqlPrompt({
+      kind: 'nl-to-sql',
+      question: 'Top vendors by total amount',
+      tables: NL_TABLES,
+      dialect: 'duckdb',
+    });
+    expect(system).toMatch(/SELECT/);
+    expect(system).toMatch(/NEVER emit INSERT/);
+    expect(user).toContain('Dialect: duckdb');
+    expect(user).toContain('invoices(invoice_no, vendor_name, amount, iso_date)');
+    expect(user).toContain('Top vendors by total amount');
+  });
+
+  it('handles an empty schema gracefully', () => {
+    const { user } = buildNlToSqlPrompt({
+      kind: 'nl-to-sql',
+      question: 'hi',
+      tables: [],
+    });
+    expect(user).toContain('(no tables mounted)');
+  });
+});
+
+describe('parseNlToSqlResponse', () => {
+  it('returns the SQL when it starts with SELECT and tables exist', () => {
+    const raw = 'SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toContain('SELECT');
+    expect(r.sql).toContain('invoices');
+  });
+
+  it('strips ```sql``` fences', () => {
+    const raw = '```sql\nSELECT * FROM invoices LIMIT 5\n```';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('SELECT * FROM invoices LIMIT 5');
+  });
+
+  it('allows WITH (CTE)', () => {
+    const raw = 'WITH x AS (SELECT * FROM invoices) SELECT * FROM x';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toContain('WITH x');
+    expect(r.sql).toContain('SELECT * FROM x');
+  });
+
+  it('allows quoted table names', () => {
+    const raw = 'SELECT * FROM "invoices"';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toContain('"invoices"');
+  });
+
+  it('drops DELETE statements', () => {
+    const raw = 'DELETE FROM invoices WHERE amount < 0';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('');
+  });
+
+  it('drops UPDATE statements', () => {
+    const raw = 'UPDATE invoices SET amount = 0';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('');
+  });
+
+  it('drops DDL (CREATE / DROP / ALTER)', () => {
+    expect(parseNlToSqlResponse('CREATE TABLE foo AS SELECT 1', NL_TABLE_NAMES).sql).toBe('');
+    expect(parseNlToSqlResponse('DROP TABLE invoices', NL_TABLE_NAMES).sql).toBe('');
+    expect(parseNlToSqlResponse('ALTER TABLE invoices ADD COLUMN x INT', NL_TABLE_NAMES).sql).toBe(
+      '',
+    );
+  });
+
+  it('drops responses that reference an unknown table (hallucination guard)', () => {
+    const raw = 'SELECT * FROM customers';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('');
+  });
+
+  it('drops prose-wrapped responses', () => {
+    const raw = "Sure! Here's a query: SELECT * FROM invoices";
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('');
+  });
+
+  it('returns empty for empty input', () => {
+    expect(parseNlToSqlResponse('', NL_TABLE_NAMES).sql).toBe('');
+    expect(parseNlToSqlResponse('   \n   ', NL_TABLE_NAMES).sql).toBe('');
+  });
+
+  it('allows CTE names that are not real tables', () => {
+    const raw =
+      'WITH ranked AS (SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1) SELECT * FROM ranked';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toContain('FROM ranked');
+  });
+
+  it('allows JOINs across known tables', () => {
+    const raw =
+      'SELECT i.vendor_name, SUM(p.amount) AS paid FROM invoices i JOIN payments p ON p.iso_date = i.iso_date GROUP BY i.vendor_name';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toContain('invoices');
+    expect(r.sql).toContain('payments');
+  });
+
+  it('drops JOIN onto an unknown table', () => {
+    const raw = 'SELECT i.vendor_name FROM invoices i JOIN customers c ON c.id = i.vendor_name';
+    const r = parseNlToSqlResponse(raw, NL_TABLE_NAMES);
+    expect(r.sql).toBe('');
+  });
+});
+
+describe('dispatchJob — nl-to-sql', () => {
+  it('routes to the nl-to-sql parser', async () => {
+    _idb.set('sidecar/byok/openai', 'sk-openai-stub');
+    const transport: SidecarTransport = async () =>
+      'SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1 ORDER BY total DESC LIMIT 10';
+    const result = await dispatchJob(
+      { kind: 'nl-to-sql', question: 'Top vendors', tables: NL_TABLES, dialect: 'duckdb' },
+      { provider: 'openai', model: 'gpt-4o-mini', transport },
+    );
+    expect(result.kind).toBe('nl-to-sql');
+    if (result.kind !== 'nl-to-sql') return;
+    expect(result.sql).toContain('invoices');
+  });
+
+  it('returns empty SQL when the transport ships a write statement', async () => {
+    _idb.set('sidecar/byok/openai', 'sk-openai-stub');
+    const transport: SidecarTransport = async () => 'DELETE FROM invoices';
+    const result = await dispatchJob(
+      { kind: 'nl-to-sql', question: 'remove things', tables: NL_TABLES },
+      { provider: 'openai', model: 'gpt-4o-mini', transport },
+    );
+    expect(result.kind).toBe('nl-to-sql');
+    if (result.kind !== 'nl-to-sql') return;
+    expect(result.sql).toBe('');
   });
 });

@@ -1,0 +1,108 @@
+{
+  "job": "nl-to-sql",
+  "_note": "Held-out cases for Job 5 (NL → SQL / Genie / Cortex / Magic). `recordedResponse` is a representative raw model output. Scoring = keyword coverage + starts-with-SELECT/WITH + non-empty (or empty when the parser is expected to drop the response — write keyword, hallucinated table, or non-SELECT start).",
+  "cases": [
+    {
+      "id": "top-vendors-by-spend",
+      "input": {
+        "question": "Top 10 vendors by total amount across invoices",
+        "tables": [
+          { "name": "invoices", "columns": ["invoice_no", "vendor_name", "amount", "iso_date"] },
+          { "name": "payments", "columns": ["payment_id", "amount", "payment_mode", "iso_date"] }
+        ]
+      },
+      "expected": {
+        "keywords": ["select", "vendor_name", "invoices", "sum(amount)", "group by", "order by"]
+      },
+      "recordedResponse": "SELECT vendor_name, SUM(amount) AS total\nFROM invoices\nGROUP BY vendor_name\nORDER BY total DESC\nLIMIT 10"
+    },
+    {
+      "id": "fenced-sql-stripped",
+      "input": {
+        "question": "Count of payments by payment_mode",
+        "tables": [{ "name": "payments", "columns": ["payment_id", "amount", "payment_mode"] }]
+      },
+      "expected": {
+        "keywords": ["select", "count(*)", "payments", "payment_mode", "group by"]
+      },
+      "recordedResponse": "```sql\nSELECT payment_mode, COUNT(*) AS n\nFROM payments\nGROUP BY 1\nORDER BY n DESC\n```"
+    },
+    {
+      "id": "cte-allowed",
+      "input": {
+        "question": "Average payment per vendor using a CTE",
+        "tables": [
+          { "name": "invoices", "columns": ["invoice_no", "vendor_name", "amount"] },
+          { "name": "payments", "columns": ["payment_id", "amount", "invoice_no"] }
+        ]
+      },
+      "expected": {
+        "keywords": ["with", "select", "invoices", "payments", "avg"]
+      },
+      "recordedResponse": "WITH vendor_payments AS (\n  SELECT i.vendor_name, p.amount\n  FROM invoices i\n  JOIN payments p ON p.invoice_no = i.invoice_no\n)\nSELECT vendor_name, AVG(amount) AS avg_payment\nFROM vendor_payments\nGROUP BY vendor_name\nORDER BY avg_payment DESC"
+    },
+    {
+      "id": "drop-write-statement",
+      "input": {
+        "question": "Remove all old invoices",
+        "tables": [{ "name": "invoices", "columns": ["invoice_no", "iso_date", "amount"] }]
+      },
+      "expected": { "expectDropped": true },
+      "recordedResponse": "DELETE FROM invoices WHERE iso_date < '2020-01-01'"
+    },
+    {
+      "id": "drop-update-statement",
+      "input": {
+        "question": "Set every payment mode to UPI",
+        "tables": [{ "name": "payments", "columns": ["payment_id", "payment_mode"] }]
+      },
+      "expected": { "expectDropped": true },
+      "recordedResponse": "UPDATE payments SET payment_mode = 'UPI'"
+    },
+    {
+      "id": "drop-hallucinated-table",
+      "input": {
+        "question": "Top customers by spend",
+        "tables": [{ "name": "invoices", "columns": ["invoice_no", "vendor_name", "amount"] }]
+      },
+      "expected": { "expectDropped": true },
+      "recordedResponse": "SELECT customer_id, SUM(amount) AS total FROM customers GROUP BY 1 ORDER BY total DESC LIMIT 10"
+    },
+    {
+      "id": "quoted-identifier-tables",
+      "input": {
+        "question": "Sum of amount per vendor with quoted table name",
+        "tables": [{ "name": "Invoices Data", "columns": ["vendor_name", "amount"] }]
+      },
+      "expected": { "keywords": ["select", "sum(amount)", "vendor_name", "group by"] },
+      "recordedResponse": "SELECT vendor_name, SUM(amount) AS total\nFROM \"Invoices Data\"\nGROUP BY 1\nORDER BY total DESC"
+    },
+    {
+      "id": "prose-junk-dropped",
+      "input": {
+        "question": "Anything",
+        "tables": [{ "name": "events", "columns": ["event_name", "iso_datetime"] }]
+      },
+      "expected": { "expectDropped": true },
+      "recordedResponse": "Sure! Here's a query that should help: SELECT * FROM events"
+    },
+    {
+      "id": "empty-response-dropped",
+      "input": {
+        "question": "Anything",
+        "tables": [{ "name": "events", "columns": ["event_name"] }]
+      },
+      "expected": { "expectDropped": true },
+      "recordedResponse": ""
+    },
+    {
+      "id": "subquery-from-allowed",
+      "input": {
+        "question": "Top 5 daily totals from invoices",
+        "tables": [{ "name": "invoices", "columns": ["iso_date", "amount"] }]
+      },
+      "expected": { "keywords": ["select", "invoices", "iso_date", "limit"] },
+      "recordedResponse": "SELECT iso_date, SUM(amount) AS daily_total\nFROM invoices\nGROUP BY iso_date\nORDER BY daily_total DESC\nLIMIT 5"
+    }
+  ]
+}

@@ -39,7 +39,8 @@ export type SidecarJob =
   | DisambiguateTypeJob
   | DefineTypeJob
   | RecommendReportsJob
-  | SummariseResultJob;
+  | SummariseResultJob
+  | NlToSqlJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -123,13 +124,44 @@ export interface SummariseResultJob {
   rowCount: number;
 }
 
+/**
+ * Job 5 (Wave 5 / W5.1) — natural-language question → DuckDB SQL.
+ * Databricks Genie / Snowflake Cortex / Hex Magic pattern, scoped to
+ * the currently-mounted workbook.
+ *
+ * Hallucination guard: the response is rejected when it references
+ * tables not in `tables`. We only validate at the table level because
+ * column validation requires a real SQL parser. DuckDB will give a
+ * crisp error for an unknown column when the user clicks Run, and the
+ * user is in the loop anyway (Hard NOT #4 — never auto-execute).
+ *
+ * Safety: SELECT-only. Any of INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/
+ * TRUNCATE/MERGE/CALL surviving in the response → parser drops the
+ * whole thing. Even with auto-execute off, suggesting a write is a
+ * trap; we don't render it.
+ */
+export interface NlToSqlJob {
+  kind: 'nl-to-sql';
+  /** The user's plain-English question. */
+  question: string;
+  /** Workbook schema — each entry is `{ table, columns }`. The model may
+   *  reference these tables and columns only. Keep `columns` lean: order
+   *  matches the source, no row samples. */
+  tables: Array<{ name: string; columns: string[] }>;
+  /** SQL dialect hint embedded in the prompt. Always `'duckdb'` today
+   *  (this is what every cell runs against), but explicit makes it
+   *  cheap to expand later. */
+  dialect?: 'duckdb';
+}
+
 /** A sidecar response is a tagged structured output. */
 export type SidecarResponse =
   | ExplainErrorResponse
   | DisambiguateTypeResponse
   | DefineTypeResponse
   | RecommendReportsResponse
-  | SummariseResultResponse;
+  | SummariseResultResponse
+  | NlToSqlResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -179,6 +211,21 @@ export interface SummariseResultResponse {
    * the input. Empty string means the model declined to summarise.
    */
   observation: string;
+}
+
+export interface NlToSqlResponse {
+  kind: 'nl-to-sql';
+  /**
+   * Generated SQL, ready to drop into a new SQL cell. Empty string
+   * means the parser rejected the response (write statement, unknown
+   * table, empty body, or junk). The caller is responsible for the
+   * "no SQL produced" UX when this is empty.
+   *
+   * Critically: this SQL is NEVER auto-executed (Hard NOT #4). The UI
+   * inserts a cell with the code pre-filled and waits for the user to
+   * click Run.
+   */
+  sql: string;
 }
 
 export class SidecarError extends Error {

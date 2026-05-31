@@ -17,6 +17,8 @@ import {
   type DisambiguateTypeResponse,
   type ExplainErrorJob,
   type ExplainErrorResponse,
+  type NlToSqlJob,
+  type NlToSqlResponse,
   type RecommendReportsJob,
   type RecommendReportsResponse,
   SidecarError,
@@ -185,6 +187,22 @@ export async function dispatchJob(
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     return parseSummariseResultResponse(raw, job.columns);
+  }
+  if (job.kind === 'nl-to-sql') {
+    const { system, user } = buildNlToSqlPrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseNlToSqlResponse(
+      raw,
+      job.tables.map((t) => t.name),
+    );
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
@@ -576,4 +594,113 @@ export function parseSummariseResultResponse(
     }
   }
   return { kind: 'summarise-result', observation: truncated };
+}
+
+// ---- nl-to-sql (Job 5 / Wave 5 W5.1) prompt + parser ----------------
+//
+// Genie / Cortex / Magic pattern. The user types a question; we ship
+// the workbook's tables + columns + dialect; the model returns a single
+// DuckDB SELECT statement. The result lands as the body of a new SQL
+// cell — never auto-executed (Hard NOT #4).
+//
+// Parser layers, in order:
+//   1. Strip ```sql``` fences if the model added them
+//   2. Reject any write keyword (INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/
+//      TRUNCATE/MERGE/CALL/ATTACH). We render only SELECT (or WITH …
+//      SELECT) — anything else is dropped to ''. Even with auto-exec
+//      off, showing a write statement is a trap.
+//   3. Hallucination guard: scan `FROM <ident>` and `JOIN <ident>` for
+//      the tables actually referenced. Any table not in `tableNames` →
+//      drop the response. Quoted ("…") and unquoted forms both checked.
+//      Column-level validation is intentionally NOT done — DuckDB's own
+//      error message on Run is a good signal, and a real SQL parser
+//      adds far more weight than the value it brings.
+
+const NL_TO_SQL_SYSTEM = `You are NakliData's sidecar translating plain-English questions into DuckDB SQL.
+
+Hard rules:
+- Output ONLY a single DuckDB SQL statement. No prose, no Markdown, no code fences, no comments after the SQL.
+- The statement MUST start with SELECT (optionally preceded by WITH ... clauses).
+- NEVER emit INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, TRUNCATE, MERGE, CALL, ATTACH, or any other write/DDL keyword. Read-only queries only.
+- Reference ONLY the tables and columns listed in the schema below. Never invent a table or column name.
+- Quote identifiers with double quotes when they contain non-alphanumeric characters or match SQL reserved words.
+- Prefer LIMIT clauses on exploratory queries (default LIMIT 100 if the question doesn't constrain).
+- If the question is ambiguous or impossible against this schema, emit a SELECT that returns an empty result with a clear column label (e.g., \`SELECT 'unanswerable' AS note WHERE 1=0\`).
+
+Output ONLY the SQL — nothing else, no explanation, no greeting.`;
+
+export function buildNlToSqlPrompt(job: NlToSqlJob): { system: string; user: string } {
+  const dialect = job.dialect ?? 'duckdb';
+  const schemaBlock = job.tables.map((t) => `- ${t.name}(${t.columns.join(', ')})`).join('\n');
+  const user = [
+    `Dialect: ${dialect}`,
+    '',
+    'Schema (tables and their columns — use ONLY these):',
+    schemaBlock || '(no tables mounted)',
+    '',
+    `Question: ${job.question.trim()}`,
+  ].join('\n');
+  return { system: NL_TO_SQL_SYSTEM, user };
+}
+
+const WRITE_KEYWORDS =
+  /\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|CALL|ATTACH|DETACH|GRANT|REVOKE|COPY|EXPORT|VACUUM|PRAGMA)\b/i;
+
+// Capture the identifier that follows FROM or JOIN — either double-quoted
+// or a bare snake_case-ish token. Subselects / parens / aliases are
+// handled by NOT capturing the rest of the clause; we only care about
+// what comes immediately after the keyword.
+const TABLE_REF_REGEX = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
+
+export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSqlResponse {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:sql|duckdb)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  if (!stripped) {
+    return { kind: 'nl-to-sql', sql: '' };
+  }
+  // Must start with SELECT or WITH (optionally inside a leading
+  // parenthesis — `(SELECT …)` and `(WITH …)` are valid).
+  const headMatcher = /^(?:\(\s*)?(SELECT|WITH)\b/i;
+  if (!headMatcher.test(stripped)) {
+    return { kind: 'nl-to-sql', sql: '' };
+  }
+  // Reject any write/DDL keyword anywhere in the body. (A SELECT that
+  // references a column literally named `delete` is rare; if it happens
+  // we'll false-reject and the user can edit.)
+  if (WRITE_KEYWORDS.test(stripped)) {
+    return { kind: 'nl-to-sql', sql: '' };
+  }
+  // Hallucination guard — every table referenced by FROM/JOIN must be
+  // in tableNames (case-insensitive). CTE names defined via WITH are
+  // explicitly allowed: pull them out first.
+  const cteNames = new Set<string>();
+  // Match `WITH name AS (...)` and `, name AS (...)` — naive but
+  // covers the common case. Recursive CTEs (`WITH RECURSIVE name AS`)
+  // pick up the optional RECURSIVE token too.
+  const cteMatcher = /(?:WITH\s+(?:RECURSIVE\s+)?|,\s*)([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi;
+  let cm: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
+  while ((cm = cteMatcher.exec(stripped)) !== null) {
+    const name = cm[1]?.toLowerCase() ?? '';
+    if (name) cteNames.add(name);
+  }
+  const allowed = new Set(tableNames.map((n) => n.toLowerCase()));
+  let tm: RegExpExecArray | null;
+  TABLE_REF_REGEX.lastIndex = 0;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
+  while ((tm = TABLE_REF_REGEX.exec(stripped)) !== null) {
+    const refRaw = (tm[1] ?? tm[2] ?? '').trim();
+    if (!refRaw) continue;
+    const ref = refRaw.toLowerCase();
+    // Skip CTE references and known cell-view shorthands (cell_<id>).
+    if (cteNames.has(ref)) continue;
+    if (ref.startsWith('cell_')) continue;
+    if (!allowed.has(ref)) {
+      return { kind: 'nl-to-sql', sql: '' };
+    }
+  }
+  return { kind: 'nl-to-sql', sql: stripped };
 }

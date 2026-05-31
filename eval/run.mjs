@@ -36,6 +36,7 @@ const ALL_JOBS = [
   'define-type',
   'recommend-reports',
   'summarise-result',
+  'nl-to-sql',
 ];
 const DEFAULT_MODEL = { anthropic: 'claude-3-5-haiku-latest', openai: 'gpt-4o-mini', custom: '' };
 const ENV_KEY = {

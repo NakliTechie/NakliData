@@ -102,13 +102,13 @@ Full writeup in [product-analytics-comparison.md](./product-analytics-comparison
 
 Full writeup in [data-platform-comparison.md](./data-platform-comparison.md). Each item maps a feature from a server-side data platform onto our notebook + sidecar + taxonomy surface, without the server.
 
-- [ ] **W5.1** — Sidecar Job 5: "Answer this in SQL" (Databricks Genie / Hex Magic / Snowflake Cortex pattern). NL question → SQL against current workbook. Hallucination guard: parser rejects identifiers not in the current schema. ~2 hr.
+- [x] **W5.1** — Sidecar Job 5: "Answer this in SQL" (Databricks Genie / Hex Magic / Snowflake Cortex pattern). NL question → DuckDB SQL against current workbook. Parser is SELECT-only (rejects any write/DDL keyword) and drops responses that reference unknown tables. Never auto-executed (Hard NOT #4) — the generated SQL lands in a new cell and the user clicks Run. (Shipped 2026-05-31; DECISIONS.)
 - [x] **W5.2** — Sidecar Job 6: Result-summary cards (Hex Magic pattern). After a query runs, AI emits a one-line observation ("Top 3 vendors account for 67% of spend"). Template-validated against result-set shape. (Shipped 2026-05-31; DECISIONS.)
 - [x] **W5.3** — Aggregation suggestions in the schema panel (Power BI quick-measure pattern). "This column is `amount`; chart sum by `vendor_name`?" — one-click into a templated cell. (Shipped 2026-05-31; DECISIONS.)
 - [x] **W5.4** — Sensitivity labels in the taxonomy (Unity Catalog pattern). Added `sensitivity: 'pii' | 'financial' | 'public'` field to each TypeSpec; schema panel renders a sensitivity badge. Substrate for future demo-mode + PII guards. (Shipped 2026-05-31; DECISIONS.)
 - [x] **W5.5** — Assertion cell kind (dbt-tests pattern). New `kind: 'assertion'` — SQL that should return 0 rows; PASS/FAIL pill; FAIL paints the cell red. (Shipped 2026-05-31; DECISIONS.)
 
-Wave 5 progress: 4/5 shipped. Remaining: W5.1 (NL → SQL, ~2 hr).
+**Wave 5 complete (5/5 shipped).** Sidecar job count: 6. Eval fixture count: 60 cases across 6 jobs. Wave 6 (workflow polish — presentation mode, parameters, layout) is the next proposed chunk.
 
 ### Wave 6 — workflow polish (proposed)
 

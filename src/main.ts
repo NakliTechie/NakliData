@@ -44,7 +44,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
-import type { CellState } from './ui/cells/types.ts';
+import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
@@ -53,6 +53,7 @@ import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.t
 import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
+import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
@@ -909,6 +910,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
       await runSummariseResult(engine, cellId);
+      return;
+    }
+    case 'ask-nl-to-sql': {
+      openNlToSqlSidecar(engine);
       return;
     }
     case 'ask-sidecar-disambiguate': {
@@ -2091,6 +2096,51 @@ async function runSummariseResult(engine: Engine, cellId: string): Promise<void>
       mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
     }
   }
+}
+
+/**
+ * Sidecar wave 5 W5.1 — Job 5: NL → SQL.
+ *
+ * Opens the nl-to-sql modal pre-populated with the workbook's table +
+ * column names (no row data — privacy posture). On accept, inserts a
+ * new SQL cell with the generated body at the end of the notebook;
+ * the user clicks Run themselves (Hard NOT #4 — never auto-execute).
+ */
+function openNlToSqlSidecar(engine: Engine): void {
+  const wb = getWorkbook().get();
+  const tables: Array<{ name: string; columns: string[] }> = [];
+  for (const s of wb.sources) {
+    for (const t of s.tables) {
+      // Collect column names by walking assignments — the engine schema
+      // is authoritative but assignments map covers every mounted col.
+      const columns: string[] = [];
+      for (const [key, a] of Object.entries(wb.assignments)) {
+        const [, tId] = key.split('::');
+        if (tId === t.id) columns.push(a.columnName);
+      }
+      tables.push({ name: t.name, columns });
+    }
+  }
+  openNlToSqlModal({
+    tables,
+    onInsert: (sql) => {
+      const nb = getNotebook(engine);
+      const existing = nb.get().cells;
+      const newCell: SqlCellState = {
+        id: `c_${Date.now().toString(36)}_${existing.length}`,
+        kind: 'sql',
+        order: existing.length,
+        name: null,
+        code: sql,
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+        pinned: false,
+      };
+      nb.load([...existing, newCell]);
+      toast('SQL cell inserted — review then click Run.');
+    },
+  });
 }
 
 /**

@@ -10,6 +10,7 @@ import type {
   DefineTypeResponse,
   DisambiguateTypeResponse,
   ExplainErrorResponse,
+  NlToSqlResponse,
   RecommendReportsResponse,
   SummariseResultResponse,
 } from '../src/core/sidecar/types.ts';
@@ -225,6 +226,55 @@ export function scoreSummariseResult(
     pass,
     score,
     detail: `len=${obs.length}/${maxChars} · keywords ${hits.length}/${keywords.length}${nonEmpty ? '' : ' · empty'}`,
+  };
+}
+
+// ---- nl-to-sql: SELECT-only + keyword coverage + safety drop --------
+
+export interface NlToSqlExpected {
+  /**
+   * When `true`, the parser is expected to have dropped the response
+   * (write keyword, unknown table, junk start, …). `parsed.sql` must
+   * be `''` to pass.
+   */
+  expectDropped?: boolean;
+  /**
+   * Keywords the generated SQL must contain (case-insensitive substrings).
+   * Useful for "must FROM invoices" / "must group by vendor_name".
+   */
+  keywords?: string[];
+}
+
+export function scoreNlToSql(parsed: NlToSqlResponse, expected: NlToSqlExpected): ScoreResult {
+  const sql = parsed.sql;
+
+  // (1) Hallucination-drop case — sql must be empty.
+  if (expected.expectDropped) {
+    const pass = sql === '';
+    return {
+      pass,
+      score: pass ? 1 : 0,
+      detail: pass
+        ? 'response correctly dropped'
+        : `expected drop, got "${sql.slice(0, 80)}${sql.length > 80 ? '…' : ''}"`,
+    };
+  }
+
+  // (2) Normal case — non-empty, starts with SELECT or WITH, contains keywords.
+  const nonEmpty = sql.length > 0;
+  const startsRight = /^(?:\(\s*)?(SELECT|WITH)\b/i.test(sql);
+  const keywords = expected.keywords ?? [];
+  const lower = sql.toLowerCase();
+  const hits = keywords.filter((k) => lower.includes(k.toLowerCase()));
+  const coverage = keywords.length === 0 ? (nonEmpty ? 1 : 0) : hits.length / keywords.length;
+
+  // Composite: 60% keyword coverage, 20% non-empty, 20% starts with SELECT/WITH.
+  const score = coverage * 0.6 + (nonEmpty ? 0.2 : 0) + (startsRight ? 0.2 : 0);
+  const pass = nonEmpty && startsRight && (keywords.length === 0 || coverage >= 0.5);
+  return {
+    pass,
+    score,
+    detail: `len=${sql.length} · starts=${startsRight ? 'SELECT/WITH ✓' : '✗'} · keywords ${hits.length}/${keywords.length}${nonEmpty ? '' : ' · empty'}`,
   };
 }
 

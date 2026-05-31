@@ -38,7 +38,9 @@ Five items proposed in [`plan/data-platform-comparison.md`](./data-platform-comp
 - [x] **W5.5** — Assertion cell kind. New `kind: 'assertion'` — SQL that should return 0 rows; PASS/FAIL pill; FAIL paints the cell red. Reuses the SQL execution path. (Shipped 2026-05-31.)
 - [x] **W5.3** — Aggregation suggestions in the schema panel. "Quick chart ▾" per column emits SQL + chart + markdown cells (Power BI quick-measure pattern). Partners-by-table map drives sum-by, count-by, count-over-time, GSTIN-state-spend, COUNT DISTINCT for ids. (Shipped 2026-05-31.)
 - [x] **W5.2** — Sidecar Job 6: Result-summary cards. Hex Magic one-line observation card; hallucination guard validates backticked column refs; 200-char cap with ellipsis. 8-case eval fixture, 12 unit tests. (Shipped 2026-05-31.)
-- [ ] **W5.1** — Sidecar Job 5: NL → SQL (~2 hr). Genie / Magic / Cortex pattern. Parser rejects identifiers not in current schema. Biggest of the five.
+- [x] **W5.1** — Sidecar Job 5: NL → SQL. Genie / Magic / Cortex pattern. SELECT-only (parser rejects every write/DDL keyword); hallucination guard validates table refs in FROM/JOIN (CTE names + `cell_<id>` allowed); never auto-executed (Hard NOT #4). Modal opens from notebook toolbar; only table+column names shipped (no rows). 10-case eval fixture, 17 unit tests. (Shipped 2026-05-31.)
+
+**Wave 5 complete (5/5).** Total spend matched the ~6.5 hr estimate.
 
 Prereqs: none. None of these touch external systems. The eval harness should grow new fixtures per new sidecar job (Job 5 + Job 6).
 

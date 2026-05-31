@@ -342,6 +342,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
+    <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')
@@ -364,5 +365,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-assertion"]')
     ?.addEventListener('click', () => notebook.addCell('assertion'));
+  // The "Ask in plain English" button is wired up in main.ts (it needs
+  // workbook + engine context to gather the schema and insert the
+  // generated cell). The button itself is rendered here so its
+  // visibility tracks the rest of the add-row.
   root.append(addRow);
 }
