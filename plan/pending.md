@@ -154,6 +154,21 @@ funnel summaries), NOT raw event rows. Findings:
   Result on the xlsx demo: percentage hits went 0 → **18** (was 75
   unknowns → 57). Events fixture unaffected (still 9/9 classifies,
   6/6 templates surface).
+- ✅ **W4 follow-up #5 — locale-date classification.** Fixed 2026-05-31.
+  iso_date / iso_datetime regexes required strict ISO 8601 form. Text-
+  stored dates in xlsx (`01/07/25`, `30/09/2025`, `2026/05/31`,
+  `1.7.25`) all failed to classify because the regex never matched —
+  header_match alone scored 0.34 (below floor). Extended regex to
+  also accept locale-shape: `^(\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}|
+  \d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})$`. Header patterns also grew
+  start_date / end_date / report_date / week / month / quarter (for
+  iso_date) and logged_at / received_at (for iso_datetime). Display
+  names dropped the "ISO 8601" qualifier since the type covers
+  locale forms too — they're now just "Date" / "Datetime". The actual
+  parse-to-canonical-ISO step is NOT done here (that needs a mount-time
+  normaliser); the type classifies + badges, and downstream SQL can
+  still cast via `strptime` when needed. 8 new vitest regression
+  cases lock in the behaviour.
 - ✅ **W4 follow-up #3 — raw-events fixture.** Fixed 2026-05-31.
   `scripts/gen-raw-events-fixture.mjs` deterministically generates
   a 1500-row JSONL (220 users / 30-day window) under

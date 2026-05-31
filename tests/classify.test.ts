@@ -204,3 +204,88 @@ describe('product-analytics taxonomy seeds (W4.1)', () => {
     expect(result.candidates[0]?.typeId).toBe('iso_datetime');
   });
 });
+
+// W4 follow-ups #4 + #5 — surfaced by demo verification 2026-05-31.
+//
+// (#4) percentage detector originally required header-match against
+// `["percent","pct","percentage","rate"]`. Real-world percentage
+// columns are often named after the metric — `Sent_Retention`,
+// `Open Retention`, etc. — and missed entirely. Now also matches
+// `retention`, `ratio`, `share`, `conversion`.
+//
+// (#5) iso_date regex originally only matched ISO 8601. Locale-stored
+// dates (`01/07/25`, `30/09/2025`, `2026/05/31`, `1.7.25`) all
+// flowed through xlsx as text and never classified despite obvious
+// date-shape. Now matches both ISO and common locale forms (slash/
+// dot/dash separators, day-month-year and year-month-day orderings,
+// 2-or-4-digit years).
+
+describe('W4 follow-ups (taxonomy calibration)', () => {
+  it('percentage classifies on a retention-named column with 0..1 fractions', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('Sent_Retention', ['0.55', '0.42', '0.81', '0.07', '0.93']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('percentage');
+  });
+
+  it('percentage classifies on a retention-named column with whole percentages', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(bundle, sample('Open Retention', ['55', '42', '81', '7', '93']));
+    expect(result.candidates[0]?.typeId).toBe('percentage');
+  });
+
+  it('percentage classifies on a conversion-named column', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('conversion_rate', ['0.04', '0.05', '0.03', '0.06']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('percentage');
+  });
+
+  it('iso_date classifies locale DD/MM/YY date strings', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('start_date', ['01/07/25', '15/07/25', '30/09/25', '12/12/25']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('iso_date');
+  });
+
+  it('iso_date classifies DD/MM/YYYY date strings', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('end_date', ['01/07/2025', '15/07/2025', '30/09/2025']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('iso_date');
+  });
+
+  it('iso_date classifies YYYY/MM/DD slash-form date strings', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('report_date', ['2026/05/31', '2026/06/01', '2026/06/02']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('iso_date');
+  });
+
+  it('iso_date classifies dot-separated locale date strings', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(
+      bundle,
+      sample('payment_date', ['01.07.2025', '15.07.2025', '30.09.2025']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('iso_date');
+  });
+
+  it('iso_date does NOT classify non-date strings', async () => {
+    const bundle = await loadRealBundle();
+    const result = classifyColumn(bundle, sample('start_date', ['hello', 'world', 'foo', 'bar']));
+    // Header alone fires (0.85 * 0.4 = 0.34), regex misses (0.0 * 0.6 = 0).
+    // 0.34 is below the 0.5 confidence_floor; iso_date should not be top.
+    expect(result.candidates[0]?.typeId).not.toBe('iso_date');
+  });
+});

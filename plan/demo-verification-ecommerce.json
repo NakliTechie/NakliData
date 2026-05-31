@@ -1,6 +1,6 @@
 {
   "xlsx": "/Users/chiragpatnaik/Code/Apps/NakliData/public/examples/events/events.jsonl",
-  "timestamp": "2026-05-31T10:20:01.913Z",
+  "timestamp": "2026-05-31T10:23:48.991Z",
   "sources": [
     {
       "label": "events\n          1,500 rows"
@@ -58,7 +58,7 @@
       "typeId": "utm_source",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "76%",
+      "confidence": "88%",
       "sensitivity": ""
     },
     {
@@ -67,7 +67,7 @@
       "typeId": "utm_medium",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "96%",
+      "confidence": "93%",
       "sensitivity": ""
     },
     {
@@ -143,7 +143,7 @@
       "typeId": "utm_source",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "76%",
+      "confidence": "88%",
       "sensitivity": ""
     },
     {
@@ -152,7 +152,7 @@
       "typeId": "utm_medium",
       "origin": "detector",
       "sqlType": "VARCHAR",
-      "confidence": "96%",
+      "confidence": "93%",
       "sensitivity": ""
     },
     {
