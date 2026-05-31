@@ -824,4 +824,87 @@ button {
   font-size: ${Type.size.sm};
   background: var(--surface);
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   W6.2 — Presentation mode (?present=1). Hex app-publish pattern.
+   .app-present-mode toggles a read-only "deck" view: SQL/cohort/
+   assertion cells, sidebars, the notebook toolbar, the cell-add row,
+   and per-cell edit/delete chrome are hidden. Markdown + chart +
+   pivot + map cells keep rendering their output.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* The Exit-presentation pill is the inverse of every other affordance:
+   shown ONLY in presentation mode, hidden by default. */
+.present-exit {
+  display: none;
+}
+.app-present-mode .present-exit {
+  display: inline-flex;
+}
+
+.app-present-mode {
+  /* Center the notebook in a wider column — the side panels are gone. */
+}
+.app-present-mode .shell-header .right > *:not(.present-exit) {
+  display: none;
+}
+.app-present-mode .shell-header .session-switcher {
+  display: none;
+}
+.app-present-mode .shell-body > aside.panel {
+  display: none;
+}
+.app-present-mode .shell-body {
+  /* Recentre the body when both side panels are hidden. */
+  grid-template-columns: 1fr;
+}
+.app-present-mode .center {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+.app-present-mode .notebook-toolbar {
+  display: none;
+}
+.app-present-mode .cell-add-row {
+  display: none;
+}
+.app-present-mode .cell[data-cell-kind='sql'],
+.app-present-mode .cell[data-cell-kind='cohort'],
+.app-present-mode .cell[data-cell-kind='assertion'] {
+  display: none;
+}
+.app-present-mode .cell .cell-head {
+  display: none;
+}
+.app-present-mode .cell .cell-editor {
+  display: none;
+}
+.app-present-mode .cell .cell-result-meta {
+  display: none;
+}
+.app-present-mode .cell .cell-output-error,
+.app-present-mode .cell .cell-output-error-actions,
+.app-present-mode .cell .cell-sidecar-result {
+  display: none;
+}
+/* The send-to bar lives at the bottom of SQL cell renders (also used
+   by cohort/assertion via the wrapper). Hide it on chart/pivot/map
+   cells that don't render it anyway. The .cell selector keeps the
+   rule scoped. */
+.app-present-mode .cell > div:last-child:has(.btn-ghost[title*='Send result']) {
+  display: none;
+}
+/* Markdown cells: hide the textarea (edit mode) and keep the preview.
+   The markdown cell auto-renders preview when code is non-empty. */
+.app-present-mode .cell[data-cell-kind='markdown'] textarea {
+  display: none;
+}
+/* The cell border + background look heavy in presentation. Strip down
+   to just the content; let the markdown/chart shine. */
+.app-present-mode .cell {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 `;

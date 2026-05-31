@@ -110,6 +110,19 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // W6.2 — Presentation mode. `?present=1` flips the app into a read-
+  // only "deck" view: SQL / cohort / assertion cells, sidebars, the
+  // notebook toolbar, the cell-add row, and per-cell edit/delete
+  // chrome are all hidden via CSS gated on `.app-present-mode`.
+  // Markdown + chart + pivot + map cells keep rendering their output.
+  // Toggle the class BEFORE the shell mounts so cells render in
+  // presentation mode from the first frame (no flash of editor chrome).
+  // Hex's app-publish pattern.
+  const bootParams = new URLSearchParams(location.search);
+  if (bootParams.get('present') === '1') {
+    root.classList.add('app-present-mode');
+  }
+
   const state: ShellState = {
     buildVersion: BUILD_VERSION,
     engineStatus: 'booting',
@@ -914,6 +927,18 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'ask-nl-to-sql': {
       openNlToSqlSidecar(engine);
+      return;
+    }
+    case 'exit-presentation': {
+      // W6.2 — strip the ?present=1 query and reload so the app boots
+      // fresh in workbench mode. Reload (rather than just toggling the
+      // class) ensures the URL state matches the visible state — if the
+      // user shares the URL while in presentation, the recipient also
+      // lands in presentation; conversely the exit affordance produces
+      // a clean workbench URL.
+      const url = new URL(location.href);
+      url.searchParams.delete('present');
+      location.replace(url.toString());
       return;
     }
     case 'ask-sidecar-disambiguate': {

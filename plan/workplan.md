@@ -50,7 +50,7 @@ Prereqs: none. None of these touch external systems. The eval harness should gro
 
 Four items proposed in [`plan/data-platform-comparison.md`](./data-platform-comparison.md). Each closes a workflow gap the Databricks comparison surfaced. Pick in this order:
 
-- [ ] **W6.2** — Presentation mode (~1 hr). `?present=1` or settings toggle that hides SQL cells, shows only Markdown + charts. Hex app-publish pattern. Cheapest of the four; immediate demo value.
+- [x] **W6.2** — Presentation mode. `?present=1` (Hex app-publish pattern). Adds `app-present-mode` class to root; CSS hides SQL/cohort/assertion cells, the sources/schema sidebars, the notebook toolbar, the cell-add row, and per-cell edit/delete chrome. Markdown + chart + pivot + map keep rendering. "Exit presentation" pill in the header strips `?present=1` and reloads. (Shipped 2026-05-31.)
 - [ ] **W6.3** — Static-HTML export (~3 hr). Render the active notebook to a self-contained HTML file (no engine on the export). New sink alongside KanZen / Bahi / NakliPoster. Evidence Dev pattern.
 - [ ] **W6.1** — Interactive-input cell (~3 hr). Dropdown / date-picker / slider that parameterises downstream SQL via `@inputName`. Observable `viewof` / Briefer pattern.
 - [ ] **W6.4** — Dashboard layout cell (~3–4 hr). New cell kind that arranges other cells in a grid. Superset / Power BI pattern. Closes the linear-notebook gap once and for all.
