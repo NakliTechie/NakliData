@@ -2,6 +2,28 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-05-31 — SheetJS rawNumbers fix (silent xlsx VARCHAR everything)
+
+**Context:** Demo verification on the user's real `Retention Rate Analysis_Ecommerce.xlsx` surfaced an ugly root-cause that had been quietly making Wave 4 useless on real-world Excel data: every numeric column was coming through as VARCHAR. `start_date`/`end_date` classified correctly (the iso_date detector fired on text patterns), but `uniq_sent`, `Sent_Retention`, `Open Retention`, `Click Retention`, etc. — all clearly numeric — were typed VARCHAR by DuckDB's CSV sniffer. Trace: `XLSX.utils.sheet_to_csv` defaults to emitting each cell's FORMATTED display string (uses `cell.w`). For a cell containing `830706` with format `#,##0`, that's the literal text `"830,706"`. For a percent-formatted cell, it's `"55%"`. DuckDB sees commas and `%` and infers VARCHAR. W4 detectors miss; templates don't surface; the entire product-analytics value prop is dark on xlsx inputs.
+
+**Decisions:**
+
+- **(a) Single fix: pass `rawNumbers: true` to `sheet_to_csv`.** Tells SheetJS to emit `cell.v` (raw underlying value) instead of `cell.w` (formatted display). For numerics that's the bare decimal, including for percent-formatted cells where SheetJS stores the underlying fraction (so `55%` emits as `0.55`). One-line change. No bundle impact, no API impact, no test regression.
+- **(b) Also added `dateNF: 'yyyy-mm-dd'`.** Belt-and-braces for proper date cells (already preserved by `cellDates: true` on `read`). Without this they'd emit in locale-default format (often `MM/DD/YYYY`) which is the ambiguous form the iso_date detector can fall through. Doesn't affect xlsx files where dates are stored as TEXT — those pass through unchanged, and the iso_date detector handles recognisable patterns.
+- **(c) Did NOT switch to `sheet_to_json + custom CSV emit`.** Considered: bypass `sheet_to_csv` entirely, do JSON-to-rows and emit the CSV ourselves. Rejected — `rawNumbers: true` is the smallest correct fix and SheetJS's CSV emitter handles edge cases (RFC-4180 quoting, embedded commas, etc.) we don't want to reimplement.
+- **(d) Discovered + fixed during the demo-verification keystone, not as a planned slice.** Workplan Chunk 1 explicitly said "if anything misfires: capture the gap into pending.md as a W4 follow-up." This one was so clearly broken (every xlsx numeric column going VARCHAR is not a corner case) that fixing it inline made more sense than queuing. The downstream calibration issue — percentage detector expects 0..100 but xlsx fractions come through as 0..1 — IS queued as a follow-up since it's separately scoped.
+
+**Tests:** New `tests/sheetjs.test.ts` (3 tests): positive assertion that raw numerics (`830706`, `0.55`) appear in the emitted CSV; negative assertion that formatted forms (`"830,706"`, `55%`) do NOT; empty-sheet skipping; text-column preservation. Constructed an xlsx in-memory with SheetJS's writer (per-column number-format applied to force the formatted-string path on default behaviour) — proves the bug existed and the fix closes it. Full vitest 320/320 (was 317; +3). Smoke green. Demo-verify re-ran with the fix: numeric histogram went from `{unknown: 79, iso_date: 6}` to `{unknown: 77, iso_date: 6, amount: 2}` — the W4 amount detector now fires on real xlsx data.
+
+**Reversibility:** Trivial. Revert the two-line change in `src/lazy/sheetjs.ts` (remove `rawNumbers: true` + `dateNF: 'yyyy-mm-dd'`). Drop `tests/sheetjs.test.ts`. No data on disk depends on this.
+
+**Known limitations / follow-ups:**
+- **Percentage detector expects 0..100 but xlsx percents come through as 0..1.** The `percentage` type's `range_numeric` detector is calibrated for whole-number percentages (`55` for 55%). After the SheetJS fix, the underlying fraction comes through (`0.55`). Two fixes possible: split into `percentage_whole` + `percentage_fraction` types, or extend the detector to allow either range when the header matches `rate|retention|ratio|pct|percent`. Captured in pending.md as W4 follow-up #4.
+- **Locale-formatted text dates** (the demo xlsx had dates stored as text in `DD/MM/YY` form) still flow through as-is. The iso_date detector handles them OK because the pattern is recognisable, but a more aggressive normalisation step (try to coerce `MM/DD/YY` / `DD/MM/YY` to ISO before classification) is a separate W4 follow-up.
+- **No fixture xlsx in the repo for end-to-end verification.** The regression test constructs the xlsx in-memory; it doesn't ship a real file. The user's `Retention Rate Analysis_Ecommerce.xlsx` stays local. If a representative anonymised xlsx fixture lands in `public/examples/`, the smoke test could also exercise the xlsx mount path.
+
+---
+
 ## 2026-05-31 — W5.1: Sidecar Job 5 — NL → SQL (Genie / Cortex / Magic pattern)
 
 **Context:** Closes Wave 5. The pattern is well-trodden (Databricks Genie, Snowflake Cortex, Hex Magic) — a user types a question, the model returns SQL against the user's schema, the result drops into a cell. The substrate already existed (5 sidecar jobs, BYOK plumbing, dispatch + transport seam, eval harness with hallucination-guard idioms). Job 5 is the last big sidecar surface before we go quiet on the "borrowed from the giants" wave and pick up Wave 6 (workflow polish: presentation mode, parameters, etc.).

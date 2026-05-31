@@ -127,6 +127,30 @@ funnel summaries), NOT raw event rows. Findings:
   notebook ships on first mount no longer surfaces a noisy
   "syntax error at end of input" when a user clicks Run-all without
   typing anything first.
+- ✅ **W4 follow-up #2.5 — SheetJS rawNumbers (THE big one).** Fixed
+  2026-05-31. `parseXlsxToSheets` was calling `sheet_to_csv` without
+  `rawNumbers: true`, so SheetJS emitted each cell's FORMATTED display
+  string. Numbers with thousand separators came through as `"830,706"`,
+  percentages as `"55%"`, locale dates as `"01/07/25"` — every column
+  DuckDB's CSV sniffer typed as VARCHAR. Net effect: every numeric
+  column in a real-world xlsx became a semantic dead-end. After the
+  fix, numbers come through as `830706` / `0.55` and the W4 amount
+  detector starts firing (2 new hits on the demo xlsx; net +2 from 0
+  before the fix). Also added `dateNF: 'yyyy-mm-dd'` for proper date
+  cells (xlsx text-formatted dates pass through and the iso_date
+  detector catches recognisable patterns). 3 vitest regression tests
+  added (`tests/sheetjs.test.ts`) — positive assertions on raw values,
+  negative assertions on formatted forms.
+- 🐛 **W4 follow-up #4 — percentage detector misses fractional decimals.**
+  After the SheetJS fix, retention-rate columns now come through as
+  `0.55` (= 55%) but the `percentage` type uses `range_numeric: min=0,
+  max=100` which expects whole-number percentages. A column carrying
+  fractions never falls in range. Two fixes possible: (a) split into
+  `percentage_whole` (0..100) and `percentage_fraction` (0..1) types;
+  (b) extend the detector to allow either range when the header
+  contains "rate" / "retention" / "ratio" / "pct" / "percent". Lower
+  priority than the next item; raw-events data wouldn't typically hit
+  this calibration.
 - 🐛 **W4 follow-up #3 — need a real raw-events fixture.** Until we have
   a raw event log to feed in (Mixpanel events.csv, PostHog snapshot.json,
   or a small synthetic JSONL we ship), the W4.1/W4.2/W4.3/W4.4/W4.5

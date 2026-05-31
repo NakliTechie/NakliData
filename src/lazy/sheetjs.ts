@@ -33,7 +33,24 @@ export async function parseXlsxToSheets(file: File): Promise<ParsedSheet[]> {
   for (const name of wb.SheetNames) {
     const sheet = wb.Sheets[name];
     if (!sheet) continue;
-    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    // `rawNumbers: true` is load-bearing — default `sheet_to_csv`
+    // emits each cell's FORMATTED string (`"830,706"`, `254%`,
+    // `01/07/25`), which DuckDB's CSV sniffer then types as VARCHAR.
+    // Numeric columns become semantic dead-ends; W4 detectors miss
+    // them; templates don't surface. With rawNumbers on, numbers
+    // come through as raw decimals (`830706`, `2.54`) and DuckDB
+    // infers BIGINT/DOUBLE correctly. (Demo-verification 2026-05-31.)
+    //
+    // `dateNF: 'yyyy-mm-dd'` covers proper date cells (preserved by
+    // cellDates: true) — they emit as ISO instead of locale-default
+    // `MM/DD/YYYY`. Date columns stored as TEXT in the xlsx are
+    // unaffected; they pass through as-is and the iso_date detector
+    // catches recognisable patterns.
+    const csv = XLSX.utils.sheet_to_csv(sheet, {
+      blankrows: false,
+      rawNumbers: true,
+      dateNF: 'yyyy-mm-dd',
+    });
     if (!csv.trim()) continue;
     out.push({ name, csv });
   }
