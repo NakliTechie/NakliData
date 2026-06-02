@@ -336,7 +336,85 @@ async function main() {
   if (overrodeOk) log(`✓ overrode "${overridden?.colName}" → ${overridden?.id}`);
   else log(`! override did not stick for ${overridden?.colName}`);
 
-  // 12. Sanity: no uncaught errors in the console.
+  // 12. Wave 5/6 surface affordances exist in the DOM. Deeper behaviour
+  //     is covered by tests/e2e/*; this is the cheap "did the build drop
+  //     the button" gate for the load-bearing surfaces shipped 2026-05-31.
+  const w56 = await page.evaluate(() => {
+    const sel = (s) => document.querySelector(s) !== null;
+    // Templates the schema panel surfaces (Vendor concentration is W4.2-era;
+    // include here as a sanity check that the panel still renders).
+    return {
+      addInputBtn: sel('[data-nb-action="add-input"]'),
+      addDashboardBtn: sel('[data-nb-action="add-dashboard"]'),
+      addAssertionBtn: sel('[data-nb-action="add-assertion"]'),
+      addCohortBtn: sel('[data-nb-action="add-cohort"]'),
+      askNlToSqlBtn: sel('[data-action="ask-nl-to-sql"]'),
+      exportHtmlBtn: sel('[data-action="export-html"]'),
+      exitPresentBtn: sel('[data-action="exit-presentation"]'),
+      // W5.3 quick-chart affordance — at least one schema-column should have it.
+      anyQuickChart: sel('.schema-quick-chart'),
+    };
+  });
+  for (const [k, v] of Object.entries(w56)) {
+    if (!v) fail(`Wave 5/6 affordance missing: ${k}`);
+  }
+  log(
+    '✓ Wave 5/6 affordances present (input/dashboard/assertion/cohort + NL→SQL, Export HTML, Exit-present, quick-chart)',
+  );
+
+  // 12a. Adding an input cell renders the input-cell DOM + the cell-name is
+  //      seeded. (Catches a render-switch regression cheaply — full behaviour
+  //      in tests/e2e/input-cell.spec.ts.)
+  await page.click('[data-nb-action="add-input"]');
+  await delay(400);
+  const inputCellOk = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="input"]');
+    if (!cell) return null;
+    const name = cell.querySelector('[data-region="cell-name"]')?.value ?? '';
+    const widget = cell.querySelector('[data-region="input-widget"] input');
+    return { name, hasWidget: !!widget };
+  });
+  if (!inputCellOk) fail('add-input did not render a .cell[data-cell-kind="input"]');
+  if (!inputCellOk.hasWidget) fail('input cell has no widget input');
+  if (!inputCellOk.name.startsWith('input_'))
+    fail(`input cell name not seeded: got "${inputCellOk.name}"`);
+  log(`✓ input cell rendered + seeded (name="${inputCellOk.name}")`);
+
+  // 12b. Adding a dashboard cell renders the dashboard DOM with the
+  //      empty-items affordance.
+  await page.click('[data-nb-action="add-dashboard"]');
+  await delay(400);
+  const dashOk = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="dashboard"]');
+    if (!cell) return null;
+    const grid = cell.querySelector('.dashboard-grid');
+    const affordance = grid?.textContent?.includes('Add cell names') ?? false;
+    return { hasGrid: !!grid, affordance };
+  });
+  if (!dashOk?.hasGrid) fail('add-dashboard did not render a .dashboard-grid');
+  if (!dashOk?.affordance) fail('dashboard empty-items affordance missing');
+  log('✓ dashboard cell rendered + empty-items affordance present');
+
+  // 12c. Presentation mode toggles via class — flip the class manually
+  //      (skip the URL-reload path because full reboot in smoke is
+  //      expensive) and check that the sidebars hide.
+  const presOk = await page.evaluate(() => {
+    const root = document.getElementById('app');
+    root?.classList.add('app-present-mode');
+    const isHidden = (el) => !el || window.getComputedStyle(el).display === 'none';
+    const result = {
+      sources: isHidden(document.querySelector('aside[aria-label="Sources"]')),
+      schema: isHidden(document.querySelector('aside[aria-label="Schema"]')),
+      addRow: isHidden(document.querySelector('.cell-add-row')),
+    };
+    root?.classList.remove('app-present-mode'); // restore so subsequent steps don't break
+    return result;
+  });
+  if (!(presOk.sources && presOk.schema && presOk.addRow))
+    fail(`presentation-mode CSS did not engage: ${JSON.stringify(presOk)}`);
+  log('✓ presentation-mode CSS engages (sources / schema / cell-add hidden)');
+
+  // 13. Sanity: no uncaught errors in the console.
   if (consoleErrors.length > 0) {
     log('NOTE: console errors during run:');
     for (const e of consoleErrors) log('  •', e);
