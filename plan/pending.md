@@ -204,6 +204,46 @@ console errors. Conclusion: the `cmInstances` registry + `existing
 tolerates re-parenting. The probe stays in `scripts/` as a diagnostic
 to run if a user ever reports a freeze symptom.
 
+**Bundle survey (2026-05-31):** shell is 519.7 KB / 600 KB (86.6%, 80
+KB headroom). Top contributors via `esbuild.analyzeMetafile`:
+
+- **Apache Arrow** is the elephant — ~96 KB across ~20 separate
+  `apache-arrow/*.mjs` entries plus ~8 KB of `flatbuffers`. Imported
+  EAGERLY by `@duckdb/duckdb-wasm/dist/duckdb-browser.mjs` (line 1:
+  `import*as u from"apache-arrow"`). Cannot be lazy-loaded without
+  putting the entire DuckDB engine boot behind a chunk. The engine
+  boot is on the critical path (everything depends on it), so
+  deferring would just move the cost. Real fix if we ever need it:
+  swap to a leaner DuckDB-wasm fork, or switch to a different
+  bindings library (`@motherduck/dweb`-style). Not in scope here.
+
+- **Sidecar machinery** (`src/core/sidecar/client.ts` 13.4 KB) +
+  `src/ui/nl-to-sql-modal.ts` (4.3 KB) + portions of `settings-modal.ts`
+  (10.7 KB) — ~25–30 KB combined, all only relevant when the user
+  enables the sidecar. Could be lazy-loaded behind `loadChunk('sidecar')`.
+  Real architectural change (dispatch + modal would need to be async
+  on first use), not a one-line cut.
+
+- **Modal collection** — define-type, compare-tables, mount-iceberg,
+  mount-iceberg-catalog, mount-compute-bridge, mount-compute-bridge-
+  catalog, mount-s3, mount-url, override-rules, settings, nl-to-sql.
+  Each ~3–10 KB; ~50 KB combined. Most rarely opened. Could each be
+  a lazy chunk; modest individual savings, complexity not obviously
+  worth it.
+
+- **Templates** (`src/ui/templates/templates.ts` 12.3 KB) — 11
+  templates inlined. Could split into a per-domain bundle (finance /
+  logs / events) and lazy-load by detected domain. Same complexity-
+  vs-savings trade.
+
+**Conclusion:** No easy cuts available. The 86.6% bundle ratio is
+where today's surface naturally lands; Arrow alone accounts for ~20%
+of the shell and is non-removable without a major engine refactor.
+Pressure-release valve when we approach 600 KB: lazy-load the sidecar
++ modal collection together (would buy ~70–100 KB headroom for one
+chunk-introduction commit). Document as a future move, not a current
+need.
+
 ### Wave 5 — borrowed-from-the-giants (proposed)
 
 **Pitch:** "Take the ergonomic patterns Databricks / Snowflake / Microsoft Fabric have proven, drop them into our workbench shape."
