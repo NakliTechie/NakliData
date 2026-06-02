@@ -4,12 +4,7 @@
 // src/ui/notebook-graph.ts for the rationale.
 
 import { describe, expect, it } from 'vitest';
-import type {
-  AssertionCellState,
-  CohortCellState,
-  InputCellState,
-  SqlCellState,
-} from '../src/ui/cells/types.ts';
+import type { AssertionCellState, InputCellState, SqlCellState } from '../src/ui/cells/types.ts';
 import { detectRefIssue, extractRefs, refIssueMessage } from '../src/ui/notebook-graph.ts';
 
 function sql(id: string, name: string | null, code: string): SqlCellState {
@@ -23,18 +18,6 @@ function sql(id: string, name: string | null, code: string): SqlCellState {
     lastError: null,
     lastResult: null,
     pinned: false,
-  };
-}
-function cohort(id: string, name: string, code: string): CohortCellState {
-  return {
-    id,
-    kind: 'cohort',
-    order: 0,
-    name,
-    code,
-    status: 'idle',
-    lastError: null,
-    lastResult: null,
   };
 }
 function assertion(id: string, name: string, code: string): AssertionCellState {
@@ -102,47 +85,34 @@ describe('detectRefIssue — self-reference', () => {
   });
 });
 
-describe('detectRefIssue — unknown reference', () => {
-  it('flags @name with no matching cell', () => {
-    const cells = [sql('c1', null, 'SELECT * FROM @missing')];
-    const issue = detectRefIssue('c1', cells);
-    expect(issue).toEqual({
-      kind: 'unknown_ref',
-      cellId: 'c1',
-      refName: 'missing',
-      knownNames: [],
-    });
+describe('detectRefIssue — unknown @-references are NOT flagged', () => {
+  // The rewriter falls through unknown @-names to a quoted identifier
+  // ("name") that DuckDB resolves against MOUNTED TABLES and any
+  // pre-existing view. So `SELECT * FROM @vendors` where `vendors` is
+  // a mounted CSV (not a cell) is a SUPPORTED pattern — blocking it
+  // here would regress that. The forward-pass code-review on the
+  // autonomous batch caught this regression before it shipped to
+  // users (2026-05-31). If the name is a real typo, DuckDB's own
+  // "Table … does not exist" surfaces inline.
+  it('does NOT flag @name that resolves to a mounted-table identifier (lets DuckDB handle it)', () => {
+    const cells = [sql('c1', null, 'SELECT * FROM @vendors')];
+    expect(detectRefIssue('c1', cells)).toBeNull();
   });
 
-  it('includes known names in the hint', () => {
-    const cells = [
-      sql('c1', 'vendors', 'SELECT 1'),
-      cohort('c2', 'active_users', 'SELECT 1'),
-      sql('c3', null, 'SELECT * FROM @misspelled'),
-    ];
-    const issue = detectRefIssue('c3', cells);
-    expect(issue).toEqual({
-      kind: 'unknown_ref',
-      cellId: 'c3',
-      refName: 'misspelled',
-      knownNames: ['active_users', 'vendors'],
-    });
+  it('does NOT flag a typo either — DuckDB will surface the table-not-found error inline', () => {
+    const cells = [sql('c1', 'vendors', 'SELECT 1'), sql('c2', null, 'SELECT * FROM @misspelled')];
+    expect(detectRefIssue('c2', cells)).toBeNull();
   });
 
-  it('accepts a ref to an INPUT cell (input cells inline as literals, not views)', () => {
+  it('still passes-through valid input-cell + assertion-cell @-refs', () => {
     const cells = [
       input('c1', 'min_amt', '5000'),
-      sql('c2', null, 'SELECT * FROM invoices WHERE amount > @min_amt'),
+      assertion('c2', 'no_dupes', 'SELECT * FROM x'),
+      sql('c3', null, 'SELECT * FROM invoices WHERE amount > @min_amt'),
+      sql('c4', null, 'SELECT * FROM @no_dupes'),
     ];
-    expect(detectRefIssue('c2', cells)).toBeNull();
-  });
-
-  it('accepts a ref to an ASSERTION cell (assertions materialise views)', () => {
-    const cells = [
-      assertion('c1', 'no_dupes', 'SELECT * FROM x'),
-      sql('c2', null, 'SELECT * FROM @no_dupes'),
-    ];
-    expect(detectRefIssue('c2', cells)).toBeNull();
+    expect(detectRefIssue('c3', cells)).toBeNull();
+    expect(detectRefIssue('c4', cells)).toBeNull();
   });
 });
 
@@ -206,29 +176,6 @@ describe('refIssueMessage', () => {
     expect(msg).toContain('itself');
   });
 
-  it('renders an unknown_ref with hint when known names exist', () => {
-    const msg = refIssueMessage({
-      kind: 'unknown_ref',
-      cellId: 'c1',
-      refName: 'misspelled',
-      knownNames: ['vendors', 'active_users'],
-    });
-    expect(msg).toContain('@misspelled');
-    expect(msg).toContain('@vendors');
-    expect(msg).toContain('@active_users');
-  });
-
-  it('renders an unknown_ref without hint when no names exist', () => {
-    const msg = refIssueMessage({
-      kind: 'unknown_ref',
-      cellId: 'c1',
-      refName: 'x',
-      knownNames: [],
-    });
-    expect(msg).toContain('@x');
-    expect(msg).toContain('No named cells');
-  });
-
   it('renders a cycle path as a → b → a', () => {
     const msg = refIssueMessage({
       kind: 'cycle',
@@ -238,5 +185,28 @@ describe('refIssueMessage', () => {
     expect(msg).toContain('@a');
     expect(msg).toContain('@b');
     expect(msg).toContain('→');
+  });
+});
+
+describe('detectRefIssue — duplicate-name resolution matches the runtime', () => {
+  // When two cells share a name (no UI prevents this), both the
+  // rewriter and the detector should resolve to the FIRST occurrence.
+  // viewCellNames uses first-wins; rewriteReferences uses .find() →
+  // first-wins. They must agree, else the detector traces different
+  // edges than the runtime and misses real cycles.
+  it('traces edges through the first cell when names collide', () => {
+    // c1{name:'x', code:'SELECT * FROM @y'}, c2{name:'x', code:'SELECT 1'},
+    // c3{name:'y', code:'SELECT * FROM @x'} — the runtime resolves @x to
+    // c1, so c3→c1→c3 is a real cycle. Detector must catch it.
+    const cells = [
+      sql('c1', 'x', 'SELECT * FROM @y'),
+      sql('c2', 'x', 'SELECT 1'),
+      sql('c3', 'y', 'SELECT * FROM @x'),
+    ];
+    const issue = detectRefIssue('c1', cells);
+    expect(issue?.kind).toBe('cycle');
+    if (issue?.kind === 'cycle') {
+      expect(issue.path).toEqual(['x', 'y', 'x']);
+    }
   });
 });

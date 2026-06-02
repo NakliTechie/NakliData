@@ -8,20 +8,25 @@
 // That's confusing on first encounter: the surface didn't tell you
 // which cell or why.
 //
-// This module catches the three statically-detectable broken shapes
+// This module catches the two statically-detectable broken shapes
 // before the engine sees them:
 //
 //   - **self-reference**: cell named `x` whose code contains `@x`.
 //   - **cycle**: a → b → … → a in the directed @-name graph (cells
 //     that reference views — SQL / cohort / assertion).
-//   - **unknown reference**: code contains `@x` but no cell with that
-//     name exists (and no input cell either).
 //
 // What we deliberately DON'T flag:
-//   - **Forward references** (cell A references @B where B is later in
-//     the notebook): these self-resolve after the first runAll —
-//     flagging them statically would false-positive after the user
-//     ran the dependency once.
+//   - **Unknown references** (code contains `@x` but no cell with
+//     that name exists). The rewriter falls through to a quoted
+//     identifier `"x"` which DuckDB resolves against mounted tables
+//     and any pre-existing view. Mounting a CSV named `vendors` and
+//     then writing `@vendors` in a SQL cell is a SUPPORTED pattern
+//     since v1.0 — blocking it as a static error would regress
+//     that. If the reference is genuinely a typo, DuckDB's own
+//     "Table … does not exist" surfaces inline. (Forward-pass
+//     review caught this regression before it shipped — 2026-05-31.)
+//   - **Forward references** (cell A references @B where B is later
+//     in the notebook): self-resolve after the first runAll.
 //   - Refs inside input cell values: input cells inline as SQL
 //     literals (`'value'` / `42` / `DATE '...'`), not view references.
 //
@@ -31,14 +36,18 @@ import type { CellState } from './cells/types.ts';
 
 /** Names of all "view-materialising" cells, i.e. ones a `@name` can resolve to. */
 function viewCellNames(cells: CellState[]): Map<string, string> {
-  // name → cellId. Input cells aren't view-materialising (they inline),
-  // but they ARE valid @-ref targets — we treat their name as "satisfied"
-  // so a code that says `@vendor` (input) doesn't flag as unknown_ref.
+  // name → cellId. Input cells aren't view-materialising (they inline).
+  // First-wins on duplicate names — matches the runtime rewriter
+  // (`rewriteReferences` uses `.find()` which returns the first match
+  // in document order). If we used `Map.set()` blindly we'd be
+  // last-wins, and the detector would trace different edges than the
+  // runtime — a real cycle could be missed.
   const out = new Map<string, string>();
   for (const c of cells) {
     if (
       (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion' || c.kind === 'input') &&
-      c.name?.trim()
+      c.name?.trim() &&
+      !out.has(c.name)
     ) {
       out.set(c.name, c.id);
     }
@@ -64,12 +73,6 @@ export type RefIssue =
       kind: 'self_ref';
       cellId: string;
       name: string;
-    }
-  | {
-      kind: 'unknown_ref';
-      cellId: string;
-      refName: string;
-      knownNames: string[];
     }
   | {
       kind: 'cycle';
@@ -102,21 +105,7 @@ export function detectRefIssue(targetId: string, cells: CellState[]): RefIssue |
     }
   }
 
-  // 2. Unknown reference. Any @name in code that doesn't resolve to a
-  //    known view-materialising or input cell name.
-  const refs = extractRefs(target.code);
-  for (const ref of refs) {
-    if (!nameToId.has(ref)) {
-      return {
-        kind: 'unknown_ref',
-        cellId: target.id,
-        refName: ref,
-        knownNames: [...nameToId.keys()].sort(),
-      };
-    }
-  }
-
-  // 3. Cycle. Walk the directed graph from `target` via @-refs in code.
+  // 2. Cycle. Walk the directed graph from `target` via @-refs in code.
   //    Only count view-materialising cells (input cells are leaves).
   const stack: string[] = []; // names along current DFS path
   const visited = new Set<string>(); // names fully explored (no cycle from here)
@@ -161,13 +150,6 @@ export function detectRefIssue(targetId: string, cells: CellState[]): RefIssue |
 export function refIssueMessage(issue: RefIssue): string {
   if (issue.kind === 'self_ref') {
     return `Cell references itself (@${issue.name}). Reference a different cell, or remove the @${issue.name}.`;
-  }
-  if (issue.kind === 'unknown_ref') {
-    const known = issue.knownNames;
-    const hint = known.length
-      ? ` Known names: ${known.map((n) => `@${n}`).join(', ')}.`
-      : ' No named cells exist yet — name a cell first.';
-    return `Reference @${issue.refName} doesn't match any cell name.${hint}`;
   }
   // cycle
   return `Cycle in @-references: ${issue.path.map((n) => `@${n}`).join(' → ')}. Break one of these links.`;

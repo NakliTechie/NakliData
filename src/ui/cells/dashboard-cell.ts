@@ -46,8 +46,13 @@ export function renderDashboardCell(
   // .naklidata might land a dashboard cell missing `items` or `columns`.
   // The persistence parser trusts the JSON shape (per spec) so this is
   // the right place to recover. (Audit follow-up.)
+  //
+  // Columns: `Number(0) || 2` would flip an explicit 0 to 2 instead of
+  // clamping to 1 (because 0 is falsy). Check finiteness and positivity
+  // before falling back to 2. Then clamp to [1, 4].
   const items: string[] = Array.isArray(cell.items) ? cell.items : [];
-  const columns = Math.min(4, Math.max(1, Number(cell.columns) || 2));
+  const rawCols = Number(cell.columns);
+  const columns = Math.min(4, Math.max(1, Number.isFinite(rawCols) && rawCols > 0 ? rawCols : 2));
 
   // Per-cell ids so the visual "Columns" label associates with the
   // columns input via `for=` (a11y review).
@@ -76,10 +81,12 @@ export function renderDashboardCell(
     handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
   });
 
-  // Bind columns input.
+  // Bind columns input. Use the same explicit-zero handling as the
+  // init path above so a user typing 0 lands on 1 (not 2).
   const colsInput = el.querySelector<HTMLInputElement>('[data-region="dashboard-cols"]');
   colsInput?.addEventListener('change', () => {
-    const next = Math.min(4, Math.max(1, Number.parseInt(colsInput.value, 10) || 2));
+    const parsed = Number.parseInt(colsInput.value, 10);
+    const next = Math.min(4, Math.max(1, Number.isFinite(parsed) && parsed > 0 ? parsed : 2));
     handlers.onChange(cell.id, { columns: next });
   });
 
