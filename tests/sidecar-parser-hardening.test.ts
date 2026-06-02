@@ -126,6 +126,54 @@ describe('parseNlToSqlResponse — H3 expanded write-keyword + multi-statement g
   });
 });
 
+describe('parseNlToSqlResponse — code-review of v1.2.1..HEAD', () => {
+  it("rejects DuckDB replacement-scan `FROM '…'` (single-quoted string)", () => {
+    expect(
+      parseNlToSqlResponse("SELECT * FROM 'https://attacker.example.com/x.csv'", ['t']).sql,
+    ).toBe('');
+    expect(parseNlToSqlResponse("SELECT * FROM '/etc/passwd'", ['t']).sql).toBe('');
+  });
+
+  it('also rejects single-quoted JOIN (defence-in-depth)', () => {
+    expect(parseNlToSqlResponse("SELECT * FROM t JOIN 'evil' ON 1=1", ['t']).sql).toBe('');
+  });
+
+  it('accepts a string literal in a column position (only FROM/JOIN-string is blocked)', () => {
+    expect(parseNlToSqlResponse("SELECT 'hello' AS greet FROM t", ['t']).sql).toContain(
+      "SELECT 'hello'",
+    );
+  });
+
+  it('multi-statement gate ignores `;` inside string literals', () => {
+    // Previously dropped — `;` in a string false-tripped the gate.
+    expect(parseNlToSqlResponse("SELECT 'foo;bar' FROM t", ['t']).sql).toContain(
+      "SELECT 'foo;bar'",
+    );
+    // Still rejects real multi-statement.
+    expect(parseNlToSqlResponse('SELECT 1; SELECT 2', ['t']).sql).toBe('');
+  });
+
+  it('handles escaped quotes in string literals (DuckDB doubled-quote form)', () => {
+    expect(parseNlToSqlResponse("SELECT 'it''s' FROM t", ['t']).sql).toContain("'it''s'");
+  });
+
+  it('extractFromTables treats LATERAL / UNNEST / TABLE / VALUES / PIVOT as terminators, not table names', () => {
+    expect(extractFromTables('FROM t1, LATERAL (SELECT * FROM t2) lat')).toEqual(['t1', 't2']);
+    expect(extractFromTables('FROM t1, UNNEST([1,2,3]) AS u')).toEqual(['t1']);
+    expect(extractFromTables('FROM t1, TABLE(generate_series(1, 10))')).toEqual(['t1']);
+    expect(extractFromTables('FROM t1, VALUES (1, 2) AS v(a, b)')).toEqual(['t1']);
+  });
+
+  it('parseNlToSqlResponse accepts queries that use LATERAL', () => {
+    expect(
+      parseNlToSqlResponse('SELECT * FROM t1, LATERAL (SELECT * FROM t2 WHERE t2.x = t1.x) lat', [
+        't1',
+        't2',
+      ]).sql,
+    ).toContain('LATERAL');
+  });
+});
+
 describe('parseSummariseResultResponse — M5 trim-on-both-sides', () => {
   it('accepts a backticked ref when the input column has trailing whitespace', () => {
     const raw = JSON.stringify({

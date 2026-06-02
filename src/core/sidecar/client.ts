@@ -682,8 +682,15 @@ const IDENT_REGEX = /^\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/;
 // Words that terminate a FROM clause's comma-list. Once we hit one of
 // these (or the end of string / closing paren / `;`), stop walking the
 // from-list. Subsequent FROM / JOIN occurrences open fresh from-windows.
+//
+// LATERAL / UNNEST / TABLE / VALUES / PIVOT / UNPIVOT are FROM-clause
+// MODIFIERS, not table names — code-review of v1.2.1..HEAD caught the
+// pre-fix walker emitting them as found-tables, which would falsely
+// reject valid queries like `FROM t1, LATERAL (SELECT * FROM t2) lat`.
+// Treat them as terminators so the comma-loop stops; the outer fromRe
+// iteration still picks up any tables inside the LATERAL subquery.
 const FROM_LIST_TERMINATOR =
-  /^\s*(?:WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|JOIN|LEFT|RIGHT|INNER|FULL|OUTER|CROSS|ON|USING|QUALIFY|WINDOW|;|\))/i;
+  /^\s*(?:WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|JOIN|LEFT|RIGHT|INNER|FULL|OUTER|CROSS|ON|USING|QUALIFY|WINDOW|LATERAL|UNNEST|TABLE|VALUES|PIVOT|UNPIVOT|;|\))/i;
 
 /**
  * Walk every FROM / JOIN window in a SQL statement and return the table
@@ -755,12 +762,28 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   if (WRITE_KEYWORDS.test(stripped)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
+  // Reject DuckDB's "replacement scan" syntax: `FROM '…'` (single-quoted
+  // string) reads the URL/path as if it were `read_csv_auto(...)`. The
+  // hallucination guard below only walks IDENTIFIERS — a quoted-string
+  // FROM has no ident to validate, so without this gate the model could
+  // emit `SELECT * FROM 'https://attacker.com/x.csv'` and the parser
+  // would let it through. (Code-review of v1.2.1..HEAD surfaced.)
+  // Same gate for JOIN as defence-in-depth.
+  if (/\b(?:FROM|JOIN)\s+'/i.test(stripped)) {
+    return { kind: 'nl-to-sql', sql: '' };
+  }
   // Reject multi-statement responses. The model is instructed to emit a
   // single statement, but a confused response might produce
   // `SELECT 1; SET enable_external_access=true; SELECT 1;`. WRITE_KEYWORDS
   // catches SET specifically, but the broader multi-statement gate
   // catches anything else we haven't enumerated. (Forward-pass H3.)
-  if (/;\s*\S/.test(stripped)) {
+  //
+  // Strip string literals first so a column value like `'foo;bar'`
+  // doesn't false-trip the gate. DuckDB strings use `''` as embedded-
+  // quote escape — the regex handles that with `(?:[^']|'')*`.
+  // (Code-review of v1.2.1..HEAD surfaced.)
+  const strippedNoStrings = stripped.replace(/'(?:[^']|'')*'/g, "''");
+  if (/;\s*\S/.test(strippedNoStrings)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
   // Hallucination guard — every table referenced by FROM/JOIN (including

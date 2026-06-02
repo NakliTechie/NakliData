@@ -80,8 +80,19 @@ export class TaxonomyClient {
         worker.removeEventListener('error', onError);
         worker.removeEventListener('messageerror', onMessageError);
         clearTimeout(timer);
-        if (err) reject(err);
-        else resolve();
+        if (err) {
+          // Code-review of v1.2.1..HEAD: terminate the orphaned Worker
+          // on any error path (timeout, init error, messageerror). The
+          // original M7 fix removed listeners but left the Worker alive,
+          // pinning its module context + memory and letting repeated
+          // retries pile up workers.
+          try {
+            worker.terminate();
+          } catch {
+            /* ignore — worker may already be in an error state */
+          }
+          reject(err);
+        } else resolve();
       };
       const onInit = (ev: MessageEvent<FromWorker>) => {
         if (ev.data.type === 'init_ok') finish(null);

@@ -182,13 +182,16 @@ async function csvBytes(engine: Engine, cellId: string, result: SqlResult): Prom
   if (result.rowCount > 5000) {
     const viewName = `cell_${cellId}`;
     // Forward-pass L7 (2026-06-02): escape `'` in cellId before
-    // building the single-quoted SQL literal. `genCellId()` produces
-    // `c_<base36>_<seq>` at runtime so today's IDs are safe, but a
-    // malicious `.naklidata` file could carry a hand-crafted `cell.id`
-    // containing `'` — sanitise to be safe.
-    const tmpName = `tmp_export_${cellId.replace(/'/g, "''")}.csv`;
-    await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${tmpName}' (HEADER, DELIMITER ',')`);
-    return await readDuckDbFile(engine, tmpName);
+    // interpolating into the SQL string literal. Codex review of
+    // v1.2.1..HEAD caught the first pass — it doubled the quote in
+    // BOTH the SQL literal AND the readDuckDbFile lookup, so DuckDB
+    // wrote `a'b.csv` but our code tried to read `a''b.csv`. The two
+    // representations must stay distinct: `rawName` is the actual
+    // filename on DuckDB's MEMFS; `sqlName` is the SQL-escaped form.
+    const rawName = `tmp_export_${cellId}.csv`;
+    const sqlName = rawName.replace(/'/g, "''");
+    await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${sqlName}' (HEADER, DELIMITER ',')`);
+    return await readDuckDbFile(engine, rawName);
   }
   const parts: string[] = [];
   parts.push(result.columns.map(csvEscape).join(','));
@@ -201,10 +204,13 @@ async function csvBytes(engine: Engine, cellId: string, result: SqlResult): Prom
 
 async function parquetBytes(engine: Engine, cellId: string): Promise<Uint8Array> {
   const viewName = `cell_${cellId}`;
-  // Forward-pass L7: escape `'` — see csvBytes comment above.
-  const tmpName = `tmp_export_${cellId.replace(/'/g, "''")}.parquet`;
-  await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${tmpName}' (FORMAT PARQUET)`);
-  return await readDuckDbFile(engine, tmpName);
+  // Forward-pass L7 + codex review: rawName / sqlName must be distinct
+  // — see csvBytes comment above. DuckDB writes the file under
+  // `rawName`; `sqlName` only quotes inside the SQL string literal.
+  const rawName = `tmp_export_${cellId}.parquet`;
+  const sqlName = rawName.replace(/'/g, "''");
+  await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${sqlName}' (FORMAT PARQUET)`);
+  return await readDuckDbFile(engine, rawName);
 }
 
 async function readDuckDbFile(engine: Engine, name: string): Promise<Uint8Array> {

@@ -124,6 +124,28 @@ async function main() {
     );
   }
   if (await alreadyVendored()) {
+    // Code-review of v1.2.1..HEAD: re-verify on-disk hashes against the
+    // pin even on the alreadyVendored shortcut — closes the in-place
+    // tamper window that bypassed H6 otherwise.
+    if (!bootstrapping) {
+      for (const ext of EXTENSIONS) {
+        const filenames = [
+          `${ext.name}.duckdb_extension.wasm`,
+          ...ext.aliasFrom.map((a) => `${a}.duckdb_extension.wasm`),
+        ];
+        for (const filename of filenames) {
+          const expected = pinned[filename];
+          if (!expected) continue; // tolerate pin missing this alias
+          const onDisk = new Uint8Array(await readFile(resolve(DEST, SUB_DIR, filename)));
+          const actualHash = sha384(onDisk);
+          if (expected !== actualHash) {
+            throw new Error(
+              `on-disk hash mismatch for ${filename}\n  expected: ${expected}\n  got:      ${actualHash}\nvendored byte was tampered with. This is a supply-chain alert.`,
+            );
+          }
+        }
+      }
+    }
     console.log(`[naklidata] vendored DuckDB extensions already present (${SUB_DIR})`);
     return;
   }

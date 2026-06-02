@@ -660,12 +660,17 @@ export async function mountIcebergCatalog(
     }
     throw err;
   }
-  // Re-validate the catalog-returned metadata URL against the same
-  // scheme allowlist `mountIcebergTable` applies. A malicious or
-  // compromised catalog can otherwise return any URI (`file:///`,
-  // `http://internal/`, etc.) and DuckDB's iceberg_scan will fetch it.
-  // (Forward-pass H8, 2026-06-02.)
-  if (!/^https?:\/\/|^s3:\/\//i.test(metadataLocation)) {
+  // Re-validate the catalog-returned metadata URL. The intent (H8 and
+  // the user-typed-URL path in `mountIcebergTable`) is `https://` or
+  // `s3://` only. Codex review of v1.2.1..HEAD caught the original
+  // regex `^https?://|^s3://` — which permits BOTH `http://` and
+  // `https://`, undermining the whole point of the check: a malicious
+  // catalog returning `http://internal/...` slipped through.
+  // (Note: `mountIcebergTable` has the same `^https?://` regex on
+  // user-typed input; that path was the intentional "I'm using this
+  // for local testing" allowance. Catalog-returned URLs must be
+  // strictly https — the user didn't see them.)
+  if (!/^https:\/\/|^s3:\/\//i.test(metadataLocation)) {
     throw new MountError(
       `Iceberg catalog returned an unsupported metadata location (must be https:// or s3://): ${metadataLocation}`,
     );

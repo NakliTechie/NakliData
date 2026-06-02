@@ -156,10 +156,20 @@ async function buildShell() {
       const cacheVersion = scriptHash.replace(/[/+=]/g, '').slice(0, 12);
       const swPath = `${OUT_DIR}/sw.js`;
       const swSrc = await readFile(swPath, 'utf8');
-      const swOut = swSrc.replace(
-        /const CACHE_VERSION = ['"][^'"]*['"];/,
-        `const CACHE_VERSION = 'b${cacheVersion}';`,
-      );
+      // Code-review of v1.2.1..HEAD: use a global regex + assert
+      // exactly one match. If a second `CACHE_VERSION = '…'` ever
+      // sneaks into sw.js (debug log, comment with literal pattern),
+      // the original single-shot replace would silently miss it and
+      // ship a SW whose CACHE_NAME no longer matched the inline-script
+      // hash — defeating M12 entirely.
+      const cacheVersionRe = /const CACHE_VERSION = ['"][^'"]*['"];/g;
+      const matchCount = (swSrc.match(cacheVersionRe) ?? []).length;
+      if (matchCount !== 1) {
+        throw new Error(
+          `expected exactly 1 CACHE_VERSION declaration in sw.js, found ${matchCount}. Inspect public/sw.js.`,
+        );
+      }
+      const swOut = swSrc.replace(cacheVersionRe, `const CACHE_VERSION = 'b${cacheVersion}';`);
       await writeFile(swPath, swOut);
     }
     // Copy taxonomy bundle so the runtime loader can fetch /taxonomy/v0.1/*

@@ -100,6 +100,22 @@ async function main() {
     );
   }
   if (await alreadyVendored()) {
+    // Code-review of v1.2.1..HEAD: even when files are already present,
+    // verify their hashes against the pinned table BEFORE shortcutting.
+    // Without this, on-disk tampering between installs (e.g., editing a
+    // .wasm file in place) bypasses the H6 protection entirely.
+    if (!bootstrapping) {
+      for (const f of FILES) {
+        const onDisk = new Uint8Array(await readFile(resolve(DEST, f)));
+        const actualHash = sha384(onDisk);
+        const expected = pinned[f];
+        if (expected && expected !== actualHash) {
+          throw new Error(
+            `on-disk hash mismatch for ${f}\n  expected: ${expected}\n  got:      ${actualHash}\nvendored byte was tampered with after install. This is a supply-chain alert.`,
+          );
+        }
+      }
+    }
     console.log('[naklidata] vendored DuckDB-wasm already present');
     return;
   }

@@ -123,6 +123,17 @@ export function renderSqlCell(
     // Forward-pass L8: register a pending-mount sentinel that
     // `disposeSqlCellEditor` can flip if the cell is removed before
     // the chunk finishes loading.
+    //
+    // Code-review of v1.2.1..HEAD: also cancel any PRIOR token under
+    // this cell id before overwriting. Re-render-without-dispose
+    // (e.g., workbook tick) was previously leaving the OLD token's
+    // `cancelled` flag stuck at `false` — the OLD .then's identity
+    // check would see the new token and skip cleanup. The
+    // `editorMount.isConnected` check still caught the practical
+    // leak, but the cancel flag the comment advertised was dead in
+    // that path. This makes the documented intent actually true.
+    const prev = pendingMounts.get(cell.id);
+    if (prev) prev.cancelled = true;
     const mountToken = { cancelled: false };
     pendingMounts.set(cell.id, mountToken);
     void loadChunk('codemirror')
