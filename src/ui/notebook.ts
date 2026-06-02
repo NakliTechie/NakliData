@@ -34,6 +34,7 @@ import type {
   PivotCellState,
   SqlCellState,
 } from './cells/types.ts';
+import { detectRefIssue, refIssueMessage } from './notebook-graph.ts';
 import { notebookCss } from './notebook.css.ts';
 
 let _idSeq = 1;
@@ -227,6 +228,27 @@ LIMIT 100`,
     if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion'))
       return;
     const code = codeOverride ?? cell.code;
+    // Static @-graph check — catches self-references, cycles, and
+    // unknown @names before DuckDB sees them. The engine would
+    // otherwise surface an opaque "table cell_<id> not found" error
+    // that doesn't say which cell or why. We patch a clean error
+    // message and skip the run.
+    //
+    // Use the latest code (codeOverride) by mutating the in-memory
+    // cell view for the check — patchCell is async-via-notify, but
+    // the validator only reads `code` + `name`, so a synthetic
+    // copy keeps it pure.
+    const checkCells = this.state.cells.map((c) => (c.id === id ? { ...c, code } : c));
+    const issue = detectRefIssue(id, checkCells);
+    if (issue) {
+      this.patchCell(id, {
+        code,
+        status: 'error',
+        lastError: refIssueMessage(issue),
+        lastResult: null,
+      });
+      return;
+    }
     this.patchCell(id, { code, status: 'running', lastError: null });
     const ac = new AbortController();
     this.aborts.set(id, ac);
