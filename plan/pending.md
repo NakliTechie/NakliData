@@ -2,6 +2,13 @@
 
 Working list of features to consider, drawn from competitive recon. Items are tagged by status:
 
+> **2026-06-02 — v1.2.2 tagged.** 33 forward-pass findings + 9
+> self-review bugs closed across 9 commits. Detail in
+> `plan/forward-pass-2026-06-02.md` and `plan/v1.2.2-release-notes.md`.
+> New open items appended to "Audit follow-throughs" section at the
+> bottom of this file.
+
+
 - ✅ **shipped** — already in v1.0
 - 🗓️ **planned** — in spec or build order
 - 🆕 **new** — added from this research; not in spec yet
@@ -616,6 +623,58 @@ Full writeup in [enterprise-strategy.md](./enterprise-strategy.md). Phased:
 - **v2.x (edge).** Cloudflare Worker / AWS Lambda DuckDB deployment for users who don't want a long-running instance.
 
 ---
+
+## Audit follow-throughs (2026-06-02)
+
+Items surfaced by the v1.2.2 forward-pass / adversarial review that
+weren't in scope for the tag. None are blockers; ordered roughly by
+priority.
+
+- **Doc sync.** `STATUS.md` last updated v1.2.0 — needs the v1.2.2
+  pass (the security-and-hardening release). Per stop-checklist #5.
+- **DECISIONS log entries** for the audit work — at least the
+  load-bearing ones (lens auto-mount confirmation, postinstall
+  hash-pin protocol, bearer-token RFC 7235 charset, CSP defence
+  set, NL→SQL parser safety guarantees, two-track adversarial
+  review as standing gate). Run `/decide` to capture each.
+- **Spec amendments A19–A23** — formalise into
+  `plan/spec-amendments.md` if we want the audit changes to be
+  part of the spec contract.
+- **Lens-confirm modal Chrome runtime test.** Vitest + e2e cover the
+  example-bundle path (no prompt). The remote-source flow needs a
+  manual click-through that exercises the modal layout, focus
+  order, and Cancel-default-Enter-dismiss behaviour.
+- **Postinstall hash-mismatch end-to-end probe.** Static reasoning
+  + the script's own throw-on-mismatch path is the current proof.
+  A real "swap the bytes, re-run install, expect supply-chain
+  alert" probe would lock the H6 + adversarial-fix protection
+  end-to-end.
+
+### Audit "worth a look" follow-ups (W1–W3)
+
+Lower-confidence hunches from the forward-pass; verify before deciding
+to act:
+
+- **W1.** SRI verification on cross-origin DuckDB-wasm. We trust
+  `naklitechie.github.io` and `cdn.jsdelivr.net` by host (CSP
+  `script-src`), but no byte-level runtime check on the actual
+  bundle pulled. If the project relies on SRI, verify it's
+  computed and present in the script tags; if not, decide whether
+  to add it.
+- **W2.** `?lens=` back-button replay. `clearLensFromLocation()`
+  runs AFTER auto-mount fires; browser history may retain the
+  hash and re-trigger on back navigation. Test the back-button
+  flow.
+- **W3.** SW scope vs "Forget all". The "Forget all stored keys"
+  action clears IDB; does the SW cache also need unregistering so
+  the cached shell doesn't outlive the keys it referenced?
+
+### Tag-eligible follow-up
+
+- **v1.3.0 tag question.** All Critical + High audit findings now
+  closed. Open work is doc sync + the deferred Transformers.js
+  inference. A v1.3.0 jump would mark "everything from Wave 5+6
+  + the security hardening sweep" as a release boundary. Decide.
 
 ## Sources
 
