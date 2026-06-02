@@ -519,32 +519,37 @@ harder to exploit even if a future XSS slips through.
   innerHTML interpolation in `renderFooter` wraps with `escapeHtml`;
   `updateEngineStatus` keeps the raw assignment to `textContent`.
 
-### Batch B — Sidecar guardrails
+### Batch B — Sidecar guardrails ✅
 
 NL→SQL is the sidecar's most-dangerous response surface. Tighten now;
 recheck the eval harness for regression cases.
 
-- [ ] **H2** Extend `TABLE_REF_REGEX` to catch comma-join + identifiers
-  after `,` within FROM clause (`src/core/sidecar/client.ts:653`).
-  **[test: vitest with `SELECT * FROM allowed, secret_table`.]**
-- [ ] **H3** Add `INSTALL|LOAD|SET|RESET|USE` to `WRITE_KEYWORDS`
-  (`src/core/sidecar/client.ts:646`). Consider stronger gate: split on
-  `;`, each statement starts with `SELECT|WITH`. **[test: vitest case
-  per added keyword.]**
-- [ ] **M3** Validate custom-endpoint URL: parse with `new URL`, reject
-  non-https, surface resolved host, one-time confirmation
-  (`settings-modal.ts:302`, `providers/custom-openai.ts:34`).
-- [ ] **M4** Scrub Bearer/sk-/sk-ant- patterns from error body slice in
-  all three providers (`providers/{custom-openai,openai,anthropic}.ts`).
-- [ ] **M5** Trim+lowercase symmetrically in summarise-result
-  hallucination guard (`client.ts:585`). **[test: vitest with
-  trailing-space column name.]**
-- [ ] **M6** Filter `buildSchemaHint` by per-table key prefix
-  (`src/main.ts:2005`).
-- [ ] **L3** Surface "Set up local model" UX on `'no-provider'` error
-  when provider is `'local'`.
-- [ ] **L4** Throw `'unsupported'` for unknown provider in
-  `defaultTransport` (`client.ts:96-103`).
+- [x] **H2** Replaced `TABLE_REF_REGEX` with `extractFromTables` —
+  walks every FROM/JOIN window and captures all comma-separated
+  identifiers within. 4 vitest cases lock in
+  (`sidecar-parser-hardening.test.ts`).
+- [x] **H3** Added `INSTALL|LOAD|SET|RESET|USE` to `WRITE_KEYWORDS`
+  + new multi-statement gate `/;\s*\S/` catches anything else.
+  7 vitest cases (one per keyword + trailing-`;` happy path).
+- [x] **M3** Custom-endpoint URL validation: `new URL` parse + reject
+  non-`https:` at both UI (live inspector showing resolved host /
+  warning red) and use site (`callCustomOpenAI` hard rejects before
+  fetch).
+- [x] **M4** Created `providers/redact.ts` — scrubs `Bearer …`, `sk-…`,
+  `sk-ant-…`, `x-api-key: …` from response bodies. Wired into all
+  three providers' HTTP/json.error paths.
+- [x] **M5** `parseSummariseResultResponse` now applies
+  `.trim().toLowerCase()` symmetrically to both `allowed` set and `ref`
+  lookup. 3 vitest cases including a trailing-space column name.
+- [x] **M6** `buildSchemaHint` now filters by `${src.id}::${t.id}::`
+  key prefix — each table's hint only includes its own columns.
+- [x] **L3** Both `runExplainError` and `runSummariseResult` error
+  branches now show "Open Settings" for `'no-provider'` (covers the
+  local-no-generator + unknown-provider cases) in addition to
+  `'no-key'`.
+- [x] **L4** `defaultTransport` now requires an explicit
+  `req.provider === 'openai'` match before routing to OpenAI; falls
+  through to a thrown `SidecarError('Unsupported sidecar provider …')`.
 
 ### Batch C — Lens link safety / SSRF
 
@@ -643,6 +648,18 @@ Independent surface; can run in parallel with B.
 - 2026-06-02: forward pass complete via 5 parallel subagents. 1 Critical,
   8 High, 15 Medium, 9 Low, 0 Stray = 33 actionable findings. Workplan
   created. Keystone is **Batch A — XSS + CSP hardening** (C1 + H7 + L6).
+- 2026-06-02: **Batch B landed.** H2, H3, M3, M4, M5, M6, L3, L4 fixed.
+  - H2 + H3: NL→SQL parser now uses a positional `extractFromTables`
+    walker (handles SQL-89 comma-join + quoted idents + alias) plus
+    multi-statement gate. 22 new vitest cases.
+  - M3: settings-modal grew a live inspector below the URL field
+    (shows resolved host on https; red warning on non-https or
+    unparseable). Use-site (`callCustomOpenAI`) hard rejects too.
+  - M4: new shared `providers/redact.ts` scrubs Bearer / sk-* /
+    sk-ant-* / x-api-key from response bodies before they reach
+    SidecarError messages.
+  - M5/M6/L3/L4: small targeted fixes.
+  - Gates: 399 vitest (+22) / 51/51 e2e / smoke / check / bundle 524.0 KB.
 - 2026-06-02: **Batch A landed.** C1, H7, L6 fixed.
   - C1 vitest: 7 cases covering hostile column/table/typeId, ampersand
     no-double-escape, multi-row separator, undefined refs.

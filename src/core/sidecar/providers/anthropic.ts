@@ -5,6 +5,7 @@
 // browser-origin calls. The key travels as `x-api-key`.
 
 import { SidecarError } from '../types.ts';
+import { redactSecrets } from './redact.ts';
 
 export interface AnthropicCallOpts {
   apiKey: string;
@@ -48,11 +49,16 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<string> {
       throw new SidecarError('Anthropic rate-limited the request.', 'rate-limit');
     }
     const text = await res.text();
-    throw new SidecarError(`Anthropic HTTP ${res.status}: ${text.slice(0, 240)}`, 'http');
+    // Scrub Bearer/sk-/x-api-key tokens — some debug proxies echo the
+    // Authorization or x-api-key header on error. (Forward-pass M4.)
+    throw new SidecarError(
+      `Anthropic HTTP ${res.status}: ${redactSecrets(text.slice(0, 240))}`,
+      'http',
+    );
   }
   const json = (await res.json()) as AnthropicResponse;
   if (json.error) {
-    throw new SidecarError(`Anthropic: ${json.error.message}`, 'http');
+    throw new SidecarError(`Anthropic: ${redactSecrets(json.error.message)}`, 'http');
   }
   // Concatenate text blocks; ignore tool_use / image blocks (we don't ask for them).
   const text = (json.content ?? [])

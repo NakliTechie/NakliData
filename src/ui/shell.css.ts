@@ -745,6 +745,22 @@ button {
   color: var(--text-muted);
   font-style: italic;
 }
+/* Forward-pass M3 (2026-06-02): inline host + warning under the
+   custom-endpoint URL field. Host chip is green (matches the inline
+   "ok" cue elsewhere); warning is red and stays visible until the
+   URL is valid. */
+.settings-endpoint-host {
+  margin-top: var(--space-2);
+  font-size: ${Type.size.xs};
+  color: var(--ok, #5a8f4a);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.settings-endpoint-warn {
+  margin-top: var(--space-2);
+  font-size: ${Type.size.xs};
+  color: var(--danger);
+}
 
 /* Wave 2 slice 3a — Mount Iceberg table. Same modal width as
    mount-url-modal (fewer fields than mount-s3); body uses .mount-s3-body

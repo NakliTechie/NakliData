@@ -14,6 +14,7 @@
 // browser's localhost exception (which doesn't apply to CSP).
 
 import { SidecarError } from '../types.ts';
+import { redactSecrets } from './redact.ts';
 
 export interface CustomOpenAICallOpts {
   /** The full URL to POST chat completions to (typically `<base>/v1/chat/completions`). */
@@ -44,6 +45,26 @@ export async function callCustomOpenAI(opts: CustomOpenAICallOpts): Promise<stri
       'no-provider',
     );
   }
+  // Hard reject anything that isn't a parseable https URL. CSP would
+  // already block non-https, but failing here gives a clearer message
+  // and prevents a malformed URL from confusing `resolveChatCompletionsUrl`
+  // — which appends path segments to whatever string it's handed.
+  // (Forward-pass M3, 2026-06-02.)
+  let parsed: URL;
+  try {
+    parsed = new URL(opts.endpointUrl.trim());
+  } catch {
+    throw new SidecarError(
+      `Custom-endpoint URL is not a valid URL: "${opts.endpointUrl}". Fix it under Settings → AI sidecar.`,
+      'no-provider',
+    );
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new SidecarError(
+      `Custom-endpoint URL must use https:// (got "${parsed.protocol}"). Fix it under Settings → AI sidecar.`,
+      'no-provider',
+    );
+  }
   const url = resolveChatCompletionsUrl(opts.endpointUrl.trim());
   const body = {
     model: opts.model,
@@ -67,11 +88,20 @@ export async function callCustomOpenAI(opts: CustomOpenAICallOpts): Promise<stri
       throw new SidecarError('Custom endpoint rate-limited the request.', 'rate-limit');
     }
     const text = await safeReadText(res);
-    throw new SidecarError(`Custom endpoint HTTP ${res.status}: ${text.slice(0, 240)}`, 'http');
+    // Scrub Bearer/sk- tokens — most likely echo source given the
+    // custom-endpoint provider exists specifically for local proxies +
+    // misconfigured reverse-proxy setups. (Forward-pass M4.)
+    throw new SidecarError(
+      `Custom endpoint HTTP ${res.status}: ${redactSecrets(text.slice(0, 240))}`,
+      'http',
+    );
   }
   const json = (await res.json()) as ChatCompletionsResponse;
   if (json.error) {
-    throw new SidecarError(`Custom endpoint: ${json.error.message ?? 'unknown error'}`, 'http');
+    throw new SidecarError(
+      `Custom endpoint: ${redactSecrets(json.error.message ?? 'unknown error')}`,
+      'http',
+    );
   }
   const text = json.choices?.[0]?.message?.content ?? '';
   if (!text) throw new SidecarError('Custom endpoint returned no text content.', 'parse');

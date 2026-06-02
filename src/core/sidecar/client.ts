@@ -93,13 +93,24 @@ const defaultTransport: SidecarTransport = (req) => {
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
-  return callOpenAI({
-    apiKey: req.apiKey,
-    model: req.model,
-    system: req.system,
-    user: req.user,
-    ...(req.signal ? { signal: req.signal } : {}),
-  });
+  if (req.provider === 'openai') {
+    return callOpenAI({
+      apiKey: req.apiKey,
+      model: req.model,
+      system: req.system,
+      user: req.user,
+      ...(req.signal ? { signal: req.signal } : {}),
+    });
+  }
+  // Defence-in-depth: refuse to silently route an unknown provider to
+  // OpenAI. Corrupted settings (`provider: 'evil'`) would otherwise
+  // ship the user's OpenAI key + prompt to api.openai.com. Throw
+  // explicitly so a typo / settings-migration bug surfaces loudly.
+  // (Forward-pass L4, 2026-06-02.)
+  throw new SidecarError(
+    `Unsupported sidecar provider: ${String(req.provider)}. Reset Settings → AI sidecar.`,
+    'no-provider',
+  );
 };
 
 export async function dispatchJob(
@@ -582,7 +593,13 @@ export function parseSummariseResultResponse(
   // column in the result. If the model invented one, drop the entire
   // observation: a card pointing at a nonexistent column is worse than
   // no card.
-  const allowed = new Set(columns.map((c) => c.toLowerCase()));
+  //
+  // Trim+lowercase both sides — a column literally named `"total "`
+  // (trailing space, from `SELECT … AS "total ";`) was previously
+  // added to `allowed` as `"total "`, then a perfectly-valid backtick
+  // ref to `total` failed the check and the observation got dropped
+  // as hallucinated. (Forward-pass M5, 2026-06-02.)
+  const allowed = new Set(columns.map((c) => c.trim().toLowerCase()));
   const refMatcher = /`([^`]+)`/g;
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
@@ -643,14 +660,79 @@ export function buildNlToSqlPrompt(job: NlToSqlJob): { system: string; user: str
   return { system: NL_TO_SQL_SYSTEM, user };
 }
 
+// Write/DDL/session-mutating keyword set. The model is INSTRUCTED to
+// emit SELECT-only, but a confused or hostile response can include
+// statements that — once the user clicks Run — mutate DuckDB session
+// state in ways NL→SQL has no business touching:
+//   - INSTALL / LOAD: pull in extensions, broaden the engine's network
+//     reach (e.g. `LOAD httpfs` then `read_csv('https://attacker/…')`).
+//   - SET / RESET: change session options (e.g.
+//     `SET enable_external_access = true`) — a single SET in a
+//     multi-statement response permanently weakens the session.
+//   - USE: switch schemas.
+// Forward-pass H3 (2026-06-02) — added INSTALL|LOAD|SET|RESET|USE.
 const WRITE_KEYWORDS =
-  /\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|CALL|ATTACH|DETACH|GRANT|REVOKE|COPY|EXPORT|VACUUM|PRAGMA)\b/i;
+  /\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|CALL|ATTACH|DETACH|GRANT|REVOKE|COPY|EXPORT|VACUUM|PRAGMA|INSTALL|LOAD|SET|RESET|USE)\b/i;
 
-// Capture the identifier that follows FROM or JOIN — either double-quoted
-// or a bare snake_case-ish token. Subselects / parens / aliases are
-// handled by NOT capturing the rest of the clause; we only care about
-// what comes immediately after the keyword.
-const TABLE_REF_REGEX = /\b(?:FROM|JOIN)\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
+// Identifier the parser is willing to recognise after FROM / JOIN / a
+// from-clause comma. Either double-quoted (capture group 1) or a bare
+// snake_case-ish token (group 2). Used inline by extractFromTables.
+const IDENT_REGEX = /^\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/;
+
+// Words that terminate a FROM clause's comma-list. Once we hit one of
+// these (or the end of string / closing paren / `;`), stop walking the
+// from-list. Subsequent FROM / JOIN occurrences open fresh from-windows.
+const FROM_LIST_TERMINATOR =
+  /^\s*(?:WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|JOIN|LEFT|RIGHT|INNER|FULL|OUTER|CROSS|ON|USING|QUALIFY|WINDOW|;|\))/i;
+
+/**
+ * Walk every FROM / JOIN window in a SQL statement and return the table
+ * identifiers each window references — including the SQL-89 comma-join
+ * form (`FROM a, b, c`).
+ *
+ * The original `\b(?:FROM|JOIN)\s+<ident>` regex only captured the FIRST
+ * identifier after each keyword, so `FROM allowed, secret_table` passed
+ * the hallucination guard with only `allowed` checked — `secret_table`
+ * slipped through unvalidated. (Forward-pass H2, 2026-06-02.)
+ *
+ * Exported for unit tests.
+ */
+export function extractFromTables(sql: string): string[] {
+  const found: string[] = [];
+  const fromRe = /\b(?:FROM|JOIN)\b/gi;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: regex.exec loop.
+  while ((m = fromRe.exec(sql)) !== null) {
+    let pos = m.index + m[0].length;
+    // Walk comma-separated identifiers from `pos`. Stop when the
+    // upcoming token is a terminator keyword, a paren, or end-of-string.
+    while (pos < sql.length) {
+      const rest = sql.slice(pos);
+      if (FROM_LIST_TERMINATOR.test(rest)) break;
+      const identMatch = IDENT_REGEX.exec(rest);
+      if (!identMatch) break;
+      const ident = (identMatch[1] ?? identMatch[2] ?? '').trim();
+      if (ident) found.push(ident);
+      pos += identMatch[0].length;
+      // Skip an optional alias (`t AS alias` or `t alias`). AS is
+      // case-insensitive; the bare-alias form is also allowed.
+      const aliasMatch = /^\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)/i.exec(sql.slice(pos));
+      if (aliasMatch) {
+        // Only consume as alias if NOT itself a terminator keyword.
+        const candidate = aliasMatch[1]?.toUpperCase() ?? '';
+        const kw =
+          /^(WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|JOIN|LEFT|RIGHT|INNER|FULL|OUTER|CROSS|ON|USING|QUALIFY|WINDOW|AS)$/i;
+        if (!kw.test(candidate)) {
+          pos += aliasMatch[0].length;
+        }
+      }
+      const commaMatch = /^\s*,/.exec(sql.slice(pos));
+      if (!commaMatch) break;
+      pos += commaMatch[0].length;
+    }
+  }
+  return found;
+}
 
 export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSqlResponse {
   const stripped = raw
@@ -667,15 +749,24 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   if (!headMatcher.test(stripped)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
-  // Reject any write/DDL keyword anywhere in the body. (A SELECT that
-  // references a column literally named `delete` is rare; if it happens
-  // we'll false-reject and the user can edit.)
+  // Reject any write/DDL/session-mutating keyword anywhere in the body.
+  // (A SELECT that references a column literally named `delete` is rare;
+  // if it happens we false-reject and the user can edit.)
   if (WRITE_KEYWORDS.test(stripped)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
-  // Hallucination guard — every table referenced by FROM/JOIN must be
-  // in tableNames (case-insensitive). CTE names defined via WITH are
-  // explicitly allowed: pull them out first.
+  // Reject multi-statement responses. The model is instructed to emit a
+  // single statement, but a confused response might produce
+  // `SELECT 1; SET enable_external_access=true; SELECT 1;`. WRITE_KEYWORDS
+  // catches SET specifically, but the broader multi-statement gate
+  // catches anything else we haven't enumerated. (Forward-pass H3.)
+  if (/;\s*\S/.test(stripped)) {
+    return { kind: 'nl-to-sql', sql: '' };
+  }
+  // Hallucination guard — every table referenced by FROM/JOIN (including
+  // the SQL-89 comma-join form `FROM a, b, c`) must be in tableNames
+  // (case-insensitive). CTE names defined via WITH are explicitly
+  // allowed: pull them out first.
   const cteNames = new Set<string>();
   // Match `WITH name AS (...)` and `, name AS (...)` — naive but
   // covers the common case. Recursive CTEs (`WITH RECURSIVE name AS`)
@@ -688,12 +779,9 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
     if (name) cteNames.add(name);
   }
   const allowed = new Set(tableNames.map((n) => n.toLowerCase()));
-  let tm: RegExpExecArray | null;
-  TABLE_REF_REGEX.lastIndex = 0;
-  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
-  while ((tm = TABLE_REF_REGEX.exec(stripped)) !== null) {
-    const refRaw = (tm[1] ?? tm[2] ?? '').trim();
-    if (!refRaw) continue;
+  // extractFromTables walks every FROM/JOIN window and returns ALL
+  // comma-separated identifiers inside each — closing the H2 gap.
+  for (const refRaw of extractFromTables(stripped)) {
     const ref = refRaw.toLowerCase();
     // Skip CTE references and known cell-view shorthands (cell_<id>).
     if (cteNames.has(ref)) continue;

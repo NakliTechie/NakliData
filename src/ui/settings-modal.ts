@@ -75,7 +75,57 @@ async function refresh(): Promise<void> {
   );
   if (customRow) customRow.hidden = provider !== 'custom';
   if (customInput) customInput.value = settings.sidecarCustomEndpoint;
+  if (provider === 'custom') updateEndpointInspector(overlay, settings.sidecarCustomEndpoint);
   await renderProviderBlocks(overlay, settings);
+}
+
+/**
+ * Surface the resolved host + a warning when the typed URL is not a
+ * valid `https:` endpoint.
+ *
+ * Threat the warning addresses (Forward-pass M3, 2026-06-02): the user
+ * is about to ship their BYOK key + every prompt context to whatever
+ * URL this field holds. A typo (`api.opena1.com`) or a
+ * paste-from-clipboard-with-instructions attack would otherwise leak
+ * keys silently — CSP `connect-src https:` permits any HTTPS origin.
+ *
+ * Implementation: empty input → no warning, no host chip. Bad URL or
+ * non-https → red warning, no host chip. Good URL → green host chip
+ * showing the resolved hostname so the user can spot drift at a glance.
+ */
+function updateEndpointInspector(overlay: HTMLElement, value: string): void {
+  const hostEl = overlay.querySelector<HTMLElement>('[data-region="settings-endpoint-host"]');
+  const warnEl = overlay.querySelector<HTMLElement>('[data-region="settings-endpoint-warn"]');
+  if (!hostEl || !warnEl) return;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    hostEl.textContent = '';
+    hostEl.hidden = true;
+    warnEl.textContent = '';
+    warnEl.hidden = true;
+    return;
+  }
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) {
+    hostEl.hidden = true;
+    warnEl.textContent = 'Not a valid URL. Your key will not be sent until this is fixed.';
+    warnEl.hidden = false;
+    return;
+  }
+  if (parsed.protocol !== 'https:') {
+    hostEl.hidden = true;
+    warnEl.textContent = `Only https:// endpoints are accepted (got "${parsed.protocol}"). The browser's CSP will reject this URL.`;
+    warnEl.hidden = false;
+    return;
+  }
+  hostEl.textContent = `Will POST to: ${parsed.host}${parsed.pathname.replace(/\/+$/, '')}`;
+  hostEl.hidden = false;
+  warnEl.hidden = true;
 }
 
 async function renderProviderBlocks(overlay: HTMLElement, settings: Settings): Promise<void> {
@@ -226,6 +276,8 @@ function renderModal(): HTMLElement {
           <label class="settings-field" data-region="settings-custom-endpoint-row" hidden>
             <span>Custom endpoint URL <em>(OpenAI-compatible — local llamafile, vLLM, Ollama, LM Studio)</em></span>
             <input type="url" data-action="settings-custom-endpoint" placeholder="https://my-llm.example.com" autocomplete="off" spellcheck="false" />
+            <div class="settings-endpoint-host" data-region="settings-endpoint-host"></div>
+            <div class="settings-endpoint-warn" data-region="settings-endpoint-warn" hidden></div>
             <div class="settings-test-row">
               <button class="btn btn-ghost" data-action="settings-test-custom">Test connection</button>
               <span class="settings-test-result" data-region="settings-test-result"></span>
@@ -300,6 +352,11 @@ function renderModal(): HTMLElement {
     }
     if (target.dataset.action === 'settings-custom-endpoint') {
       await patchSettings({ sidecarCustomEndpoint: target.value });
+      // Surface host + scheme inline so the user can spot a typo / pasted
+      // clipboard before clicking Test or making a real call. Forward-pass
+      // M3 (2026-06-02) — silent send to e.g. `api.opena1.com` is the
+      // BYOK-key-exfil risk we're closing.
+      updateEndpointInspector(overlay, target.value);
     }
   });
   // Stash at module scope so closeSettingsModal() can detach it

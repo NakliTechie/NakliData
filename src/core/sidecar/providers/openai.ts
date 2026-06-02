@@ -5,6 +5,7 @@
 // api.openai.com — no special header needed.
 
 import { SidecarError } from '../types.ts';
+import { redactSecrets } from './redact.ts';
 
 export interface OpenAICallOpts {
   apiKey: string;
@@ -44,11 +45,16 @@ export async function callOpenAI(opts: OpenAICallOpts): Promise<string> {
       throw new SidecarError('OpenAI rate-limited the request.', 'rate-limit');
     }
     const text = await res.text();
-    throw new SidecarError(`OpenAI HTTP ${res.status}: ${text.slice(0, 240)}`, 'http');
+    // Scrub Bearer/sk- tokens — debug proxies sometimes echo the
+    // Authorization header on error. (Forward-pass M4.)
+    throw new SidecarError(
+      `OpenAI HTTP ${res.status}: ${redactSecrets(text.slice(0, 240))}`,
+      'http',
+    );
   }
   const json = (await res.json()) as OpenAIResponse;
   if (json.error) {
-    throw new SidecarError(`OpenAI: ${json.error.message}`, 'http');
+    throw new SidecarError(`OpenAI: ${redactSecrets(json.error.message)}`, 'http');
   }
   const text = json.choices?.[0]?.message?.content ?? '';
   if (!text) throw new SidecarError('OpenAI returned no text content.', 'parse');

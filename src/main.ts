@@ -1997,14 +1997,23 @@ async function pickSingleFile(): Promise<File | null> {
  * over BYOK on every Explain click.
  */
 function buildSchemaHint(): string {
+  // Per-table column listing. Assignment keys are
+  // `${sourceId}::${tableId}::${columnName}` (see schema-panel
+  // `assignmentKey`); filter by the source+table prefix so each table's
+  // hint only includes ITS columns. (Forward-pass M6, 2026-06-02: the
+  // original walker filtered on `a.columnName && t.name`, which is
+  // always true for any assigned column, so every table got the WHOLE
+  // workbook's column list concatenated — duplicated noise that
+  // degraded explain-error suggestions.)
   const wb = getWorkbook().get();
   const lines: string[] = [];
   let tables = 0;
   outer: for (const src of wb.sources) {
     for (const t of src.tables) {
-      const cols = Object.values(wb.assignments)
-        .filter((a) => a.columnName && t.name)
-        .map((a) => a.columnName)
+      const prefix = `${src.id}::${t.id}::`;
+      const cols = Object.entries(wb.assignments)
+        .filter(([key, a]) => key.startsWith(prefix) && a.columnName)
+        .map(([, a]) => a.columnName)
         .slice(0, 12);
       const tableLine =
         cols.length > 0 ? `${t.name}: ${cols.join(', ')}` : `${t.name}: (columns unmapped)`;
@@ -2063,7 +2072,10 @@ async function runExplainError(engine: Engine, cellId: string): Promise<void> {
     const msg =
       err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
     mount.innerHTML = `<div class="cell-sidecar-error">Sidecar: ${escapeText(msg)}</div>`;
-    if (err instanceof SidecarError && err.kind === 'no-key') {
+    if (err instanceof SidecarError && (err.kind === 'no-key' || err.kind === 'no-provider')) {
+      // 'no-provider' covers the 'local' provider with no generator
+      // loaded, AND the (defence-in-depth) unknown-provider case from
+      // sidecar/client.ts. Forward-pass L3+L4 (2026-06-02).
       mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
     }
   }
@@ -2147,7 +2159,7 @@ async function runSummariseResult(engine: Engine, cellId: string): Promise<void>
     const msg =
       err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
     mount.innerHTML = `<div class="cell-sidecar-error">Sidecar: ${escapeText(msg)}</div>`;
-    if (err instanceof SidecarError && err.kind === 'no-key') {
+    if (err instanceof SidecarError && (err.kind === 'no-key' || err.kind === 'no-provider')) {
       mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
     }
   }
