@@ -62,15 +62,15 @@ function renderModal(opts: OpenNlToSqlOpts): HTMLElement {
     <div class="schema-graph-modal nl-to-sql-modal">
       <div class="schema-graph-header">
         <strong>Ask the sidecar to write SQL</strong>
-        <span class="schema-graph-status" data-region="nl-status">${escapeHtml(tableSummary)}</span>
+        <span class="schema-graph-status" data-region="nl-status" role="status" aria-live="polite">${escapeHtml(tableSummary)}</span>
         <button class="btn btn-ghost schema-graph-close" data-action="close-nl-to-sql" aria-label="Close">
           ${iconSvg('x', 14)}
         </button>
       </div>
       <div class="nl-to-sql-body">
         <div class="settings-field">
-          <span>Question</span>
-          <textarea data-nl-field="question" rows="3" placeholder="Top vendors by total amount last quarter"></textarea>
+          <label for="nl-to-sql-question">Question</label>
+          <textarea id="nl-to-sql-question" data-nl-field="question" rows="3" placeholder="Top vendors by total amount last quarter"></textarea>
         </div>
         <div class="settings-actions" style="margin-top:8px;">
           <button class="btn btn-primary" data-action="nl-generate" ${opts.tables.length === 0 ? 'disabled' : ''}>
@@ -78,8 +78,8 @@ function renderModal(opts: OpenNlToSqlOpts): HTMLElement {
           </button>
         </div>
         <div class="settings-field" style="margin-top:12px;">
-          <span>Generated SQL (review before running)</span>
-          <pre data-region="nl-result" style="white-space:pre-wrap;font-family:var(--font-mono);background:var(--surface-alt);border-left:3px solid var(--accent);padding:8px 12px;border-radius:4px;min-height:80px;margin:0;">(nothing yet — click Generate)</pre>
+          <label for="nl-to-sql-result">Generated SQL (review before running)</label>
+          <pre id="nl-to-sql-result" data-region="nl-result" role="region" aria-live="polite" aria-label="Generated SQL output" style="white-space:pre-wrap;font-family:var(--font-mono);background:var(--surface-alt);border-left:3px solid var(--accent);padding:8px 12px;border-radius:4px;min-height:80px;margin:0;">(nothing yet — click Generate)</pre>
         </div>
         <div class="settings-actions" style="margin-top:8px;">
           <button class="btn btn-primary" data-action="nl-insert" disabled>Insert as new SQL cell</button>

@@ -23,8 +23,12 @@ export function renderInputCell(cell: InputCellState, handlers: CellHandlers): H
   el.dataset.cellKind = 'input';
 
   const labelText = (cell.label ?? cell.name ?? '(unnamed input)').trim();
+  // Stable widget id so the visual <label> can associate with the
+  // widget input via `for`. Per-cell so multiple input cells don't
+  // collide.
+  const widgetId = `input-widget-${cell.id}`;
   const nameWarn = !cell.name?.trim()
-    ? '<span class="cell-input-warn" title="An input needs a @name so downstream SQL can reference it.">⚠ no name</span>'
+    ? '<span class="cell-input-warn" role="status" aria-live="polite" title="An input needs a @name so downstream SQL can reference it.">⚠ no name</span>'
     : '';
 
   el.innerHTML = `
@@ -48,8 +52,8 @@ export function renderInputCell(cell: InputCellState, handlers: CellHandlers): H
       </div>
     </div>
     <div class="cell-input-body" data-region="input-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <label style="font-size:13px;color:var(--text);">${escapeHtml(labelText)}:</label>
-      <div data-region="input-widget" style="flex:1 1 auto;min-width:200px;"></div>
+      <label for="${widgetId}" style="font-size:13px;color:var(--text);">${escapeHtml(labelText)}:</label>
+      <div data-region="input-widget" data-widget-id="${widgetId}" style="flex:1 1 auto;min-width:200px;"></div>
     </div>
   `;
 
@@ -83,11 +87,16 @@ export function renderInputCell(cell: InputCellState, handlers: CellHandlers): H
 
 function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHandlers): void {
   mount.innerHTML = '';
+  // Set the id on the first widget element so the visual <label
+  // for="input-widget-<cellId>"> in the cell body associates with it
+  // for screen-reader users. (A11y review.)
+  const widgetId = mount.dataset.widgetId ?? '';
   if (cell.inputType === 'select') {
     // Two regions: the value <select> + an inline options-editor.
     const sel = document.createElement('select');
     sel.style.cssText = 'font-size:13px;min-width:160px;padding:4px 8px;';
     sel.setAttribute('aria-label', 'Selected value');
+    if (widgetId) sel.id = widgetId;
     const options = cell.options.length > 0 ? cell.options : [''];
     for (const opt of options) {
       const o = document.createElement('option');
@@ -132,6 +141,7 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
   input.style.cssText =
     'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;min-width:200px;font-family:var(--font-mono);';
   input.setAttribute('aria-label', cell.label ?? cell.name ?? 'Input value');
+  if (widgetId) input.id = widgetId;
   if (cell.inputType === 'number') input.inputMode = 'decimal';
   const fireValue = () => handlers.onChange(cell.id, { value: input.value });
   input.addEventListener('input', fireValue);

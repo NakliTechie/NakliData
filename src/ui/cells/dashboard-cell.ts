@@ -49,14 +49,17 @@ export function renderDashboardCell(
   const items: string[] = Array.isArray(cell.items) ? cell.items : [];
   const columns = Math.min(4, Math.max(1, Number(cell.columns) || 2));
 
+  // Per-cell ids so the visual "Columns" label associates with the
+  // columns input via `for=` (a11y review).
+  const colsId = `dash-cols-${cell.id}`;
   el.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">DASHBOARD</span>
       <input class="cell-name" data-region="cell-name" value="${escapeAttr(cell.name ?? '')}"
              placeholder="@name (optional)" aria-label="Dashboard name"
              style="border:0;background:transparent;width:140px;outline:none;font-family:var(--font-mono);font-size:12px;" />
-      <label style="font-size:12px;color:var(--text-muted);">Columns</label>
-      <input data-region="dashboard-cols" type="number" min="1" max="4" value="${columns}" aria-label="Dashboard columns" style="width:48px;font-size:12px;padding:2px 6px;" />
+      <label for="${colsId}" style="font-size:12px;color:var(--text-muted);">Columns</label>
+      <input id="${colsId}" data-region="dashboard-cols" type="number" min="1" max="4" value="${columns}" aria-label="Dashboard columns" style="width:48px;font-size:12px;padding:2px 6px;" />
       <input data-region="dashboard-items" type="text" placeholder="comma-separated cell names" value="${escapeAttr(items.join(', '))}" aria-label="Embedded cell names" style="flex:1 1 auto;min-width:200px;font-size:12px;padding:2px 8px;font-family:var(--font-mono);" />
       <div class="cell-actions">
         <button class="btn btn-ghost" data-action="cell-delete" title="Delete cell" aria-label="Delete cell">
