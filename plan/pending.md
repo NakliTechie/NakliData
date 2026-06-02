@@ -192,6 +192,18 @@ funnel summaries), NOT raw event rows. Findings:
   surface, DAU instantiation + run-all renders a chart cleanly. Wave 4
   has its first end-to-end evidence on real raw events.
 
+**Audit investigation (closed 2026-05-31):** the forward-pass agent
+that reviewed today's commits flagged a possible CM6 EditorView race —
+hypothesis was that many workbook re-renders detach the editor DOM,
+eventually freezing keyboard input. `scripts/probe-cm6-survival.mjs`
+stress-tests this: boot, mount, type, fire 500 workbook ticks (via
+column-profile toggle), type more, run. Result: editor stays
+connected, `.textContent` survives, run produces correct output, zero
+console errors. Conclusion: the `cmInstances` registry + `existing
+.domNode()` re-append pattern correctly survives re-renders. CM6
+tolerates re-parenting. The probe stays in `scripts/` as a diagnostic
+to run if a user ever reports a freeze symptom.
+
 ### Wave 5 — borrowed-from-the-giants (proposed)
 
 **Pitch:** "Take the ergonomic patterns Databricks / Snowflake / Microsoft Fabric have proven, drop them into our workbench shape."
