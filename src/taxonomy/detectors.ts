@@ -136,11 +136,19 @@ function rangeNumeric(spec: DetectorSpec, sample: ColumnSample): DetectorResult 
     }
   }
   if (parsed === 0) return { score: 0, applicable: true, evidence: 'no numeric values' };
-  const ratio = inRange / sample.values.length;
+  // Forward-pass M9 (2026-06-02): denominator is now `parsed`, not
+  // `sample.values.length`. A column where half the values are
+  // string placeholders ("N/A", "—") could not score above 0.5 even
+  // when 100% of the NUMERIC values were in range — depressing scores
+  // for gst_rate / gst_state_code / hsn_code on real-world data with
+  // occasional non-numeric noise. Evidence keeps the parsed-vs-total
+  // split visible so a low score for low-coverage columns is still
+  // detectable.
+  const ratio = inRange / parsed;
   return {
     score: ratio,
     applicable: true,
-    evidence: `in [${min}, ${max}]: ${(ratio * 100).toFixed(0)}% (${inRange}/${sample.values.length})`,
+    evidence: `in [${min}, ${max}]: ${(ratio * 100).toFixed(0)}% of numeric values (${inRange}/${parsed} parsed; ${sample.values.length} total)`,
   };
 }
 

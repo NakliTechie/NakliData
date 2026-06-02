@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type PivotComputed, computePivot } from '../src/ui/cells/pivot-cell.ts';
+import { type PivotComputed, computePivot, sortKeys } from '../src/ui/cells/pivot-cell.ts';
 
 type Row = Record<string, unknown>;
 
@@ -114,5 +114,36 @@ describe('computePivot', () => {
     expect(piv.rowKeys).toEqual([]);
     expect(piv.colKeys).toEqual([]);
     expect(piv.grandTotal).toBe(0);
+  });
+});
+
+describe('sortKeys — forward-pass L5', () => {
+  it('sorts all-numeric keys numerically', () => {
+    expect(sortKeys(['10', '2', '1'])).toEqual(['1', '2', '10']);
+    expect(sortKeys(['100', '20', '3'])).toEqual(['3', '20', '100']);
+  });
+
+  it('sorts floats correctly', () => {
+    expect(sortKeys(['1.5', '0.5', '2.5'])).toEqual(['0.5', '1.5', '2.5']);
+  });
+
+  it('falls back to locale-aware string compare when ANY key is non-numeric', () => {
+    expect(sortKeys(['Acharya', 'Bharat'])).toEqual(['Acharya', 'Bharat']);
+    expect(sortKeys(['Acharya', '10', 'Bharat'])).toEqual(['10', 'Acharya', 'Bharat']);
+  });
+
+  it('handles empty input', () => {
+    expect(sortKeys([])).toEqual([]);
+  });
+
+  it('treats empty string as non-numeric and uses string sort', () => {
+    expect(sortKeys(['', '10', '2'])).toEqual(['', '10', '2']);
+  });
+
+  it('does not mutate the input array', () => {
+    const input = ['10', '2', '1'];
+    const inputCopy = [...input];
+    sortKeys(input);
+    expect(input).toEqual(inputCopy);
   });
 });

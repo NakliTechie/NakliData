@@ -252,9 +252,18 @@ function drawLine(
   const padB = 28;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
-  const ys = data.map((d) => d.y);
-  const minY = Math.min(0, ...ys);
-  const maxY = Math.max(1, ...ys);
+  // Forward-pass H5 (2026-06-02): use a single-pass loop instead of
+  // `Math.min(...ys)` / `Math.max(...ys)`. The spread-call blows the
+  // argument-count limit (~65k on V8) for columns with that many
+  // distinct y values — `RangeError: Maximum call stack size exceeded`.
+  // Most line charts run on aggregated data so this rarely bit, but
+  // it's a one-byte-of-input-away crash. Worth fixing universally.
+  let minY = 0;
+  let maxY = 1;
+  for (const d of data) {
+    if (d.y < minY) minY = d.y;
+    if (d.y > maxY) maxY = d.y;
+  }
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('width', '100%');
@@ -339,12 +348,19 @@ function renderScatter(mount: HTMLElement, cell: ChartCellState, result: SqlResu
   const padB = 28;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs, minX + 1);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys, minY + 1);
+  // Single-pass min/max — see H5 comment in renderLine.
+  let minX = points[0]?.x ?? 0;
+  let maxX = minX;
+  let minY = points[0]?.y ?? 0;
+  let maxY = minY;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  if (maxX <= minX) maxX = minX + 1;
+  if (maxY <= minY) maxY = minY + 1;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('width', '100%');
@@ -377,8 +393,16 @@ function renderHistogram(mount: HTMLElement, cell: ChartCellState, result: SqlRe
     mount.innerHTML = `<div class="cell-output-empty">No numeric values.</div>`;
     return;
   }
-  const min = Math.min(...vals);
-  const max = Math.max(...vals, min + 1);
+  // Single-pass min/max — see H5 comment in renderLine. Histogram
+  // commonly runs on un-aggregated data, so this is the path most
+  // likely to hit the spread-call limit at scale.
+  let min = vals[0] ?? 0;
+  let max = min;
+  for (const v of vals) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (max <= min) max = min + 1;
   const bins = 20;
   const counts = new Array(bins).fill(0);
   for (const v of vals) {
@@ -452,13 +476,23 @@ function renderPie(mount: HTMLElement, cell: ChartCellState, result: SqlResult):
   const grid = document.createElement('div');
   grid.style.cssText =
     'display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;';
+  let anyAppended = false;
   for (const p of top) {
     const slices = aggregatePieSlices(p.rows, cat, num);
     if (slices.length === 0) continue;
+    anyAppended = true;
     const wrap = document.createElement('div');
     wrap.style.cssText = `border:1px solid ${Neutral.border};border-radius:4px;padding:6px;background:${Neutral.surface};`;
     wrap.append(buildPieSvg(slices, num, p.key || '(empty)'));
     grid.append(wrap);
+  }
+  // Forward-pass M8 (2026-06-02): if every facet partition aggregated
+  // to zero positive slices (e.g., all-null `num` values per partition),
+  // we'd previously emit an empty grid `<div>` and the cell appeared
+  // visually broken. Surface the standard empty-state instead.
+  if (!anyAppended) {
+    mount.innerHTML = `<div class="cell-output-empty">No positive values to plot.</div>`;
+    return;
   }
   mount.append(grid);
 

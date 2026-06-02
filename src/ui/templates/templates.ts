@@ -207,14 +207,28 @@ function md(text: string): Omit<MarkdownCellState, 'order'> {
   return { id: '', kind: 'markdown', name: null, code: text };
 }
 
+/**
+ * Chart partial. The 4th arg `inputName` documents WHICH named SQL
+ * cell this chart should bind to. Forward-pass H4 (2026-06-02): we now
+ * carry it through as `_intendedInputName` so `instantiateTemplate`
+ * can resolve the binding correctly by name when the template emits
+ * multiple SQL cells (e.g., ERROR_FREQUENCY's
+ * `errors_by_service` + `errors_over_time`). The old nearest-prev-SQL-
+ * with-a-name heuristic bound every chart to the LATEST named cell,
+ * which silently rendered "Errors by service" as a time-series.
+ *
+ * `_intendedInputName` is internal to the templates pipeline — the
+ * instantiator strips it before returning `CellState[]`, so it never
+ * appears in the final notebook state or persistence.
+ */
+type ChartPartial = Omit<ChartCellState, 'order'> & { _intendedInputName: string | null };
+
 function chart(
   type: ChartCellState['chartType'],
-  _inputName: string,
+  inputName: string,
   x: string | null,
   y: string | null,
-): Omit<ChartCellState, 'order'> {
-  // The instantiator wires inputCell to the most recent SQL cell with a name.
-  // `_inputName` is documentation-only.
+): ChartPartial {
   return {
     id: '',
     kind: 'chart',
@@ -224,6 +238,7 @@ function chart(
     x,
     y,
     facet: null,
+    _intendedInputName: inputName || null,
   };
 }
 

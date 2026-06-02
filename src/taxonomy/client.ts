@@ -63,17 +63,46 @@ export class TaxonomyClient {
     // at `/NakliData/` — a leading-slash URL would 404 there).
     const workerUrl = new URL('./taxonomy.worker.js', document.baseURI).href;
     const worker = new Worker(workerUrl, { type: 'module' });
+    // Forward-pass M7 (2026-06-02): the original init promise only
+    // resolved on `init_ok` and a structured `error` message; it had
+    // no listener for the Worker's own `error` / `messageerror` events
+    // and no timeout. If `taxonomy.worker.js` 404'd under a
+    // misconfigured deploy prefix or threw on module import, the
+    // schema panel would hang at "Classifying columns…" forever.
+    // Listen for error events + apply a 15s timeout (worker init is
+    // typically <100 ms; 15s is the slowest-cold-start budget).
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (err: Error | null) => {
+        if (settled) return;
+        settled = true;
+        worker.removeEventListener('message', onInit);
+        worker.removeEventListener('error', onError);
+        worker.removeEventListener('messageerror', onMessageError);
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve();
+      };
       const onInit = (ev: MessageEvent<FromWorker>) => {
-        if (ev.data.type === 'init_ok') {
-          worker.removeEventListener('message', onInit);
-          resolve();
-        } else if (ev.data.type === 'error') {
-          worker.removeEventListener('message', onInit);
-          reject(new Error(ev.data.message));
-        }
+        if (ev.data.type === 'init_ok') finish(null);
+        else if (ev.data.type === 'error') finish(new Error(ev.data.message));
+      };
+      const onError = (ev: ErrorEvent) => {
+        finish(new Error(`taxonomy worker error: ${ev.message ?? 'unknown'}`));
+      };
+      const onMessageError = () => {
+        finish(new Error('taxonomy worker messageerror — unparseable postMessage'));
       };
       worker.addEventListener('message', onInit);
+      worker.addEventListener('error', onError);
+      worker.addEventListener('messageerror', onMessageError);
+      const timer = setTimeout(() => {
+        finish(
+          new Error(
+            'taxonomy worker init timed out after 15s — check that taxonomy.worker.js loads at the deploy prefix',
+          ),
+        );
+      }, 15_000);
       worker.postMessage({ type: 'init', bundle: this.bundle });
     });
     worker.addEventListener('message', (ev: MessageEvent<FromWorker>) =>

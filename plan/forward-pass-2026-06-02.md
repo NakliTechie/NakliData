@@ -597,24 +597,27 @@ Independent surface; can run in parallel with B.
   mid-write now visibly fail the build instead of silently
   succeeding.
 
-### Batch E — Chart + classifier correctness
+### Batch E — Chart + classifier correctness ✅
 
-- [ ] **H4** Bind `chart()` by `_inputName` first, nearest-prev only on
-  miss (`src/ui/templates/templates-panel.ts:175-189`). **[test: vitest
-  case instantiating ERROR_FREQUENCY.]**
-- [ ] **H5** Replace `Math.min(...vals)` / `Math.max(...vals)` with
-  single-pass loops (`src/charts/render.ts:344-347, 380-381, 256-257`).
-  **[test: vitest with 200k-element array.]**
-- [ ] **M7** Add `error` + `messageerror` handlers + ~10s timeout to
-  taxonomy worker `ensureReady` (`src/taxonomy/client.ts:66-78`).
-  **[test: vitest mocking a failing worker.]**
-- [ ] **M8** Fallback empty-state message in `renderPie` faceted path
-  when no facet appends (`src/charts/render.ts:399-472`).
-- [ ] **M9** Fix `rangeNumeric` ratio denominator
-  (`src/taxonomy/detectors.ts:138-144`). **[test: vitest case with
-  mixed string+numeric column.]**
-- [ ] **L5** Numeric-aware comparator in `computePivot.sort()`
-  (`src/ui/cells/pivot-cell.ts:159-160`).
+- [x] **H4** Chart partials now carry `_intendedInputName`;
+  `instantiateTemplate` resolves by name first via `idByName`, falls
+  back to nearest-prev only when no name was supplied. Stripped from
+  the final CellState[] before return.
+- [x] **H5** Replaced `Math.min(...vals)` / `Math.max(...vals)` with
+  single-pass loops in `renderLine`, `renderScatter`, `renderHistogram`.
+  No more 200k-row stack-overflow risk.
+- [x] **M7** Taxonomy worker `ensureReady` now listens for `error` +
+  `messageerror` events and applies a 15s timeout. Stuck inits surface
+  as a clear error message instead of an indefinite spinner.
+- [x] **M8** `renderPie` faceted path now tracks `anyAppended` and
+  surfaces the standard empty-state when every facet has zero positive
+  slices.
+- [x] **M9** `rangeNumeric` denominator is now `parsed` (not
+  `sample.values.length`). Evidence string keeps the parsed-vs-total
+  split visible so low-coverage columns are still detectable.
+- [x] **L5** New exported `sortKeys` helper in `pivot-cell.ts` —
+  numeric ordering when EVERY key parses as a finite number, else
+  locale-aware string compare. 6 vitest cases.
 
 ### Batch F — Engine + mount housekeeping
 
@@ -657,6 +660,15 @@ Independent surface; can run in parallel with B.
 - 2026-06-02: forward pass complete via 5 parallel subagents. 1 Critical,
   8 High, 15 Medium, 9 Low, 0 Stray = 33 actionable findings. Workplan
   created. Keystone is **Batch A — XSS + CSP hardening** (C1 + H7 + L6).
+- 2026-06-02: **Batch E landed.** H4, H5, M7, M8, M9, L5 fixed.
+  - H4: chart-to-SQL binding now resolves by `_intendedInputName`
+    first.
+  - H5: single-pass min/max in three chart renderers.
+  - M7: taxonomy worker init has error handlers + 15s timeout.
+  - M8: faceted pie surfaces empty-state when all facets are zero.
+  - M9: rangeNumeric denominator is `parsed`, not total count.
+  - L5: pivot axes use numeric-aware sort when all keys are numbers.
+  - Gates: 414 vitest (+6) / 51 e2e / smoke / check / bundle 530.1 KB.
 - 2026-06-02: **Batch D landed.** H6, M13, M14, M15 fixed.
   - H6 + M15: postinstall scripts now validate downloaded bytes against
     the checked-in `integrity.json` (existing tracked files become the

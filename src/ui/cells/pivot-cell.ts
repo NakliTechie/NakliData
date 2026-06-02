@@ -156,8 +156,12 @@ export function computePivot(
     buckets[rk][ck].push(v);
   }
 
-  const rowKeys = [...rowKeysSet].sort();
-  const colKeys = [...colKeysSet].sort();
+  // Forward-pass L5 (2026-06-02): use numeric ordering when EVERY key
+  // parses as a finite number — otherwise lexicographic sort gives
+  // "1","10","2" for numeric-string axes. Falls back to locale-aware
+  // string compare for mixed/string keys.
+  const rowKeys = sortKeys([...rowKeysSet]);
+  const colKeys = sortKeys([...colKeysSet]);
   const values: Record<string, Record<string, number>> = {};
   const rowTotals: Record<string, number> = {};
   const colTotals: Record<string, number> = {};
@@ -206,6 +210,19 @@ function aggregate(values: number[], agg: PivotCellState['agg']): number {
     case 'count':
       return values.length;
   }
+}
+
+/**
+ * Sort axis keys by numeric value when every key parses as a finite
+ * number; otherwise fall back to locale-aware string compare.
+ * Exported for unit tests. (Forward-pass L5.)
+ */
+export function sortKeys(keys: string[]): string[] {
+  const allNumeric = keys.length > 0 && keys.every((k) => k !== '' && Number.isFinite(Number(k)));
+  if (allNumeric) {
+    return [...keys].sort((a, b) => Number(a) - Number(b));
+  }
+  return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
 function coerceNumeric(v: unknown): number | null {

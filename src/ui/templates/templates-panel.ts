@@ -158,33 +158,53 @@ function instantiateTemplate(
   template: Template,
   matched: Record<string, ColumnRef | undefined>,
 ): CellState[] {
-  const partials = template.instantiate(matched);
-  // Assign IDs and order; rewrite chart inputCell from a names-based reference
-  // to the actual generated SQL cell id.
-  const cells: CellState[] = partials.map((p, i) => {
-    const c = { ...p, id: genCellId(), order: i } as CellState;
+  // Forward-pass H4 (2026-06-02): chart partials now carry an
+  // internal `_intendedInputName` field documenting which named SQL
+  // cell they should bind to. Resolve by name first; only fall back
+  // to nearest-prev-named-SQL when no name was supplied. The old
+  // nearest-prev-only heuristic bound every chart in
+  // ERROR_FREQUENCY (md, sql:errors_by_service, sql:errors_over_time,
+  // chart→errors_by_service, chart→errors_over_time) to
+  // errors_over_time because that was the most-recent named cell at
+  // every chart point.
+  const partials = template.instantiate(matched) as Array<
+    Omit<CellState, 'order'> & { _intendedInputName?: string | null }
+  >;
+  const idByName = new Map<string, string>();
+  // First pass: assign IDs + index named SQL cells.
+  const cells: Array<CellState & { _intendedInputName?: string | null }> = partials.map((p, i) => {
+    const c = { ...p, id: genCellId(), order: i } as CellState & {
+      _intendedInputName?: string | null;
+    };
+    if (c.kind === 'sql' && c.name) idByName.set(c.name, c.id);
     return c;
   });
-  const idByName = new Map<string, string>();
-  for (const c of cells) {
-    if (c.kind === 'sql' && c.name) idByName.set(c.name, c.id);
-  }
+  // Second pass: resolve chart bindings.
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
-    if (c?.kind === 'chart' && c.inputCell === null) {
-      // Templates currently bind chart cells to immediately-preceding named
-      // SQL cells via the chart's `name` field unset; resolve by looking at
-      // the previous SQL cell with a name.
-      for (let j = i - 1; j >= 0; j--) {
-        const prev = cells[j];
-        if (prev?.kind === 'sql' && prev.name) {
-          c.inputCell = prev.id;
-          break;
-        }
+    if (!c || c.kind !== 'chart' || c.inputCell !== null) continue;
+    const wanted = c._intendedInputName ?? null;
+    if (wanted) {
+      const byName = idByName.get(wanted);
+      if (byName) {
+        c.inputCell = byName;
+        continue;
+      }
+      // Intended-name didn't resolve (typo in template, or referenced
+      // a non-existent SQL cell) — fall through to nearest-prev so
+      // the chart still renders.
+    }
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = cells[j];
+      if (prev?.kind === 'sql' && prev.name) {
+        c.inputCell = prev.id;
+        break;
       }
     }
   }
-  return cells;
+  // Strip the internal field before returning — keeps CellState clean
+  // for persistence + notebook code that's never seen it.
+  return cells.map(({ _intendedInputName: _stripped, ...rest }) => rest as CellState);
 }
 
 function escapeHtml(s: string): string {
