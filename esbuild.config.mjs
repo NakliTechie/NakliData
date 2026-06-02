@@ -1,9 +1,9 @@
-import { readFile, writeFile, mkdir, cp, stat, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { build, context } from 'esbuild';
+import { existsSync } from 'node:fs';
+import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
+import { build, context } from 'esbuild';
 
 const DEV = process.argv.includes('--dev');
 const OUT_DIR = 'dist';
@@ -105,6 +105,24 @@ async function buildShell() {
       "connect-src 'self' https:",
       "img-src 'self' data: blob: https://tile.openstreetmap.org",
       "style-src 'self' 'unsafe-inline'",
+      // Defence-in-depth hardening (forward-pass H7, 2026-06-02):
+      //   - base-uri 'self'  — pins relative-URL resolution; an injected
+      //     <base href> can't redirect chunk loads / SW / duckdb-fallback
+      //     to an attacker origin (CSP script-src doesn't cover <base>).
+      //   - object-src 'none' — blocks <object> / <embed> / Flash-style
+      //     vectors; we never use them.
+      //   - form-action 'self' — blocks injected forms from POSTing to a
+      //     foreign origin (would otherwise be the easy exfil channel
+      //     for any XSS that escapes our DOM hardening).
+      //   - frame-ancestors 'none' — clickjacking guard. NOTE: per CSP
+      //     L3, frame-ancestors is IGNORED when delivered via <meta>; we
+      //     ship it for documentation and for any future deploy that
+      //     speaks real HTTP headers. GitHub Pages doesn't, so the meta
+      //     entry is currently aspirational there.
+      "base-uri 'self'",
+      "object-src 'none'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
     ].join('; ');
     const shellHtml = await readFile('src/index.html', 'utf8');
     // NB: use function-form replacers when inserting bundle output —
@@ -113,11 +131,11 @@ async function buildShell() {
     // contains those sequences. A latent bug from the original build
     // that bit once the bundle grew to contain `$&`.
     const inlined = shellHtml
-      .replace(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]*>/i,
-        () => `<meta http-equiv="Content-Security-Policy" content="${csp}">`)
-      .replace('<!-- INLINE_CSS -->', () =>
-        cssBundle ? `<style>${cssBundle.text}</style>` : '',
+      .replace(
+        /<meta[^>]+http-equiv="Content-Security-Policy"[^>]*>/i,
+        () => `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
       )
+      .replace('<!-- INLINE_CSS -->', () => (cssBundle ? `<style>${cssBundle.text}</style>` : ''))
       .replace('<!-- INLINE_JS -->', () =>
         scriptBody ? `<script type="module">${scriptBody}</script>` : '',
       );

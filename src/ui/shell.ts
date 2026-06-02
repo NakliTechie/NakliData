@@ -235,15 +235,23 @@ function renderFooter(state: ShellState): HTMLElement {
   const el = document.createElement('footer');
   el.className = 'shell-footer';
   el.setAttribute('role', 'contentinfo');
+  // Escape engineLabel at the innerHTML site here; subsequent updates via
+  // `updateEngineStatus` assign the raw label to `.textContent`, which
+  // would render escape entities literally if engineLabel pre-escaped.
+  // (Forward-pass L6, 2026-06-02.)
   el.innerHTML = `
     <span class="status-dot ${state.engineStatus === 'ready' ? 'ready' : state.engineStatus === 'error' ? 'error' : 'busy'}" aria-hidden="true"></span>
-    <span data-region="engine-status">${engineLabel(state)}</span>
+    <span data-region="engine-status">${escapeHtml(engineLabel(state))}</span>
     <span style="margin-left: auto;">Your data never leaves the tab.</span>
   `;
   return el;
 }
 
 function engineLabel(state: ShellState): string {
+  // Returns RAW text (no HTML escaping). Callers escape at the boundary:
+  // innerHTML interpolations wrap with `escapeHtml(...)`; textContent
+  // assignments use the value directly. See L6 in
+  // plan/forward-pass-2026-06-02.md.
   switch (state.engineStatus) {
     case 'idle':
       return 'Engine: idle';
@@ -252,7 +260,7 @@ function engineLabel(state: ShellState): string {
     case 'ready':
       return 'Engine: ready';
     case 'error':
-      return `Engine: error${state.engineMessage ? ` — ${escapeHtml(state.engineMessage)}` : ''}`;
+      return `Engine: error${state.engineMessage ? ` — ${state.engineMessage}` : ''}`;
   }
 }
 

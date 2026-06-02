@@ -131,10 +131,7 @@ function renderTemplateCard(
 ): HTMLElement {
   const el = document.createElement('div');
   el.className = 'template-card';
-  const usedCols = Object.entries(matched)
-    .filter(([, v]) => v)
-    .map(([typeId, ref]) => `${ref!.table}.${ref!.column} → ${typeId}`)
-    .join('<br/>');
+  const usedCols = formatUsedColumnsHtml(matched);
   const badge =
     score !== undefined
       ? `<span class="template-score" title="Sidecar fit score">${Math.round(score * 100)}%</span>`
@@ -192,6 +189,31 @@ function instantiateTemplate(
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Builds the "Matched columns" line for a template card.
+ *
+ * Each piece (`ref.table`, `ref.column`, `typeId`) flows from MOUNTED
+ * files — table and column names come from user-supplied xlsx / CSV /
+ * parquet headers — and is therefore untrusted. Escape each before
+ * concatenating into innerHTML.
+ *
+ * Forward-pass C1 (2026-06-02): a hostile xlsx with header
+ * `<img src=x onerror=alert(1)>` would otherwise XSS as soon as the
+ * classifier surfaced it in this card. XSS in NakliData reaches BYOK
+ * keys in sessionStorage via the wide-open `connect-src https:`.
+ *
+ * Exported for unit-testing; see tests/templates-panel-xss.test.ts.
+ */
+export function formatUsedColumnsHtml(matched: Record<string, ColumnRef | undefined>): string {
+  return Object.entries(matched)
+    .filter((entry): entry is [string, ColumnRef] => entry[1] !== undefined)
+    .map(
+      ([typeId, ref]) =>
+        `${escapeHtml(ref.table)}.${escapeHtml(ref.column)} → ${escapeHtml(typeId)}`,
+    )
+    .join('<br/>');
 }
 
 function injectCss(): void {
