@@ -16,6 +16,8 @@
 // the shell.css.ts bundle — most of it is editor chrome that's
 // pointless without the engine.
 
+import { renderMarkdownToHtml } from './cells/markdown-cell.ts';
+
 export interface ExportOpts {
   /** Notebook root node (the element with `[data-region="notebook"]`). */
   notebookRoot: HTMLElement;
@@ -29,8 +31,19 @@ export function buildStandaloneHtml(opts: ExportOpts): string {
   const title = (opts.title?.trim() || 'NakliData notebook').slice(0, 200);
   const exportedAt = opts.exportedAt ?? new Date().toISOString();
 
-  // Walk cells in document order. Each cell becomes one <section>.
-  const cells = Array.from(opts.notebookRoot.querySelectorAll<HTMLElement>('.cell'));
+  // Walk TOP-LEVEL cells only — descendants of `.dashboard-slot` re-mount
+  // their referenced cells inside the slot DOM (same `.cell` class), so a
+  // naive `notebookRoot.querySelectorAll('.cell')` previously emitted those
+  // embedded copies as separate sections AND dropped the dashboard grid
+  // itself. (Codex review surfaced — 2026-05-31.)
+  //
+  // The notebook DOM is `[data-region="notebook"] > .notebook > {toolbar,
+  // .cell..., .cell-add-row}`. So iterate children of `.notebook`.
+  const notebookContainer =
+    opts.notebookRoot.querySelector<HTMLElement>('.notebook') ?? opts.notebookRoot;
+  const cells = Array.from(notebookContainer.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('cell'),
+  );
   const cellHtml: string[] = [];
   let mdCount = 0;
   let chartCount = 0;
@@ -41,11 +54,22 @@ export function buildStandaloneHtml(opts: ExportOpts): string {
     const name = cell.querySelector<HTMLInputElement>('[data-region="cell-name"]')?.value?.trim();
     const heading = name ? `<h3 class="cell-name">${esc(name)}</h3>` : '';
     if (kind === 'markdown') {
+      // Preferred path: `.markdown-preview` is the rendered HTML and
+      // already escape-htmls user content (see markdown-cell.ts).
+      // Fall back to the textarea's `.value` if the cell is currently
+      // in EDIT mode (no preview yet rendered) — re-run the same
+      // markdown renderer the cell uses, so the export reflects what
+      // the user has typed. (Codex review surfaced — 2026-05-31.)
       const preview = cell.querySelector('.markdown-preview');
-      // Use innerHTML directly — the markdown renderer already
-      // escape-htmls user content. (See src/ui/cells/markdown-cell.ts.)
+      let body = '';
+      if (preview) {
+        body = preview.innerHTML;
+      } else {
+        const ta = cell.querySelector<HTMLTextAreaElement>('textarea');
+        body = ta?.value ? renderMarkdownToHtml(ta.value) : '';
+      }
       cellHtml.push(
-        `<section class="cell md">${heading}<div class="md-body">${preview?.innerHTML ?? ''}</div></section>`,
+        `<section class="cell md">${heading}<div class="md-body">${body}</div></section>`,
       );
       mdCount++;
       continue;
@@ -73,6 +97,56 @@ export function buildStandaloneHtml(opts: ExportOpts): string {
     if (kind === 'map') {
       cellHtml.push(
         `<section class="cell map-note">${heading}<div class="note">Interactive map omitted in static export.</div></section>`,
+      );
+      continue;
+    }
+    if (kind === 'dashboard') {
+      // Walk the dashboard's slot children and serialise each. Each slot
+      // contains a re-rendered copy of its referenced cell — pull the
+      // inner SVG / markdown preview / table out and place it in a grid
+      // slot of the exported HTML. Without this branch we'd silently
+      // drop the dashboard from the export. (Codex review.)
+      const grid = cell.querySelector<HTMLElement>('.dashboard-grid');
+      const cols = grid ? window.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 2;
+      const slots = grid ? Array.from(grid.querySelectorAll<HTMLElement>('.dashboard-slot')) : [];
+      const slotHtml: string[] = [];
+      for (const slot of slots) {
+        // Each slot embeds one cell; figure out what kind by sniffing.
+        const innerSvg = slot.querySelector('svg');
+        const innerPreview = slot.querySelector('.markdown-preview');
+        const innerTable = slot.querySelector('table');
+        if (innerPreview) {
+          slotHtml.push(`<div class="dashboard-slot">${innerPreview.outerHTML}</div>`);
+        } else if (innerSvg) {
+          slotHtml.push(`<div class="dashboard-slot">${innerSvg.outerHTML}</div>`);
+        } else if (innerTable) {
+          slotHtml.push(`<div class="dashboard-slot">${innerTable.outerHTML}</div>`);
+        } else {
+          // Empty / not-yet-resolved slot — preserve the affordance text.
+          const noteText = slot.textContent?.trim() ?? '';
+          slotHtml.push(
+            `<div class="dashboard-slot empty"><div class="note">${esc(noteText)}</div></div>`,
+          );
+        }
+      }
+      cellHtml.push(
+        `<section class="cell dashboard">${heading}<div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:12px;">${slotHtml.join('')}</div></section>`,
+      );
+      continue;
+    }
+    if (kind === 'input') {
+      // Input cells are interactive parameters; in a static export
+      // there's nothing to interact with. Surface the value as a
+      // labelled chip so the reader knows what value the rest of the
+      // notebook was computed against.
+      const widget = cell.querySelector<HTMLInputElement | HTMLSelectElement>(
+        '[data-region="input-widget"] input, [data-region="input-widget"] select',
+      );
+      const label =
+        cell.querySelector<HTMLElement>('.cell-input-body label')?.textContent?.trim() ?? '';
+      const value = widget?.value ?? '';
+      cellHtml.push(
+        `<section class="cell input-note">${heading}<div class="note"><strong>${esc(label)}</strong> ${esc(value)}</div></section>`,
       );
       continue;
     }

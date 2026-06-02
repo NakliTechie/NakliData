@@ -85,6 +85,14 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+// Exported for export-html.ts so a markdown cell that's currently
+// being EDITED (textarea visible, .markdown-preview not yet rendered)
+// can still serialise correctly. Without this, the exporter would
+// emit an empty section for the cell. Codex review surfaced this.
+export function renderMarkdownToHtml(src: string): string {
+  return renderMarkdown(src);
+}
+
 function renderMarkdown(src: string): string {
   // Minimal markdown subset: headings, paragraphs, bold/italic, inline code,
   // unordered/ordered lists. Sufficient for v1.0 notebook annotations.
