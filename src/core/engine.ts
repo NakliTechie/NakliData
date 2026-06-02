@@ -229,9 +229,22 @@ export class Engine {
       } else {
         worker = new Worker(bundle.mainWorker);
       }
+      // Forward-pass L1 (2026-06-02): try/finally + outer-catch cleanup
+      // so a failed instantiate doesn't leak the blob URL or the Worker.
+      // Pre-fix, retries on flaky networks compounded the leaks.
       const logger = new duckdb.ConsoleLogger();
       const db = new duckdb.AsyncDuckDB(logger, worker);
-      await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
+      try {
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
+      } catch (instErr) {
+        if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
+        try {
+          worker.terminate();
+        } catch {
+          /* ignore — worker may already be in an error state */
+        }
+        throw instErr;
+      }
       if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
 
       this.db = db;
@@ -504,8 +517,26 @@ export class Engine {
     const safe = sanitizeIdent(name);
     try {
       if (source === 'community') {
+        // Community extensions aren't signed by DuckDB Labs; DuckDB
+        // refuses to INSTALL them without `allow_unsigned_extensions`.
+        // Forward-pass L2 (2026-06-02): scope the flag — restore the
+        // prior value after LOAD succeeds so any subsequent core
+        // INSTALL/LOAD in the same session runs with full signature
+        // checks. The flag only needs to be true during INSTALL.
         await this.exec('SET allow_unsigned_extensions = true');
-        await this.exec(`INSTALL ${safe} FROM community`);
+        try {
+          await this.exec(`INSTALL ${safe} FROM community`);
+          await this.exec(`LOAD ${safe}`);
+        } finally {
+          // Restore. Use a no-op-on-error catch since we don't want
+          // a settings-restore failure to mask the original error.
+          try {
+            await this.exec('SET allow_unsigned_extensions = false');
+          } catch {
+            /* ignore */
+          }
+        }
+        this.loadedExtensions.add(name);
       } else {
         // INSTALL is idempotent in DuckDB; safe to call repeatedly.
         try {
@@ -514,9 +545,9 @@ export class Engine {
           // Some core extensions are statically linked into the wasm
           // bundle and INSTALL is a no-op / errors. LOAD will still work.
         }
+        await this.exec(`LOAD ${safe}`);
+        this.loadedExtensions.add(name);
       }
-      await this.exec(`LOAD ${safe}`);
-      this.loadedExtensions.add(name);
     } catch (err) {
       throw new ExtensionLoadError(name, err);
     }
@@ -871,13 +902,21 @@ export class Engine {
     // Sample a small set of differing rows with per-column projection.
     // We project each common column from both sides side-by-side so we
     // can re-derive the per-row diff list in JS.
+    //
+    // Forward-pass M2 (2026-06-02): aliases are now INDEX-based
+    // (`a_0`, `b_0`, …) instead of `sanitizeIdent(name)`-based. The
+    // sanitiser collapses every non-alphanumeric to `_`, so two
+    // distinct columns like `"foo bar"` and `"foo-bar"` both aliased
+    // to `a_foo_bar` — the second projection clobbered the first in
+    // DuckDB's result map and the JS diff loop read missing/wrong
+    // values. Index-based aliases never collide.
     const projections =
       common.length === 0
         ? ''
         : common
-            .map((c) => {
+            .map((c, i) => {
               const safeC = quoteIdent(c.replace(/"/g, '""'));
-              return `a.${safeC} AS a_${sanitizeIdent(c)}, b.${safeC} AS b_${sanitizeIdent(c)}`;
+              return `a.${safeC} AS a_${i}, b.${safeC} AS b_${i}`;
             })
             .join(', ');
     let differingSample: TableComparison['differingSample'] = [];
@@ -894,9 +933,10 @@ export class Engine {
       const rows = await this.query<Record<string, unknown>>(sampleSql);
       differingSample = rows.map((r) => {
         const diffs: TableComparison['differingSample'][number]['diffs'] = [];
-        for (const c of common) {
-          const aKey = `a_${sanitizeIdent(c)}`;
-          const bKey = `b_${sanitizeIdent(c)}`;
+        for (let i = 0; i < common.length; i++) {
+          const c = common[i] as string;
+          const aKey = `a_${i}`;
+          const bKey = `b_${i}`;
           const va = r[aKey];
           const vb = r[bKey];
           // Match DuckDB IS DISTINCT FROM semantics: NULL/NULL not distinct.

@@ -145,6 +145,23 @@ async function buildShell() {
     if (existsSync('public')) {
       await cp('public', OUT_DIR, { recursive: true });
     }
+    // Forward-pass M12 (2026-06-02): inject the inline-script hash
+    // into the service worker's CACHE_VERSION so any change to main.js
+    // invalidates the SW's precached `index.html`. Without this, a
+    // returning user with a stale SW could be served HTML whose
+    // CSP whitelists an OLD inline-script hash — the new bundle's
+    // hash won't match and the page won't boot.
+    if (existsSync(`${OUT_DIR}/sw.js`)) {
+      // Use a short prefix of the hash (urlsafe — strip /=+).
+      const cacheVersion = scriptHash.replace(/[/+=]/g, '').slice(0, 12);
+      const swPath = `${OUT_DIR}/sw.js`;
+      const swSrc = await readFile(swPath, 'utf8');
+      const swOut = swSrc.replace(
+        /const CACHE_VERSION = ['"][^'"]*['"];/,
+        `const CACHE_VERSION = 'b${cacheVersion}';`,
+      );
+      await writeFile(swPath, swOut);
+    }
     // Copy taxonomy bundle so the runtime loader can fetch /taxonomy/v0.1/*
     if (existsSync('taxonomy')) {
       await cp('taxonomy', `${OUT_DIR}/taxonomy`, { recursive: true });

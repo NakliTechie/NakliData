@@ -4,6 +4,7 @@
 // matches the sidecar BYOK pattern from spec amendment A2.
 
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -42,7 +43,8 @@ export function closeMountS3Modal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  // Forward-pass M11: restoreModalFocus handles detached previousFocus.
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

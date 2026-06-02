@@ -26,6 +26,9 @@ export function renderPivotCell(
   el.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">PIVOT</span>
+      <input class="cell-name" data-region="cell-name" value="${escapeHtml(cell.name ?? '')}"
+             placeholder="@name (optional)" aria-label="Pivot cell name"
+             style="border:0;background:transparent;width:140px;outline:none;font-family:var(--font-mono);font-size:11px;" />
       <span style="color: var(--text-muted); font-size:11px;">of</span>
       <select data-action="pivot-input" aria-label="Input cell" style="font-size:12px;">
         <option value="">— pick a SQL cell —</option>
@@ -47,6 +50,16 @@ export function renderPivotCell(
       ${input?.lastResult ? '' : '<div class="cell-output-empty">Pick a SQL cell that has been run.</div>'}
     </div>
   `;
+
+  // Forward-pass M10 (2026-06-02): expose the cell-name input so
+  // dashboards can reference pivot cells by @name. PivotCellState
+  // already carries a `name` field but the renderer wasn't exposing
+  // an editor for it; users couldn't ever set it. export-html.ts
+  // reads this same input to emit the cell's <h3> heading.
+  const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
+  nameInput?.addEventListener('change', () => {
+    handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
+  });
 
   for (const sel of el.querySelectorAll<HTMLSelectElement>('select')) {
     sel.addEventListener('change', () => {

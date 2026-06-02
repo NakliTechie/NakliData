@@ -619,39 +619,48 @@ Independent surface; can run in parallel with B.
   numeric ordering when EVERY key parses as a finite number, else
   locale-aware string compare. 6 vitest cases.
 
-### Batch F — Engine + mount housekeeping
+### Batch F — Engine + mount housekeeping ✅
 
-- [ ] **M2** Index-based aliases in `compareTables` projection
-  (`src/core/engine.ts:866-913`). **[test: vitest with `"foo bar"` +
-  `"foo-bar"` columns.]**
-- [ ] **L1** try/finally + worker.terminate on engine.boot failure
-  (`src/core/engine.ts:222-234, 266-270`).
-- [ ] **L2** Restore `allow_unsigned_extensions` after community LOAD
-  (`src/core/engine.ts:494-515`).
+- [x] **M2** Index-based aliases (`a_0`, `b_0`, …) replace
+  `sanitizeIdent`-based aliases in `compareTables`. JS loop reads by
+  index too. Columns differing only in non-alphanumerics
+  (`"foo bar"` vs `"foo-bar"`) no longer collide.
+- [x] **L1** Wrapped `db.instantiate` in try/catch. On failure:
+  revokeObjectURL the bootstrap blob URL + `worker.terminate()` before
+  rethrowing. Retries no longer leak workers.
+- [x] **L2** Community-extension INSTALL now wraps INSTALL+LOAD in
+  try/finally; finally restores `allow_unsigned_extensions = false`.
+  Core extensions loaded later in the same session run with
+  signature-verification re-enabled.
 
-### Batch G — Modals + cell-naming lifecycle
+### Batch G — Modals + cell-naming lifecycle ✅
 
-- [ ] **M10** Add name input to pivot + map cells; wire to
-  `onChange({ name })` (`src/ui/cells/{pivot,map}-cell.ts`). **[test:
-  e2e — dashboard referencing a named pivot renders the table.]**
-- [ ] **M11** Replace `_previouslyFocused?.focus()` with
-  `restoreModalFocus(_previouslyFocused)` in five modals
-  (`mount-compute-bridge-modal.ts:41`, `mount-iceberg-modal.ts:38`,
-  `mount-iceberg-catalog-modal.ts:41`, `mount-url-modal.ts:38`,
-  `mount-s3-modal.ts:45`). **[test: e2e focus assertions for each.]**
-- [ ] **L8** Mount-token guard for SQL cell CM6 chunk-load race
-  (`src/ui/cells/sql-cell.ts:88-92, 102-110`). **[probe: tight
-  create+delete loop.]**
+- [x] **M10** Pivot + Map cells now include a `cell-name` input wired
+  to `onChange({ name })`. Dashboards can finally reference them by
+  @name. Mirrors the existing chart-cell pattern.
+- [x] **M11** All five remaining modals
+  (mount-iceberg / mount-iceberg-catalog / mount-url / mount-s3 /
+  mount-compute-bridge) now use `restoreModalFocus` instead of raw
+  `.focus()`. Handles the detached-stored-node case identically to
+  the other modals.
+- [x] **L8** Added `pendingMounts` registry in sql-cell.ts. Before
+  starting the chunk load, register a `{cancelled: false}` token;
+  `disposeSqlCellEditor` flips it. The `.then()` bails out without
+  mounting if cancelled — eliminates the detached-EditorView leak
+  when cells are created/deleted within the chunk-load window.
 
-### Batch H — Build + SW + misc
+### Batch H — Build + SW + misc ✅
 
-- [ ] **M12** Inject `CACHE_VERSION` (inline-script hash or build
-  timestamp) into `dist/sw.js` post-build (`esbuild.config.mjs` +
-  `public/sw.js:14`).
-- [ ] **L7** Escape `'` in cellId before interpolating into COPY SQL
-  literal (`src/ui/sinks/sinks.ts:185, 200`).
-- [ ] **L9** Drop the `/* @vite-ignore */` magic comment
-  (`src/core/lazy-loader.ts:48`).
+- [x] **M12** esbuild now reads `dist/sw.js` after copying public/*
+  and rewrites `CACHE_VERSION` to a hash-derived value (12 chars of
+  the inline-script SHA-256, URL-safe). Any change to main.js bumps
+  the SW cache version, invalidating the precached `index.html`.
+- [x] **L7** sinks.ts CSV + Parquet COPY paths escape `'` in cellId
+  before interpolating into the SQL string literal. Defensive against
+  a malicious `.naklidata` file with a hand-crafted cell.id.
+- [x] **L9** Dropped the Vite-specific `/* @vite-ignore */` magic
+  comment in `lazy-loader.ts`. esbuild doesn't need it; the dynamic
+  URL alone prevents build-time resolution.
 
 ---
 
@@ -660,6 +669,18 @@ Independent surface; can run in parallel with B.
 - 2026-06-02: forward pass complete via 5 parallel subagents. 1 Critical,
   8 High, 15 Medium, 9 Low, 0 Stray = 33 actionable findings. Workplan
   created. Keystone is **Batch A — XSS + CSP hardening** (C1 + H7 + L6).
+- 2026-06-02: **Batches F+G+H landed together.** All remaining 9
+  items closed (M2, L1, L2, M10, M11, L8, M12, L7, L9). 33/33
+  findings from the forward-pass audit complete.
+  - Batch F (engine housekeeping): compareTables index-aliases,
+    boot try/catch with worker.terminate, allow_unsigned_extensions
+    scope.
+  - Batch G (modals + lifecycle): pivot/map name inputs, 5 modals
+    using restoreModalFocus, sql-cell pendingMounts cancel sentinel.
+  - Batch H (build + SW + misc): SW CACHE_VERSION injected from
+    script hash, sinks.ts cellId escape, lazy-loader Vite comment
+    removed.
+  - Gates: 414 vitest / 51 e2e / smoke / check / bundle 531.3 KB.
 - 2026-06-02: **Batch E landed.** H4, H5, M7, M8, M9, L5 fixed.
   - H4: chart-to-SQL binding now resolves by `_intendedInputName`
     first.

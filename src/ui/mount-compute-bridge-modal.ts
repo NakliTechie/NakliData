@@ -4,6 +4,7 @@
 // DuckDB table.
 
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -38,7 +39,8 @@ export function closeMountComputeBridgeModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  // Forward-pass M11: restoreModalFocus handles detached previousFocus.
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

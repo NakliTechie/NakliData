@@ -4,6 +4,7 @@
 // in slices 2 + 3).
 
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -35,7 +36,9 @@ export function closeMountUrlModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  // Forward-pass M11 (2026-06-02): see mount-iceberg-modal.ts for
+  // rationale — restoreModalFocus handles detached previousFocus.
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

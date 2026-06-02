@@ -28,6 +28,9 @@ export function renderMapCell(
   el.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">MAP</span>
+      <input class="cell-name" data-region="cell-name" value="${escapeHtml(cell.name ?? '')}"
+             placeholder="@name (optional)" aria-label="Map cell name"
+             style="border:0;background:transparent;width:140px;outline:none;font-family:var(--font-mono);font-size:11px;" />
       <span style="color: var(--text-muted); font-size:11px;">of</span>
       <select data-action="map-input" aria-label="Input cell" style="font-size:12px;">
         <option value="">— pick a SQL cell —</option>
@@ -49,6 +52,14 @@ export function renderMapCell(
       ${input?.lastResult ? '' : '<div class="cell-output-empty">Pick a SQL cell that has a geometry column.</div>'}
     </div>
   `;
+
+  // Forward-pass M10 (2026-06-02): expose the cell-name input so
+  // dashboards can reference map cells by @name (same fix as
+  // pivot-cell.ts).
+  const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
+  nameInput?.addEventListener('change', () => {
+    handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
+  });
 
   for (const sel of el.querySelectorAll<HTMLSelectElement>('select')) {
     sel.addEventListener('change', () => {

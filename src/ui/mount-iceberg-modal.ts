@@ -3,6 +3,7 @@
 // navigation + OAuth2 + SigV4 (separate modal or extended picker).
 
 import { iconSvg } from '../tokens/icons.ts';
+import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -35,7 +36,11 @@ export function closeMountIcebergModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  _previouslyFocused?.focus();
+  // Forward-pass M11 (2026-06-02): use restoreModalFocus — handles the
+  // case where the stored node has detached mid-modal (workbook tick →
+  // schema-panel re-render). Raw .focus() on a detached node silently
+  // no-ops, sending focus to <body>.
+  restoreModalFocus(_previouslyFocused);
   _previouslyFocused = null;
 }
 

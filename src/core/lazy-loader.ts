@@ -45,7 +45,12 @@ export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRe
     // (e.g., GitHub Pages at `/NakliData/`) work — a leading-slash URL
     // would 404 there.
     const url = new URL(`./chunks/${name}.js`, document.baseURI).href;
-    p = import(/* @vite-ignore */ url);
+    // Forward-pass L9 (2026-06-02): dropped the Vite-specific
+    // `/* @vite-ignore */` magic comment — this project uses esbuild,
+    // which ignores unknown comments. The dynamic URL itself is what
+    // prevents the bundler from trying to resolve the import at build
+    // time; no comment annotation is required.
+    p = import(url);
     cache.set(name, p);
   }
   return p as Promise<LazyChunkRegistry[K]>;

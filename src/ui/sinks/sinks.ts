@@ -181,7 +181,12 @@ async function csvBytes(engine: Engine, cellId: string, result: SqlResult): Prom
   // small case. Threshold: 5000 rows.
   if (result.rowCount > 5000) {
     const viewName = `cell_${cellId}`;
-    const tmpName = `tmp_export_${cellId}.csv`;
+    // Forward-pass L7 (2026-06-02): escape `'` in cellId before
+    // building the single-quoted SQL literal. `genCellId()` produces
+    // `c_<base36>_<seq>` at runtime so today's IDs are safe, but a
+    // malicious `.naklidata` file could carry a hand-crafted `cell.id`
+    // containing `'` — sanitise to be safe.
+    const tmpName = `tmp_export_${cellId.replace(/'/g, "''")}.csv`;
     await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${tmpName}' (HEADER, DELIMITER ',')`);
     return await readDuckDbFile(engine, tmpName);
   }
@@ -196,7 +201,8 @@ async function csvBytes(engine: Engine, cellId: string, result: SqlResult): Prom
 
 async function parquetBytes(engine: Engine, cellId: string): Promise<Uint8Array> {
   const viewName = `cell_${cellId}`;
-  const tmpName = `tmp_export_${cellId}.parquet`;
+  // Forward-pass L7: escape `'` — see csvBytes comment above.
+  const tmpName = `tmp_export_${cellId.replace(/'/g, "''")}.parquet`;
   await engine.exec(`COPY (SELECT * FROM "${viewName}") TO '${tmpName}' (FORMAT PARQUET)`);
   return await readDuckDbFile(engine, tmpName);
 }

@@ -31,11 +31,33 @@ const cmInstances = new Map<string, CmEntry>();
  *  (skipping the textarea flash). */
 let codemirrorReady = false;
 
+/**
+ * Pending-mount registry. Tracks SQL cells whose CodeMirror chunk
+ * load is in flight. `disposeSqlCellEditor` flips the cancel flag so
+ * the post-load `.then()` knows the cell is gone and skips the mount,
+ * preventing a detached-host EditorView leak.
+ *
+ * Forward-pass L8 (2026-06-02): without this, a cell created and
+ * deleted within the (~100ms-on-first-load) chunk-load window mounted
+ * an EditorView on a now-detached editorMount, and that view was
+ * never disposed. The pre-existing `isConnected` check catches the
+ * EASY case but a tight create→delete→create-with-same-id race could
+ * still slip through.
+ */
+const pendingMounts = new Map<string, { cancelled: boolean }>();
+
 export function disposeSqlCellEditor(cellId: string): void {
   const inst = cmInstances.get(cellId);
   if (inst) {
     inst.dispose();
     cmInstances.delete(cellId);
+  }
+  // Forward-pass L8: cancel any in-flight chunk-load mount so its
+  // `.then()` callback bails out without creating an orphan view.
+  const pending = pendingMounts.get(cellId);
+  if (pending) {
+    pending.cancelled = true;
+    pendingMounts.delete(cellId);
   }
 }
 
@@ -98,9 +120,21 @@ export function renderSqlCell(
       currentDoc = doc;
     });
     editorMount.append(ta);
+    // Forward-pass L8: register a pending-mount sentinel that
+    // `disposeSqlCellEditor` can flip if the cell is removed before
+    // the chunk finishes loading.
+    const mountToken = { cancelled: false };
+    pendingMounts.set(cell.id, mountToken);
     void loadChunk('codemirror')
       .then(() => {
         codemirrorReady = true;
+        // Clear the pending entry only if it's still ours (a re-render
+        // may have replaced it with a fresh token — leave that one alone).
+        if (pendingMounts.get(cell.id) === mountToken) {
+          pendingMounts.delete(cell.id);
+        }
+        // Bail if the cell was disposed during the chunk-load window.
+        if (mountToken.cancelled) return;
         // If the cell is still mounted at the same place, swap.
         if (editorMount.isConnected && editorMount.contains(ta)) {
           ta.remove();
@@ -110,6 +144,9 @@ export function renderSqlCell(
         }
       })
       .catch((err) => {
+        if (pendingMounts.get(cell.id) === mountToken) {
+          pendingMounts.delete(cell.id);
+        }
         // Chunk load failed (offline, blocked, etc.) — textarea stays.
         console.warn('[sql-cell] CodeMirror chunk load failed; staying with textarea', err);
       });
