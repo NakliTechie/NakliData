@@ -22,6 +22,10 @@ The original spec stays authoritative for everything not listed here.
 | [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. W3.4b follow-up: catalog picker SourceKind that materialises N tables via SELECT * LIMIT cap. |
 | [A13](#a13--optional-map-cell-basemap-wave-1-stretch--w16-amends-spec-31--6) | §3.1, §6 | Optional OpenStreetMap raster basemap on map cells. Default off — tile-less canvas preserves the no-third-party-fetch posture. Explicit opt-in via Settings; CSP `img-src` carves out `tile.openstreetmap.org` only. |
 | [A14](#a14--three-tier-duckdb-wasm-bundle-source-w182--cloudflare-deploy-amends-spec-71) | §7.1 | DuckDB-wasm bundle sourcing: three-tier (same-origin → GH Pages canonical → jsDelivr). Pre-fetch SRI dropped because the blob-pre-wrap it required broke cross-blob worker access in current Chrome. Trust = version pin + build-time SHA-384 verify against `integrity.json`. |
+| [A15](#a15--sensitivity-field-on-typespec-w54-amends-spec-32) | §3.2 | Each `TypeSpec` carries a `sensitivity: 'public' \| 'pii' \| 'financial' \| 'secret'` field. Schema panel renders a badge on non-public types. Substrate for future demo-mode + sidecar prompt redaction. |
+| [A16](#a16--four-new-cell-kinds-cohort-assertion-input-dashboard-amends-spec-33) | §3.3 | Spec §3.3 originally listed five cell kinds (SQL / chart / markdown / pivot / map). Now nine: + cohort (W4.4, dbt-tests adjacent) + assertion (W5.5, invariant check) + input (W6.1, Observable viewof) + dashboard (W6.4, Superset grid). |
+| [A17](#a17--presentation-mode-w62-amends-spec-38) | §3.8 | `?present=1` URL param flips the app into a read-only "deck" view via the `app-present-mode` class. Hides editor chrome (sidebars, toolbar, cell-add row, SQL/cohort/assertion cells, per-cell heads). Hex app-publish pattern. |
+| [A18](#a18--static-html-export-w63-amends-spec-34) | §3.4 | New notebook-level export sink: "Save HTML" header button serialises the live notebook DOM into a single self-contained `.html` file (~3 KB embedded CSS, no JS, no engine). Evidence Dev pattern. |
 
 ---
 
@@ -563,6 +567,76 @@ The original gate baked in two assumptions that today don't hold:
 **Known limitations / follow-ups:**
 - **GH Pages is a single point of failure for the cross-fetch tier.** If naklitechie.github.io goes down, Cloudflare deploys break (until they redeploy with `?cdn=1` or their own vendored copy). Mitigation: the engine still supports the jsDelivr tier; users can flip the URL to `?cdn=1` to escape.
 - **Repo rename / move would break the canonical URL.** If `naklitechie/NakliData` moves, every deploy depending on tier 2 breaks until they redeploy. Treat the canonical URL as a versioned API surface.
+
+---
+
+## A15 — `sensitivity` field on TypeSpec (W5.4) (amends spec §3.2)
+
+**Original wording (spec §3.2):** `TypeSpec` carried `id`, `display_name`, `domain`, `sql_compat`, `detectors`, `confidence_floor`. No notion of sensitivity / governance / PII labelling.
+
+**Amended wording:**
+- Each `TypeSpec` MAY carry a `sensitivity: 'public' | 'pii' | 'financial' | 'secret'` field. Defaults to `'public'` when omitted.
+- The schema panel renders a small badge next to the type pill on any column whose assigned type has sensitivity ≠ `'public'`.
+- Sensitivity is descriptive, not enforcing. It does NOT (yet) gate which columns can be shipped to the sidecar, masked in demo mode, or redacted from `.naklidata` exports — those are future follow-ups that will reference this field.
+
+**Reasoning:** Unity Catalog / Snowflake Tag-based governance / Databricks PII-marker patterns. Lights up a class of future protections (sidecar prompt redaction, demo mode auto-mask, "Forget all PII columns" affordance) with one line per type. The PII / financial split matters because they're released differently (PII can be shared with the user's own org but not third parties; financial may have regulatory holds even within the org).
+
+**Today's assignments** (48 types in `taxonomy/v0.1/types.jsonl`): 9 PII (email, phone_e164, ip_v4, ip_v6, user_id, session_id, event_properties_json, vendor_name, pan), 18 financial (gstin, amount, hsn_code, …), 21 public (event_name, log_level, http_status, iso_date, percentage, …).
+
+**Status:** Shipped. Ratified.
+
+---
+
+## A16 — Four new cell kinds: cohort, assertion, input, dashboard (amends spec §3.3)
+
+**Original wording (spec §3.3):** Five cell kinds — SQL, chart, markdown, pivot, map. A notebook is an ordered list of these.
+
+**Amended wording:** Nine cell kinds. The four additions:
+
+- **Cohort cell** (W4.4 — `kind: 'cohort'`). Structurally a SQL cell whose result is a single `user_id` column. Downstream cells reference via `@<cohort_name>` using the same `cell_<id>` view machinery as SQL cells. Separate kind exists only to render distinct chrome (header label, user-count badge) — runs the same DuckDB query path.
+- **Assertion cell** (W5.5 — `kind: 'assertion'`). SQL that should return 0 rows when an invariant holds. Cell shows a PASS pill on green; FAIL pill + counter-example count + red border on red. dbt's `tests:` block analog. Same execution path as SQL.
+- **Input cell** (W6.1 — `kind: 'input'`). Interactive parameter widget (text / number / date / select). Cell's current `value` is inlined into downstream SQL via `@<name>` reference resolution: text → quoted with quote-doubling for SQL injection safety, number → bare, date → `DATE 'YYYY-MM-DD'`, empty → `NULL`. Observable `viewof` + Briefer pattern. Doesn't materialise a view; doesn't show in `runAll`.
+- **Dashboard cell** (W6.4 — `kind: 'dashboard'`). CSS grid (1–4 columns) of named markdown / chart / pivot / map cells. Items are listed by `@name`; the dashboard re-invokes the relevant renderer for each referenced cell with no-op handlers + strips `.cell-head` / `.cell-actions` chrome. SQL / cohort / assertion / input cells are NOT valid items (queries + parameters, not presentation surfaces). Superset / Power BI pattern.
+
+**Reasoning:** Each closes a workflow gap surfaced by the Databricks-class comparison ([plan/data-platform-comparison.md](./data-platform-comparison.md)). Cohort is the same-shape-different-intent pattern (W4.4's gain was UX clarity, not new capability). Assertion is a major data-quality wedge with negligible runtime cost (it reuses the SQL path). Input is the parameterised-notebook gap. Dashboard closes the linear-notebook gap.
+
+**Persistence:** All four kinds round-trip through `.naklidata`. Pinned by `tests/persistence-cells.test.ts` (added in commit `f5a7715`) — serialize → JSON → parse must field-equal the source, with cohort/assertion runtime state (status / lastError / lastResult) correctly stripped by `cellWithoutResults`.
+
+**Status:** Shipped. Ratified.
+
+---
+
+## A17 — Presentation mode (W6.2) (amends spec §3.8)
+
+**Original wording (spec §3.8):** The notebook UI is a stateful workbench — sources panel left, notebook centre, schema panel right, cell-add row below.
+
+**Amended wording:** An additional read-only "deck" view is available via the `?present=1` URL parameter. On boot, the `app-present-mode` class is added to the root `#app` element BEFORE the shell mounts. CSS gated on that class hides:
+- Both sidebars (sources + schema)
+- Notebook toolbar (Run all)
+- Cell-add row (+ SQL / + Markdown / + Chart / + … buttons)
+- Per-cell `.cell-head` (name input, type select, delete button, …)
+- SQL / cohort / assertion cells entirely (they're queries, not presentation)
+- Cell borders + result-meta + send-to bars
+
+Visible: markdown previews, chart SVGs, pivot tables, map canvases, dashboard grids.
+
+An "Exit presentation" pill in the header (only visible when `app-present-mode` is set) strips `?present=1` from the URL and reloads to return to the workbench.
+
+**Reasoning:** Hex's "publish as app" pattern. Sharing a workbook as a URL and having the recipient land in a clean deck view (rather than the editor) is the single most-asked-for affordance from analyst-style users. URL-based toggle (not a settings flag) keeps shared links self-contained: paste `naklidata.naklitechie.com/?lens=…&present=1` to send a recipient straight into deck mode.
+
+**Status:** Shipped. Ratified. E2e-tested by `tests/e2e/presentation-mode.spec.ts` (8 cases).
+
+---
+
+## A18 — Static-HTML export (W6.3) (amends spec §3.4)
+
+**Original wording (spec §3.4):** Per-result "send to" sinks (CSV, Parquet, KanZen, Bahi, NakliPoster). Five sinks total.
+
+**Amended wording:** Adds a NOTEBOOK-LEVEL export (not a per-cell sink): a new "Export HTML" button in the header serializes the live notebook DOM into a single self-contained HTML file. `~3 KB` of embedded CSS; no `<script>` tags; no engine dependency. SQL / cohort / assertion cells fold into collapsed `<details>` blocks (SQL + result table preview); markdown previews + chart SVGs + pivot tables embed inline; map cells render a placeholder ("Interactive map omitted in static export"). Uses FSA `showSaveFilePicker` where available, falls back to anchor download.
+
+**Reasoning:** Evidence Dev's "publish to static site" pattern, minus the static site. One file the user can email, drop into a Google Doc, pin in a wiki, attach to a Jira ticket. Differs from the existing per-cell sinks (CSV / Parquet / KanZen / Bahi / NakliPoster) in two ways: (1) it operates on the WHOLE notebook, (2) the output is a presentation artifact, not data that's piped into another system.
+
+**Status:** Shipped. Ratified. E2e-tested by `tests/e2e/export-html.spec.ts` (3 cases). Audit follow-up (`fa37310`) fixed two regressions: textarea-fallback SQL reading stale text via `.textContent`, and the "Summarise" button label leaking into the exported `<details>` summary.
 
 ---
 
