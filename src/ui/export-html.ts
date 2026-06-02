@@ -77,13 +77,29 @@ export function buildStandaloneHtml(opts: ExportOpts): string {
       continue;
     }
     if (kind === 'sql' || kind === 'cohort' || kind === 'assertion') {
-      const sql =
-        cell.querySelector('.cm-content')?.textContent ??
-        cell.querySelector('textarea')?.textContent ??
-        '';
+      // CM6 stores live text in .cm-content (contenteditable). For the
+      // textarea fallback we must read `.value` — `.textContent` on a
+      // <textarea> returns the INITIAL/default content, not the user's
+      // edits. (Audit-surfaced bug: previously read .textContent here
+      // and silently embedded stale SQL in the exported HTML.)
+      const cm = cell.querySelector<HTMLElement>('.cm-content');
+      const ta = cell.querySelector<HTMLTextAreaElement>('textarea');
+      const sql = cm?.textContent ?? ta?.value ?? '';
       const resultTable = cell.querySelector('.result-table');
-      const meta = cell.querySelector('.cell-result-meta')?.textContent?.trim() ?? '';
-      const summary = `${kind.toUpperCase()}${name ? ` · ${esc(name)}` : ''}${meta ? ` · ${esc(meta.replace(/\s+/g, ' '))}` : ''}`;
+      // The result-meta block contains the row-count + elapsed + a
+      // "Summarise" button (when sidecar enabled). Strip out anything
+      // inside a button so the exported <details> summary doesn't end
+      // with a spurious "Summarise" word. (Audit follow-up.)
+      const metaEl = cell.querySelector('.cell-result-meta');
+      const metaParts: string[] = [];
+      if (metaEl) {
+        for (const span of metaEl.querySelectorAll('span')) {
+          const t = span.textContent?.trim();
+          if (t) metaParts.push(t);
+        }
+      }
+      const meta = metaParts.join(' · ');
+      const summary = `${kind.toUpperCase()}${name ? ` · ${esc(name)}` : ''}${meta ? ` · ${esc(meta)}` : ''}`;
       const inner = [
         sql ? `<pre class="sql"><code>${esc(sql)}</code></pre>` : '',
         resultTable ? resultTable.outerHTML : '',

@@ -42,7 +42,12 @@ export function renderDashboardCell(
   el.dataset.cellId = cell.id;
   el.dataset.cellKind = 'dashboard';
 
-  const columns = Math.min(4, Math.max(1, cell.columns || 2));
+  // Defensive defaults — a hand-edited or third-party-tool-generated
+  // .naklidata might land a dashboard cell missing `items` or `columns`.
+  // The persistence parser trusts the JSON shape (per spec) so this is
+  // the right place to recover. (Audit follow-up.)
+  const items: string[] = Array.isArray(cell.items) ? cell.items : [];
+  const columns = Math.min(4, Math.max(1, Number(cell.columns) || 2));
 
   el.innerHTML = `
     <div class="cell-head">
@@ -52,7 +57,7 @@ export function renderDashboardCell(
              style="border:0;background:transparent;width:140px;outline:none;font-family:var(--font-mono);font-size:12px;" />
       <label style="font-size:12px;color:var(--text-muted);">Columns</label>
       <input data-region="dashboard-cols" type="number" min="1" max="4" value="${columns}" aria-label="Dashboard columns" style="width:48px;font-size:12px;padding:2px 6px;" />
-      <input data-region="dashboard-items" type="text" placeholder="comma-separated cell names" value="${escapeAttr(cell.items.join(', '))}" aria-label="Embedded cell names" style="flex:1 1 auto;min-width:200px;font-size:12px;padding:2px 8px;font-family:var(--font-mono);" />
+      <input data-region="dashboard-items" type="text" placeholder="comma-separated cell names" value="${escapeAttr(items.join(', '))}" aria-label="Embedded cell names" style="flex:1 1 auto;min-width:200px;font-size:12px;padding:2px 8px;font-family:var(--font-mono);" />
       <div class="cell-actions">
         <button class="btn btn-ghost" data-action="cell-delete" title="Delete cell" aria-label="Delete cell">
           ${iconSvg('trash', 12)}
@@ -93,7 +98,7 @@ export function renderDashboardCell(
   // Populate grid slots.
   const grid = el.querySelector<HTMLElement>('[data-region="dashboard-grid"]');
   if (grid) {
-    if (cell.items.length === 0) {
+    if (items.length === 0) {
       const empty = document.createElement('div');
       empty.style.cssText =
         'grid-column: 1 / -1;color:var(--text-muted);font-size:12px;padding:24px;text-align:center;border:1px dashed var(--border);border-radius:4px;';
@@ -102,7 +107,7 @@ export function renderDashboardCell(
       grid.appendChild(empty);
     } else {
       const sqlCells = allCells.filter((c): c is SqlCellState => c.kind === 'sql');
-      for (const name of cell.items) {
+      for (const name of items) {
         grid.appendChild(renderSlot(name, allCells, sqlCells));
       }
     }

@@ -53,11 +53,14 @@ export function renderInputCell(cell: InputCellState, handlers: CellHandlers): H
     </div>
   `;
 
-  // Bind name input — onBlur updates the cell name (the @ref handle).
+  // Bind name input. Listen on BOTH `input` (live keystroke) and
+  // `change` (blur) — `change` alone means a freshly-typed name is
+  // invisible to Run-all (Cmd+Shift+Enter) until the user blurs the
+  // field. Same story for value below. (Audit follow-up.)
   const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
-  nameInput?.addEventListener('change', () => {
-    handlers.onChange(cell.id, { name: nameInput.value.trim() || null });
-  });
+  const fireName = () => handlers.onChange(cell.id, { name: nameInput?.value.trim() || null });
+  nameInput?.addEventListener('input', fireName);
+  nameInput?.addEventListener('change', fireName);
 
   // Bind type select — switches the widget kind.
   const typeSel = el.querySelector<HTMLSelectElement>('[data-region="input-type"]');
@@ -105,7 +108,7 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
     editor.style.cssText =
       'font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;width:240px;color:var(--text-muted);';
     editor.setAttribute('aria-label', 'Option list (comma-separated)');
-    editor.addEventListener('change', () => {
+    const fireEditor = () => {
       const opts = editor.value
         .split(',')
         .map((s) => s.trim())
@@ -114,11 +117,15 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
       // default to the first option (or empty string).
       const value = opts.includes(cell.value) ? cell.value : (opts[0] ?? '');
       handlers.onChange(cell.id, { options: opts, value });
-    });
+    };
+    editor.addEventListener('input', fireEditor);
+    editor.addEventListener('change', fireEditor);
     mount.appendChild(editor);
     return;
   }
-  // text / number / date — single input element.
+  // text / number / date — single input element. Listen on `input`
+  // (live keystroke) so Run-all triggered without a prior blur sees
+  // the latest value. (Audit follow-up.)
   const input = document.createElement('input');
   input.type = cell.inputType;
   input.value = cell.value;
@@ -126,9 +133,9 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
     'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;min-width:200px;font-family:var(--font-mono);';
   input.setAttribute('aria-label', cell.label ?? cell.name ?? 'Input value');
   if (cell.inputType === 'number') input.inputMode = 'decimal';
-  input.addEventListener('change', () => {
-    handlers.onChange(cell.id, { value: input.value });
-  });
+  const fireValue = () => handlers.onChange(cell.id, { value: input.value });
+  input.addEventListener('input', fireValue);
+  input.addEventListener('change', fireValue);
   mount.appendChild(input);
 }
 
