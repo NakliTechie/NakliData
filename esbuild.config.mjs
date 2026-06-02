@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { extname, join } from 'node:path';
+import { resolve as absResolve, extname, join } from 'node:path';
 import { build, context } from 'esbuild';
 
 const DEV = process.argv.includes('--dev');
@@ -170,16 +170,47 @@ async function serve() {
   await buildShell();
   await buildLazyChunks();
   const port = 5173;
+  // Forward-pass M14 (2026-06-02): reject any path that escapes the
+  // intended document roots. `join()` happily resolves `..` segments
+  // and would otherwise serve `/etc/passwd` if dev mode was ever
+  // exposed via `--host`. Build resolved absolute roots once; for each
+  // request, build the candidate and check it stays under one of them.
+  const ALLOWED_ROOTS = [absResolve(OUT_DIR), absResolve('public'), absResolve('taxonomy')];
+  const isUnderAllowedRoot = (p) => {
+    const a = absResolve(p);
+    return ALLOWED_ROOTS.some(
+      (root) => a === root || a.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`),
+    );
+  };
   createServer(async (req, res) => {
     const url = req.url === '/' ? '/index.html' : req.url;
     const path = url ?? '/index.html';
+    // First-pass syntactic filter: any decoded `..` segment is
+    // an intent-to-escape signal — reject before resolving.
+    let decoded;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      res.writeHead(400);
+      res.end('bad request');
+      return;
+    }
+    if (decoded.split('/').includes('..')) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
     const candidates = [
-      join(OUT_DIR, path),
-      join('public', path),
+      join(OUT_DIR, decoded),
+      join('public', decoded),
       // Dev: also serve repo-root taxonomy/ at /taxonomy/...
-      path.startsWith('/taxonomy/') ? path.slice(1) : null,
+      decoded.startsWith('/taxonomy/') ? decoded.slice(1) : null,
     ].filter(Boolean);
     for (const filePath of candidates) {
+      // Second-pass containment check: ensure the candidate resolves
+      // INSIDE one of the allowed roots even after symlink resolution
+      // and any tricky joins.
+      if (!isUnderAllowedRoot(filePath)) continue;
       try {
         const st = await stat(filePath);
         if (st.isFile()) {

@@ -31,7 +31,7 @@
     "@observablehq/plot": "^0.6.17",
     "cytoscape": "^3.33.3",
     "maplibre-gl": "^5.24.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

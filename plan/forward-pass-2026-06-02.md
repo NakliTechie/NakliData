@@ -573,22 +573,29 @@ Independent surface; can run in parallel with B.
   9 vitest cases (CR/LF, whitespace, quotes, paren — all
   rejected; standard JWT / opaque tokens / empty — all accepted).
 
-### Batch D — Supply chain + dev-server
+### Batch D — Supply chain + dev-server ✅
 
-- [ ] **H6** Check in expected-hash table for fetched duckdb-extension
-  + fallback bytes; hard-fail mismatch
-  (`scripts/fetch-duckdb-extensions.mjs:101-119`,
-  `fetch-duckdb-fallback.mjs:55-60`).
-- [ ] **M13** Pin `xlsx` to exact `0.18.5` (or vendor from official
-  SheetJS CDN); drop `^` from all deps in `package.json`. **[test: `npm
-  ci` + smoke.]**
-- [ ] **M14** Hardened static-file handler in dev server — reject `..`
-  segments / resolve+containment-check
-  (`esbuild.config.mjs:155-198`).
-- [ ] **M15** Make postinstall scripts `exit(1)` on real errors; delete
-  partial output before exit
-  (`fetch-duckdb-fallback.mjs:96-99`,
-  `fetch-duckdb-extensions.mjs:128-131`).
+- [x] **H6** Both postinstall scripts now read the EXISTING checked-in
+  `integrity.json` as the source-of-truth pin and validate downloaded
+  bytes against it. On mismatch → hard exit with a "supply-chain alert"
+  message. On a first-time bootstrap (no integrity.json present) the
+  script falls back to recording-as-pin and warns the user to commit
+  the resulting file. Existing integrity.json files in
+  `public/duckdb-fallback/` and `public/duckdb-extensions/.../wasm_eh/`
+  are already in the repo — those ARE the pinned hashes now.
+- [x] **M13** Pinned `xlsx` to exactly `0.18.5` (was `^0.18.5`). Other
+  deps left at `^` since they're actively maintained on npm; pinning
+  the unmaintained-on-npm SheetJS specifically. `package-lock.json`
+  provides byte-pinning for the rest.
+- [x] **M14** Dev server now rejects any URL containing a `..` path
+  segment (after `decodeURIComponent`) AND containment-checks each
+  candidate path against the resolved absolute roots
+  (`dist/`, `public/`, `taxonomy/`). Both layers block the
+  `/../../etc/passwd` traversal vector.
+- [x] **M15** Both postinstall scripts now `process.exit(1)` on real
+  failure (was `exit(0)`). Network drops, hash mismatches, disk-full
+  mid-write now visibly fail the build instead of silently
+  succeeding.
 
 ### Batch E — Chart + classifier correctness
 
@@ -650,6 +657,15 @@ Independent surface; can run in parallel with B.
 - 2026-06-02: forward pass complete via 5 parallel subagents. 1 Critical,
   8 High, 15 Medium, 9 Low, 0 Stray = 33 actionable findings. Workplan
   created. Keystone is **Batch A — XSS + CSP hardening** (C1 + H7 + L6).
+- 2026-06-02: **Batch D landed.** H6, M13, M14, M15 fixed.
+  - H6 + M15: postinstall scripts now validate downloaded bytes against
+    the checked-in `integrity.json` (existing tracked files become the
+    pin), and exit(1) on real failure.
+  - M13: xlsx pinned exactly to 0.18.5.
+  - M14: dev server rejects `..` segments + containment-checks
+    candidate paths against absolute roots.
+  - Gates: 408 vitest / 51 e2e (prior batch) / smoke / check / bundle
+    529.2 KB.
 - 2026-06-02: **Batch C landed.** H1, H8, M1 fixed.
   - H1: lens-link auto-mount gated behind a confirmation modal listing
     every remote host. Cancel falls back to saved session; Continue

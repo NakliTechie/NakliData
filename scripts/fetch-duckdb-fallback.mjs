@@ -63,6 +63,28 @@ function sha384(bytes) {
   return `sha384-${createHash('sha384').update(bytes).digest('base64')}`;
 }
 
+/**
+ * Load the checked-in `integrity.json` if it exists, returning the
+ * expected file→hash map. Forward-pass H6 (2026-06-02): see
+ * fetch-duckdb-extensions.mjs for the rationale — pinned hashes turn
+ * the postinstall fetch from a "trust the bytes that arrived" flow
+ * into a "verify they match the committed pin" flow.
+ */
+async function loadPinnedHashes() {
+  const p = resolve(DEST, 'integrity.json');
+  if (!(await fileExists(p))) return null;
+  try {
+    const raw = await readFile(p, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.files && typeof parsed.files === 'object') {
+      return parsed.files;
+    }
+  } catch (err) {
+    console.warn(`[naklidata] could not read pinned hashes from ${p}: ${err.message}`);
+  }
+  return null;
+}
+
 async function main() {
   if (process.env.SKIP_DUCKDB_FETCH === '1') {
     console.log('[naklidata] SKIP_DUCKDB_FETCH=1 — skipping vendored DuckDB fetch');
@@ -70,30 +92,59 @@ async function main() {
   }
   if (!existsSync('public')) await mkdir('public', { recursive: true });
   await mkdir(DEST, { recursive: true });
+  const pinned = await loadPinnedHashes();
+  const bootstrapping = pinned === null;
+  if (bootstrapping) {
+    console.warn(
+      `[naklidata] no pinned hashes for DuckDB-wasm ${PINNED} — bootstrapping; commit integrity.json to lock these bytes.`,
+    );
+  }
   if (await alreadyVendored()) {
     console.log('[naklidata] vendored DuckDB-wasm already present');
     return;
   }
   console.log(`[naklidata] vendoring DuckDB-wasm ${PINNED} into ${DEST}`);
-  const integrity = { version: PINNED, generated: new Date().toISOString(), files: {} };
-  try {
-    for (const f of FILES) {
-      const bytes = await sourceBytes(f);
-      await writeFile(resolve(DEST, f), bytes);
-      integrity.files[f] = sha384(bytes);
-      console.log(
-        `  ✓ ${f} (${(bytes.byteLength / 1024).toFixed(1)} KB) ${integrity.files[f].slice(0, 24)}…`,
-      );
+  const integrity = {
+    version: PINNED,
+    generated: bootstrapping ? new Date().toISOString() : 'pinned',
+    files: {},
+  };
+  for (const f of FILES) {
+    const bytes = await sourceBytes(f);
+    const actualHash = sha384(bytes);
+    if (!bootstrapping) {
+      const expected = pinned[f];
+      if (!expected) {
+        throw new Error(
+          `pinned integrity.json has no entry for ${f} — refusing to silently widen the bundle (update integrity.json on purpose)`,
+        );
+      }
+      if (expected !== actualHash) {
+        throw new Error(
+          `hash mismatch for ${f}\n  expected: ${expected}\n  got:      ${actualHash}\nbytes do not match the checked-in pin. This is a supply-chain alert.`,
+        );
+      }
     }
+    await writeFile(resolve(DEST, f), bytes);
+    integrity.files[f] = actualHash;
+    console.log(
+      `  ✓ ${f} (${(bytes.byteLength / 1024).toFixed(1)} KB) ${actualHash.slice(0, 24)}…`,
+    );
+  }
+  if (bootstrapping) {
     await writeFile(resolve(DEST, 'integrity.json'), JSON.stringify(integrity, null, 2));
-    console.log(`  ✓ integrity.json (${Object.keys(integrity.files).length} hashes)`);
-  } catch (err) {
-    console.warn(`[naklidata] could not vendor DuckDB fallback (continuing): ${err.message}`);
-    console.warn('         Re-run `npm run postinstall` after restoring network.');
+    console.log(
+      `  ✓ integrity.json (${Object.keys(integrity.files).length} hashes — bootstrap; please commit)`,
+    );
+  } else {
+    console.log('  ✓ all hashes match the checked-in pin');
   }
 }
 
+// Forward-pass M15 (2026-06-02): exit non-zero on real failure
+// instead of silently swallowing into exit(0). Partial files left
+// from a mid-write disk-full crash now visibly fail the build.
 main().catch((err) => {
-  console.warn(`[naklidata] vendoring failed: ${err.message}`);
-  process.exit(0);
+  console.error(`[naklidata] vendoring failed: ${err.message}`);
+  process.exit(1);
 });

@@ -79,12 +79,50 @@ async function fetchBytes(url) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/**
+ * Load the checked-in `integrity.json` if it exists, returning the
+ * expected file→hash map. When present, this becomes the SOURCE OF
+ * TRUTH for the vendored bytes — downloaded files are verified
+ * against it and the script exits non-zero on mismatch.
+ *
+ * Forward-pass H6 (2026-06-02): without a checked-in hash, the
+ * original flow built `integrity.json` from whatever bytes the network
+ * happened to deliver. A MITM / DNS hijack / compromised CDN during
+ * `npm install` substituted attacker bytes and the recorded hash
+ * "ratified" the swap. With the pinned table, drift is detected.
+ */
+async function loadPinnedHashes() {
+  const p = resolve(DEST, SUB_DIR, 'integrity.json');
+  if (!(await fileExists(p))) return null;
+  try {
+    const raw = await readFile(p, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.files && typeof parsed.files === 'object') {
+      return parsed.files;
+    }
+  } catch (err) {
+    console.warn(`[naklidata] could not read pinned hashes from ${p}: ${err.message}`);
+  }
+  return null;
+}
+
 async function main() {
   if (process.env.SKIP_DUCKDB_EXT_FETCH === '1') {
     console.log('[naklidata] SKIP_DUCKDB_EXT_FETCH=1 — skipping vendored extensions');
     return;
   }
   await mkdir(resolve(DEST, SUB_DIR), { recursive: true });
+  // Read the checked-in pinned hashes (if any). Missing file =
+  // first-time bootstrap of this revision/platform, where we accept
+  // whatever the network returns and record it. Subsequent runs MUST
+  // match.
+  const pinned = await loadPinnedHashes();
+  const bootstrapping = pinned === null;
+  if (bootstrapping) {
+    console.warn(
+      `[naklidata] no pinned hashes for ${SUB_DIR} — bootstrapping; commit integrity.json to lock these bytes.`,
+    );
+  }
   if (await alreadyVendored()) {
     console.log(`[naklidata] vendored DuckDB extensions already present (${SUB_DIR})`);
     return;
@@ -93,39 +131,58 @@ async function main() {
   const integrity = {
     revision: REVISION,
     platform: PLATFORM,
-    generated: new Date().toISOString(),
+    generated: bootstrapping ? new Date().toISOString() : 'pinned',
     files: {},
   };
-  try {
-    for (const ext of EXTENSIONS) {
-      const remoteUrl = `${REMOTE_BASE}/${ext.name}.duckdb_extension.wasm`;
-      const bytes = await fetchBytes(remoteUrl);
-      const primary = `${ext.name}.duckdb_extension.wasm`;
-      await writeFile(resolve(DEST, SUB_DIR, primary), bytes);
-      integrity.files[primary] = sha384(bytes);
-      console.log(
-        `  ✓ ${primary} (${(bytes.byteLength / 1024).toFixed(0)} KB) ${integrity.files[primary].slice(0, 24)}…`,
-      );
-      // Write the same bytes under each alias name so an INSTALL that
-      // routes through the alias finds the file too. (Cheap — costs a
-      // few MB of identical bytes; the OS dedupes via inode if we ever
-      // hardlink. We use plain copies here for portability.)
-      for (const alias of ext.aliasFrom) {
-        const aliasName = `${alias}.duckdb_extension.wasm`;
-        await writeFile(resolve(DEST, SUB_DIR, aliasName), bytes);
-        integrity.files[aliasName] = integrity.files[primary];
-        console.log(`  ✓ ${aliasName} (alias of ${primary})`);
+  for (const ext of EXTENSIONS) {
+    const remoteUrl = `${REMOTE_BASE}/${ext.name}.duckdb_extension.wasm`;
+    const bytes = await fetchBytes(remoteUrl);
+    const primary = `${ext.name}.duckdb_extension.wasm`;
+    const actualHash = sha384(bytes);
+    if (!bootstrapping) {
+      const expected = pinned[primary];
+      if (!expected) {
+        throw new Error(
+          `pinned integrity.json has no entry for ${primary} — refusing to silently widen the bundle (update integrity.json on purpose)`,
+        );
+      }
+      if (expected !== actualHash) {
+        throw new Error(
+          `hash mismatch for ${primary}\n  expected: ${expected}\n  got:      ${actualHash}\nbytes from ${remoteUrl} do not match the checked-in pin. This is a supply-chain alert — DO NOT just regenerate integrity.json; investigate why the bytes changed.`,
+        );
       }
     }
+    await writeFile(resolve(DEST, SUB_DIR, primary), bytes);
+    integrity.files[primary] = actualHash;
+    console.log(
+      `  ✓ ${primary} (${(bytes.byteLength / 1024).toFixed(0)} KB) ${actualHash.slice(0, 24)}…`,
+    );
+    // Write the same bytes under each alias name so an INSTALL that
+    // routes through the alias finds the file too. (Cheap — costs a
+    // few MB of identical bytes; the OS dedupes via inode if we ever
+    // hardlink. We use plain copies here for portability.)
+    for (const alias of ext.aliasFrom) {
+      const aliasName = `${alias}.duckdb_extension.wasm`;
+      await writeFile(resolve(DEST, SUB_DIR, aliasName), bytes);
+      integrity.files[aliasName] = actualHash;
+      console.log(`  ✓ ${aliasName} (alias of ${primary})`);
+    }
+  }
+  if (bootstrapping) {
     await writeFile(resolve(DEST, SUB_DIR, 'integrity.json'), JSON.stringify(integrity, null, 2));
-    console.log(`  ✓ integrity.json (${Object.keys(integrity.files).length} hashes)`);
-  } catch (err) {
-    console.warn(`[naklidata] could not vendor extensions (continuing): ${err.message}`);
-    console.warn('         Re-run `npm run postinstall` after restoring network.');
+    console.log(
+      `  ✓ integrity.json (${Object.keys(integrity.files).length} hashes — bootstrap; please commit)`,
+    );
+  } else {
+    console.log('  ✓ all hashes match the checked-in pin');
   }
 }
 
+// Forward-pass M15 (2026-06-02): exit non-zero on real failure.
+// Previously `process.exit(0)` swallowed network outages, hash
+// mismatches, and disk-full mid-write — leaving the build looking
+// "fine" until smoke failed later. Real errors now propagate.
 main().catch((err) => {
-  console.warn(`[naklidata] extension vendoring failed: ${err.message}`);
-  process.exit(0);
+  console.error(`[naklidata] extension vendoring failed: ${err.message}`);
+  process.exit(1);
 });
