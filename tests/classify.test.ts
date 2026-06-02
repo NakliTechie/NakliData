@@ -288,4 +288,72 @@ describe('W4 follow-ups (taxonomy calibration)', () => {
     // 0.34 is below the 0.5 confidence_floor; iso_date should not be top.
     expect(result.candidates[0]?.typeId).not.toBe('iso_date');
   });
+
+  // W4 #3 — Surfaced by the events-fixture demo verification. The
+  // pre-fix user_id detector required `high_cardinality: true`, which
+  // gave it a 0.2 multiplier when the distinct ratio fell below 0.5.
+  // Combined with the original 0.6 / 0.4 weights, the confidence
+  // landed at ~0.68 — above the 0.6 per-type floor but below the 0.7
+  // global resolution bar — so the column went to "unknown" despite
+  // a perfect header match. Real-world product-analytics events have
+  // many rows per user by design, so any sample is going to look
+  // moderately-cardinal.
+  //
+  // Fix: weights flipped to 0.8 header / 0.2 length-only (no
+  // high_cardinality requirement). These tests lock in the new shape:
+  // user_id classifies even on a sample where distinct ratio is low.
+  it('classifies user_id on a low-distinct sample (many events per user)', async () => {
+    const bundle = await loadRealBundle();
+    // 200-row sample, only 50 distinct user_ids → distinct ratio 25%.
+    // Pre-fix this fell into the 0.2 cardinality bucket and missed
+    // the 0.7 resolution bar; post-fix the strong header carries.
+    const values: string[] = [];
+    for (let i = 0; i < 200; i++) {
+      values.push(`u_${(i % 50).toString().padStart(4, '0')}`);
+    }
+    const result = classifyColumn(bundle, {
+      tableName: 'events',
+      columnName: 'user_id',
+      sqlType: 'VARCHAR',
+      values,
+      totalSampled: values.length,
+      nullCount: 0,
+      distinctCount: 50,
+    });
+    expect(result.candidates[0]?.typeId).toBe('user_id');
+    expect(result.candidates[0]?.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(result.resolution.kind).not.toBe('unknown');
+  });
+
+  it('classifies user_id on the extreme single-user sample (1 distinct)', async () => {
+    const bundle = await loadRealBundle();
+    // 200 rows all the same user_id — distinct ratio 0.5%. Pre-fix
+    // this was the worst case; post-fix the header alone (0.8) clears
+    // the 0.7 resolution bar.
+    const values = Array.from({ length: 200 }, () => 'u_0001');
+    const result = classifyColumn(bundle, {
+      tableName: 'events',
+      columnName: 'user_id',
+      sqlType: 'VARCHAR',
+      values,
+      totalSampled: values.length,
+      nullCount: 0,
+      distinctCount: 1,
+    });
+    expect(result.candidates[0]?.typeId).toBe('user_id');
+    expect(result.candidates[0]?.confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('classifies page_url on relative paths (regex extended in W4 #3 fix)', async () => {
+    const bundle = await loadRealBundle();
+    // Pre-fix the url regex required full http(s):// — relative paths
+    // emitted by single-page apps never matched. The regex now also
+    // accepts `^/[^\s]*$`, so /products / /checkout / etc. classify.
+    const result = classifyColumn(
+      bundle,
+      sample('page_url', ['/products', '/checkout', '/account', '/blog/spring-deals']),
+    );
+    expect(result.candidates[0]?.typeId).toBe('url');
+    expect(result.candidates[0]?.confidence).toBeGreaterThan(0.7);
+  });
 });
