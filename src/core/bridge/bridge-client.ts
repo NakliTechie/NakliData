@@ -16,6 +16,8 @@
 // DuckDB-wasm via the existing `insertArrowFromIPCStream` path
 // (Engine.registerArrowBuffer).
 
+import { assertSafeBearerToken } from '../bearer-token.ts';
+
 export interface BridgeClientOptions {
   /** Bridge base URL — e.g. `https://nakli-compute.your-vpc.internal:8088`. */
   bridgeUrl: string;
@@ -69,6 +71,10 @@ export class BridgeClient {
     this.bridgeUrl = opts.bridgeUrl.trim().replace(/\/+$/, '');
     this.headers = { Accept: 'application/json' };
     if (opts.bearerToken) {
+      // Reject malformed tokens before they reach `fetch` headers
+      // (browser fetch throws on CR/LF anyway, but this gives a clear
+      // error message at the API boundary). Forward-pass M1.
+      assertSafeBearerToken(opts.bearerToken);
       this.headers.Authorization = `Bearer ${opts.bearerToken}`;
     }
     this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);

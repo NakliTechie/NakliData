@@ -551,25 +551,27 @@ recheck the eval harness for regression cases.
   `req.provider === 'openai'` match before routing to OpenAI; falls
   through to a thrown `SidecarError('Unsupported sidecar provider …')`.
 
-### Batch C — Lens link safety / SSRF
+### Batch C — Lens link safety / SSRF ✅
 
 Independent surface; can run in parallel with B.
 
-- [ ] **H1** Gate auto-mount from `?lens=` behind a "this link will
-  fetch from …" confirmation for any remote-source kind (`http`,
-  `iceberg-table`, `iceberg-catalog`, `compute-bridge`, S3 endpoint).
-  Possibly downgrade to "Reconnect needed" tile UX. Touch
-  `src/main.ts:1338-1359`. **[test in Chrome: Playwright with a crafted
-  lens param, assert no engine fetch before user click.]**
-- [ ] **H8** Validate `metadataLocation` returned by iceberg catalog
-  against the same allowlist `mountIcebergTable` uses
-  (`src/core/mount.ts:653-672`). **[test: vitest with mocked client
-  returning `http://`.]**
-- [ ] **M1** Reject CRLF / non-token-charset bearer tokens in
-  `configureIceberg` + `BridgeClient` constructor + the capture-modal
-  (`src/core/engine.ts:454-456`,
-  `src/core/bridge/bridge-client.ts:71-73`,
-  `src/ui/mount-iceberg-*.ts`, `mount-compute-bridge*.ts`).
+- [x] **H1** Lens-link auto-mount gated behind `openLensConfirmModal`
+  (new file `src/ui/lens-confirm-modal.ts`). The modal lists every
+  remote host the link would fetch from, dedupes by host, defaults
+  focus to Cancel so Enter dismisses safely. Local kinds
+  (`example-bundle`, `fsa-folder`) still auto-restore. Cancel falls
+  back to the saved session. Existing share-link e2e still passes
+  (it mounts example-bundle only → no prompt).
+- [x] **H8** `mountIcebergCatalog` now re-validates `metadataLocation`
+  returned by the catalog client against the same `^https?://|^s3://`
+  allowlist `mountIcebergTable` applies. A compromised catalog
+  returning `http://internal/` is rejected with a clear `MountError`.
+- [x] **M1** New `src/core/bearer-token.ts` with
+  `assertSafeBearerToken` (RFC 7235 token68 charset). Wired into:
+  - `engine.configureIceberg` (before the SQL literal interpolation).
+  - `BridgeClient` constructor (before any fetch).
+  9 vitest cases (CR/LF, whitespace, quotes, paren — all
+  rejected; standard JWT / opaque tokens / empty — all accepted).
 
 ### Batch D — Supply chain + dev-server
 
@@ -648,6 +650,16 @@ Independent surface; can run in parallel with B.
 - 2026-06-02: forward pass complete via 5 parallel subagents. 1 Critical,
   8 High, 15 Medium, 9 Low, 0 Stray = 33 actionable findings. Workplan
   created. Keystone is **Batch A — XSS + CSP hardening** (C1 + H7 + L6).
+- 2026-06-02: **Batch C landed.** H1, H8, M1 fixed.
+  - H1: lens-link auto-mount gated behind a confirmation modal listing
+    every remote host. Cancel falls back to saved session; Continue
+    proceeds. Local kinds still auto-restore silently.
+  - H8: iceberg catalog `metadata-location` re-validated against the
+    same scheme allowlist used for direct mounts.
+  - M1: new `src/core/bearer-token.ts` + RFC 7235 token68 validator.
+    Wired into engine.configureIceberg and BridgeClient. 9 new vitest
+    cases.
+  - Gates: 408 vitest (+9) / 51/51 e2e / smoke / check / bundle 529.2 KB.
 - 2026-06-02: **Batch B landed.** H2, H3, M3, M4, M5, M6, L3, L4 fixed.
   - H2 + H3: NL→SQL parser now uses a positional `extractFromTables`
     walker (handles SQL-89 comma-join + quoted idents + alias) plus

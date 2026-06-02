@@ -48,6 +48,7 @@ import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
+import { type LensConfirmDescriptor, openLensConfirmModal } from './ui/lens-confirm-modal.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
@@ -230,9 +231,27 @@ async function boot(): Promise<void> {
   if (lensParam) {
     try {
       const file = await decodeLensParam(lensParam);
-      await applyLoadedFile(engine, file);
-      clearLensFromLocation();
-      toast(`Loaded shared notebook "${file.name}".`);
+      // Forward-pass H1 (2026-06-02): a malicious `?lens=` link can
+      // enumerate any remote source kind; auto-mounting would silently
+      // SSRF the victim's browser. Gate any remote source behind an
+      // explicit "Continue and fetch" confirmation that lists hosts.
+      // Local sources (example-bundle, fsa-folder) auto-restore as
+      // before — they have no network footprint.
+      const remotes = extractLensRemoteHosts(file);
+      let proceed = true;
+      if (remotes.length > 0) {
+        proceed = await openLensConfirmModal(remotes, file.name);
+      }
+      if (proceed) {
+        await applyLoadedFile(engine, file);
+        clearLensFromLocation();
+        toast(`Loaded shared notebook "${file.name}".`);
+      } else {
+        clearLensFromLocation();
+        toast('Shared link declined — using saved state instead.');
+        await restoreFromActiveSession(engine);
+        restoredFromSnapshot = getWorkbook().get().sources.length > 0;
+      }
     } catch (err) {
       console.warn('[naklidata] lens param decode failed', err);
       toast('Shared link is invalid or corrupted — using saved state instead.', 'error');
@@ -1996,6 +2015,70 @@ async function pickSingleFile(): Promise<File | null> {
  * tables / 12 columns per table so we don't ship the whole workbook
  * over BYOK on every Explain click.
  */
+/**
+ * Walk a decoded lens `NakliDataFile` and return every remote-source
+ * fetch target the engine will hit on auto-mount.
+ *
+ * Forward-pass H1 (2026-06-02): the boot path gates auto-mount on
+ * confirmation when this returns a non-empty list. Local kinds
+ * (example-bundle, fsa-folder) are explicitly omitted — their re-mount
+ * is local-only and not part of the SSRF threat model.
+ *
+ * Hosts are extracted from the persisted URL fields:
+ *   - `http`                      → ps.ref
+ *   - `s3-endpoint`               → s3.endpoint (over HTTP/S to the S3 host)
+ *   - `iceberg-table`             → iceberg.metadata_url
+ *   - `iceberg-catalog`           → iceberg_catalog.catalog_url
+ *   - `compute-bridge`            → bridge.bridge_url
+ *   - `compute-bridge-catalog`    → bridge_catalog.bridge_url
+ *
+ * Bad URLs are surfaced as `host = '(unparseable URL)'` so the user
+ * sees something — a malformed URL is itself a suspicious signal.
+ */
+function extractLensRemoteHosts(file: NakliDataFile): LensConfirmDescriptor[] {
+  const out: LensConfirmDescriptor[] = [];
+  const safeHost = (url: string): string => {
+    try {
+      return new URL(url).host || '(unparseable URL)';
+    } catch {
+      return '(unparseable URL)';
+    }
+  };
+  for (const ps of file.sources) {
+    if (ps.kind === 'http' && ps.ref) {
+      out.push({ label: ps.label, host: safeHost(ps.ref), kind: 'Public URL' });
+    } else if (ps.kind === 's3-endpoint' && ps.s3) {
+      out.push({ label: ps.label, host: safeHost(ps.s3.endpoint), kind: 'S3 bucket' });
+    } else if (ps.kind === 'iceberg-table' && ps.iceberg) {
+      out.push({
+        label: ps.label,
+        host: safeHost(ps.iceberg.metadata_url),
+        kind: 'Iceberg table',
+      });
+    } else if (ps.kind === 'iceberg-catalog' && ps.iceberg_catalog) {
+      out.push({
+        label: ps.label,
+        host: safeHost(ps.iceberg_catalog.catalog_url),
+        kind: 'Iceberg catalog',
+      });
+    } else if (ps.kind === 'compute-bridge' && ps.bridge) {
+      out.push({
+        label: ps.label,
+        host: safeHost(ps.bridge.bridge_url),
+        kind: 'Compute Bridge',
+      });
+    } else if (ps.kind === 'compute-bridge-catalog' && ps.bridge_catalog) {
+      out.push({
+        label: ps.label,
+        host: safeHost(ps.bridge_catalog.bridge_url),
+        kind: 'Compute Bridge catalog',
+      });
+    }
+    // example-bundle + fsa-folder are local — intentionally not added.
+  }
+  return out;
+}
+
 function buildSchemaHint(): string {
   // Per-table column listing. Assignment keys are
   // `${sourceId}::${tableId}::${columnName}` (see schema-panel

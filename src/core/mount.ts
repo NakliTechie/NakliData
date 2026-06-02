@@ -660,6 +660,16 @@ export async function mountIcebergCatalog(
     }
     throw err;
   }
+  // Re-validate the catalog-returned metadata URL against the same
+  // scheme allowlist `mountIcebergTable` applies. A malicious or
+  // compromised catalog can otherwise return any URI (`file:///`,
+  // `http://internal/`, etc.) and DuckDB's iceberg_scan will fetch it.
+  // (Forward-pass H8, 2026-06-02.)
+  if (!/^https?:\/\/|^s3:\/\//i.test(metadataLocation)) {
+    throw new MountError(
+      `Iceberg catalog returned an unsupported metadata location (must be https:// or s3://): ${metadataLocation}`,
+    );
+  }
   // Use the same engine path as slice 3a. Bearer is set for any
   // subsequent storage-host requests (some catalogs require the same
   // token for the data tier; harmless for catalogs that don't).

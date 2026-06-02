@@ -9,6 +9,7 @@
 //   §3.7 — CSP allows wasm-unsafe-eval and the jsdelivr CDN origin
 
 import * as duckdb from '@duckdb/duckdb-wasm';
+import { assertSafeBearerToken } from './bearer-token.ts';
 import { loadChunk } from './lazy-loader.ts';
 
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'error';
@@ -447,6 +448,13 @@ export class Engine {
   }): Promise<void> {
     await this.ensureExtension('iceberg');
     if (bearerToken) {
+      // Validate the bearer-token charset BEFORE building the SQL
+      // literal — escapeLiteral only doubles `'`, so a CR/LF (or other
+      // garbage) would otherwise survive SQL escaping and reach
+      // DuckDB-wasm's httpfs layer. CRLF in particular enables HTTP
+      // header injection if httpfs doesn't validate. (Forward-pass M1,
+      // 2026-06-02.)
+      assertSafeBearerToken(bearerToken);
       // DuckDB's httpfs respects `extra_http_headers` — a STRUCT of
       // header-name → value pairs applied to every outgoing httpfs
       // request. Bearer auth covers REST endpoints (slice 3b) and any
