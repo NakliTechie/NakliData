@@ -69,19 +69,30 @@ Credentials for the remote sources (Bearer tokens, S3 secrets) follow the same B
 
 ## The notebook
 
-A notebook is an ordered list of cells. Five kinds:
+A notebook is an ordered list of cells. Nine kinds:
 
 - **SQL cell.** CodeMirror 6 editor (lazy-loaded chunk; the shell stays under 600 KB until you open one). Reference other cells by `@cellName`. Errors render inline next to the cell.
 - **Chart cell.** Eleven chart types: `bar`, `line`, `area`, `scatter`, `histogram`, `stat`, `table`, `pie`, plus `stacked-bar` / `area-stacked` / `heatmap` via the Observable Plot lazy chunk. A `facet-by` picker draws small-multiples for facetable types (Plot uses native `fy`; pie partitions into a grid).
 - **Pivot cell.** Pick a row column, a column column, a value column, and an aggregation (`sum` / `avg` / `min` / `max` / `count`). Row, column, and grand totals render only when semantically meaningful.
 - **Map cell.** Tile-less MapLibre canvas (no basemap — privacy-clean). Reads a GeoJSON geometry column (object- or string-shaped) and optionally colors features by a categorical property. Mount `.geojson` / `.kml` files directly via the DuckDB spatial extension.
 - **Markdown cell.** Hand-rolled minimal subset (60 lines, no `marked`/`markdown-it`); sufficient for notebook annotations.
+- **Cohort cell** *(W4.4).* SQL that returns a `user_id` column. Reference via `@<cohort_name>` in downstream cells; downstream queries `JOIN` against the cohort. Same execution path as SQL cells; just clearer intent + a count badge.
+- **Assertion cell** *(W5.5, dbt-tests pattern).* SQL that should return 0 rows when an invariant holds. PASS pill on green, FAIL pill + counter-example count + red border on red. Catches data-quality regressions inline ("no negative amounts", "every invoice has a vendor", "no duplicate user_ids").
+- **Input cell** *(W6.1, viewof / Briefer pattern).* Interactive parameter — text / number / date / select widget. The current value is inlined into downstream SQL via `@<name>` ref resolution (text → quoted, number → bare, date → `DATE 'YYYY-MM-DD'`, empty → `NULL`). Quote-doubling makes SQL injection benign — an attacker-controlled value becomes a single quoted string literal.
+- **Dashboard cell** *(W6.4, Superset / Power BI pattern).* CSS grid (1–4 columns) of named markdown / chart / pivot / map cells. Items are listed by `@name`; the dashboard re-renders each referenced cell with the editing chrome stripped. SQL / cohort / assertion / input cells aren't valid items (queries + parameters, not presentation surfaces).
+
+### Sharing the notebook
+
+- **Save HTML** (header button) — exports the active notebook as a self-contained `.html` file: markdown previews + chart SVGs + pivot/result tables + SQL `<details>` blocks. ~3 KB embedded CSS, no JS, no engine. Email it, drop it into a Google Doc, pin it in a wiki.
+- **Presentation mode** *(W6.2, Hex app-publish pattern).* Append `?present=1` to the URL — hides SQL/cohort/assertion cells, the sources + schema sidebars, the notebook toolbar, the cell-add row, and per-cell edit chrome. Markdown + chart + pivot + map keep rendering. An "Exit presentation" pill in the header returns to the workbench.
 
 ## The schema panel
 
 The taxonomy is what makes NakliData feel different — it knows what your columns mean, not just their SQL types.
 
-- **Auto-classify** runs in a Web Worker against `taxonomy/v0.1` (41 semantic types). Confidence scores + evidence are shown; auto-accept threshold is user-configurable.
+- **Auto-classify** runs in a Web Worker against `taxonomy/v0.1` (48 semantic types incl. the W4.1 product-analytics seeds: `event_name`, `user_id`, `session_id`, `event_timestamp`, `utm_*`, `event_properties_json`, `page_url`). Confidence scores + evidence are shown; auto-accept threshold is user-configurable.
+- **Sensitivity badges** *(W5.4, Unity Catalog pattern).* Each TypeSpec carries a `sensitivity` field — `public` / `pii` / `financial` / `secret`. The schema panel surfaces a small badge on PII / financial columns (no badge on public). Substrate for future demo-mode-by-label + sidecar prompt redaction.
+- **Quick-chart suggestions** *(W5.3, Power BI quick-measure pattern).* Each column row has a "Quick chart ▾" affordance that emits ready-to-run SQL + chart + markdown cells based on the assigned type and same-table partners — e.g. an `amount` column suggests "Sum amount by vendor_name" + a histogram; a `gstin` column suggests "Spend by state (GSTIN[0..2])"; a `user_id` column suggests COUNT DISTINCT.
 - **Column profile** (toggleable per column): cardinality, null %, length distribution, top-5 values. Single DuckDB aggregate query; no extra cost until you ask for it.
 - **Override** a single column, or "Remember rule" to promote that override into an `override_rules` entry that applies on every future mount + reclassify.
 - **Define a new type from this column** opens a modal that re-samples values and lets you write the spec by hand (header_match + regex + checksum + sql_type). User types persist per-workspace and are fed back to the classifier ("Re-classify with user types").
@@ -98,12 +109,14 @@ The taxonomy is what makes NakliData feel different — it knows what your colum
 
 ## AI sidecar (BYOK, optional)
 
-Off by default. Open the gear icon → AI sidecar to enter a key. Four narrow jobs:
+Off by default. Open the gear icon → AI sidecar to enter a key. Six narrow jobs:
 
 1. **Explain query error.** When a SQL cell errors, an inline affordance asks the sidecar what went wrong; the response is plain prose with an optional "Copy SQL" suggested-fix block (you decide whether to run it — never auto-executed).
 2. **Disambiguate type.** Shown on schema-panel columns where two or more taxonomy candidates remain plausible (confidence ∈ [0.5, 0.9) and origin = detector). One-token answer matched against the candidate list; applied via the standard override path.
 3. **Define a new type.** In the "+ Define new type from this column…" modal, an optional "Suggest with sidecar" button fills regex / checksum / sql_type guesses. You edit and save.
 4. **Recommend reports.** In the Reports panel, "Ask sidecar to rank" scores up to N candidate report templates against your current schema + column-type summary and returns a ranked list with confidence scores. Hallucination guard lives in the parser, not just the prompt — any `template_id` the sidecar emits that isn't in the candidate set is dropped, so it can't invent reports that don't exist. You decide which of the ranked reports to run.
+5. **NL → SQL** *(W5.1, Genie / Cortex / Magic pattern).* "Ask in plain English" button on the notebook toolbar — type a question, get a DuckDB `SELECT` against your mounted tables. Safety guards in the parser (defense in depth alongside the prompt): rejects anything that doesn't start with `SELECT` / `WITH`, rejects every write/DDL keyword (INSERT / UPDATE / DELETE / CREATE / DROP / ALTER / TRUNCATE / MERGE / CALL / ATTACH / COPY / EXPORT / VACUUM / PRAGMA), drops responses that reference tables not in your workbook. The generated SQL lands as a new cell — **never auto-executed**; you click Run. Only table + column names are shipped to the sidecar; no row data.
+6. **Summarise result** *(W5.2, Hex Magic pattern).* On a successfully-run SQL/cohort/assertion cell, a "Summarise" button asks the sidecar for a one-line observation about the result (top value / distribution / range). Hallucination guard: any column reference must be wrapped in backticks AND match a real result column — otherwise the entire observation is dropped. 200-char cap with ellipsis truncation. Only the columns + first 5 sample rows are shipped (privacy posture).
 
 **BYOK posture** (spec amendment [A2](./plan/spec-amendments.md)):
 - Keys live in `sessionStorage` by default (cleared on tab close).
@@ -120,7 +133,7 @@ Save the current notebook (Cmd/Ctrl+S) and you get a `.naklidata` file — JSON,
 
 - mounted sources (label, kind, ref, table names — not bytes)
 - column type assignments (typeId per column, origin: detector / user_accept / user_override, confidence, evidence)
-- notebook cells (SQL / markdown / chart / pivot / map, ordered)
+- notebook cells (SQL / markdown / chart / pivot / map / cohort / assertion / input / dashboard, ordered)
 - user types (per-workspace taxonomy extensions you defined)
 - override rules (e.g., "always treat columns named `vendor_id` as `gstin`")
 - workspace settings (auto-accept threshold, demo mode, etc.)
@@ -131,7 +144,7 @@ Schema canonical: spec §5. Format identifier: `"format": "naklidata"`, currentl
 
 ## Taxonomy contribution flow
 
-The v0.1 taxonomy bundle ships in `taxonomy/v0.1/` — 41 semantic types across three domains (Indian SMB finance, generic finance, generic logs). Each type has a header-name match list, an optional regex, optional checksum (e.g., the GSTIN base-36 check digit), optional value-set lookup, and an SQL-type compatibility set.
+The v0.1 taxonomy bundle ships in `taxonomy/v0.1/` — 48 semantic types across four domains (Indian SMB finance, generic finance, generic logs, product analytics). Each type has a header-name match list, an optional regex, optional checksum (e.g., the GSTIN base-36 check digit), optional value-set lookup, an SQL-type compatibility set, and a `sensitivity` field (`public` / `pii` / `financial` / `secret`).
 
 To add a new type or improve an existing detector, edit `taxonomy/v0.1/types.jsonl` and open a PR. The agent-seeded types are marked `"seed_origin": "agent_v1.0"` and have a tighter `confidence_floor` (0.6 vs the human-curated 0.5) — those are explicitly flagged for human review. If a type is specific to your workspace, define it in-app as a user type instead — it lives in the `.naklidata` file rather than the shared bundle.
 
