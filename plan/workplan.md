@@ -9,28 +9,22 @@ release notes in `plan/v1.2.2-release-notes.md`.
 
 ---
 
-## Chunk 1 — Doc sync after v1.2.2 (keystone, ~45 min)
+## Chunk 1 — Doc sync after v1.2.2 (keystone, ~45 min) ✅
 
-The audit shipped substantial behaviour changes (lens auto-mount
-confirmation, NL→SQL parser tightening, CSP additions, postinstall
-hash-pin) but the doc surface hasn't caught up. Stop-checklist #5
-calls for STATUS.md to reflect reality; #6 for non-trivial decisions
-to be in `DECISIONS.md`.
-
-- [ ] **STATUS.md** — update "build status", "what's done", "what's
-  next" to reflect v1.2.2 + the security-hardening sweep.
-- [ ] **DECISIONS.md** — append entries (via `/decide` or by hand)
-  for the load-bearing audit choices: lens auto-mount confirmation,
-  postinstall hash-pin, bearer-token RFC 7235 charset, CSP defence
-  set, NL→SQL parser safety, two-track adversarial review as
-  standing gate.
-- [ ] **plan/spec-amendments.md** — formalise A19–A23 (lens, hash-pin,
-  bearer, CSP, NL→SQL) or document explicitly that they don't need
-  spec-amendment treatment.
-
-Why keystone: doc state is part of the project's reliability surface
-— picking up cold without it costs the next session their first 20
-minutes orientating.
+- [x] **STATUS.md** — new 2026-06-02T22:30 entry covering v1.2.2 +
+  the security-hardening sweep; tag list updated through v1.2.2.
+- [x] **DECISIONS.md** — appended `## 2026-06-02 — Forward-pass
+  audit + v1.2.2 — load-bearing decisions` with 8 lettered
+  sub-decisions (A: lens confirmation UX, B: two-track adversarial
+  review as standing gate, C: mountIcebergTable vs catalog regex
+  asymmetry, D: frame-ancestors in meta as documentation, E:
+  postinstall pin via existing integrity.json, F: xlsx exact-pin
+  scope, G: postinstall exit(1), H: smoke warning visible).
+- [x] **plan/spec-amendments.md** — A19 (lens auto-mount
+  confirmation), A20 (postinstall hash-pin protocol), A21
+  (bearer-token RFC 7235 charset), A22 (CSP defence-in-depth),
+  A23 (NL→SQL parser safety contract) — all with index entries +
+  full sections.
 
 ---
 

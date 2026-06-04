@@ -2,6 +2,115 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-02 — Forward-pass audit + v1.2.2 — load-bearing decisions
+
+**Context:** A whole-codebase `/forward-pass` audit (read-only, fresh-eyes) produced 33 findings (1 Critical / 8 High / 15 Medium / 9 Low) against the v1.2.1 baseline. The audit was fanned out across 5 parallel subagents (engine+mount+persistence; sidecar+BYOK; charts+classifier+templates; notebook+cells+modals+export; build+CSP+lazy+SW). Findings were ranked, batched into 8 themed chunks (A–H), and closed across 6 commits. A two-track adversarial review then found 9 NEW bugs in those very fixes. All 42 fixes shipped in `v1.2.2` at `40360b1`. The following sections capture the non-trivial choices made along the way — small bug fixes are documented in commit messages alone, but these have downstream implications worth recording.
+
+### Decision A — Lens auto-mount → confirmation modal (not reconnect-tiles, not same-origin-only)
+
+The SSRF risk in `?lens=` shared links (a malicious sender could mount remote sources on the victim's page-load and use their browser to probe internal networks / replay tokens) had three plausible UX shapes:
+
+- **(option 1)** Confirmation dialog listing every host the link would fetch from, requiring explicit Continue / Cancel.
+- **(option 2)** Lens never auto-mounts remote sources — they appear as inert "Reconnect: <host>" tiles in the Sources panel; user clicks each to mount.
+- **(option 3)** Auto-mount when same-origin / known-safe (e.g. naklitechie.github.io); reconnect tiles otherwise.
+
+**Chosen:** option 1. The recipient sees the list of hosts BEFORE any fetch fires; Cancel falls back to saved session; Continue proceeds with the auto-mount. Cancel is the default-focused button so Enter-dismiss is the safe default.
+
+**Why not the others:** Option 2 (reconnect tiles) is the safest possible posture but breaks the "share a workbook and they see it" promise of shared links entirely — every recipient would land on a Sources panel full of cards they'd have to click. Option 3 (hybrid) introduces a list of "trusted hosts" that grows over time and has to be maintained; same-origin is also less safe than it sounds because the user might be on a corporate naklitechie.github.io fork with different trust expectations.
+
+**Reversibility:** Easy. The boot-time check is one branch in `src/main.ts` calling `openLensConfirmModal`; revert to direct `applyLoadedFile` if the UX proves friction-heavy. The modal is self-contained in `src/ui/lens-confirm-modal.ts`.
+
+### Decision B — Two-track adversarial review (internal code-reviewer agent + external codex CLI) as standing post-batch gate
+
+After v1.2.0, the same pattern caught 2 bugs the prior reviewer missed. After Wave 5/6, it caught 5 bugs. After the 33-fix audit work, it caught 9 more (7 from the internal agent, 2 different ones from codex). Each pass costs ~5–10 minutes of wall-clock time + a few thousand tokens, and the bugs surfaced span correctness, security, and subtle regressions in load-bearing security fixes.
+
+**Chosen:** standing post-batch ritual going forward. Whenever a meaningful batch closes (forward-pass close, multi-commit feature, security work), run BOTH the internal code-reviewer agent (different blind spots than the author) AND external `codex review` (yet another set of blind spots). Compose findings, fix the real ones, gate-then-tag.
+
+**Why both, not one:** The two reviewers consistently catch complementary sets. Internal agent in this audit caught: NL→SQL parser bypass (HIGH), LATERAL/UNNEST regression (HIGH), supply-chain hash gap (MED), taxonomy worker leak (MED), multi-statement string-literal trip (MED), CACHE_VERSION regex single-shot (LOW), pendingMounts dead-code (LOW). Codex caught: iceberg `http?://` regex error (MED) + sinks.ts SQL-vs-filename disconnect (MED). The internal agent saw the parser surfaces deeply; codex spotted copy-paste / API-contract errors. Different lenses, different bugs.
+
+**Cost:** 5-10k tokens per pass. Acceptable for the security-critical surfaces this gate guards.
+
+### Decision C — `mountIcebergTable` keeps `^https?://` (laxer); `mountIcebergCatalog` is strictly `^https://`
+
+The audit's H8 finding was that catalog-returned `metadataLocation` URLs weren't scheme-checked. The fix had to choose between two regexes:
+
+- `^https?://|^s3://` (allows http://) — already what `mountIcebergTable` uses on user-typed URLs
+- `^https://|^s3://` (strict)
+
+**Chosen:** strict for `mountIcebergCatalog`; the existing laxer regex stays on `mountIcebergTable` for USER-typed URLs.
+
+**Why the split:** The user typing `http://localhost:8080/iceberg/...` into the modal is the documented "local testing" allowance. They see the URL they typed; they know what they're doing. A catalog returning `http://internal/...`, by contrast, is hidden from the user — they typed only the catalog URL, not the table URLs. Strict-https for catalog-returned URLs closes the SSRF / intranet-probing channel without breaking the local-testing affordance. Document the asymmetry in code comments so future maintenance doesn't accidentally unify them.
+
+### Decision D — `frame-ancestors 'none'` ships in `<meta>` CSP despite being a documented no-op
+
+Per CSP Level 3, `frame-ancestors`, `report-uri`, and `sandbox` are IGNORED when the policy is delivered via `<meta http-equiv="Content-Security-Policy">`. They only enforce when delivered as a real HTTP header. NakliData currently deploys to GitHub Pages, which doesn't speak custom HTTP headers — so `frame-ancestors` is aspirational there.
+
+**Chosen:** ship it anyway, with a documenting comment in `esbuild.config.mjs`. Three reasons: (1) when a future deploy lands that DOES speak headers (Cloudflare Pages with `_headers`, a self-hosted Caddy/nginx in front), the directive enforces immediately with no code change. (2) The directive in the policy string is a record of intent — anyone reading the CSP can see clickjacking was considered. (3) The other three new directives (`base-uri 'self'`, `object-src 'none'`, `form-action 'self'`) ARE enforced from meta, so the bundle is already paying the marginal-byte cost of the additions.
+
+**Cost:** browser logs a console warning ("frame-ancestors is ignored when delivered via a <meta> element"). The smoke harness reports this as "NOTE: console error during run" but doesn't fail — it's a documented exception in the smoke runner.
+
+### Decision E — Postinstall hash-pin: existing `integrity.json` in `public/...` IS the pin (no separate file)
+
+Both `scripts/fetch-duckdb-fallback.mjs` and `scripts/fetch-duckdb-extensions.mjs` already write an `integrity.json` next to the downloaded bytes (used at runtime for SRI verification of the vendored fallback). Those files ARE tracked in git per `.gitignore` (`.wasm` binaries ignored; integrity.json explicitly committed as "the pinned-version record").
+
+**Chosen:** treat the existing tracked `integrity.json` as the pinned-hash table the postinstall script verifies AGAINST. No new file format, no new convention. On first-time bootstrap (no `integrity.json` yet) the script records the new hashes and warns the developer to commit. On every subsequent run, downloaded bytes are sha384'd and compared; mismatch → throw "supply-chain alert" and exit 1.
+
+**Why not a separate `pinned-hashes.json`:** would have added a second source-of-truth (which file wins?) and would have required reconciliation when the runtime SRI file regenerated. Single file, single role, but TWO consumers (postinstall verifier + runtime SRI loader).
+
+**Cost:** one branch in each postinstall script for the bootstrap-vs-validate flow. Plus the codex-surfaced refinement: on the `alreadyVendored()` shortcut we ALSO re-verify on-disk bytes (closes the in-place tamper window).
+
+### Decision F — `xlsx` pinned exactly to 0.18.5; other deps stay `^`-ranged
+
+The audit's M13 finding flagged that SheetJS Community Edition 0.18.x is unmaintained on npm (the maintainers explicitly moved distribution off npm; CVE-2024-22363 / CVE-2023-30533 apply to the npm-distributed builds). `^0.18.5` would let `npm ci` (without lockfile) pull any future 0.18.x.
+
+**Chosen:** drop the caret on `xlsx` ONLY. Other deps stay at `^x.y.z` since they're actively maintained on npm; `package-lock.json` byte-pins them.
+
+**Why not exact-pin everything:** would be a one-line sweep but would lose the value of `^` (auto-bump on minor releases for actively-maintained deps). The threat the audit identified is specific to the unmaintained-on-npm case; the surgical fix is the right scope.
+
+**Future:** if a future audit flags other deps as risky, exact-pin those individually with a code-comment naming the reason. Don't blanket-pin without justification.
+
+### Decision G — Postinstall scripts `exit(1)` on real failure (was `exit(0)`)
+
+Pre-fix both fetch scripts ended in `main().catch(err => { console.warn(...); process.exit(0); })`. The intent (per the surrounding comment "let the build proceed") was that a transient network blip shouldn't tank `npm install`. The reality was that a network-down / disk-full / hash-mismatch ALL silently passed, leaving the build in a partial-vendored state that only surfaced at smoke-test time.
+
+**Chosen:** `exit(1)` on every real failure (network, disk, hash mismatch). The `SKIP_DUCKDB_FETCH=1` env-var escape hatch is still available for CI environments that genuinely don't need the vendored bytes.
+
+**Why this is OK to ship:** the dominant path (developers running `npm install` after `git clone`) ALREADY HAS the vendored bytes committed via `integrity.json` — the `alreadyVendored()` shortcut returns immediately and no fetch fires. Real failures are rare and should be loud, not silent.
+
+### Decision H — `frame-ancestors` browser warning is documented, not silenced
+
+The smoke runner logs every console error during the headless boot. After the H7 CSP additions, every smoke run logs:
+
+> The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element.
+
+**Chosen:** leave the warning visible. Smoke continues to pass (the warning is informational, not an error condition). Adding a smoke-runner suppression filter for known-warnings would mask future genuine issues.
+
+**Future:** if/when a deploy that speaks HTTP headers lands, the warning will disappear naturally.
+
+**Tests:** All decisions above are exercised by the test suite (421 vitest, 51 e2e, smoke, eval). Specific lock-ins:
+- Decision A: `tests/e2e/url-state-share.spec.ts` (existing) verifies example-bundle path doesn't trigger the modal. Remote-source modal path is owed runtime verification.
+- Decision B: the audit + adversarial-review pattern itself is the test — proven in three back-to-back batches.
+- Decision C: covered by the H8 fix + the codex-caught regex correction.
+- Decision E: postinstall scripts validate locally with `alreadyVendored` shortcut. Hash-mismatch path verified by static-reasoning + the script's own throw; an end-to-end probe is owed.
+
+**Reversibility:** All decisions above are encoded in single-file changes:
+- A: revert `src/main.ts` lens-decode branch; delete `src/ui/lens-confirm-modal.ts`.
+- B: stop running the dual-track gate.
+- C: change one regex in `src/core/mount.ts`.
+- D: drop the four CSP additions in `esbuild.config.mjs` + `src/index.html`.
+- E: revert postinstall scripts; integrity.json regeneration was the original behavior.
+- F: re-add `^` to `package.json:xlsx`.
+- G: revert the `exit(1)` change.
+
+Each is well below the "rip out and re-do" threshold.
+
+**Known limitations / follow-ups:**
+- Spec amendments A19–A23 formalised in `plan/spec-amendments.md` (concurrent with this entry). Documents the user-visible behavior changes (lens confirmation, CSP additions, NL→SQL parser safety contract, bearer-token charset, postinstall hash-pin) as part of the spec contract.
+- Runtime verification of lens-confirm modal end-to-end in Chrome (chunk 2 of `plan/workplan.md`).
+- Postinstall hash-mismatch end-to-end probe (chunk 2 of workplan).
+
+---
+
 ## 2026-05-31 — W4 #3: raw-events fixture + 2 taxonomy bugs surfaced & fixed
 
 **Context:** Wave 4 (product analytics surface — DAU, Top events, Funnel A→B→C, 30-day retention cohort, conversion-by-source, Top user paths) had shipped at build/typecheck level but no end-to-end evidence on real raw event data. The demo verification keystone earlier had used the user's pre-aggregated retention xlsx, which didn't have raw event rows. Without a raw-events fixture, the W4 templates were a black box. The plan called for synthesising one.
