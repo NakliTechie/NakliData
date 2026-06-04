@@ -93,6 +93,35 @@ The smoke runner logs every console error during the headless boot. After the H7
 - Decision C: covered by the H8 fix + the codex-caught regex correction.
 - Decision E: postinstall scripts validate locally with `alreadyVendored` shortcut. Hash-mismatch path verified by static-reasoning + the script's own throw; an end-to-end probe is owed.
 
+### Decision J — Defer v1.3.0 tag; accumulate toward it instead of tagging the audit close alone
+
+Workplan chunk 4 framed the question: tag v1.3.0 now to mark "everything from Wave 5+6 + the security-hardening sweep" as a release boundary, OR leave at v1.2.2 and accumulate toward v1.3.0 when another substantive item lands (most likely W3.2 slice B — Transformers.js real local inference).
+
+**Chosen: defer v1.3.0.**
+
+**Reasoning.** A 1.x → 1.y minor-version jump should mark a meaningful shape change in what NakliData can do, not just "patch tags piled up." The sweep that just landed (v1.2.0 + v1.2.1 + v1.2.2) is correctly captured in the patch series — each tag has clean per-version notes (`plan/v1.2.0-release-notes.md`, `plan/v1.2.1-release-notes.md`, `plan/v1.2.2-release-notes.md`) and the audit detail is in `plan/forward-pass-2026-06-02.md`. There is no user-facing feature in v1.2.2 that v1.2.1 lacked; the difference is in safety + correctness + a now-documented behaviour change (lens auto-mount confirmation). v1.2.x is the right place for that.
+
+v1.3.0 should land when at least one of these is true:
+- W3.2 slice B (Transformers.js real local inference) ships — adds a NEW provider mode that wasn't usable before.
+- A new mount source kind ships (e.g., DB Relay v2.0 work — see plan/pending.md).
+- A new cell kind beyond the nine in spec amendment A16.
+
+In the absence of any such item, accumulating toward v1.3.0 keeps the version-number semantic stable. Patch tags can continue.
+
+**Reversibility:** Trivial — `git tag -a v1.3.0 -m "..."` whenever the bar is met.
+
+---
+
+### Decision I — W1 / W2 / W3 audit "worth a look" items: all closed as verified non-issues
+
+The forward-pass audit surfaced three lower-confidence hunches in its "Worth a look" bucket. Each is now resolved.
+
+- **W1 — SRI on cross-origin DuckDB-wasm.** Verified: SRI was *intentionally dropped* in W1.8.2 (commit 5b10b93→W1.8.2 era) and documented in spec amendment A14. The blob-pre-wrap pattern that SRI required broke cross-blob worker access in current Chrome (a Worker spawned from one blob can't fetch sibling blobs from the parent's blob registry). Trust boundary moved to (a) version-pinned URL + (b) build-time SHA-384 verify against `integrity.json` (now also enforced by postinstall per Decision E). Code-comment block at `src/core/engine.ts:215-221` carries the rationale. **Conclusion: no change.**
+
+- **W2 — `?lens=` back-button replay.** Tested. With `history.replaceState` semantics (which `clearLensFromLocation` uses), the CURRENT history entry is replaced — no new entry is created — so after the modal cancels and strips the lens, the back button navigates to whatever existed BEFORE the lens link, not back to the lens. Locked in by `tests/e2e/lens-confirm-modal.spec.ts` "back-button after Cancel does NOT replay the lens" case. **Conclusion: no change; behaviour is correct as shipped.**
+
+- **W3 — SW scope vs "Forget all".** Read the relevant code. `forgetAllKeys` (src/core/sidecar/byok.ts:75) only touches `sessionStorage` + IDB entries for BYOK keys. The service worker (public/sw.js) caches the shell (`index.html`, `manifest.webmanifest`, `icon.svg`, `taxonomy.worker.js`, `chunks/codemirror.js`) + same-origin SWR. BYOK keys are sent only to cross-origin endpoints (Anthropic / OpenAI / user-configured custom endpoint), which the SW explicitly passes through without caching (`url.origin !== self.location.origin → return`). So the SW cache holds no key-dependent content; forgetAllKeys correctly clears everything it needs to. **Conclusion: no change.**
+
 **Reversibility:** All decisions above are encoded in single-file changes:
 - A: revert `src/main.ts` lens-decode branch; delete `src/ui/lens-confirm-modal.ts`.
 - B: stop running the dual-track gate.

@@ -28,77 +28,80 @@ release notes in `plan/v1.2.2-release-notes.md`.
 
 ---
 
-## Chunk 2 — Runtime verification of audit fixes (~30 min)
+## Chunk 2 — Runtime verification of audit fixes (~30 min) ✅
 
-Static reasoning + unit tests + e2e covered the happy paths but two
-behaviours are still owed runtime verification.
-
-- [ ] [test in Chrome] **Lens-confirm modal end-to-end.** Build a
-  test `?lens=…` containing 1+ remote-source kind, paste into a
-  fresh tab, verify the modal renders, lists hosts, Cancel restores
-  saved state, Continue proceeds with the mount. Focus order + Tab
-  trap should match other modals.
-- [ ] [test] **Postinstall hash-mismatch probe.** Mutate one
-  `public/duckdb-fallback/duckdb-eh.wasm` byte, re-run
-  `node scripts/fetch-duckdb-fallback.mjs`, confirm it exits 1 with
-  the "supply-chain alert" message. Then restore the byte. Same
-  for `fetch-duckdb-extensions.mjs`.
+- [x] **Lens-confirm modal end-to-end** — `tests/e2e/lens-confirm-modal.spec.ts`
+  with 4 cases: modal fires for http source + Cancel strips param;
+  Escape cancels; back-button does NOT replay (W2 verified); local-
+  only lens does NOT fire modal.
+- [x] **Postinstall hash-mismatch probe** — `scripts/probe-hash-mismatch.mjs`.
+  Live-ran the probe; verified baseline pass → tampered exit 1 +
+  "supply-chain alert" → restored pass. End-to-end protection
+  confirmed.
 
 ---
 
-## Chunk 3 — Audit "worth a look" verifications (~1 hr)
+## Chunk 3 — Audit "worth a look" verifications (~1 hr) ✅
 
-Three lower-confidence hunches from the forward-pass. Each starts
-with a verify step, then a decide.
-
-- [ ] **W1 — SRI on cross-origin DuckDB-wasm.** Inspect the runtime
-  script tags emitted when the engine boots from
-  `naklitechie.github.io` or `cdn.jsdelivr.net`. If no `integrity=`
-  attribute, decide whether to add one.
-- [ ] **W2 — `?lens=` back-button replay.** Playwright case:
-  navigate to a lens-link, decline the confirmation, then click
-  back/forward. Does the lens param re-trigger? Fix order:
-  reproduce → patch (likely call clearLensFromLocation BEFORE the
-  modal opens, not after) → test.
-- [ ] **W3 — SW scope on Forget all.** Inspect what `forgetAllKeys`
-  cleans up; check whether the SW cache still references state the
-  keys protected. If so, add an `unregister` step.
-
----
-
-## Chunk 4 — v1.3.0 tag decision (~15 min decision + 30 min tag/notes)
-
-All Critical + High findings closed. Open work is doc sync (chunk 1)
-and the deferred Transformers.js inference (chunk 5).
-
-- [ ] [decide] **Tag v1.3.0** to mark "everything from Wave 5+6 +
-  the security-hardening sweep" as a release boundary? Or leave at
-  v1.2.2 and accumulate toward v1.3.0 when Transformers.js (or
-  another substantive feature) lands?
-- [ ] If yes: draft `plan/v1.3.0-release-notes.md` rolling up
-  v1.2.0 + v1.2.1 + v1.2.2; tag + push.
+- [x] **W1 — SRI on cross-origin DuckDB-wasm.** Verified
+  intentionally dropped per W1.8.2 + spec amendment A14 (blob-pre-
+  wrap broke cross-blob worker access in current Chrome). Trust
+  = version-pin + build-time SHA-384 verify against integrity.json
+  + (new in v1.2.2) postinstall hash-pin enforcement. Code-comment
+  block at `src/core/engine.ts:215-221` carries the rationale.
+  Conclusion: no change. (DECISIONS Decision I.)
+- [x] **W2 — `?lens=` back-button replay.** Tested. With
+  `history.replaceState` semantics, the current entry is replaced
+  rather than a new entry created — back-button after Cancel goes
+  to the pre-lens URL, NOT back to the lens. Locked in by the new
+  e2e case (chunk 2). Conclusion: no change.
+- [x] **W3 — SW scope on Forget all.** Verified. `forgetAllKeys`
+  only touches sessionStorage + IDB BYOK entries. SW caches the
+  shell + same-origin SWR; cross-origin requests (where BYOK keys
+  go) explicitly bypass the cache. SW holds no key-dependent
+  content. Conclusion: no change. (DECISIONS Decision I.)
 
 ---
 
-## Chunk 5 — W3.2 slice B — Transformers.js chunk + real inference (DEFERRED, ~half day)
+## Chunk 4 — v1.3.0 tag decision ✅
 
-The only `[pending]` item from the historical task list. W3.2
-shipped the 'local' provider seam + UI; slice B is the actual
-Transformers.js chunk + model load + inference path. Substantive
-feature work, not housekeeping.
+- [x] **Decision: defer v1.3.0.** Recorded as Decision J in
+  DECISIONS.md. Reasoning: a 1.x → 1.y jump should mark a meaningful
+  shape change, not "patch tags piled up." The security-hardening
+  sweep is correctly captured across v1.2.0 / v1.2.1 / v1.2.2 patch
+  tags with clean per-version notes. v1.3.0 trigger will be: W3.2
+  slice B (Transformers.js local inference) ships, OR a new mount
+  source kind ships, OR a new cell kind. Tag tooling stays
+  trivially reversible.
 
-- [ ] Pick the model (HF ONNX repo). Document the choice in
-  DECISIONS — it's a multi-week commitment given the bundle weight.
-- [ ] `src/lazy/transformers.ts` — chunk with the model + tokenizer
-  loader.
-- [ ] Wire into `registerLocalGenerator` in the local-runtime
-  seam.
-- [ ] Bundle-size impact assessment — the model is the dominant
-  cost; verify the chunk-load doesn't break the offline path.
-- [ ] Eval harness — local provider should pass the same 6-job
-  golden cases.
+---
 
-Prereq: model choice decision. Run `/decide` first.
+## Chunk 5 — W3.2 slice B — Transformers.js (DEFERRED, ~2.5 days; ready-to-decide) ✅ (scoping)
+
+Full scoping doc at `plan/w32-slice-b-scoping.md`. Five decisions
+the next session needs to lock before implementing:
+
+- [~] **Decision 1: model choice.** My recommended default:
+  Qwen2.5-1.5B-Instruct (0.9 GB, Apache 2.0). Alternatives: Phi-3.5-
+  mini (2.3 GB, MIT, better quality), Llama-3.2-1B (0.7 GB, Meta).
+- [~] **Decision 2: weight cache.** Recommended: custom OPFS layer
+  in `src/core/sidecar/local-cache.ts` with inspectable size + delete
+  affordance. Matches BYOK posture.
+- [~] **Decision 3: chunk strategy.** Recommended: single
+  `src/lazy/transformers.ts`. Library + model registration together.
+- [~] **Decision 4: bundle-size carve-out for the lazy chunk.**
+  Recommended: don't budget lazy chunks; document the carve-out in
+  `scripts/check-bundle-size.mjs`.
+- [~] **Decision 5: eval coverage for `local` provider.** Recommended:
+  skip for slice B; per-job manual probes; eval harness can be a
+  v1.3.x follow-up.
+
+**Why deferred not in-progress:** all five decisions need user
+sign-off before implementation; they're multi-week / multi-GB
+commitments. Run `/decide` first at /resume time. No code work to do
+right now — the seam (W3.2 slice A, shipped in v1.1) is correctly
+empty and the "no-provider" error correctly surfaces via the L3 UI
+hook (covered in v1.2.2).
 
 ---
 

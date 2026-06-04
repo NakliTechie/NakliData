@@ -624,57 +624,43 @@ Full writeup in [enterprise-strategy.md](./enterprise-strategy.md). Phased:
 
 ---
 
-## Audit follow-throughs (2026-06-02)
+## Audit follow-throughs (2026-06-02) — ALL CLOSED
 
-Items surfaced by the v1.2.2 forward-pass / adversarial review that
-weren't in scope for the tag. None are blockers; ordered roughly by
-priority.
+Update (2026-06-03 morning): every audit follow-through that was
+queued the night of 2026-06-02 has landed. Workplan chunks 1–5
+executed in sequence; results below for reference.
 
-- **Doc sync.** `STATUS.md` last updated v1.2.0 — needs the v1.2.2
-  pass (the security-and-hardening release). Per stop-checklist #5.
-- **DECISIONS log entries** for the audit work — at least the
-  load-bearing ones (lens auto-mount confirmation, postinstall
-  hash-pin protocol, bearer-token RFC 7235 charset, CSP defence
-  set, NL→SQL parser safety guarantees, two-track adversarial
-  review as standing gate). Run `/decide` to capture each.
-- **Spec amendments A19–A23** — formalise into
-  `plan/spec-amendments.md` if we want the audit changes to be
-  part of the spec contract.
-- **Lens-confirm modal Chrome runtime test.** Vitest + e2e cover the
-  example-bundle path (no prompt). The remote-source flow needs a
-  manual click-through that exercises the modal layout, focus
-  order, and Cancel-default-Enter-dismiss behaviour.
-- **Postinstall hash-mismatch end-to-end probe.** Static reasoning
-  + the script's own throw-on-mismatch path is the current proof.
-  A real "swap the bytes, re-run install, expect supply-chain
-  alert" probe would lock the H6 + adversarial-fix protection
-  end-to-end.
+- [x] **Doc sync.** STATUS.md + DECISIONS.md + spec-amendments.md
+  refreshed for v1.2.2 (commit `9952fc4`).
+- [x] **DECISIONS log entries** — 8 sub-decisions (A–H) covering
+  lens UX, dual-track review gate, regex asymmetry, frame-ancestors
+  meta, hash-pin protocol, xlsx pin scope, postinstall exit(1),
+  smoke warning visibility.
+- [x] **Spec amendments A19–A23** formalised (lens confirmation /
+  postinstall hash-pin / bearer-token charset / CSP defence-in-depth /
+  NL→SQL parser safety contract).
+- [x] **Lens-confirm modal runtime test.** Playwright spec
+  `tests/e2e/lens-confirm-modal.spec.ts` — 4 cases.
+- [x] **Postinstall hash-mismatch probe.** `scripts/probe-hash-mismatch.mjs`
+  — live-verified passing.
+- [x] **W1 (SRI cross-origin DuckDB-wasm)** — verified intentionally
+  dropped per A14; trust = version pin + integrity.json. No change.
+  (DECISIONS Decision I.)
+- [x] **W2 (`?lens=` back-button replay)** — tested; replaceState
+  semantics handle correctly. Locked by Playwright case. No change.
+- [x] **W3 (SW scope vs Forget all)** — verified; SW caches no
+  key-dependent state. forgetAllKeys correct as-is. No change.
+  (DECISIONS Decision I.)
+- [x] **v1.3.0 tag decision** — deferred. Will tag on a substantive
+  feature (W3.2 slice B / new mount kind / new cell kind), not on
+  the audit-close alone. Reasoning in DECISIONS Decision J.
 
-### Audit "worth a look" follow-ups (W1–W3)
+### Now open
 
-Lower-confidence hunches from the forward-pass; verify before deciding
-to act:
-
-- **W1.** SRI verification on cross-origin DuckDB-wasm. We trust
-  `naklitechie.github.io` and `cdn.jsdelivr.net` by host (CSP
-  `script-src`), but no byte-level runtime check on the actual
-  bundle pulled. If the project relies on SRI, verify it's
-  computed and present in the script tags; if not, decide whether
-  to add it.
-- **W2.** `?lens=` back-button replay. `clearLensFromLocation()`
-  runs AFTER auto-mount fires; browser history may retain the
-  hash and re-trigger on back navigation. Test the back-button
-  flow.
-- **W3.** SW scope vs "Forget all". The "Forget all stored keys"
-  action clears IDB; does the SW cache also need unregistering so
-  the cached shell doesn't outlive the keys it referenced?
-
-### Tag-eligible follow-up
-
-- **v1.3.0 tag question.** All Critical + High audit findings now
-  closed. Open work is doc sync + the deferred Transformers.js
-  inference. A v1.3.0 jump would mark "everything from Wave 5+6
-  + the security hardening sweep" as a release boundary. Decide.
+- **W3.2 slice B — Transformers.js real local inference**
+  (`plan/w32-slice-b-scoping.md`). Five decisions queued for
+  `/decide` before implementation. Ready to pick up when user
+  has time for a ~2.5-day effort.
 
 ## Sources
 

@@ -143,6 +143,51 @@ test.describe('?lens= confirmation modal (forward-pass H1)', () => {
     await server.close();
   });
 
+  test('back-button after Cancel does NOT replay the lens (forward-pass W2)', async ({
+    browser,
+  }) => {
+    // Forward-pass "worth a look" W2: clearLensFromLocation uses
+    // history.replaceState, which replaces the CURRENT entry without
+    // creating a new one. So after Cancel strips the lens, the
+    // current history entry is the cleaned URL — back navigates to
+    // whatever was BEFORE the lens link, not back to the lens.
+    //
+    // This test pins the behaviour by clicking back after Cancel and
+    // asserting the modal does NOT re-fire.
+    const server = await startStaticServer();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // Establish a prior history entry so "back" has somewhere to go.
+    await page.goto(`${server.url}/index.html`);
+    await page.waitForSelector('.shell-header', { timeout: 10_000 });
+
+    const lens = await encodeLens(makeRemoteLensFile('w2-back-button.invalid'));
+    await page.goto(`${server.url}/index.html?offline=1&lens=${lens}`);
+
+    const modal = page.locator('.lens-confirm-modal');
+    await expect(modal).toBeVisible({ timeout: 10_000 });
+
+    // Cancel the modal.
+    await modal.locator('[data-action="lens-confirm-cancel"]').click();
+    await expect(modal).toBeHidden({ timeout: 2_000 });
+    expect(page.url()).not.toContain('lens=');
+
+    // Now click back. With replaceState semantics, we should land on
+    // the original (pre-lens) page, NOT on /?lens=... again.
+    await page.goBack();
+    // Give the page a beat to settle.
+    await page.waitForTimeout(2_000);
+
+    // Modal should still NOT be visible.
+    await expect(modal).toHaveCount(0);
+    // URL should not contain the lens param.
+    expect(page.url()).not.toContain('lens=');
+
+    await context.close();
+    await server.close();
+  });
+
   test('does NOT fire the modal for a local-only lens (no http/iceberg/s3/bridge sources)', async ({
     browser,
   }) => {
