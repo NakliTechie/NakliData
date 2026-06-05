@@ -15,15 +15,19 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  buildAssignTypePrompt,
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildNlToSchemaPrompt,
   buildNlToSqlPrompt,
   buildRecommendReportsPrompt,
   buildSummariseResultPrompt,
+  parseAssignTypeResponse,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseNlToSchemaResponse,
   parseNlToSqlResponse,
   parseRecommendReportsResponse,
   parseSummariseResultResponse,
@@ -32,24 +36,30 @@ import { callAnthropic } from '../src/core/sidecar/providers/anthropic.ts';
 import { callCustomOpenAI } from '../src/core/sidecar/providers/custom-openai.ts';
 import { callOpenAI } from '../src/core/sidecar/providers/openai.ts';
 import type {
+  AssignTypeJob,
   DefineTypeJob,
   DisambiguateTypeJob,
   ExplainErrorJob,
+  NlToSchemaJob,
   NlToSqlJob,
   RecommendReportsJob,
   SummariseResultJob,
 } from '../src/core/sidecar/types.ts';
 import { type CaseResult, type RunMeta, aggregate, renderReport } from './report.ts';
 import {
+  type AssignTypeExpected,
   type DefineTypeExpected,
   type DisambiguateExpected,
   type ExplainErrorExpected,
+  type NlToSchemaExpected,
   type NlToSqlExpected,
   type RecommendReportsExpected,
   type SummariseResultExpected,
+  scoreAssignType,
   scoreDefineType,
   scoreDisambiguateType,
   scoreExplainError,
+  scoreNlToSchema,
   scoreNlToSql,
   scoreRecommendReports,
   scoreSummariseResult,
@@ -62,7 +72,9 @@ export type JobName =
   | 'define-type'
   | 'recommend-reports'
   | 'summarise-result'
-  | 'nl-to-sql';
+  | 'nl-to-sql'
+  | 'assign-type'
+  | 'nl-to-schema';
 export const ALL_JOBS: JobName[] = [
   'explain-error',
   'disambiguate-type',
@@ -70,6 +82,8 @@ export const ALL_JOBS: JobName[] = [
   'recommend-reports',
   'summarise-result',
   'nl-to-sql',
+  'assign-type',
+  'nl-to-schema',
 ];
 
 export interface HarnessOpts {
@@ -104,6 +118,8 @@ type DefineInput = Omit<DefineTypeJob, 'kind'>;
 type RecommendInput = Omit<RecommendReportsJob, 'kind'>;
 type SummariseInput = Omit<SummariseResultJob, 'kind'>;
 type NlToSqlInput = Omit<NlToSqlJob, 'kind'>;
+type AssignTypeInput = Omit<AssignTypeJob, 'kind'>;
+type NlToSchemaInput = Omit<NlToSchemaJob, 'kind'>;
 
 // ---- main -----------------------------------------------------------
 
@@ -197,6 +213,27 @@ async function runCase(
         input.tables.map((t) => t.name),
       );
       const s = scoreNlToSql(parsed, c.expected as NlToSqlExpected);
+      return mk(job, c.id, s, raw, started);
+    }
+    if (job === 'assign-type') {
+      const input = c.input as AssignTypeInput;
+      const raw = await getRaw(opts, c.recordedResponse, () =>
+        buildAssignTypePrompt({ kind: 'assign-type', ...input }),
+      );
+      const parsed = parseAssignTypeResponse(raw, input.catalog);
+      const s = scoreAssignType(parsed, c.expected as AssignTypeExpected);
+      return mk(job, c.id, s, raw, started);
+    }
+    if (job === 'nl-to-schema') {
+      const input = c.input as NlToSchemaInput;
+      const raw = await getRaw(opts, c.recordedResponse, () =>
+        buildNlToSchemaPrompt({ kind: 'nl-to-schema', ...input }),
+      );
+      const parsed = parseNlToSchemaResponse(
+        raw,
+        input.knownTypes.map((t) => t.typeId),
+      );
+      const s = scoreNlToSchema(parsed, c.expected as NlToSchemaExpected);
       return mk(job, c.id, s, raw, started);
     }
     // explain-error

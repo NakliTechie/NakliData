@@ -76,6 +76,12 @@ export interface SchemaPanelHandlers {
   /** Open the "Compare tables" modal. Theme 4 wave 2 (B2). */
   onCompareTables: () => void;
   /**
+   * W7.1 — run the sidecar `assign-type` job across every column the
+   * detectors left unknown. Wired only when the sidecar is enabled; the
+   * toolbar button is also CSS-gated behind `.app-sidecar-enabled`.
+   */
+  onClassifyAllUnknowns?: () => void;
+  /**
    * W5.3 — drop a list of cell partials into the notebook. Used by
    * the per-column "Quick chart" affordance; cells come from
    * `getQuickActions` in `quick-aggregations.ts`. Same shape the
@@ -149,6 +155,19 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
            ${iconSvg('table', 12)} Compare tables…
          </button>`
       : '';
+  // W7.1 — bulk "classify all unknowns" via the sidecar. Rendered only
+  // when at least one column is unknown; visibility is further gated by
+  // CSS to `.app-sidecar-enabled` (same posture as the per-column "Ask
+  // AI" button). The handler is optional — omit the button if unwired.
+  const unknownCount = Object.values(state.assignments).filter(
+    (a) => a.assigned.typeId === null,
+  ).length;
+  const classifyAllHtml =
+    unknownCount > 0 && handlers.onClassifyAllUnknowns
+      ? `<button class="btn btn-ghost schema-sidecar-bulk" data-action="classify-all-unknowns" style="width: 100%; margin-top: 4px; justify-content: center;" title="Ask the sidecar to assign a semantic type to every unknown column">
+           ${iconSvg('info', 12)} Classify ${unknownCount} unknown${unknownCount === 1 ? '' : 's'} with AI
+         </button>`
+      : '';
   el.innerHTML = `
     <label style="font-size: 12px; color: var(--text-muted); display: block;">
       Auto-accept threshold
@@ -163,6 +182,7 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
     ${reclassifyHtml}
     ${manageRulesHtml}
     ${compareTablesHtml}
+    ${classifyAllHtml}
   `;
   el.querySelector<HTMLInputElement>('[data-action="threshold-slider"]')?.addEventListener(
     'input',
@@ -187,6 +207,9 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
   });
   el.querySelector('[data-action="compare-tables"]')?.addEventListener('click', () => {
     handlers.onCompareTables();
+  });
+  el.querySelector('[data-action="classify-all-unknowns"]')?.addEventListener('click', () => {
+    handlers.onClassifyAllUnknowns?.();
   });
   return el;
 }
@@ -325,6 +348,7 @@ function renderColumnRow(
         ${iconSvg('chart', 12)} Profile
       </button>
       ${isAmbiguous(a) ? renderAskSidecarButton(sourceId, tableId, a) : ''}
+      ${isUnknownColumn(a) ? renderAskAssignButton(sourceId, tableId, a) : ''}
     </div>
     <div id="${detailsId}" class="schema-evidence" hidden>${renderEvidence(a)}</div>
     <div class="schema-profile-pane" ${profile ? '' : 'hidden'}>${profile ? renderProfilePanel(profile) : ''}</div>
@@ -450,6 +474,32 @@ function renderAskSidecarButton(sourceId: string, tableId: string, a: ColumnAssi
       aria-label="Ask sidecar to disambiguate type for ${escapeHtml(a.columnName)}"
     >
       ${iconSvg('info', 12)} Ask sidecar
+    </button>`;
+}
+
+/**
+ * A column qualifies for sidecar type-assignment (Job 7) when it has no
+ * assigned type at all — the deterministic detectors couldn't place it.
+ * This is the complement of {@link isAmbiguous}: ambiguous columns have
+ * candidates to pick between; unknown columns have nothing, so the
+ * sidecar assigns from the full taxonomy vocabulary instead.
+ */
+function isUnknownColumn(a: ColumnAssignment): boolean {
+  return a.assigned.typeId === null;
+}
+
+function renderAskAssignButton(sourceId: string, tableId: string, a: ColumnAssignment): string {
+  return `
+    <button
+      class="btn btn-ghost schema-sidecar-ask"
+      data-action="ask-sidecar-assign"
+      data-source-id="${escapeHtml(sourceId)}"
+      data-table-id="${escapeHtml(tableId)}"
+      data-column="${escapeHtml(a.columnName)}"
+      title="Let the sidecar assign a semantic type from the full taxonomy"
+      aria-label="Ask AI to classify type for ${escapeHtml(a.columnName)}"
+    >
+      ${iconSvg('info', 12)} Ask AI to classify
     </button>`;
 }
 
@@ -845,6 +895,20 @@ const SCHEMA_CSS = `
   display: inline-flex;
 }
 .schema-sidecar-ask:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Bulk "Classify all unknowns" toolbar button — same enable-gating as
+   the per-column trigger: only shown when the sidecar is on. */
+.schema-sidecar-bulk {
+  display: none;
+  color: var(--accent);
+}
+.app-sidecar-enabled .schema-sidecar-bulk {
+  display: inline-flex;
+}
+.schema-sidecar-bulk:disabled {
   opacity: 0.6;
   cursor: progress;
 }

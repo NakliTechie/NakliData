@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type SidecarTransport,
+  buildAssignTypePrompt,
+  buildCreateTableDdl,
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildNlToSchemaPrompt,
   buildNlToSqlPrompt,
   buildRecommendReportsPrompt,
   buildSummariseResultPrompt,
   dispatchJob,
+  parseAssignTypeResponse,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseNlToSchemaResponse,
   parseNlToSqlResponse,
   parseRecommendReportsResponse,
   parseSummariseResultResponse,
@@ -766,5 +771,172 @@ describe('dispatchJob — nl-to-sql', () => {
     expect(result.kind).toBe('nl-to-sql');
     if (result.kind !== 'nl-to-sql') return;
     expect(result.sql).toBe('');
+  });
+});
+
+// ---- assign-type (Job 7) -------------------------------------------
+
+const ASSIGN_CATALOG = [
+  { typeId: 'email', displayName: 'Email', domain: 'contact' },
+  { typeId: 'gstin', displayName: 'GSTIN', domain: 'finance-in' },
+  { typeId: 'iso_date', displayName: 'ISO date', domain: 'temporal' },
+];
+
+describe('buildAssignTypePrompt', () => {
+  it('embeds the column, samples, and the full catalog with domains', () => {
+    const { system, user } = buildAssignTypePrompt({
+      kind: 'assign-type',
+      columnName: 'contact_email',
+      sqlType: 'VARCHAR',
+      samples: ['a@b.com', 'c@d.io'],
+      catalog: ASSIGN_CATALOG,
+    });
+    expect(system).toMatch(/assigning a semantic type/i);
+    expect(user).toContain('contact_email');
+    expect(user).toContain('- email (Email) [contact]');
+    expect(user).toContain('- gstin (GSTIN) [finance-in]');
+    expect(user).toContain('a@b.com');
+  });
+});
+
+describe('parseAssignTypeResponse', () => {
+  it('accepts a valid catalog id (case-insensitively)', () => {
+    expect(parseAssignTypeResponse('email', ASSIGN_CATALOG).typeId).toBe('email');
+    expect(parseAssignTypeResponse('  EMAIL  ', ASSIGN_CATALOG).typeId).toBe('email');
+    expect(parseAssignTypeResponse('`iso_date`', ASSIGN_CATALOG).typeId).toBe('iso_date');
+  });
+
+  it('coerces unknown / out-of-catalog / empty to null', () => {
+    expect(parseAssignTypeResponse('unknown', ASSIGN_CATALOG).typeId).toBeNull();
+    expect(parseAssignTypeResponse('made_up_type', ASSIGN_CATALOG).typeId).toBeNull();
+    expect(parseAssignTypeResponse('', ASSIGN_CATALOG).typeId).toBeNull();
+  });
+
+  it('dispatches end-to-end and applies the hallucination guard', async () => {
+    _idb.set('sidecar/byok/openai', 'sk-openai-stub');
+    const transport: SidecarTransport = async () => 'not_in_catalog';
+    const result = await dispatchJob(
+      {
+        kind: 'assign-type',
+        columnName: 'x',
+        sqlType: 'VARCHAR',
+        samples: ['1'],
+        catalog: ASSIGN_CATALOG,
+      },
+      { provider: 'openai', model: 'gpt-4o-mini', transport },
+    );
+    expect(result.kind).toBe('assign-type');
+    if (result.kind !== 'assign-type') return;
+    expect(result.typeId).toBeNull();
+  });
+});
+
+// ---- nl-to-schema (Job 8) ------------------------------------------
+
+const KNOWN_TYPES = [
+  { typeId: 'email', displayName: 'Email' },
+  { typeId: 'amount', displayName: 'Amount' },
+  { typeId: 'iso_date', displayName: 'ISO date' },
+];
+
+describe('buildNlToSchemaPrompt', () => {
+  it('embeds the description, optional table name, and known types', () => {
+    const { system, user } = buildNlToSchemaPrompt({
+      kind: 'nl-to-schema',
+      description: 'a list of orders',
+      tableName: 'orders',
+      knownTypes: KNOWN_TYPES,
+    });
+    expect(system).toMatch(/inferring a tabular schema/i);
+    expect(user).toContain('a list of orders');
+    expect(user).toContain('Suggested table name: orders');
+    expect(user).toContain('- email (Email)');
+  });
+});
+
+describe('parseNlToSchemaResponse', () => {
+  const KNOWN_IDS = KNOWN_TYPES.map((t) => t.typeId);
+
+  it('parses a clean schema and maps known semantic types', () => {
+    const raw = JSON.stringify({
+      table_name: 'orders',
+      columns: [
+        { name: 'order_no', sql_type: 'VARCHAR', semantic_type_id: null, description: 'id' },
+        { name: 'buyer_email', sql_type: 'VARCHAR', semantic_type_id: 'email', description: '' },
+        { name: 'total', sql_type: 'DECIMAL(12,2)', semantic_type_id: 'amount', description: '' },
+      ],
+    });
+    const r = parseNlToSchemaResponse(raw, KNOWN_IDS);
+    expect(r.tableName).toBe('orders');
+    expect(r.columns).toHaveLength(3);
+    expect(r.columns[1]).toMatchObject({ name: 'buyer_email', semanticTypeId: 'email' });
+    expect(r.columns[2]?.sqlType).toBe('DECIMAL(12,2)');
+  });
+
+  it('coerces a hallucinated semantic id to null and a bad sql type to VARCHAR', () => {
+    const raw = JSON.stringify({
+      table_name: 'x',
+      columns: [{ name: 'a', sql_type: 'NONSENSE', semantic_type_id: 'made_up', description: '' }],
+    });
+    const r = parseNlToSchemaResponse(raw, KNOWN_IDS);
+    expect(r.columns[0]).toMatchObject({ sqlType: 'VARCHAR', semanticTypeId: null });
+  });
+
+  it('sanitises names, drops unnamed/duplicate columns, and defaults the table name', () => {
+    const raw = JSON.stringify({
+      table_name: '',
+      columns: [
+        { name: 'Created At!', sql_type: 'DATE', semantic_type_id: 'iso_date' },
+        { name: '', sql_type: 'VARCHAR' },
+        { name: 'created_at', sql_type: 'DATE' },
+      ],
+    });
+    const r = parseNlToSchemaResponse(raw, KNOWN_IDS);
+    expect(r.tableName).toBe('new_dataset');
+    expect(r.columns).toHaveLength(1);
+    expect(r.columns[0]?.name).toBe('created_at');
+  });
+
+  it('returns an empty column set (rejection) when nothing usable survives', () => {
+    const r = parseNlToSchemaResponse(JSON.stringify({ table_name: 'x', columns: [] }), KNOWN_IDS);
+    expect(r.columns).toHaveLength(0);
+    expect(r.tableName).toBe('');
+  });
+
+  it('strips ```json``` fences', () => {
+    const fenced = `\`\`\`json\n${JSON.stringify({
+      table_name: 't',
+      columns: [{ name: 'c', sql_type: 'VARCHAR' }],
+    })}\n\`\`\``;
+    const r = parseNlToSchemaResponse(fenced, KNOWN_IDS);
+    expect(r.columns).toHaveLength(1);
+  });
+
+  it('throws a parse error on non-JSON', () => {
+    expect(() => parseNlToSchemaResponse('not json', KNOWN_IDS)).toThrow();
+  });
+});
+
+describe('buildCreateTableDdl', () => {
+  it('emits valid DDL with quoted identifiers and no trailing comma on the last column', () => {
+    const ddl = buildCreateTableDdl({
+      kind: 'nl-to-schema',
+      tableName: 'orders',
+      columns: [
+        { name: 'order_no', sqlType: 'VARCHAR', semanticTypeId: null, description: '' },
+        { name: 'total', sqlType: 'DECIMAL(12,2)', semanticTypeId: 'amount', description: 'sum' },
+      ],
+    });
+    expect(ddl).toContain('CREATE TABLE "orders" (');
+    expect(ddl).toContain('"order_no" VARCHAR,');
+    expect(ddl).toContain('"total" DECIMAL(12,2)');
+    expect(ddl).toContain('-- amount: sum');
+    // The last column line must not end with a dangling comma before ");".
+    expect(ddl).not.toMatch(/,\s*\)\s*;\s*$/);
+    expect(ddl.trimEnd().endsWith(');')).toBe(true);
+  });
+
+  it('returns empty string for a rejected (empty) schema', () => {
+    expect(buildCreateTableDdl({ kind: 'nl-to-schema', tableName: '', columns: [] })).toBe('');
   });
 });

@@ -1,0 +1,80 @@
+{
+  "job": "nl-to-schema",
+  "_note": "Held-out cases for NL → schema inference (Job 8). `recordedResponse` is a representative raw JSON model output used by --dry-run. Column + table names are checked post-sanitisation (snake_case); semantic mappings are checked against knownTypes. One case exercises the rejection path (no usable columns). Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "support-tickets",
+      "input": {
+        "description": "Customer support tickets: subject line, priority, status, the customer's email, when it was created and resolved, and the assigned agent",
+        "tableName": "support_tickets",
+        "knownTypes": [
+          { "typeId": "email", "displayName": "Email" },
+          { "typeId": "iso_datetime", "displayName": "ISO datetime" },
+          { "typeId": "log_level", "displayName": "Log level" }
+        ]
+      },
+      "expected": {
+        "mustHaveColumns": [
+          "subject",
+          "priority",
+          "status",
+          "customer_email",
+          "created_at",
+          "resolved_at",
+          "agent"
+        ],
+        "mustMap": { "customer_email": "email", "created_at": "iso_datetime" }
+      },
+      "recordedResponse": "{\"table_name\":\"support_tickets\",\"columns\":[{\"name\":\"subject\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":null,\"description\":\"Ticket subject line\"},{\"name\":\"priority\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":null,\"description\":\"low/medium/high\"},{\"name\":\"status\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":null,\"description\":\"open/closed\"},{\"name\":\"customer_email\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":\"email\",\"description\":\"Reporter email\"},{\"name\":\"created_at\",\"sql_type\":\"TIMESTAMP\",\"semantic_type_id\":\"iso_datetime\",\"description\":\"Creation time\"},{\"name\":\"resolved_at\",\"sql_type\":\"TIMESTAMP\",\"semantic_type_id\":\"iso_datetime\",\"description\":\"Resolution time\"},{\"name\":\"agent\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":null,\"description\":\"Assigned agent\"}]}"
+    },
+    {
+      "id": "invoices",
+      "input": {
+        "description": "Vendor invoices with invoice number, vendor name, GST identification number, total amount, and invoice date",
+        "knownTypes": [
+          { "typeId": "vendor_name", "displayName": "Vendor name" },
+          { "typeId": "gstin", "displayName": "GSTIN" },
+          { "typeId": "amount", "displayName": "Amount" },
+          { "typeId": "iso_date", "displayName": "ISO date" }
+        ]
+      },
+      "expected": {
+        "mustHaveColumns": [
+          "invoice_number",
+          "vendor_name",
+          "gstin",
+          "total_amount",
+          "invoice_date"
+        ],
+        "mustMap": {
+          "vendor_name": "vendor_name",
+          "gstin": "gstin",
+          "total_amount": "amount",
+          "invoice_date": "iso_date"
+        }
+      },
+      "recordedResponse": "{\"table_name\":\"invoices\",\"columns\":[{\"name\":\"invoice_number\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":null,\"description\":\"Invoice identifier\"},{\"name\":\"vendor_name\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":\"vendor_name\",\"description\":\"Supplier\"},{\"name\":\"gstin\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":\"gstin\",\"description\":\"GST number\"},{\"name\":\"total_amount\",\"sql_type\":\"DECIMAL(12,2)\",\"semantic_type_id\":\"amount\",\"description\":\"Invoice total\"},{\"name\":\"invoice_date\",\"sql_type\":\"DATE\",\"semantic_type_id\":\"iso_date\",\"description\":\"Date issued\"}]}"
+    },
+    {
+      "id": "hallucinated-semantic-type-coerces-null",
+      "input": {
+        "description": "A list of products with a name and a price",
+        "knownTypes": [{ "typeId": "amount", "displayName": "Amount" }]
+      },
+      "expected": {
+        "mustHaveColumns": ["product_name", "price"],
+        "mustMap": { "price": "amount" }
+      },
+      "recordedResponse": "{\"table_name\":\"products\",\"columns\":[{\"name\":\"product_name\",\"sql_type\":\"VARCHAR\",\"semantic_type_id\":\"made_up_type\",\"description\":\"Name\"},{\"name\":\"price\",\"sql_type\":\"DECIMAL(10,2)\",\"semantic_type_id\":\"amount\",\"description\":\"Unit price\"}]}"
+    },
+    {
+      "id": "empty-columns-rejected",
+      "input": {
+        "description": "gibberish that yields nothing",
+        "knownTypes": []
+      },
+      "expected": { "expectRejected": true },
+      "recordedResponse": "{\"table_name\":\"x\",\"columns\":[]}"
+    }
+  ]
+}

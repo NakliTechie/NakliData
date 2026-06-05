@@ -55,6 +55,7 @@ import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.t
 import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
+import { openNlToSchemaModal } from './ui/nl-to-schema-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
@@ -476,6 +477,9 @@ function renderSchemaPanelWithCurrentState(
           assignments: wb.assignments,
           engine,
         }),
+      onClassifyAllUnknowns: () => {
+        void runClassifyAllUnknowns(engine);
+      },
       // W5.3 — quick-chart actions drop cells into the notebook via
       // the same load() path the templates panel uses.
       onAddCells: (partials, label) => {
@@ -949,6 +953,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       openNlToSqlSidecar(engine);
       return;
     }
+    case 'ask-nl-to-schema': {
+      openNlToSchemaSidecar(engine);
+      return;
+    }
     case 'export-html': {
       const wb = workbook.get();
       if (wb.sources.length === 0) {
@@ -996,6 +1004,14 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const columnName = el?.dataset.column;
       if (!sourceId || !tableId || !columnName) return;
       await runDisambiguateType(engine, el, sourceId, tableId, columnName);
+      return;
+    }
+    case 'ask-sidecar-assign': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const columnName = el?.dataset.column;
+      if (!sourceId || !tableId || !columnName) return;
+      await runAssignType(engine, el, sourceId, tableId, columnName);
       return;
     }
     case 'show-profile': {
@@ -2415,6 +2431,231 @@ async function runDisambiguateType(
       buttonEl.textContent = 'Ask sidecar';
     }
   }
+}
+
+/**
+ * Build the semantic-type catalog the sidecar may assign from: every
+ * bundle type plus the workbook's user-defined types. Shared by the
+ * per-column `assign-type` job, the bulk classifier, and (mapped to
+ * id+display only) the NL→schema job's `knownTypes`.
+ */
+function buildTypeCatalog(): Array<{ typeId: string; displayName: string; domain: string }> {
+  const catalog: Array<{ typeId: string; displayName: string; domain: string }> = [];
+  const bundle = getTaxonomyClient().getBundle();
+  if (bundle) {
+    for (const t of bundle.types) {
+      catalog.push({ typeId: t.id, displayName: t.display_name, domain: t.domain });
+    }
+  }
+  for (const t of getWorkbook().get().userTypes) {
+    catalog.push({ typeId: t.id, displayName: t.display_name, domain: t.category || 'user' });
+  }
+  return catalog;
+}
+
+/**
+ * Sidecar wave 7 W7.2 — Job 8: NL → schema. Opens the modal with the
+ * known-type vocabulary; on accept, inserts an UN-RUN SQL cell holding
+ * the generated CREATE TABLE DDL at the end of the notebook (Hard NOT
+ * #4 — the user clicks Run). No row data is involved — there's no data
+ * yet, just a description.
+ */
+function openNlToSchemaSidecar(engine: Engine): void {
+  const knownTypes = buildTypeCatalog().map((c) => ({
+    typeId: c.typeId,
+    displayName: c.displayName,
+  }));
+  openNlToSchemaModal({
+    knownTypes,
+    onInsert: (ddl) => {
+      const nb = getNotebook(engine);
+      const existing = nb.get().cells;
+      const newCell: SqlCellState = {
+        id: `c_${Date.now().toString(36)}_${existing.length}`,
+        kind: 'sql',
+        order: existing.length,
+        name: null,
+        code: ddl,
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+        pinned: false,
+      };
+      nb.load([...existing, newCell]);
+      toast('CREATE TABLE cell inserted — review then click Run.');
+    },
+  });
+}
+
+/**
+ * Sidecar wave 7 W7.1 — Job 7: assign a semantic type to ONE unknown
+ * column from the full taxonomy vocabulary. Triggered by the schema-
+ * panel "Ask AI to classify" button on columns the detectors left
+ * unknown. On a non-null pick we record it as a user_override (same as
+ * disambiguation); `null` leaves the column unknown.
+ */
+async function runAssignType(
+  engine: Engine,
+  buttonEl: HTMLElement | null,
+  sourceId: string,
+  tableId: string,
+  columnName: string,
+): Promise<void> {
+  const wb = getWorkbook().get();
+  const source = wb.sources.find((s) => s.id === sourceId);
+  const table = source?.tables.find((t) => t.id === tableId);
+  if (!source || !table) {
+    toast('Source/table not found.', 'error');
+    return;
+  }
+  const key = assignmentKey(sourceId, tableId, columnName);
+  const a = wb.assignments[key];
+  if (!a) {
+    toast('Column not found.', 'error');
+    return;
+  }
+  const catalog = buildTypeCatalog();
+  if (catalog.length === 0) {
+    toast('No taxonomy loaded yet — cannot classify.', 'error');
+    return;
+  }
+  if (buttonEl instanceof HTMLButtonElement) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Asking…';
+  }
+  try {
+    const stats = await engine.sampleColumn(table.name, columnName);
+    const settings = await loadSettings();
+    const response = await dispatchJob(
+      {
+        kind: 'assign-type',
+        columnName,
+        sqlType: a.sqlType,
+        samples: stats.values.slice(0, 20),
+        catalog,
+      },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
+      },
+    );
+    if (response.kind !== 'assign-type') return;
+    if (response.typeId === null) {
+      toast(`Sidecar couldn't place ${columnName} — override manually if you know the type.`);
+      if (buttonEl instanceof HTMLButtonElement) {
+        buttonEl.disabled = false;
+        buttonEl.textContent = 'Ask AI to classify';
+      }
+    } else {
+      overrideAssignment(sourceId, tableId, columnName, response.typeId);
+      toast(`Sidecar classified ${columnName} as ${friendlyTypeName(response.typeId)}.`);
+    }
+  } catch (err) {
+    const msg =
+      err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
+    toast(`Sidecar: ${msg}`, 'error');
+    if (buttonEl instanceof HTMLButtonElement) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = 'Ask AI to classify';
+    }
+  }
+}
+
+/**
+ * Sidecar wave 7 W7.1 — bulk variant: run `assign-type` across every
+ * unknown column in the workbook, sequentially (one provider call per
+ * column). Applies each non-null pick directly without the per-override
+ * "Remember rule?" prompt — that would be toast spam at bulk scale.
+ * Ends with a single summary toast.
+ */
+async function runClassifyAllUnknowns(engine: Engine): Promise<void> {
+  const wb = getWorkbook().get();
+  const targets: Array<{ sourceId: string; tableId: string; tableName: string; column: string }> =
+    [];
+  for (const s of wb.sources) {
+    for (const t of s.tables) {
+      for (const [key, a] of Object.entries(wb.assignments)) {
+        if (a.assigned.typeId !== null) continue;
+        const [sId, tId] = key.split('::');
+        if (sId === s.id && tId === t.id) {
+          targets.push({ sourceId: s.id, tableId: t.id, tableName: t.name, column: a.columnName });
+        }
+      }
+    }
+  }
+  if (targets.length === 0) {
+    toast('No unknown columns to classify.');
+    return;
+  }
+  const catalog = buildTypeCatalog();
+  if (catalog.length === 0) {
+    toast('No taxonomy loaded yet — cannot classify.', 'error');
+    return;
+  }
+  const settings = await loadSettings();
+  const dispatchOpts = {
+    provider: settings.sidecarProvider,
+    model: settings.sidecarModel,
+    ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+      ? { customEndpoint: settings.sidecarCustomEndpoint }
+      : {}),
+  };
+  toast(`Classifying ${targets.length} unknown column${targets.length === 1 ? '' : 's'}…`);
+  let assigned = 0;
+  let failed = 0;
+  for (const t of targets) {
+    const key = assignmentKey(t.sourceId, t.tableId, t.column);
+    const a = getWorkbook().get().assignments[key];
+    if (!a) continue;
+    try {
+      const stats = await engine.sampleColumn(t.tableName, t.column);
+      const response = await dispatchJob(
+        {
+          kind: 'assign-type',
+          columnName: t.column,
+          sqlType: a.sqlType,
+          samples: stats.values.slice(0, 20),
+          catalog,
+        },
+        dispatchOpts,
+      );
+      if (response.kind === 'assign-type' && response.typeId !== null) {
+        applyAiAssignment(t.sourceId, t.tableId, t.column, response.typeId);
+        assigned++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  const plural = targets.length === 1 ? '' : 's';
+  const failedNote = failed > 0 ? ` ${failed} failed.` : '';
+  const summary = `Classified ${assigned} of ${targets.length} unknown column${plural}.${failedNote}`;
+  toast(summary, failed > 0 ? 'error' : 'info');
+}
+
+/**
+ * Apply a sidecar type assignment to one column WITHOUT the "Remember
+ * rule?" follow-up toast. Used by the bulk classifier so a wide schema
+ * doesn't produce a toast per column. Records as a user_override at full
+ * confidence — the user can still re-override afterwards.
+ */
+function applyAiAssignment(
+  sourceId: string,
+  tableId: string,
+  columnName: string,
+  typeId: string,
+): void {
+  const workbook = getWorkbook();
+  const key = assignmentKey(sourceId, tableId, columnName);
+  const a = workbook.get().assignments[key];
+  if (!a) return;
+  workbook.setAssignment(key, {
+    ...a,
+    assigned: { typeId, origin: 'user_override', confidence: 1 },
+  });
 }
 
 // ---- Toast ----------------------------------------------------------

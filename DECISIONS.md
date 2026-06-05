@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-05 — Wave 7: two new sidecar jobs from the bigset evaluation
+
+**Context:** Asked to evaluate `tinyfish-io/bigset` (an AGPL, server-side, agentic web-scraping dataset builder: Next.js + Convex + Fastify + Mastra, TinyFish/OpenRouter/Clerk SaaS, scheduled refresh) for use at NakliData's "ontology layer" (= the `src/taxonomy/` semantic-type classification layer). Bigset as a dependency is a non-starter — it collides with every relevant Hard NOT (browser-native/zero-backend, BYOK-only/no-accounts, no background polling, single ≤600 KB bundle) and has no ontology/semantic-typing component at all (its "schema inference" is one-shot per-dataset column guessing, not a reusable vocabulary). But two of its *ideas* port cleanly into the existing sidecar as structured, user-in-the-loop jobs. The user explicitly asked for both.
+
+### Decision A — `assign-type` (Job 7) is a NEW job, not an extension of `disambiguate-type` (Job 1)
+
+Job 1 only picks among the detector-produced candidates a column already has (confidence in [0.5, 0.9), ≥2 candidates). That leaves the `unknown` columns — where the deterministic detectors found nothing — with no AI path. Job 7 fills exactly that gap: hand the model the WHOLE taxonomy vocabulary (bundle types + workbook user types) and ask it to place the column, or return `unknown`.
+
+**Chosen:** a distinct `assign-type` job + parser, reusing Job 1's one-token / hallucination-guard contract (chosen id must be in the catalog or coerces to null). Per-column trigger renders on `assigned.typeId === null` columns (`isUnknownColumn`), complementary to Job 1's `isAmbiguous` trigger.
+
+**Why not extend Job 1:** the input shapes differ (candidate list vs full catalog) and the trigger conditions are disjoint (ambiguous-with-candidates vs unknown-with-none). Folding them would muddy both prompts and the eval rubric.
+
+### Decision B — bulk "Classify all unknowns" applies WITHOUT the per-override "Remember rule?" toast
+
+A single per-column override offers to promote the pick to a persistent column-name rule (`offerRememberRule`). At bulk scale that's one toast per column — spam. The bulk path (`applyAiAssignment`) writes the assignment directly (origin `user_override`, confidence 1) and ends with a single summary toast. The single-column path keeps the remember offer (consistent with the disambiguate single-click).
+
+**Reversibility:** trivial — both paths are small helpers in `src/main.ts`.
+
+### Decision C — NL→schema (Job 8) emits an UN-RUN CREATE TABLE cell, and that does NOT violate Hard NOT #4
+
+Hard NOT #4 forbids *auto-executing* LLM-generated SQL. Job 8 deliberately generates DDL (CREATE TABLE) — but it lands as the body of a new SQL cell that the user must click Run on, identical to how Job 5 (NL→SQL) handles its SELECTs. The user reviews the spec table + DDL preview in the modal first, then optionally inserts. No auto-execution anywhere.
+
+**Note on the parser asymmetry:** Job 5's parser *rejects* CREATE/DDL (a write statement from a "write me a query" job is a trap). Job 8's parser *produces* CREATE on purpose (it's a "design me a table" job). Different jobs, different contracts — both safe because neither auto-runs.
+
+**Output surface (per user choice):** both a reviewable spec panel AND an "Insert as CREATE TABLE" action (the fuller of the two options offered). Column/table names are sanitised to safe snake_case identifiers, SQL types are allowlisted (unknown → VARCHAR), and `semantic_type_id` is validated against the known vocabulary (hallucination guard) — same posture as every other typed job. `buildCreateTableDdl` is pure + exported so the modal and unit tests share one source of truth.
+
+### Decision D — bigset declined as a dependency; logged as evaluated-not-adopted
+
+For the record: bigset is a good reference for *agentic dataset generation / web enrichment*, which is adjacent to NakliData's remote-sources/ingestion roadmap (`plan/remote-sources.md`), NOT the ontology layer. If web-enrichment ever ships it belongs as an *external producer* (run bigset elsewhere, mount its CSV/Parquet output) — never bundled. No further action.
+
 ## 2026-06-02 — Forward-pass audit + v1.2.2 — load-bearing decisions
 
 **Context:** A whole-codebase `/forward-pass` audit (read-only, fresh-eyes) produced 33 findings (1 Critical / 8 High / 15 Medium / 9 Low) against the v1.2.1 baseline. The audit was fanned out across 5 parallel subagents (engine+mount+persistence; sidecar+BYOK; charts+classifier+templates; notebook+cells+modals+export; build+CSP+lazy+SW). Findings were ranked, batched into 8 themed chunks (A–H), and closed across 6 commits. A two-track adversarial review then found 9 NEW bugs in those very fixes. All 42 fixes shipped in `v1.2.2` at `40360b1`. The following sections capture the non-trivial choices made along the way — small bug fixes are documented in commit messages alone, but these have downstream implications worth recording.
