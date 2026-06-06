@@ -761,6 +761,93 @@ button {
   font-size: ${Type.size.xs};
   color: var(--danger);
 }
+/* W3.2 slice B chunk 3: local-model picker + cache UI. */
+.settings-local-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.settings-local-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 4px);
+  cursor: pointer;
+}
+.settings-local-option strong {
+  display: block;
+  font-size: ${Type.size.sm};
+}
+.settings-local-option em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: ${Type.size.xs};
+  color: var(--text-muted);
+}
+.settings-local-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.settings-local-status {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface-alt);
+  border-radius: var(--radius-md, 4px);
+  font-size: ${Type.size.xs};
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.settings-local-cache {
+  margin-top: var(--space-3);
+}
+.settings-local-cache-empty {
+  margin: 0;
+  font-size: ${Type.size.xs};
+  color: var(--text-muted);
+  font-style: italic;
+}
+.settings-local-cache-header {
+  font-size: ${Type.size.xs};
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-2);
+}
+.settings-local-cache-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.settings-local-cache-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface-alt);
+  border-radius: var(--radius-md, 4px);
+  font-size: ${Type.size.xs};
+}
+.settings-local-cache-id {
+  font-family: var(--font-mono);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-local-cache-size {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 
 /* Wave 2 slice 3a — Mount Iceberg table. Same modal width as
    mount-url-modal (fewer fields than mount-s3); body uses .mount-s3-body

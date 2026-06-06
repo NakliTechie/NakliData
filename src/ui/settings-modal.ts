@@ -3,6 +3,7 @@
 // device. Anyone with access to this browser profile can read it.")
 
 import { setDemoMode } from '../core/demo-mode.ts';
+import { loadChunk } from '../core/lazy-loader.ts';
 import { type Settings, loadSettings, saveSettings } from '../core/settings.ts';
 import {
   type BYOKEntry,
@@ -12,12 +13,52 @@ import {
   locateKey,
   saveKey,
 } from '../core/sidecar/byok.ts';
+import {
+  clearAllCachedModels,
+  clearCachedModel,
+  formatCacheSize,
+  isOpfsAvailable,
+  listCachedModels,
+} from '../core/sidecar/local-cache.ts';
 import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
 const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
+
+/**
+ * Curated list of HF ONNX models the Settings UI offers for the
+ * `local` provider. Per scoping doc Decision 1: Qwen2.5-1.5B is the
+ * recommended default (smallest credible chat model, Apache 2.0);
+ * Phi-3.5-mini is the bigger-quality option; Llama-3.2-1B is the
+ * smallest credible download.
+ *
+ * Adding entries is intentional and load-bearing — each is a
+ * recommended multi-GB download that we're telling users to commit
+ * to. Drift requires a /decide.
+ */
+const LOCAL_MODEL_OPTIONS: ReadonlyArray<{
+  id: string;
+  label: string;
+  summary: string;
+}> = [
+  {
+    id: 'onnx-community/Qwen2.5-1.5B-Instruct',
+    label: 'Qwen2.5-1.5B-Instruct (recommended)',
+    summary: '~0.9 GB · Apache 2.0 · balanced quality + size',
+  },
+  {
+    id: 'onnx-community/Phi-3.5-mini-instruct',
+    label: 'Phi-3.5-mini-instruct',
+    summary: '~2.3 GB · MIT · best NL→SQL quality',
+  },
+  {
+    id: 'onnx-community/Llama-3.2-1B-Instruct',
+    label: 'Llama-3.2-1B-Instruct',
+    summary: '~0.7 GB · Llama license · smallest, fastest',
+  },
+];
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -76,6 +117,17 @@ async function refresh(): Promise<void> {
   if (customRow) customRow.hidden = provider !== 'custom';
   if (customInput) customInput.value = settings.sidecarCustomEndpoint;
   if (provider === 'custom') updateEndpointInspector(overlay, settings.sidecarCustomEndpoint);
+  // Local-model section (W3.2 slice B chunk 3): show only when
+  // provider is 'local'; pre-select the configured model id (default
+  // = LOCAL_MODEL_OPTIONS[0].id when nothing is configured); refresh
+  // the cached-models list.
+  const localRow = overlay.querySelector<HTMLElement>('[data-region="settings-local-section"]');
+  if (localRow) localRow.hidden = provider !== 'local';
+  if (provider === 'local') {
+    const targetModelId = settings.sidecarModel || LOCAL_MODEL_OPTIONS[0]?.id || '';
+    setRadio(overlay, 'settings-local-model', targetModelId);
+    await refreshLocalCacheList(overlay);
+  }
   await renderProviderBlocks(overlay, settings);
 }
 
@@ -268,6 +320,7 @@ function renderModal(): HTMLElement {
             <label><input type="radio" name="settings-provider" value="anthropic" /> Anthropic (Claude)</label>
             <label><input type="radio" name="settings-provider" value="openai" /> OpenAI</label>
             <label><input type="radio" name="settings-provider" value="custom" /> Custom (OpenAI-compatible)</label>
+            <label><input type="radio" name="settings-provider" value="local" /> Local (in-browser, no API key)</label>
           </div>
           <label class="settings-field">
             <span>Model</span>
@@ -283,6 +336,27 @@ function renderModal(): HTMLElement {
               <span class="settings-test-result" data-region="settings-test-result"></span>
             </div>
           </label>
+          <div class="settings-field" data-region="settings-local-section" hidden>
+            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em></span>
+            <div class="settings-local-picker">
+              ${LOCAL_MODEL_OPTIONS.map(
+                (m) => `
+                <label class="settings-local-option">
+                  <input type="radio" name="settings-local-model" value="${m.id}" data-action="settings-local-model" />
+                  <div>
+                    <strong>${m.label}</strong>
+                    <em>${m.summary}</em>
+                  </div>
+                </label>`,
+              ).join('')}
+            </div>
+            <div class="settings-local-actions">
+              <button class="btn btn-primary" data-action="settings-local-load">${iconSvg('download', 12)} Download &amp; load</button>
+              <button class="btn btn-ghost" data-action="settings-local-forget-all" title="Delete every cached model from this device">${iconSvg('warning', 12)} Forget all cached models</button>
+            </div>
+            <div class="settings-local-status" data-region="settings-local-status" hidden></div>
+            <div class="settings-local-cache" data-region="settings-local-cache"></div>
+          </div>
         </section>
         <section class="settings-section">
           <h2>API keys</h2>
@@ -340,8 +414,23 @@ function renderModal(): HTMLElement {
     ) {
       const provider = target.value as SidecarProvider;
       const defaults = DEFAULT_PROVIDER_CONFIG[provider];
-      await patchSettings({ sidecarProvider: provider, sidecarModel: defaults.model });
+      // For `local` provider, prefer the first curated model id
+      // (recommended Qwen2.5-1.5B) over the empty default in
+      // DEFAULT_PROVIDER_CONFIG.local — gives the radio a sensible
+      // starting selection.
+      const modelId =
+        provider === 'local' ? (LOCAL_MODEL_OPTIONS[0]?.id ?? defaults.model) : defaults.model;
+      await patchSettings({ sidecarProvider: provider, sidecarModel: modelId });
       await refresh();
+    }
+    if (
+      target instanceof HTMLInputElement &&
+      target.name === 'settings-local-model' &&
+      target.checked
+    ) {
+      // Persist the chosen local model id. The actual model isn't
+      // loaded until the user clicks "Download & load".
+      await patchSettings({ sidecarModel: target.value });
     }
   });
   overlay.addEventListener('input', async (ev) => {
@@ -366,6 +455,91 @@ function renderModal(): HTMLElement {
   };
   document.addEventListener('keydown', _onKey);
   return overlay;
+}
+
+/**
+ * Re-render the "Cached on this device" list under the Local model
+ * section. Pulled from local-cache module (chunk 1).
+ *
+ * If OPFS isn't available (older browsers, Firefox private-browsing
+ * <111), display a one-line "Local model caching unavailable" hint
+ * instead of an empty list.
+ */
+async function refreshLocalCacheList(overlay: HTMLElement): Promise<void> {
+  const region = overlay.querySelector<HTMLElement>('[data-region="settings-local-cache"]');
+  if (!region) return;
+  if (!(await isOpfsAvailable())) {
+    region.innerHTML = `<p class="settings-local-cache-empty">Local model caching is not available in this browser.</p>`;
+    return;
+  }
+  const cached = await listCachedModels();
+  if (cached.length === 0) {
+    region.innerHTML = `<p class="settings-local-cache-empty">No cached models on this device.</p>`;
+    return;
+  }
+  const total = cached.reduce((sum, m) => sum + m.totalBytes, 0);
+  const rows = cached
+    .map(
+      (m) => `
+      <li class="settings-local-cache-row">
+        <span class="settings-local-cache-id">${escapeText(m.modelId)}</span>
+        <span class="settings-local-cache-size">${formatCacheSize(m.totalBytes)}</span>
+        <button class="btn btn-ghost" data-action="settings-local-delete" data-model-id="${escapeText(m.modelId)}" title="Delete this model from OPFS">${iconSvg('x', 12)}</button>
+      </li>`,
+    )
+    .join('');
+  region.innerHTML = `
+    <div class="settings-local-cache-header">Cached on this device — total ${formatCacheSize(total)}</div>
+    <ul class="settings-local-cache-list">${rows}</ul>
+  `;
+}
+
+/**
+ * Small textContent escaper for safe-by-default attribute / display
+ * interpolation. Same shape as the existing escapeHtml helper in
+ * other modals.
+ */
+function escapeText(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Format a per-file progress event from Transformers.js into the
+ * one-line status the Settings UI shows. The library's progress
+ * stream is granular (per-file: initiate / download / progress /
+ * done); we collapse to "Downloading <file>: <loaded> / <total>".
+ */
+function formatLocalProgress(p: {
+  file?: string;
+  loaded?: number;
+  total?: number;
+  progress?: number;
+  status?: string;
+}): string {
+  const file = p.file ?? 'model files';
+  if (p.status === 'ready' || p.status === 'done') return `${file}: done`;
+  if (p.loaded !== undefined && p.total !== undefined && p.total > 0) {
+    const pct = Math.round((p.loaded / p.total) * 100);
+    return `Downloading ${file}: ${formatCacheSize(p.loaded)} / ${formatCacheSize(p.total)} (${pct}%)`;
+  }
+  return `${p.status ?? 'Working'}: ${file}`;
+}
+
+/** Show the local-section status line; pass null to hide. */
+function setLocalStatus(overlay: HTMLElement, text: string | null): void {
+  const el = overlay.querySelector<HTMLElement>('[data-region="settings-local-status"]');
+  if (!el) return;
+  if (text === null) {
+    el.hidden = true;
+    el.textContent = '';
+  } else {
+    el.hidden = false;
+    el.textContent = text;
+  }
 }
 
 async function handleAction(
@@ -417,6 +591,32 @@ async function handleAction(
   }
   if (action === 'settings-test-custom') {
     await testCustomConnection(overlay, target);
+    return;
+  }
+  if (action === 'settings-local-load') {
+    await loadLocalModel(overlay);
+    return;
+  }
+  if (action === 'settings-local-delete') {
+    const modelId = target.dataset.modelId;
+    if (!modelId) return;
+    const ok = window.confirm(
+      `Delete ${modelId} from this device? You can re-download from Settings later.`,
+    );
+    if (!ok) return;
+    await clearCachedModel(modelId);
+    flashStatus(overlay, `${modelId} deleted from cache.`);
+    await refreshLocalCacheList(overlay);
+    return;
+  }
+  if (action === 'settings-local-forget-all') {
+    const ok = window.confirm(
+      'Delete every cached model from this device? You can re-download later.',
+    );
+    if (!ok) return;
+    await clearAllCachedModels();
+    flashStatus(overlay, 'All cached models deleted.');
+    await refreshLocalCacheList(overlay);
     return;
   }
 }
@@ -478,6 +678,51 @@ async function testCustomConnection(overlay: HTMLElement, target: HTMLElement): 
     }
   } finally {
     buttonEl.disabled = false;
+  }
+}
+
+/**
+ * Click handler for "Download & load" in the Local model section.
+ * Loads the Transformers.js chunk (lazy), starts the model download
+ * via `loadAndRegister`, surfaces progress in the status line, and
+ * refreshes the cached-models list when done. Disables the button
+ * while in flight so the user can't double-click.
+ */
+async function loadLocalModel(overlay: HTMLElement): Promise<void> {
+  if (!(await isOpfsAvailable())) {
+    setLocalStatus(
+      overlay,
+      'Local model caching is not available in this browser. Try a recent Chrome / Edge / Safari.',
+    );
+    return;
+  }
+  const selected = overlay.querySelector<HTMLInputElement>(
+    'input[name="settings-local-model"]:checked',
+  );
+  const modelId = selected?.value || LOCAL_MODEL_OPTIONS[0]?.id;
+  if (!modelId) {
+    setLocalStatus(overlay, 'Pick a model first.');
+    return;
+  }
+  await patchSettings({ sidecarModel: modelId });
+  const button = overlay.querySelector<HTMLButtonElement>('[data-action="settings-local-load"]');
+  if (button) button.disabled = true;
+  setLocalStatus(overlay, 'Loading Transformers.js chunk…');
+  try {
+    const mod = await loadChunk('transformers');
+    setLocalStatus(overlay, `Preparing ${modelId}…`);
+    await mod.loadAndRegister(modelId, (p) => {
+      setLocalStatus(overlay, formatLocalProgress(p));
+    });
+    setLocalStatus(overlay, `${modelId} loaded and ready.`);
+    flashStatus(overlay, `Local model ${modelId} ready.`);
+    await refreshLocalCacheList(overlay);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setLocalStatus(overlay, `Load failed: ${msg}`);
+    flashStatus(overlay, `Could not load model: ${msg}`);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 

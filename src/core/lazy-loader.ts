@@ -25,6 +25,8 @@ export interface LazyChunkRegistry {
   'deckgl-points': typeof import('../lazy/deckgl-points.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
+  /** W3.2 slice B — Transformers.js for local-model inference. */
+  transformers: typeof import('../lazy/transformers.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;
