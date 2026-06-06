@@ -1,6 +1,7 @@
 import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
+import { loadChunk } from './core/lazy-loader.ts';
 import {
   BRIDGE_SECRET_NAMES,
   ICEBERG_SECRET_NAMES,
@@ -295,6 +296,46 @@ async function boot(): Promise<void> {
   installAutoSave(engine);
   installUserTypesSync();
   installDemoModeListener(engine, root);
+  // W3.2 slice B chunk 4 — auto-load the local model on boot when:
+  //   (a) provider === 'local' is configured AND
+  //   (b) a model id is set AND
+  //   (c) the model is already cached on this device.
+  // If (c) is false we do NOT auto-load — the user should explicitly
+  // go to Settings + click "Download & load" to acknowledge the
+  // multi-GB download. Matches the BYOK posture: keys auto-load
+  // from session/IDB (already-committed state), not from nowhere.
+  void autoLoadLocalIfCached(engine);
+}
+
+/**
+ * Auto-load the local model on boot when its weights are already in
+ * OPFS. No-ops otherwise. Surfaces a small toast on success so the
+ * user knows the local provider is ready without having to open
+ * Settings.
+ */
+async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
+  try {
+    const settings = await loadSettings();
+    if (settings.sidecarProvider !== 'local') return;
+    const modelId = settings.sidecarModel?.trim();
+    if (!modelId) return;
+    const { isOpfsAvailable, getModelCacheInfo } = await import('./core/sidecar/local-cache.ts');
+    if (!(await isOpfsAvailable())) return;
+    const cached = await getModelCacheInfo(modelId);
+    if (!cached || cached.files.length === 0) return;
+    // Model is cached. Pull in the Transformers.js chunk and register
+    // the generator. This is async + can take ~5-10s as the pipeline
+    // initialises onnxruntime against the cached weights — we don't
+    // block other boot tasks on it.
+    const mod = await loadChunk('transformers');
+    await mod.loadAndRegister(modelId);
+    toast(`Local model ${modelId} ready (loaded from cache).`);
+  } catch (err) {
+    // Boot-path auto-load failures should never tank the rest of the
+    // session. Log + carry on — the user can manually load via
+    // Settings if the issue is transient.
+    console.warn('[naklidata] local model auto-load failed', err);
+  }
 }
 
 /**
