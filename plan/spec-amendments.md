@@ -31,6 +31,7 @@ The original spec stays authoritative for everything not listed here.
 | [A21](#a21--bearer-token-charset-v122-amends-spec-41) | §4.1 | Bearer tokens passed to iceberg + bridge endpoints must match RFC 7235 token68 charset (`[A-Za-z0-9._~+/=-]+`). CR/LF / whitespace / quotes rejected with `InvalidBearerTokenError`. Closes the header-injection channel (forward-pass M1). |
 | [A22](#a22--csp-defence-in-depth-v122-amends-spec-71) | §7.1 | CSP gains `base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'`. base-uri closes the `<base href>` exfil channel script-src doesn't cover; the others harden against post-XSS escape vectors (forward-pass H7). |
 | [A23](#a23--nl-to-sql-parser-safety-contract-v122-amends-spec-43) | §4.3 | NL→SQL Job 5 parser now guarantees: (1) only `SELECT` / `WITH … SELECT` accepted; (2) write/DDL/session-mutating keywords rejected (INSTALL/LOAD/SET/RESET/USE added); (3) multi-statement responses rejected; (4) single-quoted FROM (replacement-scan) rejected; (5) every FROM/JOIN identifier must be in the table allowlist, with comma-join + alias support and LATERAL/UNNEST/TABLE/VALUES/PIVOT correctly treated as keywords. Closes forward-pass H2 + H3 + code-review follow-ups. |
+| [A24](#a24--local-runtime-shipped-w32-slice-b-amends-spec-43--43a) | §4.3 + §4.3a | W3.2 slice B ships the local runtime (deferred since v1.1). Transformers.js + ONNX in-browser inference against a curated 3-model list (Qwen2.5-1.5B / Phi-3.5-mini / Llama-3.2-1B). Weights cache in OPFS via a custom adapter (chunk 1) replacing the spec's "~50 MB OPFS cache" aspiration with the real 0.7–2.3 GB per model. Auto-loads on boot when cached; explicit "Download & load" otherwise. |
 
 ---
 
@@ -743,6 +744,73 @@ The adversarial review also caught false-rejections: LATERAL/UNNEST treated as f
 The parser is the load-bearing safety net for the "model returns SQL, user might click Run" pattern. Belt-and-braces here is the right level of paranoia.
 
 **Status:** Shipped in v1.2.2 (`2ed675f` + adversarial fix in `832f091`). 29 vitest cases lock the five guarantees (`tests/sidecar-parser-hardening.test.ts`).
+
+---
+
+## A24 — Local runtime shipped (W3.2 slice B) (amends spec §4.3 + §4.3a)
+
+**Original wording (spec §4.3 v1.1, also see A11 for the seam):**
+> Default runtime: Transformers.js with "a small model suitable for classification + short generation (Phi-3-mini-4k-instruct quantized, or successor at build time)." ~50 MB cached in OPFS.
+
+**Amended wording:** The local runtime ships in v1.3 as W3.2 slice B
+across four coordinated chunks:
+
+- **Chunk 1 — OPFS cache primitive** (`src/core/sidecar/local-cache.ts`).
+  Custom cache layer rather than Transformers.js's built-in Cache
+  API caching, for inspectability (size shown in Settings),
+  O(1) per-model delete, and BYOK-posture matching. Module surface:
+  `isOpfsAvailable / getModelCacheInfo / listCachedModels /
+  getTotalCacheSize / hasModelFile / readModelFile / writeModelFile /
+  clearCachedModel / clearAllCachedModels / formatCacheSize`.
+
+- **Chunk 2 — Transformers.js lazy chunk**
+  (`src/lazy/transformers.ts` → `dist/chunks/transformers.js`).
+  Bundles `@huggingface/transformers@^4.2.0` (525 KB after esbuild
+  tree-shake). Wires `env.customCache` to a `createOpfsCache()`
+  adapter that parses HF resolve URLs and routes through the
+  chunk-1 cache. Pipeline is lazy + per-model-id cached.
+
+- **Chunk 3 — Settings UI** (`src/ui/settings-modal.ts`). Adds
+  `local` as the fourth provider radio + a section that surfaces
+  when picked, with a curated 3-model list, Download & load button,
+  live download progress, cached-models list with size + per-row
+  delete, and a Forget-all-cached affordance.
+
+- **Chunk 4 — Boot-path auto-load** (`src/main.ts`). When `provider
+  === 'local'`, a model id is configured, AND the weights are
+  already in OPFS, auto-load on boot. Otherwise no-op (user must
+  explicitly click in Settings — matches BYOK posture of
+  no-silent-multi-GB-downloads). Auto-load is fire-and-forget; the
+  L3 "no-provider" UI handles sidecar jobs that fire before load
+  completes.
+
+**The 50-MB-OPFS figure in the original spec was aspirational.**
+Realistic 4-bit quantized chat models in this class are:
+
+| Model | Quantized size | License | Notes |
+|-------|---------------:|---------|-------|
+| Qwen2.5-1.5B-Instruct | ~0.9 GB | Apache 2.0 | Default + recommended. |
+| Phi-3.5-mini-instruct | ~2.3 GB | MIT | Bigger quality, bigger download. |
+| Llama-3.2-1B-Instruct | ~0.7 GB | Llama license | Smallest credible chat model. |
+
+These three are the curated list. Adding more requires a /decide.
+
+**Validation owed**: per-job manual probes (the 6 sidecar jobs against
+the loaded model) — captured in `plan/w32-slice-b-validation.md`.
+v1.3.0 tag is gated on 6/6 PASS.
+
+**Reasoning:** Closes the v1.1-era spec promise of a local-first
+sidecar runtime. Local provider is now indistinguishable from cloud
+providers at the dispatch layer — `provider: 'local'` in settings,
+sidecar jobs route through the same parsers + safety guards (A23
+applies regardless of which provider produced the SQL). Privacy
+posture: with `provider: 'local'` selected and the model cached, the
+sidecar makes zero outbound network calls. Picking `local` is the
+"keep my data in this tab" choice; the runtime now honors that
+end-to-end.
+
+**Status:** Code shipped (chunks 1-4 across commits `87b56a1` →
+`6e8fed4`). Per-job validation owed before v1.3.0 tag.
 
 ---
 

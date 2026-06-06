@@ -76,32 +76,32 @@ release notes in `plan/v1.2.2-release-notes.md`.
 
 ---
 
-## Chunk 5 — W3.2 slice B — Transformers.js (DEFERRED, ~2.5 days; ready-to-decide) ✅ (scoping)
+## Chunk 5 — W3.2 slice B — Transformers.js (mostly ✅; chunks 5+7 owed)
 
-Full scoping doc at `plan/w32-slice-b-scoping.md`. Five decisions
-the next session needs to lock before implementing:
+User accepted my recommended defaults; autonomous track shipped
+chunks 1-4 (code) + chunk 6 (spec + DECISIONS).
 
-- [~] **Decision 1: model choice.** My recommended default:
-  Qwen2.5-1.5B-Instruct (0.9 GB, Apache 2.0). Alternatives: Phi-3.5-
-  mini (2.3 GB, MIT, better quality), Llama-3.2-1B (0.7 GB, Meta).
-- [~] **Decision 2: weight cache.** Recommended: custom OPFS layer
-  in `src/core/sidecar/local-cache.ts` with inspectable size + delete
-  affordance. Matches BYOK posture.
-- [~] **Decision 3: chunk strategy.** Recommended: single
-  `src/lazy/transformers.ts`. Library + model registration together.
-- [~] **Decision 4: bundle-size carve-out for the lazy chunk.**
-  Recommended: don't budget lazy chunks; document the carve-out in
-  `scripts/check-bundle-size.mjs`.
-- [~] **Decision 5: eval coverage for `local` provider.** Recommended:
-  skip for slice B; per-job manual probes; eval harness can be a
-  v1.3.x follow-up.
-
-**Why deferred not in-progress:** all five decisions need user
-sign-off before implementation; they're multi-week / multi-GB
-commitments. Run `/decide` first at /resume time. No code work to do
-right now — the seam (W3.2 slice A, shipped in v1.1) is correctly
-empty and the "no-provider" error correctly surfaces via the L3 UI
-hook (covered in v1.2.2).
+- [x] **Decision 1**: Qwen2.5-1.5B-Instruct default (curated list of
+  3 in `LOCAL_MODEL_OPTIONS`).
+- [x] **Decision 2**: custom OPFS layer shipped as
+  `src/core/sidecar/local-cache.ts`.
+- [x] **Decision 3**: single `src/lazy/transformers.ts` chunk
+  (525 KB tree-shaken).
+- [x] **Decision 4**: lazy chunk not budgeted; shell stays at
+  541 KB / 600 KB.
+- [x] **Decision 5**: eval coverage skipped for slice B; manual
+  validation per-job (see chunk 5 below).
+- [x] **Chunk 1** — OPFS cache primitive shipped at `87b56a1`.
+- [x] **Chunk 2** — Transformers.js chunk + adapter shipped at
+  `bdf6a5b`.
+- [x] **Chunk 3** — Settings UI shipped at `767afa5`.
+- [x] **Chunk 4** — boot-path auto-load shipped at `6e8fed4`.
+- [ ] **Chunk 5** — per-job validation against loaded Qwen.
+  Checklist at `plan/w32-slice-b-validation.md`. ~30-60 min. Run
+  through each of the 6 sidecar jobs, fill in the `<TODO>`s, pass
+  count 6/6.
+- [x] **Chunk 6** — spec amendment A24 + DECISIONS K-O.
+- [ ] **Chunk 7** — tag v1.3.0. Gated on chunk 5's 6/6 PASS.
 
 ---
 

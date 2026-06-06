@@ -2,6 +2,147 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-03 — W3.2 slice B (Transformers.js local runtime) shipped
+
+**Context:** W3.2 slice A (the seam) shipped in v1.1; slice B (the
+actual Transformers.js chunk + model + UI) was deferred — it's the
+only `[pending]` item in the historical task list. The user picked
+"Start W3.2 slice B with my defaults" at the post-windup checkpoint;
+the autonomous track ran chunks 1-4 in sequence (cache primitive,
+chunk + cache adapter, Settings UI, boot-path hook). Chunks 5-7
+(per-job validation, doc updates, tag) wrap-up follows. This entry
+documents the load-bearing decisions; smaller patterns are in
+commit messages alone.
+
+### Decision K — Custom OPFS cache vs Transformers.js's built-in Cache API
+
+Transformers.js v4 caches model files via the browser Cache API by
+default (toggleable via `env.useBrowserCache`). It also exposes a
+`customCache` slot that conforms to a Map-like interface.
+
+**Chosen:** custom OPFS cache (`src/core/sidecar/local-cache.ts`),
+wired via `env.customCache` + `env.useBrowserCache = false`.
+
+**Reasoning.** Four wins:
+
+1. **Inspectability.** The user signing up for a 0.9-2.3 GB download
+   deserves a visible "Cached: 1.2 GB · Delete cached model"
+   affordance in Settings. The Cache API surfaces only via DevTools
+   → Application → Cache Storage. With OPFS we can enumerate via
+   `FileSystemDirectoryHandle.entries()` and render the list +
+   sizes in the Settings panel.
+2. **Per-file size in O(1).** OPFS exposes `getFile().size` directly;
+   Cache API needs `response.blob()` for every entry, which is
+   slow and memory-heavy at multi-GB scale.
+3. **Delete-the-whole-model in O(1).** OPFS `removeEntry({recursive:
+   true})` vs Cache API's iterate-and-delete.
+4. **Matches the BYOK posture.** BYOK keys live in
+   sessionStorage / opt-in IDB — predictable, user-managed local
+   state with explicit "Forget" affordances. Model cache slots
+   into the same pattern (Forget all cached models).
+
+**Reversibility.** Easy. `env.customCache = null; env.useBrowserCache
+= true` reverts to the library default. The OPFS layer can be
+deleted; chunk-2 callers fall through to the library's built-in
+cache.
+
+### Decision L — Curated model list of 3, not "any HF ONNX repo"
+
+Settings could have exposed a free-text model id field (max
+flexibility) or a hardcoded list (max predictability). We picked
+the hardcoded list.
+
+**Chosen:** three curated entries — Qwen2.5-1.5B-Instruct (default),
+Phi-3.5-mini-instruct, Llama-3.2-1B-Instruct. Adding more requires
+a /decide.
+
+**Reasoning.** Each entry is a recommended multi-GB commitment that
+we're telling users they should make. Free-text would let users pick
+arbitrary HF repos with no guarantee of:
+- ONNX format support
+- Reasonable size / quality trade-off for the 6 sidecar jobs
+- License compatibility
+
+A curated list keeps the surface narrow and lets us pre-validate the
+6 jobs against each. Manual validation happens at chunk 5 (per-job
+probes against the loaded model — see
+`plan/w32-slice-b-validation.md`).
+
+**Future expansion** (when warranted) is a /decide moment, not a
+silent code change. The cost of adding a model to the list is low
+(one entry in `LOCAL_MODEL_OPTIONS`); the cost of recommending the
+wrong model is high (users pay multi-GB downloads for nothing).
+
+### Decision M — Auto-load on boot ONLY when model already cached
+
+When `provider === 'local'` and a model id is configured, two
+options for the boot path:
+
+- **(option a)** Auto-load unconditionally. Surface a download
+  progress toast in the header. User can ignore it; sidecar will
+  be ready once download finishes.
+- **(option b)** Auto-load only when the model's weights are
+  already in OPFS. Otherwise no-op; user must explicitly click
+  "Download & load" in Settings.
+
+**Chosen:** option b (chunk 4's `autoLoadLocalIfCached`).
+
+**Reasoning.** Multi-GB downloads aren't a silent-default operation.
+The first download is the "I'm committing to this" moment — should
+happen via an explicit user click, not automatically. Once committed
+(weights in OPFS), subsequent sessions get the convenience of
+auto-load.
+
+This matches the BYOK posture: keys auto-load from sessionStorage /
+IDB (already-committed state), not from nowhere. Sidecar dispatch
+hitting the L3 "no-provider" UI is the right fallback when nothing
+has been committed yet.
+
+**Cost.** Pipeline init (~5-10s with cached weights) still happens
+on every page load. The auto-load is fire-and-forget; sidecar jobs
+that fire before it completes hit the L3 UI, which gives the model
+time to finish initialising.
+
+### Decision N — `device: 'wasm'` default, not WebGPU
+
+Transformers.js supports `device: 'wasm' | 'webgpu'`. WebGPU is
+2-5x faster but not universally available.
+
+**Chosen:** `wasm` as the default.
+
+**Reasoning.** Universal device. Adding a `device: 'webgpu'` opt-in
+to Settings is a chunk 3.x follow-up; for slice B we ship the path
+that works on every supported browser and let users opt into webgpu
+later.
+
+**Reversibility.** One line in chunk 2 (`device: 'wasm'` →
+`device: 'webgpu'` or detect-and-fallback).
+
+### Decision O — Validation gate before v1.3.0 tag
+
+Per scoping Decision 5, eval harness coverage for `local` is a
+v1.3.x follow-up. For v1.3.0 itself, the validation bar is per-job
+manual probes against the loaded model — checklist in
+`plan/w32-slice-b-validation.md`.
+
+**Chosen:** v1.3.0 tag is gated on 6/6 PASS in the validation
+checklist. Autonomous track shipped chunks 1-4 (code) + chunk 6
+(spec amendment A24 + this DECISIONS entry); chunk 5 (per-job
+validation) and chunk 7 (tag) require user-in-the-loop work that's
+left for when the user can sit down with a browser tab open.
+
+**Reasoning.** Tagging without per-job evidence would risk shipping
+a release where local-provider sidecar jobs silently produce bad
+output. Each job has structured-output expectations (`disambiguate-
+type` returns a single type id; `define-type` returns JSON;
+`recommend-reports` returns rankings; etc.) — the parser guards
+catch malformed output, but quality issues need human eyes.
+
+The validation is ~30-60 min of clicking through. The reward is a
+v1.3.0 that genuinely closes the v1.1-era local-runtime promise.
+
+---
+
 ## 2026-06-02 — Forward-pass audit + v1.2.2 — load-bearing decisions
 
 **Context:** A whole-codebase `/forward-pass` audit (read-only, fresh-eyes) produced 33 findings (1 Critical / 8 High / 15 Medium / 9 Low) against the v1.2.1 baseline. The audit was fanned out across 5 parallel subagents (engine+mount+persistence; sidecar+BYOK; charts+classifier+templates; notebook+cells+modals+export; build+CSP+lazy+SW). Findings were ranked, batched into 8 themed chunks (A–H), and closed across 6 commits. A two-track adversarial review then found 9 NEW bugs in those very fixes. All 42 fixes shipped in `v1.2.2` at `40360b1`. The following sections capture the non-trivial choices made along the way — small bug fixes are documented in commit messages alone, but these have downstream implications worth recording.

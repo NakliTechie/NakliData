@@ -657,10 +657,11 @@ executed in sequence; results below for reference.
 
 ### Now open
 
-- **W3.2 slice B — Transformers.js real local inference**
-  (`plan/w32-slice-b-scoping.md`). Five decisions queued for
-  `/decide` before implementation. Ready to pick up when user
-  has time for a ~2.5-day effort.
+- **W3.2 slice B chunk 5 — per-job validation against the loaded
+  Qwen model.** Checklist at `plan/w32-slice-b-validation.md`.
+  Requires real browser + ~30-60 min clicking through 6 sidecar
+  jobs. v1.3.0 tag is gated on 6/6 PASS.
+- **W3.2 slice B chunk 7 — tag v1.3.0** once chunk 5 evidence is in.
 
 ## Sources
 
