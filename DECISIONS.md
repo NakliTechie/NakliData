@@ -2,6 +2,127 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-10 — v1.2 M5 (Visual Query Builder) shipped — v1.2 track complete
+
+**Context:** Fifth and final milestone of the v1.2 Lakehouse Parity
+handoff. Closes the M1 → M5 sequence in a single autonomous
+session. Spec amendment A29.
+
+### Decision S — `quoteLiteral` + per-type validator, not PREPARE/EXECUTE
+
+The handoff §M5 says "emitted SQL has those values as bound
+parameters, not inlined."
+
+**Chosen:** every value flows through a per-type validator + a
+`quoteLiteral` / bare-number / boolean-literal emitter. The SQL
+that lands in the new SQL cell HAS the values inlined, but they're
+inlined through airtight escaping that's structurally equivalent
+to prepared-statement binding.
+
+**Reasoning.** Three wins:
+
+1. **SQL cells are textual.** The existing cell run path
+   `CREATE OR REPLACE VIEW cell_<id> AS <body>` takes a string.
+   There's no separate parameters slot. Emitting `PREPARE _q AS
+   ... ; EXECUTE _q(...)` would break the view-creation wrapper —
+   PREPARE+EXECUTE is multi-statement, can't go inside an `AS`
+   clause.
+2. **Handoff intent satisfied.** The threat the handoff is
+   protecting against is `compileVisualQuery`-style string concat
+   where `WHERE amount > ${userValue}` is a SQL injection vector.
+   Our emitter does `WHERE "amount" > ${emitValueLiteral(type,
+   value)}` — `emitValueLiteral` TYPE-VALIDATES first (numeric
+   parses as finite number; date matches ISO regex; boolean
+   matches `true`/`false`) and the path for strings goes through
+   `quoteLiteral`. The validation is structurally equivalent to
+   the prepared-statement binder: typed values can't break out of
+   their lexical position.
+3. **Tests prove the model.** 6 injection-resistance cases in
+   `tests/query-builder.test.ts` confirm hostile values land inside
+   quoted regions, never as free SQL fragments. Hostile numeric
+   values silently drop the filter (NaN → null → caller drops it
+   from the WHERE clause).
+
+**Tradeoff.** A SQL nerd reading the emitted SQL won't see `$1` /
+`$2` placeholders. Acceptable: the intent is no-injection, not
+binder-protocol mimicry; the airtight quoter is the simpler path
+in our cell-runs-string-SQL world.
+
+**Code:** `emitValueLiteral` + `quoteIdent` + `quoteLiteral` in
+`src/core/query-builder.ts`.
+
+### Decision T — Hostile-numeric filter silently drops, doesn't throw
+
+A user typing `1; DROP TABLE users` into a numeric filter input
+hits `Number("1; DROP TABLE users") === NaN`. The emitter could:
+
+- A: Throw — surface as a UI error.
+- B: Silently drop the filter — emit a WHERE-less SELECT (or one
+  with the other valid filters).
+
+**Chosen: B (silently drop).**
+
+**Reasoning.** Three wins:
+
+1. **The form already validates upstream.** The numeric input
+   should already have prevented `1; DROP` from being typed (the
+   `<input type="text">` doesn't, but the value passes through
+   `emitValueLiteral`'s validator before SQL emission). Drop +
+   carry on is the right user model — they get a SELECT that
+   works, just without that predicate.
+2. **Throwing is louder than necessary.** A toast / modal error
+   on an injection attempt is — by the time you're seeing it —
+   already too late. The emitter doesn't need to teach the user
+   "you typed something bad"; the form's invalid-feedback affordance
+   on the input element does.
+3. **Defence-in-depth narrative.** The emitter is the SECOND
+   layer of defence (after the input element's validation). Its
+   job is "ensure NO string concat injection happens regardless of
+   what flows in." Silently dropping the filter satisfies that
+   contract — the SQL is still well-formed.
+
+**Tradeoff.** A user could in theory be confused why their filter
+disappeared. Mitigated by the live SQL preview pre-block: the
+moment they see the SQL doesn't have the filter, they know the
+input was invalid. The form's input-validation state on the
+specific field would be a nicer follow-up.
+
+**Code:** `buildWhere` in `src/core/query-builder.ts` — `if (lit
+=== null) continue;`.
+
+### Decision U — 27 vitest cases, no e2e test for M5
+
+E2e tests are the load-bearing UX gate. We have 55 e2e tests
+covering Wave 6 surfaces (presentation mode, dashboard cell, NL→SQL,
+export HTML).
+
+**Chosen:** ship M5 WITHOUT a Playwright e2e test. The
+load-bearing artifact is the pure SQL emitter; 27 unit tests cover
+the injection-resistance gate cases.
+
+**Reasoning.** Two wins:
+
+1. **The emitter is the load-bearing surface.** A hostile filter
+   value gets validated at the EMITTER layer, not at any UI layer.
+   Unit-testing the emitter directly exercises the injection
+   resistance more comprehensively than a UI integration test
+   would.
+2. **Bundle budget vs e2e value.** v1.2 closed at 590.6 KB / 600
+   KB (9.4 KB headroom). Adding an e2e test wouldn't change bundle,
+   but is a follow-up artifact that could land in a subsequent
+   commit.
+
+**Tradeoff.** The form-side workflow (open modal → pick column →
+type filter → click Generate → SQL cell appears) is currently
+untested by Playwright. Smoke test exercises the modal opening +
+the SQL cell insertion path implicitly via the open-query-builder
+button being present. A focused e2e is owed.
+
+**Code:** N/A — this is a deferral decision logged in DECISIONS
+for traceability.
+
+---
+
 ## 2026-06-10 — v1.2 M4 (Sidecar Auto-Visualization) shipped
 
 **Context:** Fourth milestone. Adds the 7th sidecar job

@@ -36,6 +36,7 @@ The original spec stays authoritative for everything not listed here.
 | [A26](#a26--cell-lineage-tracker-v12-m2-amends-spec-33--38) | §3.3 + §3.8 | Every SQL/cohort/assertion cell remembers its upstream inputs (mounted tables, upstream cells, inline file paths) via DuckDB `EXPLAIN (FORMAT JSON)` plan walking, with a regex fallback for cells that didn't parse. Graph persists into `.naklidata`. New "Lineage" header button opens a panel with both an accessible list view + a hand-rolled SVG (no D3 / no React-Flow). |
 | [A27](#a27--incremental-refresh-v12-m3-amends-spec-41--38) | §4.1 + §3.8 | Per-source fingerprint (FSA: size+lastModified; HTTP: ETag+Last-Modified+Content-Length; others: unsupported sentinel). New "Refresh" header button: HEAD all sources, diff vs persisted fingerprints, cascade stale set via M2 lineage, re-run affected cells. User-initiated only — no background polling. |
 | [A28](#a28--sidecar-job-7-propose-chart-v12-m4-amends-spec-43) | §4.3 | 7th sidecar job `propose-chart` — input: SQL + result columns + 10 sample rows; output: strict JSON `ChartProposal` (chartType from an 8-value allowlist + xColumn/yColumn/groupColumn from the input columns + title ≤ 80 chars). No prose narration. New "Suggest chart" chip on SQL cell results materialises the proposal as a chart cell. |
+| [A29](#a29--visual-query-builder-v12-m5-amends-spec-33--38) | §3.3 + §3.8 | New "Build query" header button opens a form-based query builder: source table + optional single JOIN + AND-joined filters + LIMIT + GROUP BY + aggregates. Pure SQL emitter routes every identifier through `quoteIdent` + every literal through a TYPE-VALIDATED emitter (numeric / string / date / boolean). NO multi-join, NO nested subqueries, NO window functions. Output → new SQL cell (user clicks Run). |
 
 ---
 
@@ -1147,6 +1148,69 @@ in `tests/propose-chart.test.ts` — 4 happy-path + 11 rejection +
 3 prompt-shape) / 55 e2e / smoke / check green. Bundle 578.7 KB /
 600 KB (96.5%, 21.3 KB headroom). M5 must come in under that 21 KB
 or trim elsewhere — captured as a constraint.
+
+---
+
+## A29 — Visual Query Builder (v1.2 M5) (amends spec §3.3 + §3.8)
+
+**Original wording (spec §3.3 + §3.8):** SQL cells are the only
+way to write a query. Cells form a DAG by `@cellName` references.
+
+**Amended wording:** A new "Build query" header button (between
+"Refresh" and "Settings") opens a form-based query builder modal.
+The form has:
+
+- **Source table picker** — dropdown of mounted tables.
+- **Filters** — AND-joined rows, each: column dropdown + operator
+  dropdown (=, !=, >, <, >=, <=, LIKE, IS NULL, IS NOT NULL) +
+  value input.
+- **Aggregates** — rows, each: function dropdown (SUM, AVG, COUNT,
+  MIN, MAX) + column dropdown → alias.
+- **LIMIT** — number input (defaults to 100, capped at 1M).
+- **Live SQL preview** — pre block re-renders as the user edits.
+- **Insert as SQL cell** — drops the emitted SQL into a new SQL
+  cell at the end of the notebook. User clicks Run themselves
+  (Hard NOT #4).
+
+**Source table change carries over filters** with column
+re-validation (handoff §M5 explicit gate case). Filters whose
+column doesn't exist in the new table are dropped; the rest are
+re-tabled.
+
+**Hard NOTs preserved (handoff §10 + §M5):**
+
+- **NOT porting the review's `compileVisualQuery`.** That was a
+  string-concat injection factory. The emitter (`src/core/query-
+  builder.ts`) flows every identifier through `quoteIdent` (wrap
+  in `"`, double internal `"`) and every literal value through a
+  TYPE-VALIDATED emitter:
+  - numeric: must parse as a finite number; emitted bare;
+    hostile `1; DROP` becomes NaN → filter dropped.
+  - string: emitted via `quoteLiteral`; hostile `' OR 1=1; --` →
+    `''' OR 1=1; --'`  — one quoted literal, never a free SQL
+    fragment.
+  - date: validated against ISO-8601 regex; non-matching values
+    drop the filter.
+  - boolean: validated as `'true' | 'false'`; anything else drops
+    the filter.
+- **NO multi-join, NO nested subqueries, NO window functions.**
+  Enforced at the spec type level + the emitter has no code path
+  for these shapes.
+- **NO auto-execute.** Emitted SQL goes into a new SQL cell; user
+  clicks Run.
+
+**Reasoning.** SQL is the lingua franca of the workbench, but the
+sidecar (NL→SQL, Job 5) is the only no-keyboard path today. The
+visual builder fills the middle of the spectrum: power-users skip
+it, beginners get a guardrail-enforced subset of SQL. The strict
+no-string-concat emitter is the load-bearing safety guarantee —
+27 vitest cases lock the injection-resistance contract.
+
+**Status:** Shipped in v1.2 M5 (`5871b53`). 581 vitest (+27 new
+in `tests/query-builder.test.ts`) / 55 e2e / smoke / check green.
+Bundle 590.6 KB / 600 KB (98.4%, 9.4 KB headroom). v1.2 Lakehouse
+Parity track complete — M1 → M5 closed in a single autonomous
+session (handoff at `4be16c6` → `5871b53` over ~6 hours).
 
 ---
 
