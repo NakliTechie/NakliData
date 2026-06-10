@@ -1017,6 +1017,44 @@ export class Engine {
     await conn.query(sql);
   }
 
+  /**
+   * Run `EXPLAIN (FORMAT JSON) <sql>` and return the parsed plan
+   * tree, or null if the SQL failed to plan (the cell will use the
+   * regex fallback in that case — handoff §M2 spec).
+   *
+   * Used by the M2 Cell Lineage Tracker — pure read-only side-effect-
+   * free planning, safe to run on every cell-run completion.
+   */
+  async explainPlan(sql: string): Promise<unknown | null> {
+    const conn = this.requireConn();
+    try {
+      // DuckDB returns: explain_key | explain_value
+      //   logical_plan | <JSON-string>
+      // (older builds) or just one row with the JSON in column[0].
+      const result = await conn.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+      const rows = result.toArray();
+      for (const row of rows) {
+        const obj = row.toJSON() as Record<string, unknown>;
+        // Find the FIRST string value that parses as JSON.
+        for (const v of Object.values(obj)) {
+          if (typeof v !== 'string' || v.length === 0) continue;
+          const first = v.charCodeAt(0);
+          // 0x5B = '[', 0x7B = '{' — quick reject for non-JSON values.
+          if (first !== 0x5b && first !== 0x7b) continue;
+          try {
+            return JSON.parse(v);
+          } catch {
+            // try next column
+          }
+        }
+      }
+      return null;
+    } catch {
+      // EXPLAIN itself errored — the SQL didn't parse. Caller falls back to regex.
+      return null;
+    }
+  }
+
   async close(): Promise<void> {
     try {
       await this.conn?.close();

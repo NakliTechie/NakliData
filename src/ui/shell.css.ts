@@ -1010,4 +1010,103 @@ button {
   background: transparent;
   box-shadow: none;
 }
+
+/* M2 — Cell Lineage panel.
+   Two-column layout: accessible list on the left, SVG enhancement
+   on the right. Reuses .schema-graph-overlay + .schema-graph-modal
+   for the chrome. */
+.lineage-section-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: var(--space-3) 0 var(--space-1) 0;
+}
+.lineage-section {
+  list-style: none;
+  margin: 0 0 var(--space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.lineage-row {
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+}
+.lineage-row:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.lineage-row-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.lineage-row-name {
+  font-size: 13px;
+  color: var(--text);
+}
+.lineage-row-ref {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  word-break: break-all;
+}
+.lineage-kind-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.lineage-kind-source {
+  background: #eff6ff;
+  color: #1e40af;
+}
+.lineage-kind-cell {
+  background: #fffbeb;
+  color: #92400e;
+}
+.lineage-kind-sink {
+  background: #f0fdf4;
+  color: #166534;
+}
+.lineage-edges {
+  list-style: none;
+  margin: var(--space-1) 0 0 0;
+  padding: 0 0 0 var(--space-3);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.lineage-edge {
+  list-style: none;
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 1px 0;
+}
+.lineage-arrow {
+  color: var(--accent);
+  font-weight: bold;
+}
+.lineage-edge-low .lineage-arrow {
+  color: var(--text-muted);
+}
+.lineage-low {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.lineage-empty {
+  font-style: italic;
+  color: var(--text-muted);
+  list-style: none;
+}
+.lineage-svg-node:focus rect {
+  stroke-width: 2;
+}
 `;

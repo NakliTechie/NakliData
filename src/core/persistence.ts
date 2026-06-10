@@ -11,6 +11,7 @@
 
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
+import type { LineageGraph } from './lineage-store.ts';
 import type { MountedSource } from './mount.ts';
 import type { OverrideRule, UserType } from './workbook.ts';
 
@@ -33,6 +34,13 @@ export interface NakliDataFile {
    * v1.0 files round-trip without bumping the version number.
    */
   override_rules?: OverrideRule[];
+  /**
+   * Cell lineage graph (M2 — v1.2 Lakehouse Parity). Describes the
+   * upstream sources / cells each cell read from. Optional — files
+   * saved before M2 (and notebooks that have never run a cell) round-
+   * trip without bumping the version number.
+   */
+  lineage?: LineageGraph;
   settings: { auto_accept_threshold: number };
 }
 
@@ -101,6 +109,8 @@ export interface SerializeInput {
   userTypes?: UserType[];
   /** Override rules from the workbook (Theme 4 wave 2). Defaults to empty. */
   overrideRules?: OverrideRule[];
+  /** M2 — cell lineage graph snapshot. Optional. */
+  lineage?: LineageGraph;
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -198,6 +208,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     cells: input.cells.map(cellWithoutResults),
     user_types: input.userTypes ?? [],
     override_rules: input.overrideRules ?? [],
+    ...(input.lineage ? { lineage: input.lineage } : {}),
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

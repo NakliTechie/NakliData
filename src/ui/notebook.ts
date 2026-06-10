@@ -11,6 +11,8 @@
 // in the previous successful run.
 
 import type { Engine } from '../core/engine.ts';
+import { getLineageStore } from '../core/lineage-store.ts';
+import { extractInputsFromPlan, extractInputsFromSqlRegex } from '../core/lineage.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
@@ -201,6 +203,10 @@ LIMIT 100`,
   deleteCell(id: string): void {
     // Release the CM6 editor instance if any (the registry is per-cell-id).
     disposeSqlCellEditor(id);
+    // M2 — drop the cell's lineage entry so the lineage panel doesn't
+    // surface orphaned references. Downstream edges (cells that read
+    // FROM this cell) clean up when those cells re-run.
+    getLineageStore().removeCell(id);
     this.state = {
       cells: this.state.cells.filter((c) => c.id !== id),
     };
@@ -269,6 +275,11 @@ LIMIT 100`,
           elapsedMs: elapsed,
         },
       });
+      // M2 — Cell Lineage Tracker. Fire-and-forget after the result
+      // ships; lineage failures must NOT regress the cell to error.
+      void this.recordLineageForCell(id, code, rewritten).catch(() => {
+        /* lineage extraction is best-effort */
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.patchCell(id, { status: 'error', lastError: msg, lastResult: null });
@@ -294,6 +305,82 @@ LIMIT 100`,
         if (!c.code.trim()) continue;
         await this.runCell(c.id);
       }
+    }
+  }
+
+  /**
+   * M2 — After a successful cell run, extract upstream lineage and
+   * update the singleton lineage store. Best-effort: any failure here
+   * (EXPLAIN parse error, plan-walk shape mismatch) falls back to
+   * the regex extractor.
+   *
+   * The rewritten SQL (post-@name substitution to `cell_<id>`) is fed
+   * to EXPLAIN so the plan walker sees the right views. The original
+   * code is also captured for `@name` references that resolve to
+   * cells that haven't run yet.
+   */
+  private async recordLineageForCell(
+    cellId: string,
+    originalCode: string,
+    rewritten: string,
+  ): Promise<void> {
+    const store = getLineageStore();
+    const cell = this.state.cells.find((c) => c.id === cellId);
+    const cellLabel = cell?.name?.trim() || `cell_${cellId}`;
+
+    // Try EXPLAIN first. The plan walker is robust to CTE shadowing +
+    // FROM read_parquet().
+    const plan = await this.engine.explainPlan(`SELECT * FROM (${rewritten})`);
+    let inputs: ReturnType<typeof extractInputsFromPlan> = [];
+    let confidence: 'high' | 'low' = 'high';
+    if (plan) {
+      inputs = extractInputsFromPlan(plan);
+    } else {
+      // Regex fallback — confidence: low. Pass the known table names
+      // from the workbook so we don't false-positive on function calls.
+      const known = await this.knownTableNames();
+      inputs = extractInputsFromSqlRegex(rewritten, known);
+      confidence = 'low';
+    }
+
+    // @name references — captured from the ORIGINAL code (before
+    // rewriting). These add cell-to-cell edges that survive even
+    // when the upstream cell hasn't yet executed (so EXPLAIN can't
+    // see its view).
+    const cellRefs: Array<{ refCellId: string; refLabel: string }> = [];
+    for (const match of originalCode.matchAll(/@([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      const refName = match[1];
+      if (!refName) continue;
+      const upstream = this.state.cells.find((c) => c.name === refName);
+      if (upstream) {
+        cellRefs.push({ refCellId: upstream.id, refLabel: refName });
+      }
+    }
+
+    store.setCellInputs({
+      cellId,
+      cellLabel,
+      inputs,
+      cellRefs,
+      confidence,
+    });
+  }
+
+  /** Snapshot of currently-mounted-source view names — used by the
+   *  regex fallback to filter for real tables.
+   *
+   *  Reads from DuckDB's information_schema rather than the workbook
+   *  so the fallback covers ad-hoc CREATE VIEW statements the user
+   *  may have run.
+   */
+  private async knownTableNames(): Promise<Set<string>> {
+    try {
+      const rows = await this.engine.query<{ table_name: string }>(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`,
+      );
+      return new Set(rows.map((r) => r.table_name));
+    } catch {
+      return new Set();
     }
   }
 

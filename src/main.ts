@@ -2,6 +2,7 @@ import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
 import { loadChunk } from './core/lazy-loader.ts';
+import { getLineageStore } from './core/lineage-store.ts';
 import {
   BRIDGE_SECRET_NAMES,
   ICEBERG_SECRET_NAMES,
@@ -50,6 +51,7 @@ import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
 import { type LensConfirmDescriptor, openLensConfirmModal } from './ui/lens-confirm-modal.ts';
+import { openLineagePanel } from './ui/lineage-panel.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
@@ -711,6 +713,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       autoAcceptThreshold: wb.autoAcceptThreshold,
       userTypes: wb.userTypes,
       overrideRules: wb.overrideRules,
+      lineage: getLineageStore().toJSON(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -873,6 +876,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         autoAcceptThreshold: wb.autoAcceptThreshold,
         userTypes: wb.userTypes,
         overrideRules: wb.overrideRules,
+        lineage: getLineageStore().toJSON(),
       });
       try {
         const res = await saveToFile(file);
@@ -975,6 +979,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-schema-graph': {
       void openSchemaGraph();
+      return;
+    }
+    case 'open-lineage': {
+      openLineagePanel();
       return;
     }
     case 'open-settings': {
@@ -1616,6 +1624,15 @@ async function doApplyLoadedFile(
   workbook.setAutoAcceptThreshold(file.settings.auto_accept_threshold ?? 0.9);
   // Restore cells (already stripped of lastResult/lastError).
   nb.load(file.cells);
+  // M2 — restore lineage graph snapshot (optional; pre-M2 files have no
+  // lineage field, so the store stays empty until a cell runs).
+  if (file.lineage) {
+    getLineageStore().loadFromJson(file.lineage);
+  } else {
+    // Reset on load so a session-switch from a lineage-bearing notebook
+    // doesn't leak edges into a lineage-less one.
+    getLineageStore().loadFromJson({ version: 1, nodes: [], edges: [] });
+  }
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {
