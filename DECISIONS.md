@@ -2,6 +2,169 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-10 — v1.2 M2 (Cell Lineage Tracker) shipped
+
+**Context:** Second milestone of the v1.2 Lakehouse Parity handoff.
+M1 (anonymized export) closed earlier this session at `3b2ae33`;
+M2 follows the gate protocol verbatim. Lineage tracker answers
+"where does this number come from?" with EXPLAIN-derived
+high-confidence edges + a regex fallback for cells that didn't
+parse. Spec amendment A26 in `plan/spec-amendments.md`.
+
+### Decision F — EXPLAIN (FORMAT JSON) is sufficient (no escalation)
+
+The handoff §11 escalation protocol calls out: "Stop and surface
+only for (1) pinned DuckDB-wasm lacking JSON EXPLAIN."
+
+**Verified:** DuckDB-wasm 1.29.0 (our pinned version, embedding
+DuckDB v1.1.x) supports `EXPLAIN (FORMAT JSON) <sql>` natively.
+Feature has been in DuckDB since v0.9 (2023). No new dependency,
+no escalation required. Engine method `explainPlan(sql)` runs the
+statement, parses the JSON in the first row/column that starts
+with `[` or `{`, returns the parsed plan tree.
+
+**Reasoning.** The EXPLAIN-based path is the load-bearing
+correctness guarantee. Without it we'd be back to regex parsing
+(which the handoff explicitly rejects — the `compileVisualQuery`
+pattern is a SQL-injection / quoting-bug factory). The fact that
+the pinned DuckDB-wasm supports it natively closes the escalation
+question without further work.
+
+**Status:** Verified via gate-case unit tests (CTE shadow + inline
+`read_parquet`). E2e of the live engine path will get further
+validation when M3+M4 stress the read paths.
+
+### Decision G — Plan-walker accepts BOTH extra_info shapes
+
+DuckDB's EXPLAIN plan emits `extra_info` differently depending on
+the build:
+
+- **Object form** (newer DuckDB):
+  `{"Table": "vendors", "Projections": [...]}` — a plain JSON map.
+- **String form** (older DuckDB):
+  `"vendors\n[Projections: a, b]\n[Filters: ...]"` — a multi-line
+  string where the first non-bracketed line is the table name.
+- **String form with key prefix** (some versions):
+  `"Table: vendors\n..."` — a multi-line string with explicit
+  `Key: value` records.
+
+**Chosen:** the plan walker accepts ALL THREE shapes.
+`extractTableName` tries the object form first (`extra_info.Table`),
+then falls through to a `Table:`-prefixed regex on the string, then
+falls back to "first non-bracketed line."
+
+**Reasoning.** Three wins:
+
+1. **DuckDB-wasm-version-portable.** When the pin bumps from
+   1.29.0 to a newer version, the walker keeps working.
+2. **Defensive.** EXPLAIN JSON is a "best-effort" debug surface in
+   DuckDB; the shape isn't a stability contract. Accepting all
+   three shapes is cheap insurance.
+3. **Same logic applies to file paths.** `extractFilePath` handles
+   `File`/`Files`/`Function: read_parquet('...')` keys + a string-
+   form path-extraction regex.
+
+**Tradeoff.** ~50 lines of "if/else fall-through" instead of a
+clean discriminated union. Acceptable cost for the portability win;
+9 unit tests in `tests/lineage.test.ts` lock the behaviour against
+both shapes.
+
+### Decision H — CTE_REF / CHUNK_SCAN are explicit ignore-list, not absence-of-match
+
+A common bug class with plan walkers: the walker sees a `CTE_REF`
+node, doesn't match any of the scan operators it knows, and... does
+nothing. That's correct! But also fragile — when a future DuckDB
+version adds a new scan-shape operator (`PIVOT_SCAN`, say) the
+walker silently drops it.
+
+**Chosen:** `IGNORE_OPS` is an EXPLICIT set: `CTE_REF`,
+`CHUNK_SCAN`, `DELIM_SCAN`, `EMPTY_RESULT`, `EXPRESSION_SCAN`,
+`DUMMY_SCAN`. The walker:
+
+1. Looks at every node.
+2. If the op is in `IGNORE_OPS` → skip (return null).
+3. If the op is in `TABLE_SCAN_OPS` → extract table name.
+4. If the op is in `FILE_SCAN_OPS` → extract file path.
+5. Otherwise → skip (the node has children to recurse into, but
+   doesn't contribute lineage directly).
+
+**Reasoning.** Two wins:
+
+1. **CTE shadow safety is documented in code.** The first reason
+   to skip `CTE_REF` is the gate test case — anyone reading the
+   walker sees why this op is special.
+2. **Future DuckDB ops are surfaced via lineage misses, not
+   silent drops.** If a future version adds `PIVOT_SCAN` and the
+   walker doesn't know about it, the unit-test gate case
+   "FROM pivot_table (...) PIVOT" would fail with "no inputs
+   recorded" rather than silently dropping the table from the
+   lineage graph. That's a louder failure mode → easier to fix.
+
+**Tradeoff.** Every new DuckDB-wasm pin needs a "do any new scan
+ops exist?" check. Cheap insurance.
+
+### Decision I — Lineage failures are best-effort, never regress the cell
+
+`Notebook.runCell` calls `recordLineageForCell` AFTER `patchCell`
+ships the success result. Lineage extraction errors (EXPLAIN parse,
+walker shape mismatch, store mutation issue) are swallowed with a
+silent catch. The cell stays in "success" state regardless.
+
+**Reasoning.** Three wins:
+
+1. **Cell run is the load-bearing UX.** A user expects "I clicked
+   Run, I see the result." Adding "...unless lineage extraction
+   broke" is a worse experience.
+2. **Lineage is a navigation surface, not a correctness gate.**
+   If lineage is missing, the panel shows "no inputs recorded —
+   re-run the cell." The user can recover.
+3. **EXPLAIN can fail for legit reasons** — write-mode CTEs,
+   prepared-statement parameters, future SQL features. We don't
+   want to regress every query that hits a planner edge case.
+
+**Code:** `void this.recordLineageForCell(id, code, rewritten).catch(() => {})`
+in `Notebook.runCell` success branch.
+
+### Decision J — Three node kinds (source/cell/sink), not separate view/table nodes
+
+The handoff §M2 list of node kinds: "file/S3 mount, cell, view/table,
+sink." Reading literally, that's FOUR node kinds: source-mount,
+cell, intermediate-view, sink.
+
+**Chosen: three kinds — source, cell, sink.** Intermediate views
+(`cell_<id>`) are folded into the cell node itself.
+
+**Reasoning.** Three wins:
+
+1. **`cell_<id>` IS the cell.** Every cell that's run creates a
+   `cell_<id>` view. The view doesn't have semantic content
+   separate from the cell — same name, same lifecycle, same
+   description. A 4-kind model would have a 1:1 redundancy
+   between view nodes and cell nodes; merging them is the same
+   information in fewer graph entities.
+2. **The SVG fits in three lanes.** Sources column, cells columns
+   (by topological depth), sinks column. Adding intermediate-view
+   nodes would either need a fourth lane OR they'd render as
+   visual duplicates of cells. Three lanes give the user a clear
+   read.
+3. **The handoff's "view/table" phrasing reads as "intermediate
+   data product," not as "a fourth node kind."** A mounted CSV
+   IS a "table" in DuckDB's namespace; it gets the source kind. A
+   notebook cell IS a view; it gets the cell kind. The "view/table"
+   line in the handoff is a single category, not two.
+
+**Tradeoff.** A view created OUTSIDE the notebook (raw
+`CREATE VIEW v AS ...` in a SQL cell, then queried from another
+cell via plain `FROM v`) would be misclassified as a source on
+first reference. Acceptable edge case — the user's SQL is the
+source of truth, and the panel will surface "v" as a source node
+which is a reasonable label.
+
+**Code:** `LineageNodeKind = 'source' | 'cell' | 'sink'` in
+`src/core/lineage-store.ts`.
+
+---
+
 ## 2026-06-10 — v1.2 M1 (Anonymized Export Sink) shipped
 
 **Context:** First milestone of the v1.2 "Lakehouse Parity" handoff
