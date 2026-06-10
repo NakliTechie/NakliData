@@ -16,8 +16,23 @@ export interface Settings {
   sidecarEnabled: boolean;
   /** Which BYOK provider the dispatch layer talks to. */
   sidecarProvider: SidecarProvider;
-  /** Provider model id (e.g., `claude-3-5-haiku-latest`). */
+  /**
+   * Provider model id (e.g., `claude-3-5-haiku-latest`). Reflects the
+   * model for the CURRENTLY-selected provider. When the user switches
+   * provider, this is restored from `sidecarModelByProvider` rather
+   * than reset to a hardcoded default — so a manually-typed
+   * `claude-sonnet-4` survives a switch-away-and-back round-trip.
+   */
   sidecarModel: string;
+  /**
+   * Per-provider model id memory. The UI updates this whenever the
+   * model field changes for the selected provider. On provider switch
+   * we read the relevant entry to populate `sidecarModel` instead of
+   * the hardcoded `DEFAULT_PROVIDER_CONFIG[provider].model`. Entries
+   * are optional so a fresh install falls back to the per-provider
+   * default. (Adversarial-review HIGH finding, 2026-06-03.)
+   */
+  sidecarModelByProvider: Partial<Record<SidecarProvider, string>>;
   /**
    * Wave 2 W2.3 — base URL for the custom OpenAI-compatible provider.
    * Empty string when not configured. Used only when sidecarProvider
@@ -49,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarProvider: 'anthropic',
   sidecarModel: 'claude-3-5-haiku-latest',
   sidecarCustomEndpoint: '',
+  sidecarModelByProvider: {},
   demoMode: false,
   mapBasemap: 'none',
 };
@@ -86,6 +102,18 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
   }
   if (typeof s.sidecarCustomEndpoint === 'string') {
     out.sidecarCustomEndpoint = s.sidecarCustomEndpoint.trim();
+  }
+  if (s.sidecarModelByProvider && typeof s.sidecarModelByProvider === 'object') {
+    // Only keep entries whose values are strings — defensive against
+    // a corrupted IDB record. Provider keys outside the known set
+    // get filtered too.
+    const known: SidecarProvider[] = ['anthropic', 'openai', 'custom', 'local'];
+    const filtered: Partial<Record<SidecarProvider, string>> = {};
+    for (const p of known) {
+      const v = (s.sidecarModelByProvider as Record<string, unknown>)[p];
+      if (typeof v === 'string' && v.trim()) filtered[p] = v.trim();
+    }
+    out.sidecarModelByProvider = filtered;
   }
   if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
   if (s.mapBasemap === 'none' || s.mapBasemap === 'osm') out.mapBasemap = s.mapBasemap;

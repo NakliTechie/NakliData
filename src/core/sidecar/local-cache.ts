@@ -54,11 +54,30 @@ export interface ModelCacheEntry {
 }
 
 /**
+ * Separator used to flatten `/` in model ids into single OPFS dir
+ * names. Chosen because:
+ *   - `$` is allowed in HF org/repo names? Actually no — HF restricts
+ *     names to [A-Za-z0-9-_.]. So `$$` cannot appear in any real id.
+ *   - Three chars (not one) so accidental introduction in a future
+ *     pattern is unlikely.
+ *
+ * Adversarial-review MEDIUM finding (2026-06-03): the prior
+ * separator `__` collided — HF org/repo names ALLOW `_`, so
+ * `org/foo_bar` and `org__foo_bar` flattened to the same string
+ * `org__foo_bar`, and the unflattener couldn't reliably round-trip.
+ */
+const FLATTEN_SEP = '$$';
+
+/**
  * Flatten a model id (`Qwen/Qwen2.5-1.5B-Instruct`) into a single
- * directory name (`Qwen__Qwen2.5-1.5B-Instruct`). Exported for tests.
+ * directory name (`Qwen$$Qwen2.5-1.5B-Instruct`). Exported for tests.
+ *
+ * Uses split+join (not String.prototype.replace) because `$$` in the
+ * replacement-string position of `replace(regex, str)` collapses to a
+ * literal `$` — split+join treats the separator as a plain literal.
  */
 export function flattenModelId(modelId: string): string {
-  return modelId.replace(/\//g, '__');
+  return modelId.split('/').join(FLATTEN_SEP);
 }
 
 /**
@@ -66,7 +85,7 @@ export function flattenModelId(modelId: string): string {
  * a flattened directory name. Exported for tests.
  */
 export function unflattenModelId(flattened: string): string {
-  return flattened.replace(/__/g, '/');
+  return flattened.split(FLATTEN_SEP).join('/');
 }
 
 /**
@@ -227,6 +246,7 @@ export async function writeModelFile(
   }
   const fileHandle = await modelDir.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
+  let writeError: unknown = null;
   try {
     if (data instanceof Blob) {
       await writable.write(data);
@@ -243,8 +263,30 @@ export async function writeModelFile(
       new Uint8Array(buf).set(data);
       await writable.write(buf);
     }
+  } catch (err) {
+    writeError = err;
   } finally {
-    await writable.close();
+    try {
+      await writable.close();
+    } catch {
+      /* ignore — close-after-failed-write may throw; the original
+         write error is more informative. */
+    }
+  }
+  if (writeError) {
+    // Adversarial-review MEDIUM (2026-06-03): on a quota-exhausted
+    // / partial write, OPFS leaves a truncated artifact. The next
+    // hasModelFile() returns true and readModelFile() returns the
+    // corrupt bytes — onnxruntime then fails with a cryptic protobuf
+    // parse error instead of triggering a clean re-download.
+    // Remove the partial file before re-throwing so the cache stays
+    // in a clean hit-or-miss state.
+    try {
+      await modelDir.removeEntry(filename);
+    } catch {
+      /* best-effort cleanup; don't mask the original error. */
+    }
+    throw writeError;
   }
 }
 
@@ -276,6 +318,45 @@ export async function clearAllCachedModels(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Lower-bound byte size below which a cached model is considered
+ * "partial / incomplete" — a sentinel for the auto-load gate.
+ *
+ * Adversarial-review HIGH finding (2026-06-03): a cancelled or
+ * quota-killed download often leaves `tokenizer.json` + `config.json`
+ * (each ~10–500 KB) in OPFS but NO `model.onnx` (the multi-hundred-MB
+ * weights). Pre-fix the boot-path auto-load gated on
+ * `files.length > 0` — true for partial caches — and silently
+ * re-downloaded the weights from HF every boot.
+ *
+ * Real curated-list models in `LOCAL_MODEL_OPTIONS`:
+ *   - Qwen2.5-1.5B-Instruct quantized: ~0.9 GB
+ *   - Phi-3.5-mini-instruct quantized: ~2.3 GB
+ *   - Llama-3.2-1B-Instruct quantized: ~0.7 GB
+ *
+ * 100 MB is comfortably below every supported model's weight-file
+ * size yet far above any tokenizer / config sidecar files, so
+ * `isModelCacheComplete` returns `true` only when the weights have
+ * actually landed.
+ */
+const MIN_COMPLETE_MODEL_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Whether the cached model has weight bytes large enough to indicate
+ * a completed download — not just leftover tokenizer / config files
+ * from a cancelled run.
+ *
+ * Heuristic: total bytes > 100 MB. Cheaper than parsing the
+ * model_index / config.json and good enough for the three curated
+ * models. Callers needing tighter assurance can probe
+ * `hasModelFile(modelId, 'onnx__model_q4.onnx')` or similar.
+ */
+export async function isModelCacheComplete(modelId: string): Promise<boolean> {
+  const info = await getModelCacheInfo(modelId);
+  if (!info) return false;
+  return info.totalBytes >= MIN_COMPLETE_MODEL_BYTES;
 }
 
 /**

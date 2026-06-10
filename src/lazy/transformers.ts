@@ -159,10 +159,18 @@ export function createOpfsCache(): {
  *
  * Must run BEFORE the first `pipeline(...)` call (any later and the
  * pipeline's initial weight fetches bypass the cache).
+ *
+ * **Critical**: `env.useCustomCache = true` is required for the
+ * library's `getCache()` to consult `env.customCache` at all.
+ * Without that flag the cache adapter is dead code — every load
+ * re-downloads, listCachedModels stays empty, boot-path auto-load
+ * never triggers because no files are present.
+ * (Adversarial-review CRITICAL finding, 2026-06-03.)
  */
 function configureEnv(): void {
   env.useBrowserCache = false;
   env.useFSCache = false;
+  env.useCustomCache = true;
   // biome-ignore lint/suspicious/noExplicitAny: env.customCache lib type is the CacheInterface from utils/cache; we conform to it but typing across module boundaries is brittle.
   env.customCache = createOpfsCache() as any;
 }
@@ -171,6 +179,13 @@ function configureEnv(): void {
 // in Settings disposes + re-creates cleanly.
 let _activePipeline: TextGenerationPipeline | null = null;
 let _activeModelId: string | null = null;
+// In-flight pipeline promise — memoised so parallel `loadPipeline`
+// calls (boot auto-load racing a user click in Settings) await the
+// same construction, not two independent ones that each spin up an
+// onnxruntime session and leak the loser's WASM heap.
+// (Adversarial-review MEDIUM finding, 2026-06-03.)
+let _pendingPipelinePromise: Promise<TextGenerationPipeline> | null = null;
+let _pendingPipelineModelId: string | null = null;
 
 /**
  * Progress callback shape Transformers.js emits during model file
@@ -211,6 +226,27 @@ export async function loadPipeline(
   if (_activePipeline && _activeModelId === modelId) {
     return _activePipeline;
   }
+  // Adversarial-review codex P2 (2026-06-03): if another caller is
+  // mid-construction (same OR different model), serialise — don't
+  // race. Same-model concurrent callers share the in-flight promise.
+  // Different-model callers wait for the current one to finish before
+  // starting (which then disposes the previous and builds anew).
+  // Without serialisation the second model's pipeline can race the
+  // first's resolution and leave `_activePipeline` pointing at the
+  // wrong model, leaking the loser's onnxruntime session.
+  if (_pendingPipelinePromise) {
+    if (_pendingPipelineModelId === modelId) {
+      return _pendingPipelinePromise;
+    }
+    // Different model in flight — chain after it. We don't care
+    // whether the prior call resolved or rejected; either way we
+    // proceed to build OUR model on a clean slate.
+    try {
+      await _pendingPipelinePromise;
+    } catch {
+      /* ignore — prior caller surfaces its own error */
+    }
+  }
   if (_activePipeline) {
     // Different model than what's loaded — dispose first so memory
     // doesn't compound. Transformers.js's dispose() releases the
@@ -218,7 +254,7 @@ export async function loadPipeline(
     await disposePipeline();
   }
   configureEnv();
-  const pipe = await pipeline('text-generation', modelId, {
+  const promise = pipeline('text-generation', modelId, {
     // q4 quantization → ~0.9 GB for the 1.5B-param model.
     dtype: 'q4',
     // wasm is the universal device; chunk 3 (Settings) can let users
@@ -226,9 +262,22 @@ export async function loadPipeline(
     device: 'wasm',
     ...(onProgress ? { progress_callback: onProgress } : {}),
   });
-  _activePipeline = pipe;
-  _activeModelId = modelId;
-  return pipe;
+  _pendingPipelinePromise = promise;
+  _pendingPipelineModelId = modelId;
+  try {
+    const pipe = await promise;
+    _activePipeline = pipe;
+    _activeModelId = modelId;
+    return pipe;
+  } finally {
+    // Only clear the pending slot if WE own it — a concurrent switch
+    // may have overwritten it; clearing in that case would orphan
+    // the new construction's race-guard.
+    if (_pendingPipelinePromise === promise) {
+      _pendingPipelinePromise = null;
+      _pendingPipelineModelId = null;
+    }
+  }
 }
 
 /**

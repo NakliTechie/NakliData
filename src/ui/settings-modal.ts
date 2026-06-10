@@ -117,6 +117,15 @@ async function refresh(): Promise<void> {
   if (customRow) customRow.hidden = provider !== 'custom';
   if (customInput) customInput.value = settings.sidecarCustomEndpoint;
   if (provider === 'custom') updateEndpointInspector(overlay, settings.sidecarCustomEndpoint);
+  // Adversarial-review codex P2 (2026-06-03): the generic "Model"
+  // text field is meaningful only for cloud / custom providers.
+  // For the local provider, the curated radios in the Local section
+  // ARE the model picker — and a free-text edit there would persist
+  // arbitrary text into `sidecarModel`, which `generate()` then
+  // passes to `loadPipeline` and triggers an unprompted multi-GB
+  // download outside the "Download & load" flow.
+  const modelRow = modelInput?.closest<HTMLElement>('label.settings-field');
+  if (modelRow) modelRow.hidden = provider === 'local';
   // Local-model section (W3.2 slice B chunk 3): show only when
   // provider is 'local'; pre-select the configured model id (default
   // = LOCAL_MODEL_OPTIONS[0].id when nothing is configured); refresh
@@ -413,14 +422,31 @@ function renderModal(): HTMLElement {
       target.checked
     ) {
       const provider = target.value as SidecarProvider;
+      const current = await loadSettings();
       const defaults = DEFAULT_PROVIDER_CONFIG[provider];
-      // For `local` provider, prefer the first curated model id
-      // (recommended Qwen2.5-1.5B) over the empty default in
-      // DEFAULT_PROVIDER_CONFIG.local — gives the radio a sensible
-      // starting selection.
+      // Adversarial-review HIGH (2026-06-03): prefer the per-provider
+      // memoised id over a hardcoded default. A user who switched
+      // away from Anthropic with `claude-sonnet-4` typed in shouldn't
+      // lose it on switch back. Local provider's recommended Qwen
+      // still wins when nothing's memoised yet.
+      const memo = current.sidecarModelByProvider?.[provider];
       const modelId =
-        provider === 'local' ? (LOCAL_MODEL_OPTIONS[0]?.id ?? defaults.model) : defaults.model;
-      await patchSettings({ sidecarProvider: provider, sidecarModel: modelId });
+        memo ||
+        (provider === 'local' ? (LOCAL_MODEL_OPTIONS[0]?.id ?? defaults.model) : defaults.model);
+      // Memoise the OUTGOING provider's current model id so it
+      // survives a switch back. Skip when the outgoing model is
+      // empty (e.g. fresh install before anything's been typed).
+      const outgoing = current.sidecarProvider;
+      const outgoingModel = current.sidecarModel?.trim();
+      const memoUpdate: Partial<Record<SidecarProvider, string>> = {
+        ...current.sidecarModelByProvider,
+      };
+      if (outgoingModel) memoUpdate[outgoing] = outgoingModel;
+      await patchSettings({
+        sidecarProvider: provider,
+        sidecarModel: modelId,
+        sidecarModelByProvider: memoUpdate,
+      });
       await refresh();
     }
     if (
@@ -428,16 +454,34 @@ function renderModal(): HTMLElement {
       target.name === 'settings-local-model' &&
       target.checked
     ) {
-      // Persist the chosen local model id. The actual model isn't
-      // loaded until the user clicks "Download & load".
-      await patchSettings({ sidecarModel: target.value });
+      // Persist the chosen local model id + memoise so future
+      // provider switch round-trip restores it.
+      const current = await loadSettings();
+      const memoUpdate: Partial<Record<SidecarProvider, string>> = {
+        ...current.sidecarModelByProvider,
+        local: target.value,
+      };
+      await patchSettings({
+        sidecarModel: target.value,
+        sidecarModelByProvider: memoUpdate,
+      });
     }
   });
   overlay.addEventListener('input', async (ev) => {
     const target = ev.target as HTMLInputElement | null;
     if (!target) return;
     if (target.dataset.action === 'settings-model') {
-      await patchSettings({ sidecarModel: target.value });
+      // Memo the model id under the active provider so a switch
+      // round-trip restores it (HIGH finding follow-up).
+      const current = await loadSettings();
+      const memoUpdate: Partial<Record<SidecarProvider, string>> = {
+        ...current.sidecarModelByProvider,
+      };
+      if (target.value.trim()) memoUpdate[current.sidecarProvider] = target.value.trim();
+      await patchSettings({
+        sidecarModel: target.value,
+        sidecarModelByProvider: memoUpdate,
+      });
     }
     if (target.dataset.action === 'settings-custom-endpoint') {
       await patchSettings({ sidecarCustomEndpoint: target.value });

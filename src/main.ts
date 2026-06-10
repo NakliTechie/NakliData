@@ -319,10 +319,17 @@ async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
     if (settings.sidecarProvider !== 'local') return;
     const modelId = settings.sidecarModel?.trim();
     if (!modelId) return;
-    const { isOpfsAvailable, getModelCacheInfo } = await import('./core/sidecar/local-cache.ts');
+    const { isOpfsAvailable, isModelCacheComplete } = await import('./core/sidecar/local-cache.ts');
     if (!(await isOpfsAvailable())) return;
-    const cached = await getModelCacheInfo(modelId);
-    if (!cached || cached.files.length === 0) return;
+    // Adversarial-review HIGH (2026-06-03): `cached.files.length > 0`
+    // was the prior gate. A partial cache (tokenizer.json + config.json
+    // but no weights — e.g. after a cancelled / quota-killed download)
+    // passed the gate and triggered a SILENT multi-GB re-download on
+    // every boot because Transformers.js re-fetched the missing
+    // `model.onnx` without UI feedback. `isModelCacheComplete` checks
+    // total bytes > 100 MB — well below every curated model's weight
+    // file but far above sidecar files.
+    if (!(await isModelCacheComplete(modelId))) return;
     // Model is cached. Pull in the Transformers.js chunk and register
     // the generator. This is async + can take ~5-10s as the pipeline
     // initialises onnxruntime against the cached weights — we don't

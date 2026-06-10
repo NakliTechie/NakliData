@@ -25,7 +25,7 @@ import {
 
 describe('flattenModelId / unflattenModelId', () => {
   it('flattens slashes to double-underscore', () => {
-    expect(flattenModelId('Qwen/Qwen2.5-1.5B-Instruct')).toBe('Qwen__Qwen2.5-1.5B-Instruct');
+    expect(flattenModelId('Qwen/Qwen2.5-1.5B-Instruct')).toBe('Qwen$$Qwen2.5-1.5B-Instruct');
   });
 
   it('handles model ids without slashes (already flat)', () => {
@@ -33,7 +33,7 @@ describe('flattenModelId / unflattenModelId', () => {
   });
 
   it('handles nested-org model ids (multiple slashes)', () => {
-    expect(flattenModelId('org/team/model-v1')).toBe('org__team__model-v1');
+    expect(flattenModelId('org/team/model-v1')).toBe('org$$team$$model-v1');
   });
 
   it('round-trips via unflattenModelId', () => {
