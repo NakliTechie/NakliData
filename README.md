@@ -84,6 +84,7 @@ A notebook is an ordered list of cells. Nine kinds:
 ### Sharing the notebook
 
 - **Save HTML** (header button) — exports the active notebook as a self-contained `.html` file: markdown previews + chart SVGs + pivot/result tables + SQL `<details>` blocks. ~3 KB embedded CSS, no JS, no engine. Email it, drop it into a Google Doc, pin it in a wiki.
+- **Export anonymized** *(v1.2 M1).* Sixth sink on every result table — opens a per-column dialog: `keep` / `hash` / `redact` / `bucket` / `drop`, with defaults driven by the column's sensitivity badge (PII → hash, financial → bucket, secret → redact, public → keep). Applied via DuckDB SQL projection rewrite (md5 + DATE_TRUNC + FLOOR built-ins, no JS post-processing of millions of rows), with every identifier + literal flowing through a dedicated quoter so the SQL is airtight against hostile column names. Salt is per-export, generated via `crypto.getRandomValues`, shown once with Copy + Regenerate, never persisted — paste it back next time for a same-hash re-export. A JSON manifest is written alongside the data file recording the column-strategy map + taxonomy version + a `saltUsed: boolean` (never the salt itself).
 - **Presentation mode** *(W6.2, Hex app-publish pattern).* Append `?present=1` to the URL — hides SQL/cohort/assertion cells, the sources + schema sidebars, the notebook toolbar, the cell-add row, and per-cell edit chrome. Markdown + chart + pivot + map keep rendering. An "Exit presentation" pill in the header returns to the workbench.
 
 ## The schema panel

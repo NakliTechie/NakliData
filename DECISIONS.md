@@ -2,6 +2,160 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-10 — v1.2 M1 (Anonymized Export Sink) shipped
+
+**Context:** First milestone of the v1.2 "Lakehouse Parity" handoff
+(`NAKLIDATA-AGENT-HANDOFF-v1.2.md`). User pasted the handoff with
+"start building autonomously in sequence" — this is M1 of M1→M2→
+M3→M4→M5. M1 ships a sixth sink ("Export anonymized") that applies
+per-column anonymization strategies via DuckDB SQL projection
+rewrite + writes a JSON manifest alongside the data file. Spec
+amendment A25 in `plan/spec-amendments.md`.
+
+### Decision A — SQL projection rewrite vs JS post-processing
+
+The handoff §M1 says the anonymizer "transforms the result before
+export." Two implementations could deliver that:
+
+1. **JS post-processing.** Pull rows into the page, walk arrays,
+   apply hash/redact/bucket per cell, write a CSV string.
+2. **SQL projection rewrite.** Build a `SELECT <projected exprs>
+   FROM "cell_<id>"` and let DuckDB do the work in the WASM heap.
+
+**Chosen: SQL projection rewrite.**
+
+**Reasoning.** Three wins:
+
+1. **Scale.** A 5M-row anonymized export shouldn't materialize 5M
+   rows in JS just to hash a column. DuckDB does the projection
+   inside the WASM heap and streams to the COPY sink. Same memory
+   posture as a non-anonymized export.
+2. **Identifier quoting is solved.** Every column reference flows
+   through `quoteIdent` (wrap in `"`, double internal `"`). The
+   handoff §10 explicitly rejects the review's `compileVisualQuery`
+   string-concat pattern; a SQL projection done right is the
+   airtight alternative.
+3. **md5() is built-in.** DuckDB's `md5()` is in core SQL — no
+   extension fetch, no crypto-extension surface to harden. The
+   hash strategy ships with one dependency-free line of SQL per
+   column.
+
+**Tradeoff.** The projection is opaque to a non-SQL reader vs JS
+that's easier to step through. Mitigated by 16 unit tests in
+`tests/anonymize.test.ts` that prove the SQL holds under hostile
+column names + hostile salts.
+
+**Code:** `buildAnonymizedProjection` in `src/ui/sinks/anonymize.ts`.
+
+### Decision B — MD5 for hash strategy vs SHA-256
+
+DuckDB has `md5(VARCHAR)` and `sha256(VARCHAR)` as built-ins. Both
+work without an extension.
+
+**Chosen: MD5.**
+
+**Reasoning.** Three considerations:
+
+1. **Threat model.** The hash isn't a cryptographic password. The
+   adversary scenario is: recipient of the anonymized CSV joins it
+   against a public dataset to re-identify rows. MD5 collisions
+   don't help that adversary — collisions are constructive (you'd
+   need to forge a colliding plaintext), and the adversary doesn't
+   get to construct anything. They get to see a 32-char hex string
+   and try to find a plaintext that produces it. For that lookup
+   attack, MD5 and SHA-256 are equivalent — both are fast hash
+   functions; both yield to the same dictionary + salt strategies.
+2. **Column width.** MD5 is 32 chars; SHA-256 is 64. Anonymized
+   exports often re-import into downstream tools (Excel, BI, BI
+   warehouses). The 32-char output is half the width — half the
+   column-display cost, half the storage cost.
+3. **Salt is doing the load-bearing work, not the hash function.**
+   Per-export random salt means rainbow-table attacks are infeasible
+   regardless of MD5 vs SHA-256. The "MD5 is broken" concern (which
+   is about collision resistance) doesn't apply here.
+
+**Tradeoff.** Cryptographers will frown. If the threat model ever
+shifts to "the salt must survive offline brute-force" we revisit.
+For the published threat model (recipient-side re-identification,
+salt held only by exporter), MD5 + 16-byte random salt is the right
+strength.
+
+**Code:** `md5(COALESCE(CAST("col" AS VARCHAR), '') || '<salt>')`
+in `buildAnonymizedProjection` hash branch.
+
+### Decision C — Default strategy mapping per sensitivity badge
+
+The handoff §M1 says: "Use the existing sensitivity:
+public|pii|financial|secret badges from §3.2 / A15 to pick a
+default strategy." The badge → strategy mapping wasn't enumerated;
+this entry locks it.
+
+**Chosen:**
+
+| Sensitivity | Default | Reasoning |
+|-------------|---------|-----------|
+| `public` | keep | No-op for unbadged data. |
+| `pii` | hash | Per handoff §M1 hint. |
+| `financial` | bucket | Per handoff §M1 hint. |
+| `secret` | redact | Per handoff §M1 implies; redact is stricter than hash (the hash is itself a fingerprint). |
+| no badge | keep | Conservative default — if the taxonomy hasn't decided, the user has to opt in to anonymise. |
+
+User overrides every default per-column in the export dialog before
+the COPY runs.
+
+**Code:** `defaultStrategyForSensitivity` in
+`src/ui/sinks/anonymize.ts`.
+
+### Decision D — Bucket strategy falls back to redact for misbadged types
+
+If a column is badged `financial` but its DuckDB SQL type is
+`VARCHAR`, the bucket strategy can't apply (`(FLOOR(CAST("x" AS
+DOUBLE) / 100) * 100)` errors at runtime for a string column).
+
+**Chosen:** fallback to redact for misbadged columns. The bucket
+strategy SQL builder checks `isNumericType` then `isDateLikeType`;
+neither match → emit `'[REDACTED]' AS "col"`.
+
+**Reasoning.** Two wins:
+
+1. **Won't crash mid-export.** The COPY runs to completion; the
+   user sees the redacted column and decides whether to retag the
+   column type or override the per-column strategy to keep.
+2. **Defaults to safer.** A misbadged financial column would be
+   harmful to ship in the clear; redact is the strictly safer
+   fallback.
+
+**Tradeoff.** The user might not notice the redact-vs-bucket
+difference until they look at the export. The export dialog shows
+the per-column strategies before commit, so the difference is
+visible if they look. The manifest also records `strategy:
+"bucket"` even when the SQL projection emits redact for it
+(documents user intent vs realised behaviour). Could expand the
+manifest to record `realisedStrategy` separately if this lands
+ugly in practice.
+
+**Code:** `buildAnonymizedProjection` bucket branch (else-branch
+inside the bucket-strategy block).
+
+### Decision E — Salt never persisted, even in the manifest
+
+The manifest records `saltUsed: boolean` but NEVER the salt value.
+
+**Reasoning.** The handoff §M1 spec: "salt held only by the
+exporter; never persisted." Including the salt in the manifest
+would defeat the whole strategy — the manifest ships alongside the
+data file. Anyone with the manifest could reverse the hash.
+
+**How re-export with the same salt works:** the export dialog has a
+"Copy salt" button. Same-salt re-export = paste it back into the
+salt field on the next export. Explicit, user-driven, manual.
+
+**Code:** `buildManifest` in `src/ui/sinks/anonymize.ts` — manifest
+has `saltUsed: boolean`, no `salt` field; the notes blurb says so
+in prose so a recipient reading the JSON knows.
+
+---
+
 ## 2026-06-03 — W3.2 slice B (Transformers.js local runtime) shipped
 
 **Context:** W3.2 slice A (the seam) shipped in v1.1; slice B (the
