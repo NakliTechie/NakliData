@@ -15,6 +15,7 @@ import { getLineageStore } from '../core/lineage-store.ts';
 import { extractInputsFromPlan, extractInputsFromSqlRegex } from '../core/lineage.ts';
 import { getMeasuresStore } from '../core/measures-store.ts';
 import { expandMeasures } from '../core/measures.ts';
+import { emptyReportDefinition } from '../core/report-layout.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
@@ -24,6 +25,7 @@ import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
+import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import { renderStatsCell } from './cells/stats-cell.ts';
 import type {
@@ -37,6 +39,7 @@ import type {
   MapCellState,
   MarkdownCellState,
   PivotCellState,
+  ReportCellState,
   SqlCellState,
   StatsCellState,
 } from './cells/types.ts';
@@ -200,6 +203,16 @@ LIMIT 100`,
         status: 'idle',
         lastError: null,
       } satisfies StatsCellState;
+    } else if (kind === 'report') {
+      // v1.3 M3 — report cell. Defaults to an A4 empty report; user
+      // adds items via JSON edits to definition.items for v1.
+      cell = {
+        id: genCellId(),
+        kind: 'report',
+        order,
+        name: null,
+        definition: emptyReportDefinition(),
+      } satisfies ReportCellState;
     } else {
       cell = {
         id: genCellId(),
@@ -520,6 +533,7 @@ export function renderNotebook(
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
     else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
     else if (cell.kind === 'stats') root.append(renderStatsCell(cell, handlers));
+    else if (cell.kind === 'report') root.append(renderReportCell(cell, handlers));
   }
 
   const addRow = document.createElement('div');
@@ -535,6 +549,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
     <button class="btn" data-nb-action="add-dashboard" title="Grid layout for markdown / chart / pivot / map cells. Type the cell names to embed.">${iconSvg('plus', 12)} Dashboard</button>
     <button class="btn" data-nb-action="add-stats" title="Descriptive statistics + correlation matrix over an upstream cell's result.">${iconSvg('plus', 12)} Stats</button>
+    <button class="btn" data-nb-action="add-report" title="Paginated report: KPI tiles + cell embeds. Print to PDF via the browser.">${iconSvg('plus', 12)} Report</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
   addRow
@@ -567,6 +582,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-stats"]')
     ?.addEventListener('click', () => notebook.addCell('stats'));
+  addRow
+    .querySelector('[data-nb-action="add-report"]')
+    ?.addEventListener('click', () => notebook.addCell('report'));
   // The "Ask in plain English" button is wired up in main.ts (it needs
   // workbook + engine context to gather the schema and insert the
   // generated cell). The button itself is rendered here so its

@@ -226,6 +226,26 @@ export interface DashboardCellState {
   items: string[];
 }
 
+/**
+ * Report cell — v1.3 M3. Embeds a `ReportDefinition` (from
+ * `src/core/report-layout.ts`) and offers a print-to-PDF button.
+ * On Print, the browser's print dialog opens with the report
+ * window's @page CSS controlling page size + margins.
+ *
+ * Per handoff §M3: print CSS + browser print-to-PDF preferred over
+ * pdf-lib. Cell-refs embed existing notebook cells by name; data is
+ * always re-queried at render (report is a description, never a
+ * data copy).
+ */
+export interface ReportCellState {
+  id: string;
+  kind: 'report';
+  order: number;
+  name: string | null;
+  /** Serialised ReportDefinition (validated at render). */
+  definition: import('../../core/report-layout.ts').ReportDefinition;
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
@@ -236,7 +256,8 @@ export type CellState =
   | AssertionCellState
   | InputCellState
   | DashboardCellState
-  | StatsCellState;
+  | StatsCellState
+  | ReportCellState;
 
 export interface SqlResult {
   columns: string[];

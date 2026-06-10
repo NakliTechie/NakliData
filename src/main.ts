@@ -114,6 +114,32 @@ function bootUnsupported(reason: string): void {
   `;
 }
 
+/**
+ * v1.3 M3 — agent / automation surface. External callers (sidecars,
+ * Playwright drivers) can request a report render via:
+ *   window.naklidataRenderReport(reportCellId)
+ *
+ * The function locates the report cell, scrolls it into view, and
+ * triggers the browser's print dialog. The report cell's @media print
+ * CSS scopes visibility to the report only — header / sidebar / other
+ * cells are hidden in the resulting PDF.
+ *
+ * No scheduling, no queue, no background execution (handoff §M3 +
+ * §"What NOT to do"). The function returns void; the caller observes
+ * the print dialog directly.
+ */
+(window as unknown as { naklidataRenderReport: (id: string) => void }).naklidataRenderReport = (
+  reportCellId: string,
+) => {
+  const el = document.querySelector<HTMLElement>(`[data-cell-id="${reportCellId}"].cell-report`);
+  if (!el) {
+    console.warn(`[naklidata] renderReport: cell not found: ${reportCellId}`);
+    return;
+  }
+  el.scrollIntoView({ block: 'start' });
+  window.print();
+};
+
 async function boot(): Promise<void> {
   const root = document.getElementById('app');
   if (!root) throw new Error('Root #app missing');
@@ -1328,6 +1354,13 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
       await handleRunStats(engine, cellId);
+      return;
+    }
+    case 'report-print': {
+      // v1.3 M3 — print the report. Browser's print dialog handles
+      // PDF generation. The report cell's @media print CSS scopes the
+      // visible region to just the report.
+      window.print();
       return;
     }
     case 'open-settings': {
