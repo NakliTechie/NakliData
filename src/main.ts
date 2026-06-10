@@ -3,6 +3,7 @@ import { type Engine, getEngine } from './core/engine.ts';
 import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
 import { loadChunk } from './core/lazy-loader.ts';
 import { getLineageStore } from './core/lineage-store.ts';
+import { getMeasuresStore } from './core/measures-store.ts';
 import {
   BRIDGE_SECRET_NAMES,
   ICEBERG_SECRET_NAMES,
@@ -763,6 +764,30 @@ async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
  * map the common SQL types onto the builder's 4-bucket type system
  * (numeric / string / date / boolean).
  */
+/**
+ * v1.3 M2 — open the measures panel.
+ *
+ * Pulls every cell's SQL into the descriptor so the panel can show
+ * "this measure is used by N cells" (handoff §M2 — edit propagation
+ * affordance). Re-renders the notebook on close to surface any
+ * cells that now reference newly-added measures.
+ */
+async function handleOpenMeasures(engine: Engine): Promise<void> {
+  const nb = getNotebook(engine);
+  const cellSqls = nb
+    .get()
+    .cells.filter((c) => c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion')
+    .map((c) => ({ id: c.id, name: c.name, sql: (c as { code: string }).code }));
+  const mod = await loadChunk('measures-panel');
+  mod.openMeasuresPanel({ cellSqls }, () => {
+    // No-op for now; the notebook auto-rerenders via the workbook
+    // subscriber when measures change indirectly (e.g., via cell
+    // re-runs). A future change could subscribe to measures-store
+    // directly to refresh the schema panel's "applicable measures"
+    // section live.
+  });
+}
+
 function handleOpenQueryBuilder(engine: Engine): void {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
@@ -856,6 +881,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       userTypes: wb.userTypes,
       overrideRules: wb.overrideRules,
       lineage: getLineageStore().toJSON(),
+      measures: getMeasuresStore().toFile(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -1133,6 +1159,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-query-builder': {
       handleOpenQueryBuilder(engine);
+      return;
+    }
+    case 'open-measures': {
+      await handleOpenMeasures(engine);
       return;
     }
     case 'open-settings': {
@@ -1789,6 +1819,9 @@ async function doApplyLoadedFile(
     // doesn't leak edges into a lineage-less one.
     getLineageStore().loadFromJson({ version: 1, nodes: [], edges: [] });
   }
+  // v1.3 M2 — restore measures (optional; pre-v1.3 files have no
+  // measures field).
+  getMeasuresStore().loadFromFile(file.measures);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {

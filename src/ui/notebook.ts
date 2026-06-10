@@ -13,6 +13,8 @@
 import type { Engine } from '../core/engine.ts';
 import { getLineageStore } from '../core/lineage-store.ts';
 import { extractInputsFromPlan, extractInputsFromSqlRegex } from '../core/lineage.ts';
+import { getMeasuresStore } from '../core/measures-store.ts';
+import { expandMeasures } from '../core/measures.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
@@ -260,7 +262,20 @@ LIMIT 100`,
     this.aborts.set(id, ac);
     const t0 = performance.now();
     try {
-      const rewritten = this.rewriteReferences(code);
+      // v1.3 M2 — Expand MEASURE(name) macros BEFORE @-name rewriting
+      // so a measure expression that references @cells still resolves
+      // those references in the second pass.
+      const measuresMap = getMeasuresStore().asMap();
+      const measureExpanded = expandMeasures(code, measuresMap);
+      if (measureExpanded.unknownMeasures.length > 0) {
+        this.patchCell(id, {
+          status: 'error',
+          lastError: `Unknown measure(s): ${measureExpanded.unknownMeasures.join(', ')}. Define them in the Measures panel or remove the reference.`,
+          lastResult: null,
+        });
+        return;
+      }
+      const rewritten = this.rewriteReferences(measureExpanded.sql);
       const viewName = `cell_${id}`;
       await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`);
       const rows = await this.engine.query(`SELECT * FROM "${viewName}"`, { signal: ac.signal });

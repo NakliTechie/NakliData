@@ -27,6 +27,8 @@ export interface LazyChunkRegistry {
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
+  /** v1.3 M2 — Measures panel UI (heavy enough to ship out-of-shell). */
+  'measures-panel': typeof import('../lazy/measures-panel.ts');
 }
 
 export type LazyChunkName = keyof LazyChunkRegistry;

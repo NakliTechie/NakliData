@@ -12,6 +12,7 @@
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { LineageGraph } from './lineage-store.ts';
+import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
 import type { OverrideRule, UserType } from './workbook.ts';
 
@@ -41,6 +42,12 @@ export interface NakliDataFile {
    * trip without bumping the version number.
    */
   lineage?: LineageGraph;
+  /**
+   * Measures (v1.3 M2 — Prior Art). Named, versioned semantic
+   * metrics referenced via `MEASURE(name)` in SQL cells. Optional —
+   * pre-M2 files round-trip cleanly.
+   */
+  measures?: MeasuresFile;
   settings: { auto_accept_threshold: number };
 }
 
@@ -111,6 +118,8 @@ export interface SerializeInput {
   overrideRules?: OverrideRule[];
   /** M2 — cell lineage graph snapshot. Optional. */
   lineage?: LineageGraph;
+  /** v1.3 M2 — measures snapshot. Optional. */
+  measures?: MeasuresFile;
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -209,6 +218,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     user_types: input.userTypes ?? [],
     override_rules: input.overrideRules ?? [],
     ...(input.lineage ? { lineage: input.lineage } : {}),
+    ...(input.measures ? { measures: input.measures } : {}),
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }
