@@ -14,6 +14,7 @@ import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { LineageGraph } from './lineage-store.ts';
 import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
+import type { SelectionsFile } from './selections.ts';
 import type { OverrideRule, UserType } from './workbook.ts';
 
 export const NAKLIDATA_VERSION = '1.0';
@@ -48,6 +49,12 @@ export interface NakliDataFile {
    * pre-M2 files round-trip cleanly.
    */
   measures?: MeasuresFile;
+  /**
+   * Selections (v1.3 M1 — Associative Cross-Filter). Per-(table,
+   * column) value sets used by the grey-out compute. Optional —
+   * pre-M1 files round-trip cleanly.
+   */
+  selections?: SelectionsFile;
   settings: { auto_accept_threshold: number };
 }
 
@@ -120,6 +127,8 @@ export interface SerializeInput {
   lineage?: LineageGraph;
   /** v1.3 M2 — measures snapshot. Optional. */
   measures?: MeasuresFile;
+  /** v1.3 M1 — selections snapshot. Optional. */
+  selections?: SelectionsFile;
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -219,6 +228,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     override_rules: input.overrideRules ?? [],
     ...(input.lineage ? { lineage: input.lineage } : {}),
     ...(input.measures ? { measures: input.measures } : {}),
+    ...(input.selections ? { selections: input.selections } : {}),
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

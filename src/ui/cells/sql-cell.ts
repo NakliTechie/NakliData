@@ -276,6 +276,17 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
         const display = formatCell(v);
         td.textContent = display.text;
         if (display.numeric) td.classList.add('numeric');
+        // v1.3 M1 — make the value clickable to toggle a selection.
+        // The "table" key is the cell id (intra-cell highlighting for v1;
+        // inter-cell highlighting via taxonomy-type matching is a follow-up).
+        if (v !== null && v !== undefined) {
+          td.dataset.action = 'toggle-selection';
+          td.dataset.table = `cell_${cell.id}`;
+          td.dataset.column = col;
+          td.dataset.value = display.text;
+          td.title = 'Click to select this value — Qlik-style cross-filter';
+          td.style.cursor = 'pointer';
+        }
         tr.appendChild(td);
       }
       body.appendChild(tr);

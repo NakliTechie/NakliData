@@ -25,6 +25,7 @@ import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
+import { getSelectionsStore } from './core/selections.ts';
 import {
   type SessionMeta,
   clearSnapshot,
@@ -72,6 +73,7 @@ import { openSettingsModal } from './ui/settings-modal.ts';
 import {
   type ShellState,
   mountShell,
+  renderSelectionsBar,
   renderSessionSwitcher,
   renderSourcesList,
   setHasMounts,
@@ -144,6 +146,13 @@ async function boot(): Promise<void> {
 
   const engine = getEngine();
   engine.on('status', ({ status, message }) => updateEngineStatus(root, status, message));
+
+  // v1.3 M1 — render the selections bar reactively. Subscribe once at
+  // boot; the store calls back on every set/toggle/clear.
+  getSelectionsStore().subscribe((entries) => renderSelectionsBar(root, entries));
+  // Render the initial state (may be empty on first boot; populated by
+  // .naklidata-restored selections after applyLoadedFile).
+  renderSelectionsBar(root, getSelectionsStore().list());
 
   const workbook = getWorkbook();
   workbook.subscribe((wb) => {
@@ -882,6 +891,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       overrideRules: wb.overrideRules,
       lineage: getLineageStore().toJSON(),
       measures: getMeasuresStore().toFile(),
+      selections: getSelectionsStore().toFile(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -1163,6 +1173,19 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-measures': {
       await handleOpenMeasures(engine);
+      return;
+    }
+    case 'selections-clear': {
+      getSelectionsStore().clearAll();
+      toast('Selections cleared.');
+      return;
+    }
+    case 'toggle-selection': {
+      const table = el?.dataset.table;
+      const column = el?.dataset.column;
+      const value = el?.dataset.value;
+      if (!table || !column || value === undefined) return;
+      getSelectionsStore().toggle({ table, column }, value);
       return;
     }
     case 'open-settings': {
@@ -1822,6 +1845,8 @@ async function doApplyLoadedFile(
   // v1.3 M2 — restore measures (optional; pre-v1.3 files have no
   // measures field).
   getMeasuresStore().loadFromFile(file.measures);
+  // v1.3 M1 — restore selections (optional).
+  getSelectionsStore().loadFromFile(file.selections);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {

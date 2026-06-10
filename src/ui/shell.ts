@@ -37,6 +37,7 @@ function renderHeader(state: ShellState): HTMLElement {
       <span class="crumb">v${state.buildVersion}</span>
     </div>
     <div class="session-switcher" data-region="session-switcher"></div>
+    <div class="selections-bar" data-region="selections-bar" hidden></div>
     <div class="right">
       <button class="btn btn-ghost" data-action="spotlight" aria-keyshortcuts="Control+K" title="Search (Ctrl+K)">
         ${iconSvg('search', 14)} <span>Search</span>
@@ -74,6 +75,39 @@ function renderHeader(state: ShellState): HTMLElement {
     </div>
   `;
   return el;
+}
+
+/**
+ * v1.3 M1 — render the selections bar in the shell header. Shown
+ * only when at least one selection is active; clicking the Clear
+ * button drops every selection via the action handler.
+ */
+export function renderSelectionsBar(
+  root: HTMLElement,
+  entries: ReadonlyArray<{ table: string; column: string; values: ReadonlyArray<string> }>,
+): void {
+  const mount = root.querySelector<HTMLElement>('[data-region="selections-bar"]');
+  if (!mount) return;
+  if (entries.length === 0) {
+    mount.hidden = true;
+    mount.innerHTML = '';
+    return;
+  }
+  const chipsHtml = entries
+    .map((e) => {
+      const tail = e.values.length > 3 ? `, +${e.values.length - 3}` : '';
+      const head = e.values.slice(0, 3).map(escapeHtml).join(', ');
+      return `<span class="selection-chip" style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:11px;margin-right:6px;">${escapeHtml(e.column)}: ${head}${tail}</span>`;
+    })
+    .join('');
+  mount.hidden = false;
+  mount.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fefce8;border-top:1px solid #fde68a;border-bottom:1px solid #fde68a;font-size:12px;">
+      <strong style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#92400e;">Selection</strong>
+      <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${chipsHtml}</div>
+      <button class="btn btn-ghost" data-action="selections-clear" title="Clear all selections" style="font-size:11px;">Clear all</button>
+    </div>
+  `;
 }
 
 export function renderSessionSwitcher(root: HTMLElement, idx: SessionsIndex): void {
