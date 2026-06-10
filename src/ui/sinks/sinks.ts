@@ -8,8 +8,18 @@
 //   5. Push to NakliPoster collection (requires user-supplied template)
 
 import type { Engine } from '../../core/engine.ts';
+import { getTaxonomyClient } from '../../taxonomy/client.ts';
+import type { TypeSensitivity } from '../../taxonomy/types.ts';
 import type { SqlResult } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
+import { openAnonymizeModal } from './anonymize-modal.ts';
+import type { AnonColumnPlan } from './anonymize.ts';
+import {
+  buildAnonymizedProjection,
+  buildManifest,
+  defaultStrategyForSensitivity,
+  generateSalt,
+} from './anonymize.ts';
 import type { GatedSink } from './gating.ts';
 
 export type { GatedSink, Requirement } from './gating.ts';
@@ -134,6 +144,87 @@ export const BAHI_SINK: SinkDescriptor = {
   },
 };
 
+export const ANONYMIZE_SINK: SinkDescriptor = {
+  id: 'anonymize',
+  name: 'Export anonymized',
+  description:
+    'Hash / redact / bucket / drop sensitive columns based on their taxonomy badges. CSV + Parquet output; manifest alongside.',
+  async execute({ engine, cellId, cellName, result, columnAssignments }) {
+    // Look up sensitivity per column from the taxonomy bundle + user types.
+    const bundle = getTaxonomyClient().getBundle();
+    const sensitivityOf = (typeId: string | null): TypeSensitivity | null => {
+      if (!typeId) return null;
+      const fromBundle = bundle?.types.find((t) => t.id === typeId);
+      if (fromBundle) return fromBundle.sensitivity ?? 'public';
+      // UserType (per-workspace taxonomy extension) doesn't carry a
+      // sensitivity badge today — they default to unbadged. If a future
+      // workbook starts saving sensitivity on UserType, extend here.
+      return null;
+    };
+    const assignByCol = new Map(columnAssignments.map((a) => [a.columnName, a]));
+    const initialPlan: AnonColumnPlan[] = result.columns.map((col) => {
+      const a = assignByCol.get(col);
+      const typeId = a?.assigned?.typeId ?? null;
+      const sensitivity = sensitivityOf(typeId);
+      return {
+        columnName: col,
+        sqlType: a?.sqlType ?? 'VARCHAR',
+        sensitivity,
+        typeId,
+        strategy: defaultStrategyForSensitivity(sensitivity ?? undefined),
+      };
+    });
+    const generatedSalt = generateSalt();
+    const result_ = await openAnonymizeModal({ initialPlan, generatedSalt });
+    if (!result_) throw new SinkError('Anonymized export cancelled.');
+    const { plan, salt, saltOrigin } = result_;
+    // Build the projection + COPY-to-temp + read back. Mirrors the
+    // csvBytes / parquetBytes pattern below (sqlName escapes `'`).
+    const viewName = `cell_${cellId}`;
+    const projection = buildAnonymizedProjection(plan, salt);
+    if (projection === 'NULL AS _empty') {
+      throw new SinkError(
+        'Every column has strategy `drop`. Pick at least one column to keep, hash, redact, or bucket.',
+      );
+    }
+    const rawName = `tmp_anon_${cellId}.csv`;
+    const sqlName = rawName.replace(/'/g, "''");
+    await engine.exec(
+      `COPY (SELECT ${projection} FROM ${quoteIdent(viewName)}) TO '${sqlName}' (HEADER, DELIMITER ',')`,
+    );
+    const bytes = await readDuckDbFile(engine, rawName);
+
+    // Write the data file first, then the manifest.
+    const suggested = `${cellName ?? `cell-${cellId}`}-anonymized-${stamp()}.csv`;
+    const file = await pickSaveFile(suggested, '.csv', 'text/csv');
+    if (!file) throw new SinkError('Save cancelled.');
+    await writeBytes(file, bytes);
+
+    const manifest = buildManifest({
+      plan,
+      taxonomyVersion: bundle?.version ?? 'unknown',
+      saltUsed: true,
+    });
+    const manifestSuggested = suggested.replace(/\.csv$/, '.manifest.json');
+    const manifestFile = await pickSaveFile(manifestSuggested, '.json', 'application/json');
+    if (manifestFile) {
+      const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest, null, 2));
+      await writeBytes(manifestFile, manifestBytes);
+    }
+
+    const kept = plan.filter((c) => c.strategy !== 'drop').length;
+    const dropped = plan.length - kept;
+    return {
+      message: `Exported ${kept} columns (${dropped} dropped) via ${saltOrigin} salt. Save the salt if you want re-runnable hashed output.`,
+      bytesWritten: bytes.byteLength,
+    };
+  },
+};
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 export const NAKLIPOSTER_SINK: SinkDescriptor = {
   id: 'nakliposter',
   name: 'Push to NakliPoster collection',
@@ -165,6 +256,7 @@ export const NAKLIPOSTER_SINK: SinkDescriptor = {
 export const SINKS: SinkDescriptor[] = [
   CSV_SINK,
   PARQUET_SINK,
+  ANONYMIZE_SINK,
   KANZEN_SINK,
   BAHI_SINK,
   NAKLIPOSTER_SINK,
