@@ -132,6 +132,43 @@ export interface AssertionCellState {
 }
 
 /**
+ * Stats cell — v1.3 M4. Bound to an upstream cell's result; renders
+ * descriptive statistics (count / nulls / min / max / mean / median /
+ * stddev / distinct) per column, plus a Pearson correlation matrix
+ * over numeric columns. All computation in DuckDB SQL.
+ *
+ * Spotfire / SAS's instinct, browser-sized. No regression / modelling
+ * in v1.3 (handoff §M4 hard NOT).
+ */
+export interface StatsCellState {
+  id: string;
+  kind: 'stats';
+  order: number;
+  name: string | null;
+  /** Upstream cell id (resolves to `cell_<id>` view). */
+  inputCell: string | null;
+  /** Last computed descriptives (snapshot from the engine; refreshed
+   *  on Run or when the input cell's result changes). */
+  descriptives: Array<{
+    name: string;
+    type: 'numeric' | 'identifier' | 'other';
+    count: number | null;
+    nulls: number | null;
+    distinct: number | null;
+    min?: unknown;
+    max?: unknown;
+    mean?: number | null;
+    stddev?: number | null;
+    median?: number | null;
+  }> | null;
+  /** Pearson correlation matrix in {a, b, value} entries (upper
+   *  triangle; the renderer mirrors). */
+  correlations: Array<{ a: string; b: string; value: number | null }> | null;
+  status: 'idle' | 'running' | 'success' | 'error';
+  lastError: string | null;
+}
+
+/**
  * Input cell — Wave 6 W6.1. An interactive parameter widget
  * (text / number / date / select) whose current `value` is
  * substituted into downstream SQL via `@<name>` reference resolution.
@@ -198,7 +235,8 @@ export type CellState =
   | CohortCellState
   | AssertionCellState
   | InputCellState
-  | DashboardCellState;
+  | DashboardCellState
+  | StatsCellState;
 
 export interface SqlResult {
   columns: string[];

@@ -41,6 +41,7 @@ import {
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
 import { dispatchJob } from './core/sidecar/client.ts';
 import { SidecarError } from './core/sidecar/types.ts';
+import type { StatsColumnSpec } from './core/stats.ts';
 import {
   buildShareUrl,
   clearLensFromLocation,
@@ -50,6 +51,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
@@ -781,6 +783,140 @@ async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
  * affordance). Re-renders the notebook on close to surface any
  * cells that now reference newly-added measures.
  */
+/**
+ * v1.3 M4 — Run a stats cell. Looks up the upstream SQL cell's last
+ * result, buckets columns into numeric / identifier / other (driven
+ * by taxonomy assignments + sample values), then computes
+ * descriptives + correlation matrix via the pure SQL emitters in
+ * `src/core/stats.ts`.
+ *
+ * Identifier columns (GSTIN / IFSC / email / phone — flagged by the
+ * taxonomy as "identifier-class") are excluded from numeric stats
+ * per handoff §M4. They get count + nulls + distinct only.
+ */
+async function handleRunStats(engine: Engine, cellId: string): Promise<void> {
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'stats') return;
+  // For v1, the input cell is the FIRST sql/cohort/assertion cell
+  // above this one with a successful result. The user can manually
+  // set inputCell via the name input; if not set, auto-pick.
+  const idx = nb.get().cells.findIndex((c) => c.id === cellId);
+  const upstream =
+    cell.inputCell !== null && cell.inputCell !== ''
+      ? nb.get().cells.find((c) => c.id === cell.inputCell)
+      : nb
+          .get()
+          .cells.slice(0, idx)
+          .reverse()
+          .find(
+            (c) =>
+              (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') &&
+              (c as { lastResult: unknown }).lastResult !== null,
+          );
+  if (!upstream) {
+    nb.patchCell(cellId, {
+      status: 'error',
+      lastError: 'No upstream cell with a result found. Run a SQL cell above this one first.',
+    });
+    return;
+  }
+  const upstreamResult = (
+    upstream as { lastResult: { columns: string[]; rows: Array<Record<string, unknown>> } | null }
+  ).lastResult;
+  if (!upstreamResult) {
+    nb.patchCell(cellId, {
+      status: 'error',
+      lastError: `Upstream cell "${upstream.name ?? upstream.id}" has no result. Run it first.`,
+    });
+    return;
+  }
+
+  nb.patchCell(cellId, {
+    status: 'running',
+    lastError: null,
+    inputCell: upstream.id,
+  });
+
+  // Bucket each column. Look up the column's taxonomy assignment
+  // (the workbook stores type-id per column); identifier-typed
+  // columns get the 'identifier' bucket; numeric SQL types (DOUBLE,
+  // BIGINT, etc.) get 'numeric'; everything else is 'other'.
+  const wb = getWorkbook().get();
+  const columns: StatsColumnSpec[] = upstreamResult.columns.map((colName) => {
+    const isIdentifierTaxonomyType = isIdentifierType(colName, wb);
+    if (isIdentifierTaxonomyType) {
+      return { name: colName, type: 'identifier' };
+    }
+    // Sample first non-null value to detect numeric vs other.
+    const firstSample = upstreamResult.rows.find(
+      (r) => r[colName] !== null && r[colName] !== undefined,
+    );
+    const val = firstSample?.[colName];
+    if (typeof val === 'number') return { name: colName, type: 'numeric' };
+    return { name: colName, type: 'other' };
+  });
+
+  try {
+    const result = await computeStats({
+      engine,
+      inputCellId: upstream.id,
+      columns,
+    });
+    // Stitch column type back into each descriptive entry.
+    const descriptives = result.descriptives.map((d) => ({
+      ...d,
+      type: columns.find((c) => c.name === d.name)?.type ?? 'other',
+    }));
+    nb.patchCell(cellId, {
+      status: 'success',
+      descriptives,
+      correlations: result.correlations,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    nb.patchCell(cellId, {
+      status: 'error',
+      lastError: msg,
+    });
+  }
+}
+
+/** Test whether a column has an identifier-class taxonomy assignment
+ *  on ANY mounted source. Cheap O(assignments). */
+function isIdentifierType(
+  columnName: string,
+  wb: { assignments: Record<string, ColumnAssignment> },
+): boolean {
+  for (const a of Object.values(wb.assignments)) {
+    if (a.columnName !== columnName) continue;
+    const typeId = a.assigned?.typeId;
+    if (!typeId) continue;
+    // Heuristic — taxonomy "identifier" typeIds typically end in _id
+    // or are well-known (gstin, ifsc, email, phone, pan, ein, etc.).
+    // The classifier doesn't expose a `category` field today; this is
+    // the same heuristic v1.2 M1 used to pick anonymise default
+    // strategies. Future: extend TypeSpec with an `is_identifier`
+    // boolean and route through that.
+    if (
+      typeId === 'gstin' ||
+      typeId === 'ifsc' ||
+      typeId === 'email' ||
+      typeId === 'phone' ||
+      typeId === 'pan' ||
+      typeId === 'aadhaar' ||
+      typeId.endsWith('_id') ||
+      typeId === 'user_id' ||
+      typeId === 'session_id' ||
+      typeId === 'order_id' ||
+      typeId === 'sku'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function handleOpenMeasures(engine: Engine): Promise<void> {
   const nb = getNotebook(engine);
   const cellSqls = nb
@@ -1186,6 +1322,12 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const value = el?.dataset.value;
       if (!table || !column || value === undefined) return;
       getSelectionsStore().toggle({ table, column }, value);
+      return;
+    }
+    case 'run-stats': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      await handleRunStats(engine, cellId);
       return;
     }
     case 'open-settings': {
