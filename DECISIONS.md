@@ -2,6 +2,96 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-10 — v1.2 M4 (Sidecar Auto-Visualization) shipped
+
+**Context:** Fourth milestone. Adds the 7th sidecar job
+(`propose-chart`) that returns a strict JSON chart config the
+existing chart cell can ingest. Spec amendment A28.
+
+### Decision P — Reuse chart-cell schema, not a sidecar-specific format
+
+The chart cell has `chartType / x / y / facet / inputCell` fields.
+The proposal could have used a different schema then translated.
+
+**Chosen:** sidecar proposal fields map 1:1 to chart cell fields
+(`chartType` → `chartType`; `xColumn` → `x`; `yColumn` → `y`;
+`groupColumn` → `facet`). The handler does direct field copy.
+
+**Reasoning.** Three wins:
+
+1. **No translation layer to debug.** A field-by-field copy can't
+   silently drift the way a translation layer can.
+2. **The 8-value chartType allowlist IS the chart cell's
+   supported types.** Bar, line, area, scatter, pie, histogram,
+   stat, table — the eight that are stable + render cleanly with
+   minimal configuration. Stacked-bar, area-stacked, heatmap,
+   funnel, path are excluded — they need extra knobs (the second
+   grouping column, the bucket count, the threshold) that the
+   sidecar can't reliably propose without seeing more rows.
+3. **`groupColumn → facet` naming.** The chart cell calls it
+   `facet` because it drives small-multiples faceting, not series-
+   in-one-chart. The sidecar prompt uses `groupColumn` because
+   that's the more common LLM vocabulary. The handler renames at
+   the boundary — the only translation we keep.
+
+**Code:** `runProposeChart` in `src/main.ts`.
+
+### Decision Q — Hallucination guard: drop the proposal on any unknown column
+
+The parser checks every column reference (`xColumn`, `yColumn`,
+`groupColumn`) against the input column allowlist.
+
+**Chosen:** **all-or-nothing** — if ANY of the three references is
+a hallucinated column name, drop the whole proposal (return
+`{proposal: null}`). The UI falls back to "couldn't propose a
+chart; pick one manually."
+
+**Reasoning.** Three wins:
+
+1. **A partially-hallucinated proposal is worse than no proposal.**
+   If `xColumn: 'real_col'` + `yColumn: 'fake_y'`, materialising
+   a chart cell with `y: 'fake_y'` then expecting the chart
+   renderer to handle the missing column is brittle. The chart
+   would render empty or error; the user blames us.
+2. **Loud fallback teaches the model.** A consistent
+   reject-on-any-hallucination policy means the model's failure
+   mode is BINARY (proposal or no proposal). Soft handling teaches
+   the model "you can hallucinate one field and we'll work around
+   it." Hard reject incentivises strict adherence.
+3. **The manual chart-cell-add flow is already discoverable.**
+   The cell-add row has a chart-cell button. Falling back to it
+   is one click; no UX cost.
+
+**Code:** `parseProposeChartResponse` in `src/core/sidecar/client.ts`
+— `validateRef` returns `{ok: false}` for unknown columns; the
+caller drops the whole proposal on any `!ok`.
+
+### Decision R — 10 sample rows shipped, not 5 like summarise-result
+
+The earlier summarise-result job ships 5 sample rows. Propose-chart
+ships 10.
+
+**Reasoning.** Two wins:
+
+1. **Chart proposal needs cardinality signal.** 5 rows don't
+   distinguish "categorical with 3 values" from "categorical with
+   1000 unique values" — both can show "5 distinct" in the
+   sample. 10 rows + the row count gives the model enough to
+   propose pie vs scatter sensibly.
+2. **10 rows is still tight on privacy + prompt size.** A 10-row
+   sample with 10 columns is ~2 KB; well within prompt budgets
+   even at minimal context windows. The privacy posture isn't
+   meaningfully worse than 5 rows from the same result.
+
+**Tradeoff.** A larger sample makes the prompt slightly more
+expensive (more tokens). Acceptable; the benefit is a more
+reliable chart proposal.
+
+**Code:** `runProposeChart` in `src/main.ts` —
+`rows.slice(0, 10)`.
+
+---
+
 ## 2026-06-10 — v1.2 M3 (Incremental Refresh) shipped
 
 **Context:** Third milestone of the v1.2 Lakehouse Parity handoff.
