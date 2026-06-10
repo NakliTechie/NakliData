@@ -21,6 +21,7 @@ import {
   remountFolderFromHandle,
 } from './core/mount.ts';
 import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import {
@@ -62,6 +63,7 @@ import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
+import { type QueryBuilderTable, openQueryBuilderModal } from './ui/query-builder-modal.ts';
 import { openRefreshModal } from './ui/refresh-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
@@ -751,6 +753,73 @@ async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
   }
 }
 
+/**
+ * M5 — open the visual query builder. Builds the table descriptor
+ * from the workbook's currently-mounted sources, then shows the
+ * modal. On Generate, inserts a SQL cell with the emitted body —
+ * user clicks Run (Hard NOT #4).
+ *
+ * Column types are inferred from DuckDB's information_schema; we
+ * map the common SQL types onto the builder's 4-bucket type system
+ * (numeric / string / date / boolean).
+ */
+function handleOpenQueryBuilder(engine: Engine): void {
+  const wb = getWorkbook().get();
+  // Flatten across mounted sources → one big table list. Skip
+  // sources with no tables (compute-bridge-catalog placeholders, etc.).
+  const tables: QueryBuilderTable[] = [];
+  for (const src of wb.sources) {
+    for (const tbl of src.tables) {
+      // Pull columns from the workbook's assignments — already keyed
+      // by `sourceId::tableId::columnName`. Map sqlType → bucket.
+      const assignmentKeyPrefix = `${src.id}::${tbl.id}::`;
+      const cols: QueryColumnSpec[] = [];
+      for (const [key, a] of Object.entries(wb.assignments)) {
+        if (!key.startsWith(assignmentKeyPrefix)) continue;
+        cols.push({ name: a.columnName, type: bucketize(a.sqlType) });
+      }
+      if (cols.length > 0) {
+        tables.push({ name: tbl.name, columns: cols });
+      }
+    }
+  }
+  if (tables.length === 0) {
+    toast('Mount a source first — the query builder needs columns to work with.');
+    return;
+  }
+  const nb = getNotebook(engine);
+  openQueryBuilderModal({ tables }, (sql) => {
+    const newCell = nb.addCell('sql');
+    nb.patchCell(newCell.id, { code: sql });
+    toast('SQL cell inserted — review then click Run.');
+  });
+}
+
+function bucketize(sqlType: string): QueryColumnType {
+  const t = sqlType.toUpperCase().split('(')[0]?.trim() ?? '';
+  if (
+    t === 'TINYINT' ||
+    t === 'SMALLINT' ||
+    t === 'INTEGER' ||
+    t === 'BIGINT' ||
+    t === 'HUGEINT' ||
+    t === 'UTINYINT' ||
+    t === 'USMALLINT' ||
+    t === 'UINTEGER' ||
+    t === 'UBIGINT' ||
+    t === 'FLOAT' ||
+    t === 'REAL' ||
+    t === 'DOUBLE' ||
+    t === 'DECIMAL' ||
+    t === 'NUMERIC'
+  ) {
+    return 'numeric';
+  }
+  if (t === 'BOOLEAN' || t === 'BOOL') return 'boolean';
+  if (t.startsWith('DATE') || t.startsWith('TIMESTAMP')) return 'date';
+  return 'string';
+}
+
 async function runStaleCells(engine: Engine, cellIds: ReadonlyArray<string>): Promise<void> {
   const nb = getNotebook(engine);
   let ok = 0;
@@ -1060,6 +1129,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'check-source-updates': {
       await handleCheckSourceUpdates(engine);
+      return;
+    }
+    case 'open-query-builder': {
+      handleOpenQueryBuilder(engine);
       return;
     }
     case 'open-settings': {

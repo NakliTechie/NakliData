@@ -59,6 +59,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources have changed since last save">
         ${iconSvg('download', 14)} <span>Refresh</span>
       </button>
+      <button class="btn btn-ghost" data-action="open-query-builder" title="Visual query builder — filter, sort, group, aggregate without writing SQL">
+        ${iconSvg('plus', 14)} <span>Build query</span>
+      </button>
       <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
         ${iconSvg('info', 14)} <span>Settings</span>
       </button>
