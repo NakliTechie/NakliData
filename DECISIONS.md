@@ -2,6 +2,199 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-10 — v1.2 M3 (Incremental Refresh) shipped
+
+**Context:** Third milestone of the v1.2 Lakehouse Parity handoff.
+M2 (lineage tracker) closed earlier this session at `4fbe377`; M3
+builds directly on it (cascade requires the lineage graph from
+M2). User-initiated refresh check: per-source fingerprint diff →
+cascade to stale cells → optional re-run. Spec amendment A27 in
+`plan/spec-amendments.md`.
+
+### Decision K — Fingerprint shape: discriminated by source kind
+
+The handoff §M3 sketches one fingerprint per source-kind family:
+"file size + last-modified for FSA; HEAD ETag/Last-Modified for
+HTTP/S3; metadata file version for Iceberg; SQL query for
+compute-bridge."
+
+**Chosen:** a TypeScript-discriminated-union `SourceFingerprint`
+keyed by `kind: 'fsa' | 'http' | 's3' | 'iceberg' | 'bridge' |
+'unsupported'`. Each branch carries only the fields relevant to
+that source kind, plus a shared `computedAt` ISO string for
+debugging.
+
+**Reasoning.** Three wins:
+
+1. **Equality is fast + correct.** `fingerprintsEqual` branches on
+   `kind` and compares the per-kind fields directly. No "is this
+   field present?" guards, no `undefined` checks. The compiler
+   enforces that the field you compare against actually exists on
+   the kind.
+2. **`computedAt` is intentionally NOT part of the equality
+   key.** Two fingerprints captured at different times for the
+   same unchanged file SHOULD compare equal. Including
+   `computedAt` would have meant "every check produces a fresh
+   fingerprint" — every check would say "stale." The shared
+   metadata field is for human inspection only.
+3. **`unsupported` is a first-class kind, not a null.** We have
+   source kinds we don't yet know how to fingerprint (iceberg,
+   bridge, s3-endpoint, lens-restored). Rather than `null`
+   meaning "no fingerprint" — which would force a "did we check?"
+   branch at every call site — we record `kind: 'unsupported'`
+   and define it to ALWAYS compare equal. The cascade logic
+   never sees a null; the modal shows nothing scary; and when we
+   later add real fingerprinting for one of these kinds, the
+   call site changes from emitting `unsupportedFingerprint()` to
+   emitting a real one, with no caller changes.
+
+**Tradeoff.** Five-branch discriminated union vs a single
+"signal" field. The five-branch shape is mildly more verbose but
+catches "I compared FSA size against HTTP ETag" at compile time.
+
+**Code:** `SourceFingerprint` in `src/core/refresh.ts`.
+
+### Decision L — Use the M2 lineage graph as the cascade engine, not a duplicate dependency graph
+
+The handoff §M3 says "stale propagation: mark a source stale on
+app boot if fingerprint mismatch; cascade to cells via the
+lineage graph." Explicit hard-dependency on M2.
+
+**Chosen:** `cascadeStaleness(staleSourceIds, lineageGraph)` is a
+pure BFS over the existing lineage graph. No separate
+"dependency graph" exists.
+
+**Reasoning.** Two wins:
+
+1. **One source of truth.** The lineage graph IS the dependency
+   graph. M2 already maintains it incrementally on every cell
+   run. Duplicating it for M3 would mean two graphs that could
+   drift out of sync — every cell-run-success would have to
+   update both, and a future refactor could leave one stale.
+2. **Cell→cell edges already exist.** A cell that depends on an
+   upstream cell via `@name` already has a cell→cell edge in the
+   lineage graph (via the explicit `cellRefs` path in M2's
+   `setCellInputs`). The cascade walks these for free — no
+   re-extraction needed.
+
+**Tradeoff.** Cells that were NEVER RUN have no lineage edges. A
+brand-new cell that reads from a mounted source won't be
+cascaded as stale until it's been run once. Acceptable: a
+never-run cell has no result to invalidate.
+
+**Code:** `cascadeStaleness` in `src/core/refresh.ts` — accepts
+`LineageGraph` from M2.
+
+### Decision M — Iceberg / Bridge / S3-endpoint fingerprinting is owed (stubbed as `unsupported`)
+
+The handoff §M3 sketches fingerprints for these kinds but they're
+non-trivial:
+
+- **Iceberg**: requires reading the metadata.json file from the
+  catalog/URL and extracting `current_snapshot_id`. Needs the
+  iceberg-client.ts module to expose a "just give me the snapshot
+  id, don't mount" path.
+- **Bridge**: SQL hash alone catches the user editing their query;
+  data drift on the remote side requires the bridge protocol to
+  expose a fingerprint header (out of scope for v1.2 M3).
+- **S3-endpoint**: HEAD against the S3 object URL with the
+  presigned credentials. Same engine as `http` but routed
+  through the s3 auth layer.
+
+**Chosen:** ship M3 with FSA + HTTP fingerprinting; stub the
+others as `unsupportedFingerprint()`. Track as a follow-up.
+
+**Reasoning.** Three wins:
+
+1. **Ship the gate-case-compliant slice.** Handoff §M3 gate
+   artifact #1: "File replaced with a new version → 'X cells
+   stale' banner appears." That's the FSA path. Gate met.
+2. **Visible "not supported" surface > silent skip.** The modal
+   shows a third section "Couldn't check (permission revoked or
+   HEAD failed)" — uncheckable sources land there with their
+   labels. Users see what isn't covered.
+3. **Each follow-up has its own decision shape.** Iceberg
+   fingerprinting needs a `getSnapshotId()` API; Bridge needs a
+   protocol amendment; S3 needs the credential plumbing. Better
+   to land each as its own milestone with its own DECISIONS
+   entry than to bundle a half-shipped sweep into M3.
+
+**Tradeoff.** Users with iceberg / bridge / s3 sources only get
+the FSA+HTTP slice. Acceptable: those are the rarer source kinds
+in our user base, and the handoff doesn't gate M3 ship on full
+coverage.
+
+**Code:** `computeCurrentFingerprint` in
+`src/core/refresh-engine.ts` — `s3-endpoint`, `iceberg-table`,
+`iceberg-catalog`, `compute-bridge`, `compute-bridge-catalog`,
+`lens-restored`, `example-bundle` all return
+`unsupportedFingerprint()`.
+
+### Decision N — Persist fingerprints AFTER user confirms, not on the check
+
+The check sweep returns a `freshFingerprints` map but does NOT
+persist it. Persistence happens INSIDE the modal's confirm
+handler.
+
+**Reasoning.** Three wins:
+
+1. **Cancel doesn't lose the stale signal.** If the user closes
+   the modal without confirming, the next check still reports the
+   same stale set. The system doesn't silently "agree" that the
+   source is up to date when the user hasn't done anything about
+   it.
+2. **Re-run-first is the right ordering.** When the user confirms,
+   we persist BEFORE firing the re-run sequence. Otherwise a
+   slow re-run could be interrupted and we'd be in a state where
+   "fingerprints say up to date, but cells haven't re-run yet."
+   Persisting first means: if the cell run fails, the staleness
+   re-surfaces on the next check (because the cell run failed →
+   its lineage edges may have been invalidated → the cascade
+   re-fires).
+3. **The check is cheap to repeat.** A second click of "Check for
+   updates" runs another HEAD pass. Two passes vs one isn't
+   user-visible. Re-doing the network work is preferable to
+   silently committing fingerprints the user never saw.
+
+**Code:** `handleCheckSourceUpdates` in `src/main.ts` —
+`openRefreshModal(..., () => { persistFingerprints(...); ...
+runStaleCells(...); })`.
+
+### Decision O — Permission check via queryPermission only, never prompt
+
+The FSA fingerprinter calls `queryReadPermissionQuiet` (not
+`ensureReadPermission`). The distinction:
+
+- `queryReadPermissionQuiet` returns the current permission
+  state without showing the user any UI.
+- `ensureReadPermission` shows a permission prompt if the state
+  is `'prompt'` and a user activation is available.
+
+**Chosen:** queryPermission only.
+
+**Reasoning.** Two wins:
+
+1. **Silent button shouldn't fire a popup.** The "Refresh" button
+   is a low-stakes "check what's changed" action. Firing a full
+   FSA permission popup as a side effect of the user clicking it
+   is surprising. Users expect Refresh to be cheap; if it
+   isn't, they stop clicking it.
+2. **Stale signal still surfaces.** A revoked FSA permission
+   shows the source in the "Couldn't check" section of the modal
+   — the user sees it and can decide to re-open / re-grant.
+   The cascade doesn't fire for that source, but other
+   permission-granted sources still get checked.
+
+**Tradeoff.** A user who revoked permission for a source AFTER
+mounting will see "uncheckable" instead of "stale" → has to
+re-grant permission separately to find out. Acceptable: the
+re-grant flow already exists (the "Reconnect needed" banner at
+boot time), and the user can re-mount to fix it.
+
+**Code:** `fingerprintFsaFolder` in `src/core/refresh-engine.ts`.
+
+---
+
 ## 2026-06-10 — v1.2 M2 (Cell Lineage Tracker) shipped
 
 **Context:** Second milestone of the v1.2 Lakehouse Parity handoff.
