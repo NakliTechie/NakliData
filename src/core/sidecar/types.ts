@@ -257,24 +257,16 @@ export interface ProposeChartJob {
   rowCount: number;
 }
 
+/**
+ * Sidecar wraps the canonical `ChartConfig` schema from
+ * `src/core/chart-config.ts` (v1.3 M0 — single source of truth for
+ * chart configuration across three producers: manual / sidecar /
+ * shelves). A null proposal means the parser rejected the model's
+ * output.
+ */
 export interface ProposeChartResponse {
   kind: 'propose-chart';
-  proposal: {
-    /** Chart type the existing chart cell knows how to render. The
-     *  parser ONLY accepts these eight; anything else → drop the
-     *  whole proposal. */
-    chartType: 'bar' | 'line' | 'area' | 'scatter' | 'pie' | 'histogram' | 'stat' | 'table';
-    /** Column name from the result. null means the chart type doesn't
-     *  use an X axis (e.g., stat / histogram). */
-    xColumn: string | null;
-    /** Column name from the result. null means the chart type doesn't
-     *  use a Y axis. */
-    yColumn: string | null;
-    /** Optional column whose values split the chart into series. */
-    groupColumn: string | null;
-    /** Short title for the chart cell. ≤ 80 chars. */
-    title: string;
-  } | null;
+  proposal: import('../chart-config.ts').ChartConfig | null;
 }
 
 export class SidecarError extends Error {

@@ -15,15 +15,32 @@ interface IndexJson {
 
 let cache: TaxonomyBundle | null = null;
 
-export async function loadTaxonomy(base = './taxonomy/v0.1/'): Promise<TaxonomyBundle> {
+/**
+ * Fetcher type — accepts the runtime's Fetch implementation. Engine
+ * boundary (v1.3 M0): this module does NOT reach for the browser's
+ * global `fetch`; the caller injects one. Browser callers pass
+ * `globalThis.fetch.bind(globalThis)`; tests pass a stub.
+ */
+export type TaxonomyFetcher = (url: string) => Promise<{
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+}>;
+
+export async function loadTaxonomy(
+  base = './taxonomy/v0.1/',
+  fetcher?: TaxonomyFetcher,
+): Promise<TaxonomyBundle> {
   if (cache) return cache;
+  const get = fetcher ?? (globalThis as { fetch: TaxonomyFetcher }).fetch;
   const indexUrl = `${base}index.json`;
-  const idxRes = await fetch(indexUrl);
+  const idxRes = await get(indexUrl);
   if (!idxRes.ok) throw new Error(`Taxonomy index fetch failed: ${idxRes.status} ${indexUrl}`);
   const index = (await idxRes.json()) as IndexJson;
 
   const typesUrl = `${base}${index.types_file}`;
-  const typesRes = await fetch(typesUrl);
+  const typesRes = await get(typesUrl);
   if (!typesRes.ok) throw new Error(`Taxonomy types fetch failed: ${typesRes.status}`);
   const typesText = await typesRes.text();
   const types: TypeSpec[] = [];
@@ -35,7 +52,7 @@ export async function loadTaxonomy(base = './taxonomy/v0.1/'): Promise<TaxonomyB
 
   const domains: DomainSpec[] = [];
   for (const dEntry of index.domains) {
-    const dRes = await fetch(`${base}${dEntry.domain_file}`);
+    const dRes = await get(`${base}${dEntry.domain_file}`);
     if (!dRes.ok) {
       console.warn(`[taxonomy] domain fetch failed: ${dEntry.id}`);
       continue;
@@ -50,7 +67,7 @@ export async function loadTaxonomy(base = './taxonomy/v0.1/'): Promise<TaxonomyB
   let relationships: TypeRelationship[] | undefined;
   if (index.relationships_file) {
     try {
-      const rRes = await fetch(`${base}${index.relationships_file}`);
+      const rRes = await get(`${base}${index.relationships_file}`);
       if (rRes.ok) {
         const rJson = (await rRes.json()) as { relationships?: TypeRelationship[] };
         relationships = rJson.relationships;

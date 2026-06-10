@@ -17,7 +17,7 @@ import {
   isNumericType,
   quoteIdent,
   quoteLiteral,
-} from '../src/ui/sinks/anonymize.ts';
+} from '../src/core/anonymize.ts';
 
 describe('defaultStrategyForSensitivity (handoff §M1 defaults)', () => {
   it('PII → hash', () => {

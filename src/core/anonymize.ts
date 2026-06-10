@@ -29,7 +29,7 @@
 // to the user once, and never persisted. Same-salt re-export is an
 // explicit paste-it-back affordance.
 
-import type { TypeSensitivity } from '../../taxonomy/types.ts';
+import type { TypeSensitivity } from '../taxonomy/types.ts';
 
 export type AnonStrategy = 'keep' | 'hash' | 'redact' | 'bucket' | 'drop';
 

@@ -5,9 +5,9 @@
 // Self-contained: own overlay, own keydown listener, focus restored
 // via the shared `restoreModalFocus` helper.
 
+import type { AnonColumnPlan, AnonStrategy } from '../../core/anonymize.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import { restoreModalFocus } from '../modal-focus.ts';
-import type { AnonColumnPlan, AnonStrategy } from './anonymize.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;

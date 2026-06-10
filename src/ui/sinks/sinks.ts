@@ -7,19 +7,19 @@
 //   4. Push to Bahi journal proposal (requires date + amount + vendor/account)
 //   5. Push to NakliPoster collection (requires user-supplied template)
 
+import type { AnonColumnPlan } from '../../core/anonymize.ts';
+import {
+  buildAnonymizedProjection,
+  buildManifest,
+  defaultStrategyForSensitivity,
+  generateSalt,
+} from '../../core/anonymize.ts';
 import type { Engine } from '../../core/engine.ts';
 import { getTaxonomyClient } from '../../taxonomy/client.ts';
 import type { TypeSensitivity } from '../../taxonomy/types.ts';
 import type { SqlResult } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { openAnonymizeModal } from './anonymize-modal.ts';
-import type { AnonColumnPlan } from './anonymize.ts';
-import {
-  buildAnonymizedProjection,
-  buildManifest,
-  defaultStrategyForSensitivity,
-  generateSalt,
-} from './anonymize.ts';
 import type { GatedSink } from './gating.ts';
 
 export type { GatedSink, Requirement } from './gating.ts';
