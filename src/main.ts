@@ -21,6 +21,7 @@ import {
   remountFolderFromHandle,
 } from './core/mount.ts';
 import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import {
   type SessionMeta,
@@ -61,6 +62,7 @@ import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
+import { openRefreshModal } from './ui/refresh-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
 import { openSettingsModal } from './ui/settings-modal.ts';
@@ -697,6 +699,77 @@ function installAutoSave(engine: Engine): void {
   nb.subscribe(scheduleSave);
 }
 
+/**
+ * M3 — handle the "Refresh" header button.
+ *
+ * Runs the change-detection sweep, opens the result modal, and on
+ * confirm:
+ *   1. Persists the fresh fingerprints (so the next check has a new
+ *      baseline; without this, every check would re-stale forever).
+ *   2. Re-runs the cascaded stale cells via the notebook.
+ *
+ * Best-effort: any error surfaces as a toast and the workbook stays
+ * untouched. This is a user-initiated action; per handoff §10 Hard
+ * NOT, there is NO timer-driven check anywhere.
+ */
+async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
+  const wb = getWorkbook().get();
+  if (wb.sources.length === 0) {
+    toast('No sources mounted yet.');
+    return;
+  }
+  toast('Checking sources for updates…');
+  try {
+    const diff = await computeRefreshDiff({
+      sessionId: getActiveSessionId(),
+      sources: wb.sources,
+      lineage: getLineageStore().toJSON(),
+    });
+    const sourceLabelFor = (id: string): string => wb.sources.find((s) => s.id === id)?.label ?? id;
+    const nb = getNotebook(engine);
+    const cellLabelFor = (id: string): string => {
+      const cell = nb.get().cells.find((c) => c.id === id);
+      return cell?.name?.trim() || `cell ${id.slice(-6)}`;
+    };
+    openRefreshModal(
+      {
+        scanned: diff.scanned,
+        staleSourceLabels: diff.staleSourceIds.map(sourceLabelFor),
+        staleCellLabels: diff.staleCellIds.map(cellLabelFor),
+        uncheckableSourceLabels: diff.uncheckableSourceIds.map(sourceLabelFor),
+      },
+      () => {
+        // Persist fingerprints BEFORE re-running so the next check
+        // doesn't re-stale immediately.
+        void persistFingerprints(getActiveSessionId(), diff.freshFingerprints);
+        void runStaleCells(engine, diff.staleCellIds);
+      },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    toast(`Refresh check failed: ${msg}`, 'error');
+  }
+}
+
+async function runStaleCells(engine: Engine, cellIds: ReadonlyArray<string>): Promise<void> {
+  const nb = getNotebook(engine);
+  let ok = 0;
+  let failed = 0;
+  for (const id of cellIds) {
+    try {
+      await nb.runCell(id);
+      ok++;
+    } catch {
+      failed++;
+    }
+  }
+  if (failed === 0) {
+    toast(`Re-ran ${ok} cell${ok === 1 ? '' : 's'}.`);
+  } else {
+    toast(`Re-ran ${ok} cell${ok === 1 ? '' : 's'}; ${failed} failed.`, 'error');
+  }
+}
+
 async function persistSnapshot(engine: Engine): Promise<void> {
   const wb = getWorkbook().get();
   const nb = getNotebook(engine);
@@ -983,6 +1056,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-lineage': {
       openLineagePanel();
+      return;
+    }
+    case 'check-source-updates': {
+      await handleCheckSourceUpdates(engine);
       return;
     }
     case 'open-settings': {

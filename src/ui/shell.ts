@@ -56,6 +56,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="open-lineage" title="Where does this number come from? — cell lineage panel">
         ${iconSvg('chart', 14)} <span>Lineage</span>
       </button>
+      <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources have changed since last save">
+        ${iconSvg('download', 14)} <span>Refresh</span>
+      </button>
       <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
         ${iconSvg('info', 14)} <span>Settings</span>
       </button>
