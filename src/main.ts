@@ -1078,6 +1078,12 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await runSummariseResult(engine, cellId);
       return;
     }
+    case 'propose-chart': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      await runProposeChart(engine, cellId);
+      return;
+    }
     case 'ask-nl-to-sql': {
       openNlToSqlSidecar(engine);
       return;
@@ -2388,6 +2394,111 @@ async function runSummariseResult(engine: Engine, cellId: string): Promise<void>
       mount.innerHTML += `<button class="btn btn-ghost" data-action="open-settings">Open Settings</button>`;
     }
   }
+}
+
+/**
+ * Sidecar v1.2 M4 — Job 7: propose-chart.
+ *
+ * Triggered from the "Suggest chart" button under the result table on
+ * a successfully-run SQL cell. Ships columns + first 10 rows to the
+ * sidecar (structured-config-only contract). On a valid proposal,
+ * inserts a chart cell wired to this SQL cell's view via the existing
+ * `@name` reference plumbing. On a null proposal (the model returned
+ * something unparseable or hallucinated), toasts a fallback message
+ * suggesting manual chart-cell-add.
+ *
+ * Per handoff §10 Hard NOT #6: the sidecar response is **structured
+ * config only — no prose narration**. The parser enforces this; the
+ * user never sees model-authored prose about their data.
+ */
+async function runProposeChart(engine: Engine, cellId: string): Promise<void> {
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion')) {
+    toast('Nothing to chart (no SQL result on this cell).');
+    return;
+  }
+  if (!cell.lastResult) {
+    toast('Run the cell first — there is no result yet.');
+    return;
+  }
+  toast('Asking the sidecar to propose a chart…');
+  const settings = await loadSettings();
+  const { columns, rows, rowCount } = cell.lastResult;
+  // Pull column types from the result rows. Without a schema query
+  // we infer from the first non-null sample.
+  const columnSpecs = columns.map((c) => ({
+    name: c,
+    sqlType: inferTypeFromRows(rows, c),
+  }));
+  const sampleRows = rows.slice(0, 10).map((row) => {
+    const out: Record<string, string> = {};
+    for (const col of columns) {
+      const v = row[col];
+      out[col] =
+        v === null || v === undefined ? '∅' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    }
+    return out;
+  });
+
+  try {
+    const result = await dispatchJob(
+      {
+        kind: 'propose-chart',
+        sql: cell.code,
+        columns: columnSpecs,
+        sampleRows,
+        rowCount,
+      },
+      {
+        provider: settings.sidecarProvider,
+        model: settings.sidecarModel,
+        ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+          ? { customEndpoint: settings.sidecarCustomEndpoint }
+          : {}),
+      },
+    );
+    if (result.kind !== 'propose-chart') {
+      throw new Error(`Unexpected sidecar response kind: ${result.kind}`);
+    }
+    if (!result.proposal) {
+      toast("Couldn't propose a chart — try inserting one manually via the cell-add row.", 'error');
+      return;
+    }
+    // Materialise the proposal as a new chart cell wired to this SQL
+    // cell's view. The Notebook.addCell helper creates an empty cell
+    // at the end; patch its fields after.
+    const newCell = nb.addCell('chart');
+    nb.patchCell(newCell.id, {
+      inputCell: cellId,
+      chartType: result.proposal.chartType,
+      x: result.proposal.xColumn,
+      y: result.proposal.yColumn,
+      facet: result.proposal.groupColumn,
+      name: result.proposal.title.slice(0, 40),
+    });
+    toast(`Chart cell added: ${result.proposal.title}`);
+  } catch (err) {
+    const msg =
+      err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
+    toast(`Sidecar: ${msg}`, 'error');
+  }
+}
+
+/** Cheap type inference from the first non-null sample. Best-effort. */
+function inferTypeFromRows(rows: Array<Record<string, unknown>>, col: string): string {
+  for (const r of rows) {
+    const v = r[col];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'number') return Number.isInteger(v) ? 'BIGINT' : 'DOUBLE';
+    if (typeof v === 'boolean') return 'BOOLEAN';
+    if (typeof v === 'string') {
+      if (/^\d{4}-\d{2}-\d{2}/.test(v)) return 'DATE';
+      return 'VARCHAR';
+    }
+    return 'VARCHAR';
+  }
+  return 'VARCHAR';
 }
 
 /**

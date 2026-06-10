@@ -19,6 +19,8 @@ import {
   type ExplainErrorResponse,
   type NlToSqlJob,
   type NlToSqlResponse,
+  type ProposeChartJob,
+  type ProposeChartResponse,
   type RecommendReportsJob,
   type RecommendReportsResponse,
   SidecarError,
@@ -213,6 +215,22 @@ export async function dispatchJob(
     return parseNlToSqlResponse(
       raw,
       job.tables.map((t) => t.name),
+    );
+  }
+  if (job.kind === 'propose-chart') {
+    const { system, user } = buildProposeChartPrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseProposeChartResponse(
+      raw,
+      job.columns.map((c) => c.name),
     );
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
@@ -814,4 +832,137 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
     }
   }
   return { kind: 'nl-to-sql', sql: stripped };
+}
+
+// ---- propose-chart prompt + parser (M4) ----------------------------
+
+const PROPOSE_CHART_SYSTEM = `You are NakliData's sidecar. Your job is to propose ONE chart configuration for a SQL result. Output JSON ONLY. No prose. No commentary. No markdown fences.
+
+Output shape (verbatim):
+
+{
+  "chart_type": "<one of: bar | line | area | scatter | pie | histogram | stat | table>",
+  "x_column": "<column name from the result or null>",
+  "y_column": "<column name from the result or null>",
+  "group_column": "<column name from the result or null>",
+  "title": "<short title, ≤ 80 chars>"
+}
+
+Hard rules:
+- Output ONLY the JSON object. No markdown code fences. No commentary outside the JSON.
+- "chart_type" MUST be one of the eight listed values. Anything else → dropped.
+- "x_column" / "y_column" / "group_column" MUST be names from the provided column list, or null.
+- Pick the chart type that best fits the result:
+  - bar / line / area: one categorical / temporal column + one numeric column.
+  - scatter: two numeric columns.
+  - pie: one categorical column + one numeric column (≤ ~10 categories).
+  - histogram: one numeric column (no Y axis — set y_column to null).
+  - stat: one numeric scalar (single row, single column).
+  - table: when no chart fits — fall back to a styled table.
+- "title" is plain text, ≤ 80 chars, summarising the chart.
+- NEVER include prose narration of the data ("here's a chart showing X over time"). The output is JSON only.`;
+
+export function buildProposeChartPrompt(job: ProposeChartJob): {
+  system: string;
+  user: string;
+} {
+  const colsLine = job.columns.map((c) => `${c.name} (${c.sqlType})`).join(', ');
+  const sampleLines = job.sampleRows
+    .slice(0, 10)
+    .map((r) => JSON.stringify(r))
+    .join('\n');
+  const user = `SQL the cell ran:\n${job.sql.slice(0, 400)}\n\nResult columns: ${colsLine}\nRow count: ${job.rowCount}\n\nFirst rows:\n${sampleLines}\n\nPropose ONE chart configuration. JSON only.`;
+  return { system: PROPOSE_CHART_SYSTEM, user };
+}
+
+const CHART_TYPES = new Set([
+  'bar',
+  'line',
+  'area',
+  'scatter',
+  'pie',
+  'histogram',
+  'stat',
+  'table',
+] as const);
+
+type AllowedChartType =
+  | 'bar'
+  | 'line'
+  | 'area'
+  | 'scatter'
+  | 'pie'
+  | 'histogram'
+  | 'stat'
+  | 'table';
+
+/**
+ * Parse the model's response into a `ProposeChartResponse`. Strict —
+ * any of the following → return `{kind: 'propose-chart', proposal: null}`:
+ *   - JSON parse fails
+ *   - `chart_type` not in the 8-value allowlist
+ *   - `x_column` / `y_column` / `group_column` reference a column name
+ *     not in the input
+ *   - `title` is missing or > 80 chars
+ *
+ * The null proposal is the UI's cue to fall back to manual chart-cell
+ * insertion ("Couldn't propose a chart; pick one manually").
+ */
+export function parseProposeChartResponse(
+  raw: string,
+  columnNames: string[],
+): ProposeChartResponse {
+  const trimmed = raw.trim();
+  // Strip markdown fences if the model emitted them despite instructions.
+  const stripped = trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return { kind: 'propose-chart', proposal: null };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { kind: 'propose-chart', proposal: null };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const chartType = obj.chart_type;
+  if (typeof chartType !== 'string' || !CHART_TYPES.has(chartType as AllowedChartType)) {
+    return { kind: 'propose-chart', proposal: null };
+  }
+  const colSet = new Set(columnNames);
+  // If a non-null string was supplied but it's not in the column
+  // allowlist, DROP the whole proposal (hallucination guard).
+  const xRaw = obj.x_column;
+  const yRaw = obj.y_column;
+  const groupRaw = obj.group_column;
+  const validateRef = (v: unknown): { ok: boolean; value: string | null } => {
+    if (v === null || v === undefined) return { ok: true, value: null };
+    if (typeof v !== 'string') return { ok: false, value: null };
+    if (v === '') return { ok: true, value: null };
+    if (!colSet.has(v)) return { ok: false, value: null };
+    return { ok: true, value: v };
+  };
+  const x = validateRef(xRaw);
+  const y = validateRef(yRaw);
+  const grp = validateRef(groupRaw);
+  if (!x.ok || !y.ok || !grp.ok) {
+    return { kind: 'propose-chart', proposal: null };
+  }
+  const title = obj.title;
+  if (typeof title !== 'string' || title.length === 0 || title.length > 80) {
+    return { kind: 'propose-chart', proposal: null };
+  }
+  return {
+    kind: 'propose-chart',
+    proposal: {
+      chartType: chartType as AllowedChartType,
+      xColumn: x.value,
+      yColumn: y.value,
+      groupColumn: grp.value,
+      title: title.trim(),
+    },
+  };
 }

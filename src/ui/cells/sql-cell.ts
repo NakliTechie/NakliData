@@ -292,6 +292,9 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     <button class="btn btn-ghost cell-sidecar-trigger" data-action="summarise-result" data-cell-id="${cell.id}" title="Ask the sidecar for a one-line observation about this result">
       ${iconSvg('info', 12)} <span>Summarise</span>
     </button>
+    <button class="btn btn-ghost cell-sidecar-trigger" data-action="propose-chart" data-cell-id="${cell.id}" title="Ask the sidecar to propose a chart configuration for this result">
+      ${iconSvg('chart', 12)} <span>Suggest chart</span>
+    </button>
   `;
   container.append(meta);
 

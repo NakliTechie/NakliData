@@ -40,7 +40,8 @@ export type SidecarJob =
   | DefineTypeJob
   | RecommendReportsJob
   | SummariseResultJob
-  | NlToSqlJob;
+  | NlToSqlJob
+  | ProposeChartJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -161,7 +162,8 @@ export type SidecarResponse =
   | DefineTypeResponse
   | RecommendReportsResponse
   | SummariseResultResponse
-  | NlToSqlResponse;
+  | NlToSqlResponse
+  | ProposeChartResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -226,6 +228,53 @@ export interface NlToSqlResponse {
    * click Run.
    */
   sql: string;
+}
+
+/**
+ * Job 7 (v1.2 / M4) — propose a chart configuration for a SQL cell's
+ * result. **Structured config only — NO PROSE** (handoff §10 Hard NOT
+ * #6). The sidecar returns a ChartProposal that the existing chart
+ * cell can ingest verbatim; the proposal chip appears next to the
+ * result table and the user clicks to materialise.
+ *
+ * Hallucination guard in the parser: `xColumn` / `yColumn` /
+ * `groupColumn` must all be present in `columns` (or null). Anything
+ * else → drop the proposal.
+ */
+export interface ProposeChartJob {
+  kind: 'propose-chart';
+  /** The SQL the cell ran (one-line preview — gives the model intent). */
+  sql: string;
+  /** Result column names + DuckDB SQL types (in order). */
+  columns: Array<{ name: string; sqlType: string }>;
+  /**
+   * Up to 10 rows from the result, stringified. The sidecar uses
+   * these to gauge cardinality + numeric vs categorical shape. Caller
+   * caps at 10 rows for privacy + prompt size.
+   */
+  sampleRows: Array<Record<string, string>>;
+  /** Total row count in the result (sample may be smaller). */
+  rowCount: number;
+}
+
+export interface ProposeChartResponse {
+  kind: 'propose-chart';
+  proposal: {
+    /** Chart type the existing chart cell knows how to render. The
+     *  parser ONLY accepts these eight; anything else → drop the
+     *  whole proposal. */
+    chartType: 'bar' | 'line' | 'area' | 'scatter' | 'pie' | 'histogram' | 'stat' | 'table';
+    /** Column name from the result. null means the chart type doesn't
+     *  use an X axis (e.g., stat / histogram). */
+    xColumn: string | null;
+    /** Column name from the result. null means the chart type doesn't
+     *  use a Y axis. */
+    yColumn: string | null;
+    /** Optional column whose values split the chart into series. */
+    groupColumn: string | null;
+    /** Short title for the chart cell. ≤ 80 chars. */
+    title: string;
+  } | null;
 }
 
 export class SidecarError extends Error {
