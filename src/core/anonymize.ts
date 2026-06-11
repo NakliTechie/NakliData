@@ -160,26 +160,27 @@ export function buildAnonymizedProjection(plan: AnonColumnPlan[], salt: string):
   const saltLit = quoteLiteral(salt);
   for (const col of plan) {
     if (col.strategy === 'drop') continue;
+    // The anonymized output keeps the same column name, so the source
+    // reference and the output alias are the same quoted identifier (L13).
     const ident = quoteIdent(col.columnName);
-    const aliased = quoteIdent(col.columnName);
     if (col.strategy === 'keep') {
-      exprs.push(`${ident} AS ${aliased}`);
+      exprs.push(`${ident} AS ${ident}`);
     } else if (col.strategy === 'hash') {
       // md5(COALESCE(CAST("col" AS VARCHAR), '') || '<salt>')
       // COALESCE-then-CAST so NULLs hash deterministically as the
       // empty-string salted form, not NULL → not-hashable.
-      exprs.push(`md5(COALESCE(CAST(${ident} AS VARCHAR), '') || ${saltLit}) AS ${aliased}`);
+      exprs.push(`md5(COALESCE(CAST(${ident} AS VARCHAR), '') || ${saltLit}) AS ${ident}`);
     } else if (col.strategy === 'redact') {
-      exprs.push(`${quoteLiteral('[REDACTED]')} AS ${aliased}`);
+      exprs.push(`${quoteLiteral('[REDACTED]')} AS ${ident}`);
     } else if (col.strategy === 'bucket') {
       if (isNumericType(col.sqlType)) {
-        exprs.push(`(FLOOR(CAST(${ident} AS DOUBLE) / 100) * 100) AS ${aliased}`);
+        exprs.push(`(FLOOR(CAST(${ident} AS DOUBLE) / 100) * 100) AS ${ident}`);
       } else if (isDateLikeType(col.sqlType)) {
-        exprs.push(`DATE_TRUNC('month', CAST(${ident} AS DATE)) AS ${aliased}`);
+        exprs.push(`DATE_TRUNC('month', CAST(${ident} AS DATE)) AS ${ident}`);
       } else {
         // Fallback for a misbadged string column — emit redact so the
         // export doesn't fail at run time with a CAST error.
-        exprs.push(`${quoteLiteral('[REDACTED]')} AS ${aliased}`);
+        exprs.push(`${quoteLiteral('[REDACTED]')} AS ${ident}`);
       }
     }
   }

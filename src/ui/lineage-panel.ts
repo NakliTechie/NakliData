@@ -290,8 +290,9 @@ function layoutNodes(graph: LineageGraph): {
   const depth = new Map<string, number>();
   for (const n of graph.nodes) {
     if (n.kind === 'source') depth.set(n.id, 0);
-    if (n.kind === 'sink') depth.set(n.id, Number.POSITIVE_INFINITY); // assigned later
     if (n.kind === 'cell') depth.set(n.id, 0);
+    // Sinks aren't depth-ranked — they're placed in the final column
+    // directly from their kind, so the old Infinity seed was never read (L16).
   }
 
   // Run a few passes — handles a chain of arbitrary cell depth.

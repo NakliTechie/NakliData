@@ -250,11 +250,6 @@ export function getSelectionsStore(): SelectionsStore {
   return _store;
 }
 
-/** Test-only: reset the singleton between tests. */
-export function _resetSelectionsStoreForTests(): void {
-  _store = null;
-}
-
 /**
  * Build the SQL fragment for the "values that co-occur with the
  * selection" query for one target (table, column). The caller wraps

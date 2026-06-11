@@ -199,29 +199,32 @@ added per fix. All 19 closed; +17 vitest cases.
 
 ---
 
-## Chunk 6 — Stray cleanup (~30 min)
+## Chunk 6 — Stray cleanup (~30 min) — ✅ DONE 2026-06-11
 
 Polish; not gate-blocking. Mostly delete-or-rename one-liners.
 
-- [ ] **S6** — Fix or delete `CellKind` alias in
-      `src/ui/cells/types.ts:3-12` (missing `'stats'`, `'report'`).
-- [ ] **S8** — Drop duplicate `quoteIdent` in `sinks.ts:224-226`;
-      import from `core/anonymize.ts`.
-- [ ] **S4** — Delete `_resetMeasuresStoreForTests` /
-      `_resetSelectionsStoreForTests` (unused).
-- [ ] **S5** — Drop `StatsColumnType` re-export from
-      `stats-cell.ts`.
-- [ ] **S7** — Drop `printReportCell` from `report-cell.ts`.
-- [ ] **S14, S15** — Move probe scripts +
-      `verify-demo-ecommerce.mjs` to `archive/` or delete.
-- [ ] **L8** — Delete `let totalsCount; void totalsCount` in
-      `pivot-cell.ts:182`.
-- [ ] **L13** — Collapse duplicate `quoteIdent` calls in
-      `anonymize.ts:163-164`.
-- [ ] **L16** — Delete dead `Number.POSITIVE_INFINITY` assignment
-      in `lineage-panel.ts:316`.
-- [ ] **L22** — Add `npm run gen-examples` to `package.json` OR
-      update README.
+- [x] **S6** — Deleted the unused `CellKind` alias from
+      `types.ts` (it was stale — missing stats/report; `CellState['kind']`
+      is the authoritative union).
+- [x] **S8** — `sinks.ts` imports `quoteIdent` from `core/anonymize.ts`;
+      local duplicate removed.
+- [x] **S4** — Deleted `_resetMeasuresStoreForTests` /
+      `_resetSelectionsStoreForTests` (no callers).
+- [x] **S5** — Dropped the dead `StatsColumnType` import + re-export
+      from `stats-cell.ts`.
+- [x] **S7** — Dropped `printReportCell` from `report-cell.ts`
+      (orphaned by the Chunk 4 print refactor).
+- [x] **S14, S15** — Moved `probe-cm6-survival.mjs`,
+      `probe-hash-mismatch.mjs`, `verify-demo-ecommerce.mjs` to
+      `scripts/archive/`.
+- [x] **L8** — Deleted the dead `totalsCount` accumulator in
+      `pivot-cell.ts`.
+- [x] **L13** — Collapsed the duplicate `quoteIdent(col.columnName)`
+      in `anonymize.ts` to a single `ident`.
+- [x] **L16** — Deleted the never-read `Number.POSITIVE_INFINITY`
+      sink-depth seed in `lineage-panel.ts`.
+- [x] **L22** — Added `"gen-examples"` npm script; README now says
+      `npm run gen-examples`.
 
 ---
 

@@ -179,7 +179,6 @@ export function computePivot(
   const rowTotals: Record<string, number> = {};
   const colTotals: Record<string, number> = {};
   let grandTotal = 0;
-  let totalsCount = 0; // for avg-of-totals if we ever need it
 
   for (const rk of rowKeys) {
     values[rk] = {};
@@ -192,13 +191,11 @@ export function computePivot(
         rowTotals[rk] += v;
         colTotals[ck] = (colTotals[ck] ?? 0) + v;
         grandTotal += v;
-        totalsCount++;
       }
     }
   }
 
   const hasMeaningfulTotals = cell.agg === 'sum' || cell.agg === 'count';
-  void totalsCount;
   return {
     rowKeys,
     colKeys,

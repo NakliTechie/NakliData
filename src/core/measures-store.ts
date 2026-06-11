@@ -83,10 +83,5 @@ export function getMeasuresStore(): MeasuresStore {
   return _store;
 }
 
-/** Test-only: reset the singleton between tests. */
-export function _resetMeasuresStoreForTests(): void {
-  _store = null;
-}
-
 export { emptyMeasuresFile };
 export type { MeasureDefinition, MeasuresFile };

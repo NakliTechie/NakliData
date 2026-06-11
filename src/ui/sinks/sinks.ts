@@ -13,6 +13,7 @@ import {
   buildManifest,
   defaultStrategyForSensitivity,
   generateSalt,
+  quoteIdent,
 } from '../../core/anonymize.ts';
 import type { Engine } from '../../core/engine.ts';
 import { getTaxonomyClient } from '../../taxonomy/client.ts';
@@ -220,10 +221,6 @@ export const ANONYMIZE_SINK: SinkDescriptor = {
     };
   },
 };
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
 
 export const NAKLIPOSTER_SINK: SinkDescriptor = {
   id: 'nakliposter',

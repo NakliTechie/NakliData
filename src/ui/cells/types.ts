@@ -1,15 +1,8 @@
 // Cell state types used by the notebook UI.
-
-export type CellKind =
-  | 'sql'
-  | 'chart'
-  | 'markdown'
-  | 'pivot'
-  | 'map'
-  | 'cohort'
-  | 'assertion'
-  | 'input'
-  | 'dashboard';
+//
+// (There is no standalone `CellKind` union — it was unused and drifted
+// out of date; each cell kind is the literal `kind` field on its state
+// interface, and `CellState['kind']` is the authoritative union.)
 
 export interface SqlCellState {
   id: string;

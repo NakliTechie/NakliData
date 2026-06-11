@@ -9,7 +9,6 @@
 import type { Engine } from '../../core/engine.ts';
 import {
   type StatsColumnSpec,
-  type StatsColumnType,
   emitCorrelationMatrixSql,
   emitDescriptivesSql,
   parseCorrelationRow,
@@ -218,6 +217,3 @@ function escapeHtml(s: string): string {
 function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
-
-// Re-export for the notebook caller.
-export type { StatsColumnType };

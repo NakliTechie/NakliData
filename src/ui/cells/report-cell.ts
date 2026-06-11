@@ -92,14 +92,3 @@ function escapeHtml(s: string): string {
 function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
-
-/**
- * Internal API surface (handoff §M3): expose `renderReport(reportCellId)`
- * → triggers the browser's print dialog scoped to that report. External
- * agents / automations call this via `window.naklidataRenderReport(id)`.
- */
-export function printReportCell(cellId: string): void {
-  const reportEl = document.querySelector<HTMLElement>(`[data-cell-id="${cellId}"].cell-report`);
-  if (!reportEl) return;
-  window.print();
-}

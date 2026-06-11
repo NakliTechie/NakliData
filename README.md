@@ -53,7 +53,7 @@ npm run eval -- --dry-run # offline eval harness for the sidecar (recorded fixtu
 
 `public/examples/` ships a small synthetic bundle of Indian-SMB-finance shape (~25 vendors, 80 invoices, 65 payments with valid-checksum GSTINs, PANs, IFSCs, HSN codes) plus a small NDJSON access-log fixture. On first mount, the schema panel auto-classifies ~25 columns — the fastest way to see the taxonomy in action without bringing your own data.
 
-Regenerate the fixtures with `node scripts/gen-examples.mjs` (deterministic; same seed → same output). The GSTIN generator implements the real base-36 check-digit algorithm so the GSTIN-checksum detector lights up.
+Regenerate the fixtures with `npm run gen-examples` (deterministic; same seed → same output). The GSTIN generator implements the real base-36 check-digit algorithm so the GSTIN-checksum detector lights up.
 
 ## Remote data sources
 
