@@ -1,5 +1,6 @@
 import { getAssociationsStore } from './core/associations.ts';
 import { setDemoMode } from './core/demo-mode.ts';
+import { getDimensionsStore } from './core/dimensions.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import {
   deleteHandle,
@@ -70,6 +71,7 @@ import {
   openLensConfirmModal,
 } from './ui/lens-confirm-modal.ts';
 import { openLineagePanel } from './ui/lineage-panel.ts';
+import { openMeasuresPanel } from './ui/measures-panel.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
@@ -1077,19 +1079,19 @@ function isIdentifierType(
   return false;
 }
 
-async function handleOpenMeasures(engine: Engine): Promise<void> {
+function handleOpenMeasures(engine: Engine): void {
   const nb = getNotebook(engine);
   const cellSqls = nb
     .get()
     .cells.filter((c) => c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion')
     .map((c) => ({ id: c.id, name: c.name, sql: (c as { code: string }).code }));
-  const mod = await loadChunk('measures-panel');
-  mod.openMeasuresPanel({ cellSqls }, () => {
-    // No-op for now; the notebook auto-rerenders via the workbook
-    // subscriber when measures change indirectly (e.g., via cell
-    // re-runs). A future change could subscribe to measures-store
-    // directly to refresh the schema panel's "applicable measures"
-    // section live.
+  // Imported directly (NOT lazy). The panel writes to the measures +
+  // dimensions store singletons; a self-contained lazy chunk
+  // (esbuild splitting:false) bundles its OWN copies of those stores, so
+  // panel-defined measures/dimensions never reached the notebook's
+  // expander — broken since v1.3 M2, surfaced + fixed in v1.4 F1.
+  openMeasuresPanel({ cellSqls }, () => {
+    // No-op; the notebook re-reads the stores on each cell run.
   });
 }
 
@@ -1219,6 +1221,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       measures: getMeasuresStore().toFile(),
       selections: getSelectionsStore().toFile(),
       associations: getAssociationsStore().toFile(),
+      dimensions: getDimensionsStore().toFile(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -1509,7 +1512,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       return;
     }
     case 'open-measures': {
-      await handleOpenMeasures(engine);
+      handleOpenMeasures(engine);
       return;
     }
     case 'open-associations': {
@@ -2204,6 +2207,8 @@ async function doApplyLoadedFile(
   getSelectionsStore().loadFromFile(file.selections);
   // v1.3 M1 Phase 2 — restore associations (optional).
   getAssociationsStore().loadFromFile(file.associations);
+  // v1.4 F1 — restore dimensions (optional).
+  getDimensionsStore().loadFromFile(file.dimensions);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {

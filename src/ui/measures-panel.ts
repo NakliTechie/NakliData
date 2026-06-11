@@ -1,9 +1,22 @@
-// v1.3 M2 — Measures panel.
+// v1.3 M2 + v1.4 F2/F3 — Semantic-layer panel.
 //
-// Single modal: list of measures + create/edit/delete + the "this is
-// used by N cells" indicator (via the M2 lineage graph + the
-// `findReferencedMeasures` pure helper).
+// One modal for the whole semantic layer: **measures** (aggregate
+// fragments, `MEASURE(name)`) AND **dimensions** (non-aggregate
+// fragments, `DIM(name)`), each with create / list / delete + a
+// "used by N cells" indicator. Plus a **View as code** mode (F3) that
+// shows the layer as an editable JSON block — copy it into version
+// control, paste it back to load. The JSON is the SAME structured shape
+// the stores serialise, NOT a new DSL (mirrors the "no second SQL
+// dialect" measures principle).
 
+import { getDimensionsStore } from '../core/dimensions.ts';
+import {
+  type DimensionDefinition,
+  findReferencedDimensions,
+  validateDimensionExpression,
+  validateDimensionName,
+  validateDimensionsFile,
+} from '../core/dimensions.ts';
 import { getMeasuresStore } from '../core/measures-store.ts';
 import {
   type MeasureDefinition,
@@ -11,6 +24,7 @@ import {
   findReferencedMeasures,
   validateMeasureExpression,
   validateMeasureName,
+  validateMeasuresFile,
 } from '../core/measures.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
@@ -19,6 +33,7 @@ let _modalEl: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 let _onChange: (() => void) | null = null;
+let _codeMode = false;
 
 const FORMATS: ReadonlyArray<{ value: MeasureFormat; label: string }> = [
   { value: 'number', label: 'Number' },
@@ -30,8 +45,8 @@ const FORMATS: ReadonlyArray<{ value: MeasureFormat; label: string }> = [
 ];
 
 export interface MeasuresPanelDescriptor {
-  /** SQL of every cell — used to compute "this measure is used by N
-   *  cells." Caller pulls from the notebook. */
+  /** SQL of every cell — used to compute "used by N cells" for measures
+   *  + dimensions. Caller pulls from the notebook. */
   cellSqls: ReadonlyArray<{ id: string; name: string | null; sql: string }>;
 }
 
@@ -39,6 +54,7 @@ export function openMeasuresPanel(desc: MeasuresPanelDescriptor, onChange: () =>
   if (_modalEl) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   _onChange = onChange;
+  _codeMode = false;
   const overlay = renderModal(desc);
   document.body.append(overlay);
   _modalEl = overlay;
@@ -65,6 +81,17 @@ function rerender(desc: MeasuresPanelDescriptor): void {
   _onChange?.();
 }
 
+function usageMap(
+  desc: MeasuresPanelDescriptor,
+  refsOf: (sql: string) => string[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const cell of desc.cellSqls) {
+    for (const ref of refsOf(cell.sql)) counts.set(ref, (counts.get(ref) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function renderModal(desc: MeasuresPanelDescriptor): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'schema-graph-overlay measures-overlay';
@@ -72,35 +99,36 @@ function renderModal(desc: MeasuresPanelDescriptor): HTMLElement {
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-labelledby', 'measures-title');
 
-  const store = getMeasuresStore();
-  const measures = store.list();
+  const measures = getMeasuresStore().list();
+  const dimensions = getDimensionsStore().list();
+  const measureUsage = usageMap(desc, findReferencedMeasures);
+  const dimUsage = usageMap(desc, findReferencedDimensions);
 
-  // Compute usage per measure.
-  const usageByName = new Map<string, Array<{ id: string; name: string | null }>>();
-  for (const cell of desc.cellSqls) {
-    for (const ref of findReferencedMeasures(cell.sql)) {
-      const list = usageByName.get(ref) ?? [];
-      list.push({ id: cell.id, name: cell.name });
-      usageByName.set(ref, list);
-    }
-  }
-
-  const rowsHtml = measures.map((m) => renderRow(m, usageByName.get(m.name) ?? [])).join('');
+  const body = _codeMode
+    ? renderCodeView(measures, dimensions)
+    : `
+      ${renderSection('Measures', 'MEASURE(name)', measures.length === 0 ? renderEmpty('measure') : measures.map((m) => renderMeasureRow(m, measureUsage.get(m.name) ?? 0)).join(''))}
+      ${renderNewMeasureForm()}
+      ${renderSection('Dimensions', 'DIM(name)', dimensions.length === 0 ? renderEmpty('dimension') : dimensions.map((d) => renderDimRow(d, dimUsage.get(d.name) ?? 0)).join(''))}
+      ${renderNewDimForm()}
+    `;
 
   overlay.innerHTML = `
     <div class="schema-graph-modal measures-modal" role="document"
          style="width:min(820px,100%);height:auto;max-height:min(90vh,860px);display:flex;flex-direction:column;">
       <header class="schema-graph-header">
         <h2 id="measures-title" style="margin:0;font-size:var(--text-md,15px);display:flex;align-items:center;gap:6px;">
-          ${iconSvg('chart', 14)} Measures
+          ${iconSvg('table', 14)} Semantic layer
         </h2>
-        <button class="btn btn-ghost schema-graph-close" data-action="measures-close" aria-label="Close">
-          ${iconSvg('x', 14)}
-        </button>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-ghost ${_codeMode ? 'is-active' : ''}" data-action="toggle-code" aria-pressed="${_codeMode}" style="font-size:11px;">${_codeMode ? 'View as forms' : 'View as code'}</button>
+          <button class="btn btn-ghost schema-graph-close" data-action="measures-close" aria-label="Close">
+            ${iconSvg('x', 14)}
+          </button>
+        </div>
       </header>
       <div class="measures-body" style="padding:var(--space-3) var(--space-4);overflow:auto;flex:1;min-height:0;">
-        ${measures.length === 0 ? renderEmptyState() : `<ul class="measures-list" style="list-style:none;padding:0;margin:0;">${rowsHtml}</ul>`}
-        ${renderNewForm()}
+        ${body}
       </div>
       <footer style="display:flex;gap:var(--space-2);justify-content:flex-end;padding:var(--space-3) var(--space-4);border-top:1px solid var(--border);">
         <button class="btn btn-ghost" data-action="measures-close">Close</button>
@@ -112,64 +140,106 @@ function renderModal(desc: MeasuresPanelDescriptor): HTMLElement {
   return overlay;
 }
 
-function renderEmptyState(): string {
+function renderSection(title: string, macro: string, rowsHtml: string): string {
   return `
-    <p style="color:var(--text-muted);font-size:var(--text-sm,13px);margin:0 0 var(--space-3) 0;">
-      No measures defined yet. Use the form below to add one, then reference it from any SQL cell with <code>MEASURE(name)</code>.
-    </p>
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:0 0 var(--space-2) 0;">
+      ${escapeHtml(title)} <code style="font-size:10px;color:var(--text-muted);">${escapeHtml(macro)}</code>
+    </h3>
+    <ul class="measures-list" style="list-style:none;padding:0;margin:0 0 var(--space-3) 0;">${rowsHtml}</ul>
   `;
 }
 
-function renderRow(
-  m: MeasureDefinition,
-  usage: Array<{ id: string; name: string | null }>,
-): string {
-  const usageNote =
-    usage.length > 0
-      ? `<span class="measures-usage" style="font-size:11px;color:#2563eb;">used by ${usage.length} cell${usage.length === 1 ? '' : 's'}</span>`
-      : `<span class="measures-usage" style="font-size:11px;color:var(--text-muted);">unused</span>`;
+function renderEmpty(kind: string): string {
+  return `<li style="color:var(--text-muted);font-size:var(--text-sm,13px);list-style:none;">No ${kind}s yet.</li>`;
+}
+
+function usageNote(count: number): string {
+  return count > 0
+    ? `<span style="font-size:11px;color:var(--focus);">used by ${count} cell${count === 1 ? '' : 's'}</span>`
+    : `<span style="font-size:11px;color:var(--text-muted);">unused</span>`;
+}
+
+function renderMeasureRow(m: MeasureDefinition, count: number): string {
   return `
     <li class="measures-row" data-name="${escapeAttr(m.name)}" style="border:1px solid var(--border);border-radius:6px;padding:var(--space-2) var(--space-3);margin-bottom:6px;">
       <div style="display:flex;align-items:center;gap:var(--space-2);">
         <strong>${escapeHtml(m.name)}</strong>
         <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">${escapeHtml(m.format)}</span>
-        ${usageNote}
+        ${usageNote(count)}
         <span style="flex:1;"></span>
         <button class="btn btn-ghost" data-action="measure-delete" data-name="${escapeAttr(m.name)}" title="Delete measure">${iconSvg('x', 12)}</button>
       </div>
-      ${m.description ? `<p style="margin:4px 0 4px 0;font-size:12px;color:var(--text);">${escapeHtml(m.description)}</p>` : ''}
-      <code style="display:block;background:var(--surface-subtle,#f9fafb);padding:4px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;">${escapeHtml(m.expression)}</code>
+      ${m.description ? `<p style="margin:4px 0;font-size:12px;color:var(--text);">${escapeHtml(m.description)}</p>` : ''}
+      <code style="display:block;background:var(--surface-alt);padding:4px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;">${escapeHtml(m.expression)}</code>
     </li>
   `;
 }
 
-function renderNewForm(): string {
+function renderDimRow(d: DimensionDefinition, count: number): string {
   return `
-    <div class="measures-new" style="margin-top:var(--space-3);padding:var(--space-3);background:var(--surface-subtle,#f9fafb);border-radius:6px;">
-      <h3 style="margin:0 0 var(--space-2) 0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Define a measure</h3>
+    <li class="measures-row" data-name="${escapeAttr(d.name)}" style="border:1px solid var(--border);border-radius:6px;padding:var(--space-2) var(--space-3);margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:var(--space-2);">
+        <strong>${escapeHtml(d.name)}</strong>
+        ${usageNote(count)}
+        <span style="flex:1;"></span>
+        <button class="btn btn-ghost" data-action="dim-delete" data-name="${escapeAttr(d.name)}" title="Delete dimension">${iconSvg('x', 12)}</button>
+      </div>
+      ${d.description ? `<p style="margin:4px 0;font-size:12px;color:var(--text);">${escapeHtml(d.description)}</p>` : ''}
+      <code style="display:block;background:var(--surface-alt);padding:4px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;">${escapeHtml(d.expression)}</code>
+    </li>
+  `;
+}
+
+function renderNewMeasureForm(): string {
+  return `
+    <div class="measures-new" style="margin-bottom:var(--space-4);padding:var(--space-3);background:var(--surface-alt);border-radius:6px;">
+      <h4 style="margin:0 0 var(--space-2) 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Define a measure</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);margin-bottom:var(--space-2);">
-        <label style="font-size:12px;">
-          Name (snake_case)
-          <input type="text" data-region="m-name" placeholder="revenue" style="width:100%;display:block;margin-top:2px;" />
-        </label>
-        <label style="font-size:12px;">
-          Format
+        <label style="font-size:12px;">Name (snake_case)
+          <input type="text" data-region="m-name" placeholder="revenue" style="width:100%;display:block;margin-top:2px;" /></label>
+        <label style="font-size:12px;">Format
           <select data-region="m-format" style="width:100%;display:block;margin-top:2px;">
             ${FORMATS.map((f) => `<option value="${f.value}">${f.label}</option>`).join('')}
-          </select>
-        </label>
+          </select></label>
       </div>
-      <label style="font-size:12px;">
-        Expression (SQL fragment for SELECT-list slot)
-        <textarea data-region="m-expression" rows="2" placeholder="SUM(amount) FILTER (WHERE status = 'completed')" style="width:100%;display:block;margin-top:2px;font-family:monospace;font-size:11px;"></textarea>
-      </label>
-      <label style="font-size:12px;display:block;margin-top:var(--space-2);">
-        Description (optional)
-        <input type="text" data-region="m-description" placeholder="Total revenue from completed orders" style="width:100%;display:block;margin-top:2px;" />
-      </label>
-      <div data-region="m-error" style="color:#b91c1c;font-size:12px;margin-top:6px;"></div>
+      <label style="font-size:12px;">Expression (SELECT-list slot)
+        <textarea data-region="m-expression" rows="2" placeholder="SUM(amount) FILTER (WHERE status = 'completed')" style="width:100%;display:block;margin-top:2px;font-family:var(--font-mono);font-size:11px;"></textarea></label>
+      <label style="font-size:12px;display:block;margin-top:var(--space-2);">Description (optional)
+        <input type="text" data-region="m-description" placeholder="Total revenue from completed orders" style="width:100%;display:block;margin-top:2px;" /></label>
+      <div data-region="m-error" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
       <button class="btn btn-primary" data-action="measure-add" style="margin-top:var(--space-2);">Add measure</button>
     </div>
+  `;
+}
+
+function renderNewDimForm(): string {
+  return `
+    <div class="measures-new" style="padding:var(--space-3);background:var(--surface-alt);border-radius:6px;">
+      <h4 style="margin:0 0 var(--space-2) 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Define a dimension</h4>
+      <label style="font-size:12px;">Name (snake_case)
+        <input type="text" data-region="d-name" placeholder="gstin_state" style="width:100%;display:block;margin-top:2px;" /></label>
+      <label style="font-size:12px;display:block;margin-top:var(--space-2);">Expression (non-aggregate, for SELECT / GROUP BY)
+        <textarea data-region="d-expression" rows="2" placeholder="substr(vendor_gstin, 1, 2)" style="width:100%;display:block;margin-top:2px;font-family:var(--font-mono);font-size:11px;"></textarea></label>
+      <label style="font-size:12px;display:block;margin-top:var(--space-2);">Description (optional)
+        <input type="text" data-region="d-description" placeholder="State code from the GSTIN prefix" style="width:100%;display:block;margin-top:2px;" /></label>
+      <div data-region="d-error" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+      <button class="btn btn-primary" data-action="dim-add" style="margin-top:var(--space-2);">Add dimension</button>
+    </div>
+  `;
+}
+
+function renderCodeView(
+  measures: ReadonlyArray<MeasureDefinition>,
+  dimensions: ReadonlyArray<DimensionDefinition>,
+): string {
+  const json = JSON.stringify({ measures, dimensions }, null, 2);
+  return `
+    <p style="color:var(--text-muted);font-size:12px;margin:0 0 var(--space-2) 0;">
+      The semantic layer as a code-reviewable JSON artifact — copy it into version control, or paste an edited block and Apply to replace the layer. Validated before it loads.
+    </p>
+    <textarea data-region="code" rows="20" spellcheck="false" style="width:100%;font-family:var(--font-mono);font-size:11px;white-space:pre;">${escapeHtml(json)}</textarea>
+    <div data-region="code-error" style="color:var(--danger);font-size:12px;margin-top:6px;white-space:pre-wrap;"></div>
+    <button class="btn btn-primary" data-action="code-apply" style="margin-top:var(--space-2);">Apply</button>
   `;
 }
 
@@ -180,59 +250,150 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
     if (target === overlay) return closeMeasuresPanel();
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
     if (action === 'measures-close') return closeMeasuresPanel();
+    if (action === 'toggle-code') {
+      _codeMode = !_codeMode;
+      return rerender(desc);
+    }
     if (action === 'measure-delete') {
-      const name = target.closest<HTMLElement>('[data-action="measure-delete"]')?.dataset.name;
-      if (!name) return;
-      const store = getMeasuresStore();
-      // Check usage before deleting — defence in depth; the UI also
-      // surfaces this. Simple JS confirm is enough for v1.
-      const usageCount = desc.cellSqls.filter((c) =>
-        findReferencedMeasures(c.sql).includes(name),
-      ).length;
-      const proceed =
-        usageCount === 0 ||
-        window.confirm(
-          `"${name}" is referenced by ${usageCount} cell${usageCount === 1 ? '' : 's'}. Delete anyway? Those cells will fail until you remove the references.`,
-        );
-      if (!proceed) return;
-      store.remove(name);
-      rerender(desc);
+      handleDelete(target, desc, 'measure');
+      return;
+    }
+    if (action === 'dim-delete') {
+      handleDelete(target, desc, 'dimension');
+      return;
     }
     if (action === 'measure-add') {
-      const errorRegion = overlay.querySelector<HTMLElement>('[data-region="m-error"]');
-      const name =
-        overlay.querySelector<HTMLInputElement>('[data-region="m-name"]')?.value.trim() ?? '';
-      const expression =
-        overlay.querySelector<HTMLTextAreaElement>('[data-region="m-expression"]')?.value.trim() ??
-        '';
-      const description =
-        overlay.querySelector<HTMLInputElement>('[data-region="m-description"]')?.value.trim() ??
-        '';
-      const format = (overlay.querySelector<HTMLSelectElement>('[data-region="m-format"]')?.value ??
-        'number') as MeasureFormat;
-      const nameErr = validateMeasureName(name);
-      if (nameErr) {
-        if (errorRegion) errorRegion.textContent = nameErr;
-        return;
-      }
-      const exprErr = validateMeasureExpression(expression);
-      if (exprErr) {
-        if (errorRegion) errorRegion.textContent = exprErr;
-        return;
-      }
-      if (getMeasuresStore().get(name)) {
-        if (errorRegion)
-          errorRegion.textContent = `Measure "${name}" already exists. Delete it first to redefine.`;
-        return;
-      }
-      getMeasuresStore().set({ name, expression, format, description, version: 1 });
-      rerender(desc);
+      handleAddMeasure(overlay, desc);
+      return;
+    }
+    if (action === 'dim-add') {
+      handleAddDimension(overlay, desc);
+      return;
+    }
+    if (action === 'code-apply') {
+      handleCodeApply(overlay, desc);
     }
   });
   _onKey = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') closeMeasuresPanel();
   };
   document.addEventListener('keydown', _onKey);
+}
+
+function handleDelete(
+  target: HTMLElement,
+  desc: MeasuresPanelDescriptor,
+  kind: 'measure' | 'dimension',
+): void {
+  const name = target.closest<HTMLElement>('[data-name]')?.dataset.name;
+  if (!name) return;
+  const refsOf = kind === 'measure' ? findReferencedMeasures : findReferencedDimensions;
+  const usageCount = desc.cellSqls.filter((c) => refsOf(c.sql).includes(name)).length;
+  const proceed =
+    usageCount === 0 ||
+    window.confirm(
+      `"${name}" is referenced by ${usageCount} cell${usageCount === 1 ? '' : 's'}. Delete anyway? Those cells will fail until you remove the references.`,
+    );
+  if (!proceed) return;
+  if (kind === 'measure') getMeasuresStore().remove(name);
+  else getDimensionsStore().remove(name);
+  rerender(desc);
+}
+
+function handleAddMeasure(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void {
+  const err = overlay.querySelector<HTMLElement>('[data-region="m-error"]');
+  const val = (sel: string) => overlay.querySelector<HTMLInputElement>(sel)?.value.trim() ?? '';
+  const name = val('[data-region="m-name"]');
+  const expression =
+    overlay.querySelector<HTMLTextAreaElement>('[data-region="m-expression"]')?.value.trim() ?? '';
+  const description = val('[data-region="m-description"]');
+  const format = (overlay.querySelector<HTMLSelectElement>('[data-region="m-format"]')?.value ??
+    'number') as MeasureFormat;
+  const e = validateMeasureName(name) ?? validateMeasureExpression(expression);
+  if (e) {
+    showErr(err, e);
+    return;
+  }
+  if (getMeasuresStore().get(name)) {
+    showErr(err, `Measure "${name}" already exists. Delete it first to redefine.`);
+    return;
+  }
+  getMeasuresStore().set({ name, expression, format, description, version: 1 });
+  rerender(desc);
+}
+
+function handleAddDimension(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void {
+  const err = overlay.querySelector<HTMLElement>('[data-region="d-error"]');
+  const val = (sel: string) => overlay.querySelector<HTMLInputElement>(sel)?.value.trim() ?? '';
+  const name = val('[data-region="d-name"]');
+  const expression =
+    overlay.querySelector<HTMLTextAreaElement>('[data-region="d-expression"]')?.value.trim() ?? '';
+  const description = val('[data-region="d-description"]');
+  const e = validateDimensionName(name) ?? validateDimensionExpression(expression);
+  if (e) {
+    showErr(err, e);
+    return;
+  }
+  if (getDimensionsStore().get(name)) {
+    showErr(err, `Dimension "${name}" already exists. Delete it first to redefine.`);
+    return;
+  }
+  getDimensionsStore().set({ name, expression, description, version: 1 });
+  rerender(desc);
+}
+
+function handleCodeApply(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void {
+  const err = overlay.querySelector<HTMLElement>('[data-region="code-error"]');
+  const raw = overlay.querySelector<HTMLTextAreaElement>('[data-region="code"]')?.value ?? '';
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    showErr(err, `JSON parse error: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  const obj = (parsed ?? {}) as { measures?: unknown[]; dimensions?: unknown[] };
+  // Normalise into the file shapes (default format/description/version),
+  // then validate before loading anything.
+  const measures: MeasureDefinition[] = (Array.isArray(obj.measures) ? obj.measures : []).map(
+    (m) => {
+      const r = (m ?? {}) as Partial<MeasureDefinition>;
+      return {
+        name: String(r.name ?? ''),
+        expression: String(r.expression ?? ''),
+        format: (r.format ?? 'number') as MeasureFormat,
+        description: String(r.description ?? ''),
+        version: 1,
+      };
+    },
+  );
+  const dimensions: DimensionDefinition[] = (
+    Array.isArray(obj.dimensions) ? obj.dimensions : []
+  ).map((d) => {
+    const r = (d ?? {}) as Partial<DimensionDefinition>;
+    return {
+      name: String(r.name ?? ''),
+      expression: String(r.expression ?? ''),
+      description: String(r.description ?? ''),
+      version: 1,
+    };
+  });
+  const errors = [
+    ...validateMeasuresFile({ version: 1, measures }),
+    ...validateDimensionsFile({ version: 1, dimensions }),
+  ];
+  if (errors.length > 0) {
+    showErr(err, `Not applied — fix these first:\n• ${errors.join('\n• ')}`);
+    return;
+  }
+  getMeasuresStore().loadFromFile({ version: 1, measures });
+  getDimensionsStore().loadFromFile({ version: 1, dimensions });
+  _codeMode = false;
+  rerender(desc);
+}
+
+function showErr(el: HTMLElement | null, msg: string): void {
+  if (el) el.textContent = msg;
 }
 
 function escapeHtml(s: string): string {

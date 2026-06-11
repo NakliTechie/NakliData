@@ -2,6 +2,43 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.4 F1/F2/F3 — semantic layer (dimensions + catalog + code view)
+
+### Decision AI — `DIM(name)` expanded in the same pass as `MEASURE(name)`
+
+Dimensions are the non-aggregate parallel to measures. Rather than a
+second expander, `expandMeasures` gained an optional `dimensions` map +
+a `DIM(name)` regex expanded in the SAME iterative loop — so a measure
+body can reference a `DIM` and vice-versa, depth-capped. The param
+defaults to empty, so the single caller (notebook runCell) is the only
+change; back-compat for any measures-only path is free. New
+`unknownDimensions` on the result. Dimensions persist in `.naklidata`
+(optional field, mirrors measures/selections/associations).
+
+### Decision AJ — Fixed a latent M2 bug: the lazy panel had its OWN store singletons
+
+Surfaced while Chrome-verifying F1: a panel-defined measure was "unknown"
+to the notebook. Root cause — the measures panel was a lazy chunk, and
+esbuild builds lazy chunks with `splitting: false` (each chunk
+self-contained), so `dist/chunks/measures-panel.js` bundled its OWN copy
+of `measures-store.ts`. `getMeasuresStore()` in the panel returned a
+DIFFERENT singleton than the notebook's → panel-defined measures never
+reached the expander. **This had been broken since v1.3 M2** (no e2e
+covered the panel→query path). **Fix:** import the panel directly into
+`main` (non-lazy) so it shares the real store singletons. Cost: +13.5 KB
+in the main bundle (now 651 KB / 750, still 99 KB headroom) — correctness
+over the premature lazy-load. Removed `src/lazy/measures-panel.ts` + its
+registry entry.
+
+### Decision AK — Code view (F3) is JSON of the store shape, not a new DSL
+
+The "declarative semantic block" is the SAME structured JSON the stores
+serialise (`{measures, dimensions}`), shown editable + Apply-validated —
+NOT a new LookML/Cube DSL. Mirrors the measures principle of "no second
+SQL dialect": the layer is named fragments + JSON, not a language. Apply
+validates via `validateMeasuresFile` + `validateDimensionsFile` before
+loading anything.
+
 ## 2026-06-11 — v1.3.0 release cut
 
 ### Decision AG — Ship v1.3.0 WITHOUT the WebGPU slice-B manual validation

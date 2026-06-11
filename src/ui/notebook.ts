@@ -10,6 +10,7 @@
 // the saved view `cell_<id>` for the named cell, having created that view
 // in the previous successful run.
 
+import { getDimensionsStore } from '../core/dimensions.ts';
 import type { Engine } from '../core/engine.ts';
 import { getLineageStore } from '../core/lineage-store.ts';
 import {
@@ -302,15 +303,20 @@ LIMIT 100`,
     this.aborts.set(id, ac);
     const t0 = performance.now();
     try {
-      // v1.3 M2 — Expand MEASURE(name) macros BEFORE @-name rewriting
-      // so a measure expression that references @cells still resolves
-      // those references in the second pass.
+      // v1.3 M2 / v1.4 F1 — Expand MEASURE(name) + DIM(name) macros BEFORE
+      // @-name rewriting so a measure/dimension expression that references
+      // @cells still resolves those references in the second pass.
       const measuresMap = getMeasuresStore().asMap();
-      const measureExpanded = expandMeasures(code, measuresMap);
-      if (measureExpanded.unknownMeasures.length > 0) {
+      const dimensionsMap = getDimensionsStore().asMap();
+      const measureExpanded = expandMeasures(code, measuresMap, dimensionsMap);
+      const unknownMacros = [
+        ...measureExpanded.unknownMeasures.map((m) => `MEASURE(${m})`),
+        ...measureExpanded.unknownDimensions.map((d) => `DIM(${d})`),
+      ];
+      if (unknownMacros.length > 0) {
         this.patchCell(id, {
           status: 'error',
-          lastError: `Unknown measure(s): ${measureExpanded.unknownMeasures.join(', ')}. Define them in the Measures panel or remove the reference.`,
+          lastError: `Unknown ${unknownMacros.join(', ')}. Define them in the Semantic panel or remove the reference.`,
           lastResult: null,
         });
         return;

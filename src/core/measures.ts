@@ -226,50 +226,72 @@ export interface MeasureExpansionResult {
   sql: string;
   expansions: Array<{ name: string; expression: string }>;
   unknownMeasures: string[];
+  /** `DIM(name)` references whose name wasn't in the dimensions map (F1). */
+  unknownDimensions: string[];
 }
 
 const MEASURE_CALL_RE = /\bMEASURE\(([a-z_][a-z0-9_]*)\)/g;
+// v1.4 F1 — the dimension macro, expanded in the SAME pass as MEASURE so
+// a measure body can reference a DIM and vice-versa (depth-capped).
+const DIM_CALL_RE = /\bDIM\(([a-z_][a-z0-9_]*)\)/g;
 const MAX_DEPTH = 10;
 
 /**
- * Expand `MEASURE(name)` calls in `sql` recursively. Iteratively
- * substitutes until no `MEASURE(` calls remain OR the depth cap
+ * Expand `MEASURE(name)` AND `DIM(name)` calls in `sql` recursively.
+ * Iteratively substitutes until no macro calls remain OR the depth cap
  * (`MAX_DEPTH`) is hit (loud failure — defence against a malicious
- * cyclic definition that survived `validateMeasuresFile`).
+ * cyclic definition that survived validation).
  *
- * The single audited expansion point (handoff §M2). All callers
- * (notebook cell-run, chart cell render, sidecar dispatcher) go
- * through this function.
+ * The single audited expansion point (handoff §M2 + v1.4 F1). All
+ * callers (notebook cell-run, chart cell render, sidecar dispatcher) go
+ * through this function. `dimensions` defaults to empty, so callers that
+ * only care about measures stay unchanged.
  */
 export function expandMeasures(
   sql: string,
   measures: ReadonlyMap<string, MeasureDefinition>,
+  dimensions?: ReadonlyMap<string, { name: string; expression: string }>,
 ): MeasureExpansionResult {
+  const dims = dimensions ?? new Map<string, { name: string; expression: string }>();
   const expansions: Array<{ name: string; expression: string }> = [];
   const unknownMeasures: string[] = [];
+  const unknownDimensions: string[] = [];
   let current = sql;
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
-    const seenAny = MEASURE_CALL_RE.test(current);
+    const hasMeasure = MEASURE_CALL_RE.test(current);
     MEASURE_CALL_RE.lastIndex = 0;
-    if (!seenAny) {
-      return { sql: current, expansions, unknownMeasures };
+    const hasDim = DIM_CALL_RE.test(current);
+    DIM_CALL_RE.lastIndex = 0;
+    if (!hasMeasure && !hasDim) {
+      return { sql: current, expansions, unknownMeasures, unknownDimensions };
     }
-    current = current.replace(MEASURE_CALL_RE, (_match, name: string) => {
-      const def = measures.get(name);
-      if (!def) {
-        if (!unknownMeasures.includes(name)) unknownMeasures.push(name);
-        // Leave the call in place so the caller can see what's unknown
-        // OR substitute with NULL — choosing NULL because it keeps the
-        // outer SQL well-formed (the user gets a column of nulls + the
-        // unknown-measures list as a parser-level diagnostic).
-        return 'NULL';
-      }
-      expansions.push({ name, expression: def.expression });
-      return `(${def.expression})`;
-    });
+    if (hasMeasure) {
+      current = current.replace(MEASURE_CALL_RE, (_match, name: string) => {
+        const def = measures.get(name);
+        if (!def) {
+          if (!unknownMeasures.includes(name)) unknownMeasures.push(name);
+          // NULL keeps the outer SQL well-formed; the unknown-measures
+          // list is the parser-level diagnostic the caller surfaces.
+          return 'NULL';
+        }
+        expansions.push({ name, expression: def.expression });
+        return `(${def.expression})`;
+      });
+    }
+    if (hasDim) {
+      current = current.replace(DIM_CALL_RE, (_match, name: string) => {
+        const def = dims.get(name);
+        if (!def) {
+          if (!unknownDimensions.includes(name)) unknownDimensions.push(name);
+          return 'NULL';
+        }
+        expansions.push({ name, expression: def.expression });
+        return `(${def.expression})`;
+      });
+    }
   }
   throw new Error(
-    `Measure expansion exceeded depth cap (${MAX_DEPTH}) — likely a cyclic definition. Expansions so far: ${expansions.map((e) => e.name).join(' → ')}`,
+    `Macro expansion exceeded depth cap (${MAX_DEPTH}) — likely a cyclic definition. Expansions so far: ${expansions.map((e) => e.name).join(' → ')}`,
   );
 }
 
