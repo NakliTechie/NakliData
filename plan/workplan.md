@@ -91,8 +91,10 @@ Low-priority items the 6-chunk pass deliberately skipped. Batch
 opportunistically.
 
 - [x] **M12** (addCell exhaustiveness `never` guard) + **L6** (selection-bar
-      palette → tokens) DONE 2026-06-11. M13/M23/M24 already closed earlier;
-      M9–M11/M14/M17/M19 remain parked (UX/intentional/needs-decision).
+      palette → tokens) + **L21** (e2e `retries: 2` in CI — fixed the
+      focus-restoration flake surfaced when e2e joined the CI gate) DONE
+      2026-06-11. M13/M23/M24 already closed earlier; M9–M11/M14/M17/M19
+      remain parked (UX/intentional/needs-decision).
 - [ ] **Remaining L-items** (L1–L7, L9–L12, L14, L15, L17, L18, L21,
       L23, L24) — polish.
 - [ ] **Remaining S-items** (S1–S3, S9–S13, S16–S18) — stray cleanup.
