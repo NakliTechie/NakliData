@@ -153,8 +153,10 @@ export function emitValueLiteral(type: QueryColumnType, value: string): string |
 
 function validateSpec(spec: QueryBuilderSpec): void {
   if (!spec.fromTable) throw new Error('Query builder: fromTable is required.');
-  if (spec.limit < 1) {
-    throw new Error('Query builder: LIMIT must be >= 1.');
+  // `< 1` alone lets NaN and Infinity through (both compare false), and
+  // buildLimit would then emit `LIMIT NaN` — broken SQL (forward-pass H5).
+  if (!Number.isFinite(spec.limit) || spec.limit < 1) {
+    throw new Error('Query builder: LIMIT must be a finite number >= 1.');
   }
   // > 1_000_000 is clamped, not rejected — keeps the form forgiving.
   // Identifiers can't contain control characters or NULL bytes.

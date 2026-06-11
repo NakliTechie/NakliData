@@ -70,38 +70,45 @@ they're protected against regression as they go in.
 
 ---
 
-## Chunk 3 — High-severity correctness + security (~2 hours)
+## Chunk 3 — High-severity correctness + security (~2 hours) — ✅ DONE 2026-06-11
 
 Each item is small (one-line to ~20-line fix); together they
 kill the highest-impact bugs surfaced by the audit. Order
 within the chunk: one-liners first (C1, H5), then C3 (modest
 reasoning cost), then H1–H4 (security-sensitive).
 
-- [ ] **C1** — Remove static `hidden` attribute from
-      `src/ui/cells/sql-cell.ts:234`. The v1.1 Explain-error
-      sidecar job has been silently broken since shipping.
-      **[test in Chrome]** — boot, run errored SQL cell,
-      assert button visible when sidecar enabled.
-- [ ] **H5** — Reject non-finite `limit` in
-      `src/core/query-builder.ts validateSpec`. One line.
-      Add regression test.
-- [ ] **C3** — Rewrite `roundTripInvariantHolds` in
-      `src/core/lineage-edit.ts:144-153`. Currently calls
-      applyCanvasOp twice with identical inputs (tautology).
-      Design a genuinely-differing path: serialise the applied
-      graph → load via `fromJson` → re-project + compare against
-      in-memory projection. Update three round-trip test cases.
-- [ ] **H1** — Add `deleteHandle(ps.ref)` callsites in
-      `sessions.deleteSession()` and the `'removeSource'` action
-      handler. FSA handle IDB leak — two one-liners.
-- [ ] **H2** — Extend `lens-confirm-modal.ts` to surface SQL
-      cell bodies + a "this notebook will run when you click
-      cells" warning before auto-mounting a lens-loaded workbook.
-- [ ] **H3** — Cap `decodeLensParam` decompression at 2 MB.
-      Reject early with clear error.
-- [ ] **H4** — Add `WeakSet<object>` cycle guard to `walk()` in
-      `src/core/lineage.ts`. Mirror the pattern from
-      `refresh.ts:106`.
+- [x] **C1** — Removed static `hidden` attribute from the
+      explain-error button (`src/ui/cells/sql-cell.ts`); it's now
+      CSS-gated by `.app-sidecar-enabled` like its two sibling
+      sidecar buttons. **Verified in Chrome**: button shows with
+      sidecar on (display:flex, 137px), hides with it off, no
+      `hidden` attr.
+- [x] **H5** — `validateSpec` now rejects non-finite `limit`
+      (`!Number.isFinite(spec.limit) || spec.limit < 1`) — NaN/∞
+      slipped past `< 1` and emitted `LIMIT NaN`. +3 test cases.
+- [x] **C3** — Added `lineageGraphFromJson` (untrusted-input
+      validator/reviver) to `lineage-store.ts`; rewrote
+      `roundTripInvariantHolds` to use a real serialise → revive →
+      project path instead of the double-apply tautology. +6 tests
+      (3 existing round-trip cases now exercise the real path).
+- [x] **H1** — `deleteHandle(s.ref)` for fsa-folder/fsa-file
+      sources in both `sessions.deleteSession()` and the
+      `remove-source` handler (`main.ts`). Best-effort, guarded.
+- [x] **H2** — `lens-confirm-modal.ts` now surfaces executable
+      (sql/cohort/assertion) cell bodies + a "runs SQL against your
+      data when you click Run" warning; gated on remotes OR
+      exec-cells so a local-only-but-SQL lens still gets reviewed.
+      **Verified in Chrome** with a crafted `?lens=` link.
+- [x] **H3** — `gzipDecompress` reads incrementally and aborts
+      past a 2 MB cap (gzip-bomb guard). +1 test (a tiny
+      compressed payload that expands past the cap rejects).
+- [x] **H4** — `WeakSet<object>` cycle guard added to `walk()` in
+      `lineage.ts`, mirroring refresh.ts. +1 test (self-referential
+      plan terminates + still extracts inputs).
+
+Gates: check / test (704, +9) / smoke all green; C1+H2 verified
+via a temporary headless-Chrome script (removed — proper smoke
+coverage is H8/Chunk 4).
 
 ---
 

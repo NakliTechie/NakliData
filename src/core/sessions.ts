@@ -8,6 +8,7 @@
 // read once on first boot and adopted as the seed session, then
 // deleted. New code never writes to `workbook/current`.
 
+import { deleteHandle } from './handles.ts';
 import { kvDelete, kvGet, kvPut } from './idb.ts';
 import type { NakliDataFile } from './persistence.ts';
 
@@ -137,6 +138,24 @@ export async function deleteSession(id: string): Promise<void> {
   const idx = await loadIndex();
   if (idx.sessions.length <= 1) {
     throw new Error('Cannot delete the last session.');
+  }
+  // Free any FSA handles this session's sources kept in IDB before the
+  // snapshot that references them is deleted — otherwise the handle
+  // leaks forever (forward-pass H1). Handle ids are session-unique
+  // (newHandleId is monotonic + sessions aren't duplicated), so this
+  // can't orphan another session's handle. Best-effort: an IDB hiccup
+  // must not block the delete.
+  const snapshot = await loadSnapshot(id);
+  if (snapshot) {
+    for (const s of snapshot.sources) {
+      if ((s.kind === 'fsa-folder' || s.kind === 'fsa-file') && s.ref) {
+        try {
+          await deleteHandle(s.ref);
+        } catch {
+          // ignore
+        }
+      }
+    }
   }
   await kvDelete(snapshotKey(id));
   const remaining = idx.sessions.filter((s) => s.id !== id);

@@ -9,6 +9,7 @@
 // **Engine-boundary contract (v1.3 M0):** no DOM, no FSA, no browser
 // globals. Pure data + the canvas-op projection.
 
+import { lineageGraphFromJson } from './lineage-store.ts';
 import type { LineageGraph, LineageNode } from './lineage-store.ts';
 
 /**
@@ -137,17 +138,32 @@ export function projectToCanvas(graph: LineageGraph): CanvasState {
 }
 
 /**
- * Test predicate for the round-trip invariant. Applies an op via the
- * canvas projection AND via the underlying graph; asserts the result
- * matches.
+ * Test predicate for the M6 round-trip invariant. Applies an op to the
+ * graph, then checks that the applied graph survives a
+ * serialise → revive → project cycle identically to the direct
+ * in-memory projection.
+ *
+ * The revive leg goes through `lineageGraphFromJson` — the same
+ * untrusted-input validator used to load a `.naklidata` `lineage`
+ * field — so this is a GENUINELY independent reconstruction path, not
+ * the old tautology of calling `applyCanvasOp` twice with identical
+ * inputs (forward-pass C3).
+ *
+ * What it proves: `applyCanvasOp` emits a well-formed, serialisation-
+ * stable graph whose canvas projection is invariant under
+ * persist-and-reload. A bug that produced a node/edge that couldn't
+ * survive the round-trip — a missing field, an invalid `kind`, a
+ * dropped `confidence` — would make the two projections diverge.
  */
 export function roundTripInvariantHolds(graph: LineageGraph, op: CanvasOp): boolean {
-  const directly = applyCanvasOp(graph, op);
-  const viaCanvas = applyCanvasOp(graph, op); // same function — the projection is identity
-  const a = projectToCanvas(directly);
-  const b = projectToCanvas(viaCanvas);
+  const applied = applyCanvasOp(graph, op);
+  const inMemory = projectToCanvas(applied);
+  // Serialise the applied graph, then revive it through the same
+  // validator the file-load path uses, and re-project.
+  const revived = lineageGraphFromJson(JSON.parse(JSON.stringify(applied)));
+  const viaPersistence = projectToCanvas(revived);
   return (
-    JSON.stringify(a.nodes) === JSON.stringify(b.nodes) &&
-    JSON.stringify(a.edges) === JSON.stringify(b.edges)
+    JSON.stringify(inMemory.nodes) === JSON.stringify(viaPersistence.nodes) &&
+    JSON.stringify(inMemory.edges) === JSON.stringify(viaPersistence.edges)
   );
 }

@@ -78,6 +78,31 @@ describe('url-state encode/decode', () => {
     await expect(decodeLensParam('not-valid-gzip-bytes')).rejects.toThrow();
   });
 
+  it('rejects a gzip bomb — payload decompressing past the 2 MB cap (forward-pass H3)', async () => {
+    // 'a'.repeat compresses to almost nothing, so the encoded lens stays
+    // tiny on the wire while expanding well past the cap on decode —
+    // exactly the gzip-bomb shape an attacker would put in a ?lens= link.
+    const bomb = {
+      ...SAMPLE,
+      cells: [
+        {
+          id: 'c1',
+          kind: 'sql' as const,
+          order: 0,
+          name: 'q1',
+          code: 'a'.repeat(2_500_000),
+          status: 'idle' as const,
+          lastError: null,
+          lastResult: null,
+          pinned: false,
+        },
+      ],
+    } as NakliDataFile;
+    const encoded = await encodeLensParam(bomb);
+    expect(encoded.length).toBeLessThan(50_000); // tiny compressed payload
+    await expect(decodeLensParam(encoded)).rejects.toThrow(/gzip bomb|2 MB|decompress/i);
+  });
+
   it('rejects payloads decoding to non-naklidata JSON', async () => {
     const garbage = { hello: 'world' };
     const json = JSON.stringify(garbage);

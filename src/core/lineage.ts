@@ -61,16 +61,28 @@ export function extractInputsFromPlan(plan: unknown): LineageInput[] {
   return Array.from(seen.values());
 }
 
-function walk(node: unknown, visit: (n: Record<string, unknown>) => void): void {
+function walk(
+  node: unknown,
+  visit: (n: Record<string, unknown>) => void,
+  // Cycle guard: the plan normally arrives JSON-parsed (acyclic), but
+  // `plan: unknown` lets a caller pass a live object graph, and a
+  // self-referential node would otherwise spin forever. Mirrors the
+  // `visited`-set guard in refresh.ts cascadeStaleness (forward-pass H4).
+  seen: WeakSet<object> = new WeakSet(),
+): void {
   if (Array.isArray(node)) {
-    for (const child of node) walk(child, visit);
+    if (seen.has(node)) return;
+    seen.add(node);
+    for (const child of node) walk(child, visit, seen);
     return;
   }
   if (node && typeof node === 'object') {
     const obj = node as Record<string, unknown>;
+    if (seen.has(obj)) return;
+    seen.add(obj);
     visit(obj);
     for (const v of Object.values(obj)) {
-      if (typeof v === 'object' && v !== null) walk(v, visit);
+      if (typeof v === 'object' && v !== null) walk(v, visit, seen);
     }
   }
 }

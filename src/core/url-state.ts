@@ -16,6 +16,14 @@ const PARAM_NAME = 'lens';
  * some chat clients truncate sooner. We warn (not block) past this.
  */
 const SOFT_URL_LIMIT = 7800;
+/**
+ * Decompression ceiling for an inbound `?lens=` payload. A `.naklidata`
+ * description (no row data) is comfortably under this; the cap exists to
+ * defuse a gzip bomb — a few-KB URL that expands to gigabytes and OOMs
+ * the tab (forward-pass H3). The lens comes from an attacker-controllable
+ * shared link, so this is a real DoS channel without the guard.
+ */
+const MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024;
 
 export async function encodeLensParam(file: NakliDataFile): Promise<string> {
   const json = JSON.stringify(file);
@@ -61,11 +69,42 @@ async function gzipCompress(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-async function gzipDecompress(bytes: Uint8Array): Promise<Uint8Array> {
+async function gzipDecompress(
+  bytes: Uint8Array,
+  maxBytes: number = MAX_DECOMPRESSED_BYTES,
+): Promise<Uint8Array> {
   const ds = new DecompressionStream('gzip');
   const stream = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(ds);
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
+  // Read incrementally and bail the moment the running total exceeds the
+  // cap, rather than buffering the whole stream first — that's what makes
+  // this a real gzip-bomb guard (forward-pass H3).
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error(
+          `Lens payload decompresses to over ${Math.round(maxBytes / (1024 * 1024))} MB — refusing to load (possible gzip bomb).`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {

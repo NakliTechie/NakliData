@@ -1,6 +1,11 @@
 import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
-import { ensureReadPermission, getHandle, queryReadPermissionQuiet } from './core/handles.ts';
+import {
+  deleteHandle,
+  ensureReadPermission,
+  getHandle,
+  queryReadPermissionQuiet,
+} from './core/handles.ts';
 import { loadChunk } from './core/lazy-loader.ts';
 import { getLineageStore } from './core/lineage-store.ts';
 import { getMeasuresStore } from './core/measures-store.ts';
@@ -56,7 +61,11 @@ import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
-import { type LensConfirmDescriptor, openLensConfirmModal } from './ui/lens-confirm-modal.ts';
+import {
+  type LensConfirmCell,
+  type LensConfirmDescriptor,
+  openLensConfirmModal,
+} from './ui/lens-confirm-modal.ts';
 import { openLineagePanel } from './ui/lineage-panel.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
@@ -283,9 +292,15 @@ async function boot(): Promise<void> {
       // Local sources (example-bundle, fsa-folder) auto-restore as
       // before — they have no network footprint.
       const remotes = extractLensRemoteHosts(file);
+      // Forward-pass H2: surface the executable SQL the link carries. The
+      // cells never auto-run, but clicking Run executes the SENDER's SQL
+      // against the victim's data — show it for review. Gate the modal on
+      // remote sources OR executable cells so a local-only-but-SQL-bearing
+      // lens still gets a review step.
+      const execCells = extractLensExecutableCells(file);
       let proceed = true;
-      if (remotes.length > 0) {
-        proceed = await openLensConfirmModal(remotes, file.name);
+      if (remotes.length > 0 || execCells.length > 0) {
+        proceed = await openLensConfirmModal(remotes, file.name, execCells);
       }
       if (proceed) {
         await applyLoadedFile(engine, file);
@@ -1195,6 +1210,16 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             await forgetSource(id, [...BRIDGE_SECRET_NAMES]);
           } catch (err) {
             console.warn(`[naklidata] bridge secret cleanup failed for ${id}`, err);
+          }
+        }
+        // FSA folder/file handles live in IDB keyed by the source ref;
+        // free the handle when the source is removed so it doesn't leak
+        // past the source that owned it (forward-pass H1). Best-effort.
+        if ((src.kind === 'fsa-folder' || src.kind === 'fsa-file') && src.ref) {
+          try {
+            await deleteHandle(src.ref);
+          } catch (err) {
+            console.warn(`[naklidata] handle cleanup failed for ${id}`, err);
           }
         }
       }
@@ -2529,6 +2554,23 @@ function extractLensRemoteHosts(file: NakliDataFile): LensConfirmDescriptor[] {
       });
     }
     // example-bundle + fsa-folder are local — intentionally not added.
+  }
+  return out;
+}
+
+/**
+ * Walk a decoded lens `NakliDataFile` and return every executable
+ * (SQL-bearing) cell so the confirm modal can surface the queries the
+ * sender embedded (forward-pass H2). Only `sql` / `cohort` / `assertion`
+ * cells carry SQL that runs on a Run click; a `markdown` cell's `code`
+ * is prose, not a query, so it's excluded. Empty cells are skipped.
+ */
+function extractLensExecutableCells(file: NakliDataFile): LensConfirmCell[] {
+  const out: LensConfirmCell[] = [];
+  for (const c of file.cells) {
+    if (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') {
+      if (c.code.trim()) out.push({ name: c.name, kind: c.kind, code: c.code });
+    }
   }
   return out;
 }

@@ -208,6 +208,14 @@ describe('emitSql — sort + limit', () => {
     expect(() => emitSql({ ...emptySpec('t'), limit: 0 })).toThrow();
     expect(() => emitSql({ ...emptySpec('t'), limit: -1 })).toThrow();
   });
+
+  it('LIMIT throws on non-finite values (NaN / Infinity) — forward-pass H5', () => {
+    // `< 1` alone misses these (both compare false), so buildLimit would
+    // emit `LIMIT NaN` / a silently-clamped Infinity.
+    expect(() => emitSql({ ...emptySpec('t'), limit: Number.NaN })).toThrow();
+    expect(() => emitSql({ ...emptySpec('t'), limit: Number.POSITIVE_INFINITY })).toThrow();
+    expect(() => emitSql({ ...emptySpec('t'), limit: Number.NEGATIVE_INFINITY })).toThrow();
+  });
 });
 
 describe('emitSql — INJECTION RESISTANCE (handoff §10 / §M5 critical)', () => {

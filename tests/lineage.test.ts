@@ -399,3 +399,22 @@ describe('LineageStore — graph operations', () => {
     expect(s.toJSON()).toEqual({ version: 1, nodes: [], edges: [] });
   });
 });
+
+describe('extractInputsFromPlan — cycle guard (forward-pass H4)', () => {
+  it('terminates on a self-referential plan and still extracts inputs', () => {
+    // `plan: unknown` means a caller can hand in a live object graph;
+    // a node whose child points back at an ancestor would spin a naive
+    // walker forever. The WeakSet guard must break the cycle.
+    const scan: Record<string, unknown> = {
+      name: 'SEQ_SCAN',
+      extra_info: { Table: 'vendors' },
+      children: [],
+    };
+    const root: Record<string, unknown> = { name: 'PROJECTION', children: [scan] };
+    // Close the loop: the scan references the root back.
+    (scan.children as unknown[]).push(root);
+
+    const inputs = extractInputsFromPlan(root);
+    expect(inputs).toEqual([{ kind: 'table', name: 'vendors' }]);
+  });
+});

@@ -51,6 +51,54 @@ export function emptyLineageGraph(): LineageGraph {
   return { version: 1, nodes: [], edges: [] };
 }
 
+const LINEAGE_NODE_KINDS: ReadonlySet<string> = new Set(['source', 'cell', 'sink']);
+
+/**
+ * Reconstruct a `LineageGraph` from an untrusted JSON value — e.g. the
+ * `lineage` field of a loaded `.naklidata` file, or a serialised graph
+ * snapshot. Validates the shape and DROPS malformed nodes/edges rather
+ * than trusting the input verbatim; an edge whose `confidence` isn't
+ * the literal `'low'` defaults to `'high'`. Throws `TypeError` only if
+ * the top-level value isn't an object.
+ *
+ * This is the inverse of a serialised `LineageGraph` (and of
+ * `LineageStore.toJSON()`), and gives the M6 round-trip invariant a
+ * genuinely independent reconstruction path (serialise → revive →
+ * project) instead of a tautological double-apply (forward-pass C3).
+ */
+export function lineageGraphFromJson(value: unknown): LineageGraph {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('lineageGraphFromJson: expected a graph object');
+  }
+  const obj = value as Record<string, unknown>;
+  const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : [];
+  const rawEdges = Array.isArray(obj.edges) ? obj.edges : [];
+
+  const nodes: LineageNode[] = [];
+  for (const n of rawNodes) {
+    if (typeof n !== 'object' || n === null) continue;
+    const r = n as Record<string, unknown>;
+    if (typeof r.id !== 'string' || typeof r.label !== 'string') continue;
+    if (typeof r.kind !== 'string' || !LINEAGE_NODE_KINDS.has(r.kind)) continue;
+    const kind = r.kind as LineageNodeKind;
+    nodes.push(
+      typeof r.ref === 'string'
+        ? { id: r.id, kind, label: r.label, ref: r.ref }
+        : { id: r.id, kind, label: r.label },
+    );
+  }
+
+  const edges: LineageEdge[] = [];
+  for (const e of rawEdges) {
+    if (typeof e !== 'object' || e === null) continue;
+    const r = e as Record<string, unknown>;
+    if (typeof r.from !== 'string' || typeof r.to !== 'string') continue;
+    edges.push({ from: r.from, to: r.to, confidence: r.confidence === 'low' ? 'low' : 'high' });
+  }
+
+  return { version: 1, nodes, edges };
+}
+
 export class LineageStore {
   private nodes = new Map<string, LineageNode>();
   /** Per-cell list of OUTGOING-from-source edges (i.e. edges this

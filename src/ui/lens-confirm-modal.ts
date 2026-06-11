@@ -16,6 +16,13 @@
 // This modal interrupts auto-mount, lists every host the link will
 // reach out to, and requires an explicit Continue click. Cancel
 // strips the lens param and falls back to the saved session.
+//
+// Forward-pass H2 (2026-06-11): the link also carries arbitrary SQL
+// cell bodies. They never auto-execute (Hard NOT #4 — cells run only
+// on an explicit Run click), but a victim who opens a shared notebook
+// and clicks Run is executing the SENDER's SQL against their own
+// mounted data. The modal now surfaces those cell bodies up front so
+// the user can review the queries before loading — not just the hosts.
 
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
@@ -32,9 +39,20 @@ export interface LensConfirmDescriptor {
   kind: string;
 }
 
+/** An executable (SQL-bearing) cell the shared notebook carries. */
+export interface LensConfirmCell {
+  /** Cell name, or null for an unnamed cell. */
+  name: string | null;
+  /** Cell kind — `sql` | `cohort` | `assertion`. */
+  kind: string;
+  /** The SQL body that runs when the user clicks Run. */
+  code: string;
+}
+
 export function openLensConfirmModal(
   remotes: LensConfirmDescriptor[],
   notebookTitle: string,
+  cells: LensConfirmCell[] = [],
 ): Promise<boolean> {
   return new Promise((resolve) => {
     if (_modalEl) {
@@ -43,7 +61,7 @@ export function openLensConfirmModal(
       return;
     }
     const previouslyFocused = (document.activeElement as HTMLElement) ?? null;
-    const overlay = render(remotes, notebookTitle);
+    const overlay = render(remotes, notebookTitle, cells);
     document.body.append(overlay);
     _modalEl = overlay;
 
@@ -83,13 +101,24 @@ export function openLensConfirmModal(
   });
 }
 
-function render(remotes: LensConfirmDescriptor[], notebookTitle: string): HTMLElement {
+/** Per-cell SQL body cap so a hostile link can't blow up the modal. */
+const MAX_SQL_CHARS = 2000;
+/** Max executable cells listed; the rest collapse into a "+N more" note. */
+const MAX_CELLS_SHOWN = 50;
+
+function render(
+  remotes: LensConfirmDescriptor[],
+  notebookTitle: string,
+  cells: LensConfirmCell[],
+): HTMLElement {
   const overlay = document.createElement('div');
   // Reuse the codebase's shared modal classes (see shell.css.ts).
   overlay.className = 'schema-graph-overlay lens-confirm-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-labelledby', 'lens-confirm-title');
+
+  // --- Remote-hosts section (the original A19 / H1 SSRF gate) ---
   // Deduplicate hosts in the bullet list; show one row per unique host.
   // The user cares about WHERE the fetches go, not how many sources
   // share a host.
@@ -109,12 +138,9 @@ function render(remotes: LensConfirmDescriptor[], notebookTitle: string): HTMLEl
         <span class="lens-confirm-meta" style="color:var(--text-muted);display:block;margin-top:2px;">${escapeHtml(kinds)} — ${labels}</span>
       </li>`);
   }
-  overlay.innerHTML = `
-    <div class="schema-graph-modal lens-confirm-modal" role="document" style="width:min(620px,100%);height:auto;max-height:min(80vh,720px);">
-      <header class="schema-graph-header" style="gap:var(--space-2);">
-        <h2 id="lens-confirm-title" style="margin:0;font-size:var(--text-md,15px);display:flex;align-items:center;gap:6px;">${iconSvg('warning', 14)} Confirm shared-link mount</h2>
-      </header>
-      <div class="lens-confirm-body" style="padding:var(--space-4) var(--space-5);overflow:auto;flex:1;min-height:0;">
+  const hostSection =
+    remotes.length > 0
+      ? `
         <p style="margin-top:0;">
           The shared notebook <strong>${escapeHtml(notebookTitle)}</strong>
           asks NakliData to fetch data from
@@ -131,11 +157,58 @@ function render(remotes: LensConfirmDescriptor[], notebookTitle: string): HTMLEl
         <p class="lens-confirm-note" style="color:var(--text-muted);font-size:12px;line-height:1.5;">
           Local sources (example data, folders you'd already opened)
           are not affected.
+        </p>`
+      : `<p style="margin-top:0;">You're opening the shared notebook <strong>${escapeHtml(notebookTitle)}</strong>.</p>`;
+
+  // --- Executable-SQL section (H2) ---
+  const shown = cells.slice(0, MAX_CELLS_SHOWN);
+  const cellRows = shown
+    .map((c) => {
+      const label = escapeHtml(c.name ?? `${c.kind} cell`);
+      const body =
+        c.code.length > MAX_SQL_CHARS ? `${c.code.slice(0, MAX_SQL_CHARS)}\n… (truncated)` : c.code;
+      return `
+        <li class="lens-confirm-cell" style="list-style:none;">
+          <div style="font-size:12px;color:var(--text);font-weight:600;display:flex;align-items:center;gap:6px;">
+            ${label}
+            <span style="font-weight:400;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;">${escapeHtml(c.kind)}</span>
+          </div>
+          <pre style="white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;background:var(--surface-alt);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--font-mono);font-size:11px;margin:4px 0 0;color:var(--text);">${escapeHtml(body)}</pre>
+        </li>`;
+    })
+    .join('');
+  const moreNote =
+    cells.length > MAX_CELLS_SHOWN
+      ? `<p class="lens-confirm-note" style="color:var(--text-muted);font-size:12px;">…and ${cells.length - MAX_CELLS_SHOWN} more cell${cells.length - MAX_CELLS_SHOWN === 1 ? '' : 's'} not shown.</p>`
+      : '';
+  const sqlSection =
+    cells.length > 0
+      ? `
+        <p class="lens-confirm-note" style="color:var(--text-muted);font-size:12px;line-height:1.5;margin-top:${remotes.length > 0 ? 'var(--space-4)' : '0'};">
+          This notebook contains <strong>${cells.length}</strong>
+          cell${cells.length === 1 ? '' : 's'} that run SQL against your
+          data when you click <strong>Run</strong>. Nothing runs
+          automatically, but a shared link can carry any query — review
+          the SQL below before loading.
         </p>
+        <ul class="lens-confirm-cells" style="padding:0;margin:var(--space-3) 0 0;display:flex;flex-direction:column;gap:var(--space-3);">${cellRows}</ul>
+        ${moreNote}`
+      : '';
+
+  const continueLabel = remotes.length > 0 ? 'Continue and fetch' : 'Load notebook';
+
+  overlay.innerHTML = `
+    <div class="schema-graph-modal lens-confirm-modal" role="document" style="width:min(620px,100%);height:auto;max-height:min(80vh,720px);">
+      <header class="schema-graph-header" style="gap:var(--space-2);">
+        <h2 id="lens-confirm-title" style="margin:0;font-size:var(--text-md,15px);display:flex;align-items:center;gap:6px;">${iconSvg('warning', 14)} Review shared notebook</h2>
+      </header>
+      <div class="lens-confirm-body" style="padding:var(--space-4) var(--space-5);overflow:auto;flex:1;min-height:0;">
+        ${hostSection}
+        ${sqlSection}
       </div>
       <footer style="display:flex;gap:var(--space-2);justify-content:flex-end;padding:var(--space-3) var(--space-5);border-top:1px solid var(--border);">
         <button class="btn btn-ghost" data-action="lens-confirm-cancel">Cancel — use my saved state</button>
-        <button class="btn btn-primary" data-action="lens-confirm-continue">Continue and fetch</button>
+        <button class="btn btn-primary" data-action="lens-confirm-continue">${continueLabel}</button>
       </footer>
     </div>
   `;

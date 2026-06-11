@@ -19,6 +19,7 @@ import {
   projectToCanvas,
   roundTripInvariantHolds,
 } from '../src/core/lineage-edit.ts';
+import { lineageGraphFromJson } from '../src/core/lineage-store.ts';
 import type { LineageGraph } from '../src/core/lineage-store.ts';
 
 function graph(): LineageGraph {
@@ -162,5 +163,68 @@ describe('Round-trip invariant (THE load-bearing test of M6)', () => {
     expect(roundTripInvariantHolds(graph(), { kind: 'reposition', nodeId: 'a', column: 0 })).toBe(
       true,
     );
+  });
+});
+
+// C3 — the round-trip invariant now revives through this validator, so
+// it has to do real work. Lock its behaviour down directly.
+describe('lineageGraphFromJson (the revive leg of the M6 round-trip)', () => {
+  it('round-trips a clean graph identically', () => {
+    const g = graph();
+    const revived = lineageGraphFromJson(JSON.parse(JSON.stringify(g)));
+    expect(revived).toEqual(g);
+  });
+
+  it('preserves a node ref', () => {
+    const revived = lineageGraphFromJson({
+      version: 1,
+      nodes: [{ id: 'src', kind: 'source', label: 'orders', ref: '/data/orders.parquet' }],
+      edges: [],
+    });
+    expect(revived.nodes[0]).toEqual({
+      id: 'src',
+      kind: 'source',
+      label: 'orders',
+      ref: '/data/orders.parquet',
+    });
+  });
+
+  it('drops malformed nodes (missing label, invalid kind, non-object)', () => {
+    const revived = lineageGraphFromJson({
+      nodes: [
+        { id: 'ok', kind: 'cell', label: 'cell_ok' },
+        { id: 'no-label', kind: 'cell' },
+        { id: 'bad-kind', kind: 'transform', label: 'x' },
+        null,
+        'garbage',
+      ],
+      edges: [],
+    });
+    expect(revived.nodes.map((n) => n.id)).toEqual(['ok']);
+  });
+
+  it('drops malformed edges and defaults confidence to high', () => {
+    const revived = lineageGraphFromJson({
+      nodes: [],
+      edges: [
+        { from: 'a', to: 'b' }, // no confidence → high
+        { from: 'b', to: 'c', confidence: 'low' },
+        { from: 'd' }, // missing `to` → dropped
+        42,
+      ],
+    });
+    expect(revived.edges).toEqual([
+      { from: 'a', to: 'b', confidence: 'high' },
+      { from: 'b', to: 'c', confidence: 'low' },
+    ]);
+  });
+
+  it('tolerates missing nodes/edges arrays', () => {
+    expect(lineageGraphFromJson({})).toEqual({ version: 1, nodes: [], edges: [] });
+  });
+
+  it('throws on a non-object top-level value', () => {
+    expect(() => lineageGraphFromJson(null)).toThrow(TypeError);
+    expect(() => lineageGraphFromJson('not a graph')).toThrow(TypeError);
   });
 });

@@ -230,8 +230,14 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
 
     const actions = document.createElement('div');
     actions.className = 'cell-output-error-actions';
+    // No static `hidden` attribute: visibility is gated purely by CSS
+    // (`.cell-sidecar-trigger` is display:none until the app root has
+    // `.app-sidecar-enabled`), matching the summarise-result + propose-
+    // chart buttons below. The vestigial `hidden` here suppressed the
+    // button permanently — the v1.1 Explain-error job was unreachable
+    // from the UI since it shipped (forward-pass C1).
     actions.innerHTML = `
-      <button class="btn btn-ghost cell-sidecar-trigger" data-action="explain-error" data-cell-id="${cell.id}" hidden>
+      <button class="btn btn-ghost cell-sidecar-trigger" data-action="explain-error" data-cell-id="${cell.id}">
         ${iconSvg('info', 12)} <span>Explain this error</span>
       </button>
     `;
