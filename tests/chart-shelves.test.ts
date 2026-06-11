@@ -16,6 +16,7 @@ import {
   compileShelvesToConfig,
   configToShelves,
   emptyShelfState,
+  inferFieldClass,
   roundtripPreservesColumns,
 } from '../src/core/chart-shelves.ts';
 
@@ -223,5 +224,50 @@ describe('Byte-identical config from shelves and manual mode (gate artifact)', (
       'Trend',
     );
     expect(fromShelves).toEqual(manual);
+  });
+});
+
+describe('inferFieldClass (Phase 2 shelf field classifier)', () => {
+  const rows = [
+    { amount: 100, status: 'paid', day: '2026-01-02', vendor_id: 7, flag: true, note: null },
+    { amount: 250, status: 'open', day: '2026-01-03', vendor_id: 8, flag: false, note: null },
+  ];
+
+  it('numeric column → numeric', () => {
+    expect(inferFieldClass('amount', rows)).toBe('numeric');
+  });
+
+  it('categorical string column → categorical', () => {
+    expect(inferFieldClass('status', rows)).toBe('categorical');
+  });
+
+  it('ISO date string column → temporal', () => {
+    expect(inferFieldClass('day', rows)).toBe('temporal');
+  });
+
+  it('id-named column → identifier even when numeric (kept off y)', () => {
+    expect(inferFieldClass('vendor_id', rows)).toBe('identifier');
+  });
+
+  it('boolean column → categorical', () => {
+    expect(inferFieldClass('flag', rows)).toBe('categorical');
+  });
+
+  it('all-null / absent column → unknown', () => {
+    expect(inferFieldClass('note', rows)).toBe('unknown');
+    expect(inferFieldClass('missing', rows)).toBe('unknown');
+  });
+
+  it('mixed-type column falls back to categorical', () => {
+    expect(inferFieldClass('m', [{ m: 1 }, { m: 'two' }])).toBe('categorical');
+  });
+
+  it('feeds compileShelvesToConfig: id on y warns + drops, then COUNT bar', () => {
+    const x = { name: 'status', class: inferFieldClass('status', rows) };
+    const y = { name: 'vendor_id', class: inferFieldClass('vendor_id', rows) };
+    const { config, warnings } = compileShelvesToConfig({ x, y, color: null });
+    expect(warnings.some((w) => w.shelf === 'y' && w.field === 'vendor_id')).toBe(true);
+    expect(config.yColumn).toBeNull();
+    expect(config.chartType).toBe('bar'); // categorical x, no y → bar (COUNT)
   });
 });

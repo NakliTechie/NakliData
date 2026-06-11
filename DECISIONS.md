@@ -2,6 +2,50 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.3 M5 Phase 2 — shelf-based chart authoring UI
+
+**Context:** M5 shipped data-only (`compileShelvesToConfig` +
+`configToShelves` + round-trip invariant). This wires the drop-zone UI.
+
+### Decision Z — Field classes inferred from result DATA, not source taxonomy
+
+`compileShelvesToConfig` needs a `FieldClass` per column. Two sources:
+
+- A: the source-table taxonomy assignments (what the schema panel uses).
+- B: infer from the materialised result values + column name.
+
+**Chosen: B** (`inferFieldClass`). A SQL result routinely holds columns
+that exist in NO source table — `COUNT(*) AS n`, `date_trunc(...) AS
+month`, a CASE expression. The by-name taxonomy lookup (`sqlExtra`'s
+`assignmentsFor`) stubs those as `unknown`/`VARCHAR`, so a numeric
+aggregate would mis-class as categorical and pick the wrong default
+chart. The data is the right signal for charting a *result*. Identifier
+detection is name-based (`_id`, `gstin`, `uuid`, …) so an integer id is
+still kept off the y axis. Never emits `'measure'` — measures are their
+own layer (M2) with their own panel.
+
+### Decision AA — Author mode is a session-ephemeral view preference, not data
+
+Per the Transparency Rule the shelf state is a *projection* of the cell's
+committed `ChartConfig` — there's nothing extra to persist. So "which
+editor is showing" lives in a module `Map<cellId, mode>` (like the SQL
+cell's CM-editor registry), not in `ChartCellState`. Toggling calls
+`onChange(cell.id, {})` — `patchCell` always notifies, so an empty patch
+is a clean re-render nudge. Resets to Manual on reload; no `.naklidata`
+schema change, no round-trip test burden.
+
+### Decision AB — `naklidata:toast` window-event bridge for cell-raised toasts
+
+A rejected shelf field (identifier-on-y → dropped from config) can't sit
+on the shelf to carry its own warning, because the shelf is a pure
+projection of committed state. The warning needs a transient channel,
+but `toast` is main-local and cells receive everything via params. Rather
+than thread a toast callback through every cell signature, cells dispatch
+`new CustomEvent('naklidata:toast', {detail:{message, kind}})` and `main`
+adds one listener. Reusable by any future cell. Persistent warnings
+(numeric-on-color, where the field is kept) still render inline in the
+shelf readout — the toast is only for the drop-and-vanish case.
+
 ## 2026-06-11 — v1.3 M1 Phase 2 — associative cross-filter grey-out UI
 
 **Context:** v1.3 M1 shipped data-only at `a0fa5cf` (selection store +

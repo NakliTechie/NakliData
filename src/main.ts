@@ -230,6 +230,13 @@ async function boot(): Promise<void> {
   const engine = getEngine();
   engine.on('status', ({ status, message }) => updateEngineStatus(root, status, message));
 
+  // Cells can't import the main-local `toast`; they raise it via a window
+  // event instead (e.g. the chart cell's shelf-compile warnings, M5).
+  window.addEventListener('naklidata:toast', (ev) => {
+    const detail = (ev as CustomEvent<{ message?: string; kind?: 'info' | 'error' }>).detail;
+    if (detail?.message) toast(detail.message, detail.kind ?? 'info');
+  });
+
   // v1.3 M1 — render the selections bar reactively. Subscribe once at
   // boot; the store calls back on every set/toggle/clear.
   getSelectionsStore().subscribe((entries) => {

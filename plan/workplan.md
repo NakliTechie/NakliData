@@ -28,11 +28,14 @@ scheduling/scope decision — see Open questions.**
       Smallest useful shape TBD (see Open questions). Lets the user pin
       inter-cell `(table,col)↔(table,col)` relationships so the
       cross-filter spans cells, not just intra-cell. **[test in Chrome]**
-- [ ] **M5 UI** — shelf-based chart authoring: drop-zone UI over the
-      `chart-shelves.ts` logic. **[test in Chrome]**
+- [x] **M5 UI** — DONE (2026-06-11). Manual|Shelves mode toggle on the
+      chart cell; field tray + x/y/color drop-zones (DnD + select
+      fallback) → `compileShelvesToConfig` → cell config. `inferFieldClass`
+      pure helper + 8 tests. 745 vitest / check / smoke green;
+      **Chrome-verified**. DECISIONS Z/AA/AB.
 - [ ] **M6 UI** — lineage edit mode: edit-mode toggle + canvas
-      insert/delete/reposition wired to `applyCanvasOp`. **[test in
-      Chrome]**
+      insert/delete wired to `applyCanvasOp` (reposition deferred —
+      layout-only no-op in core). **[test in Chrome]**
 
 **Prereq:** decide the Phase 2 scope/scheduling question first. Each
 sub-item is independently shippable, so this can land incrementally.

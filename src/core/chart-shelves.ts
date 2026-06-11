@@ -58,6 +58,54 @@ export function emptyShelfState(): ShelfState {
 }
 
 /**
+ * Column names that read as identifiers regardless of value type — kept
+ * off the y axis so the shelf compile warns instead of plotting an id.
+ */
+const IDENTIFIER_NAME_RE = /(^|_)(id|ids|uuid|guid|gstin|pan|isbn|sku|email|key|hash)$/i;
+
+function isDateLike(s: string): boolean {
+  // ISO date or datetime prefix — `2026-01-02` or `2026-01-02T09:00`.
+  return /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}|$)/.test(s);
+}
+
+/**
+ * Heuristically classify a result column into a `FieldClass` from its
+ * materialised values + name. The shelf UI uses this to seed shelf
+ * defaults + drive the "teach, don't fail" warnings.
+ *
+ * This reads the ACTUAL result data, NOT the source-table taxonomy: a
+ * SQL result often holds transformed/aggregated columns absent from any
+ * mounted table (`COUNT(*) AS n`, `date_trunc(...) AS month`), which a
+ * by-name taxonomy lookup would stub as unknown. The data is the right
+ * signal for charting a result. Pure: no DOM, no globals (v1.3 M0).
+ *
+ * Never returns `'measure'` — measures are a separate layer (M2) with
+ * their own panel; a raw result column is numeric, not a measure.
+ */
+export function inferFieldClass(
+  column: string,
+  rows: ReadonlyArray<Record<string, unknown>>,
+  sampleSize = 50,
+): FieldClass {
+  const sample: unknown[] = [];
+  for (const r of rows) {
+    const v = r[column];
+    if (v !== null && v !== undefined) {
+      sample.push(v);
+      if (sample.length >= sampleSize) break;
+    }
+  }
+  if (sample.length === 0) return 'unknown';
+  // Name-based identifier wins even over a numeric type (an integer id
+  // is still an id, and must not land on the y axis).
+  if (IDENTIFIER_NAME_RE.test(column)) return 'identifier';
+  if (sample.every((v) => typeof v === 'number' || typeof v === 'bigint')) return 'numeric';
+  if (sample.every((v) => typeof v === 'boolean')) return 'categorical';
+  if (sample.every((v) => typeof v === 'string' && isDateLike(v))) return 'temporal';
+  return 'categorical';
+}
+
+/**
  * Reasons a shelf-to-config compilation might emit a warning the UI
  * surfaces inline. These are "teach, don't silently fail" signals —
  * the compile still returns a valid `ChartConfig`, but the warning

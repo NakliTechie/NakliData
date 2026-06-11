@@ -160,4 +160,97 @@ export const notebookCss = `
   font-size: 12px;
 }
 .markdown-preview ul, .markdown-preview ol { padding-left: 22px; }
+
+/* v1.3 M5 Phase 2 — shelf-based chart authoring. */
+.chart-mode-toggle { display: inline-flex; gap: 2px; }
+.chart-mode-toggle .btn { font-size: 11px; padding: 2px 8px; }
+.chart-mode-toggle .btn.is-active {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+  font-weight: 600;
+}
+.shelf-zone {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px 12px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shelf-zone-empty { color: var(--text-muted); font-size: 12px; }
+.shelf-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.shelf-tray-label, .shelf-name {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.shelf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  cursor: grab;
+  user-select: none;
+}
+.shelf-chip:active { cursor: grabbing; }
+.shelf-cls {
+  font-style: normal;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.shelf-cls.cls-temporal, .shelf-cls.cls-numeric { color: var(--focus); }
+.shelf-cls.cls-identifier { color: var(--danger); }
+.shelf-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.shelf {
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.shelf-drop {
+  min-height: 30px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.shelf-drop.over { border-color: var(--accent); background: var(--surface-alt); }
+.shelf-placeholder { color: var(--text-muted); font-size: 11px; }
+.shelf-assigned {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.shelf-clear {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.shelf-clear:hover { color: var(--danger); }
+.shelf-select { font-size: 11px; }
+.shelf-readout { font-size: 12px; color: var(--text-muted); }
+.shelf-readout strong { color: var(--text); }
+.shelf-warning {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--warning);
+  border-left: 2px solid var(--warning);
+  padding-left: 8px;
+}
 `;
