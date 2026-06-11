@@ -51,7 +51,7 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 
 ## v1.4+ candidate gaps (competitive analysis 2026-06-11)
 
-From [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — ranked by value-to-fit, all constraint-checked (browser-only, no-server, no-account; none breaks a Hard NOT). Full rationale + citations in that doc.
+From [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — ranked by value-to-fit, all constraint-checked (browser-only, no-server, no-account; none breaks a Hard NOT). Full rationale + citations in that doc; the granular, individually-shippable breakdown (features F1–F9 + a suggested v1.4 slate) is in [feature-candidates.md](./feature-candidates.md).
 
 1. **Deepen the semantic / metrics layer beyond `MEASURE()`** (high/high, M) — add named *dimensions* + a metrics catalog panel + optional Cube/LookML-style declarative block. Pure client-side macro expansion; builds on v1.3 M2; compounds charts + query builder + AI.
 2. **Calculated / derived fields on a result** (high/high, M) — the BI ergonomic we lack (Tableau/Power BI/Metabase). Reuse the existing injection-safe no-string-concat emitter; output stays a user-run cell (Hard NOT #4 preserved).
