@@ -2,6 +2,14 @@
 
 Working list of features to consider, drawn from competitive recon. Items are tagged by status:
 
+> **2026-06-11 — v1.2 + v1.3 tracks closed; forward-pass run.**
+> 11 milestones shipped in one session (v1.2 M1–M5 + v1.3 M0–M6,
+> 18 commits on origin/main). Fresh-eyes audit produced
+> `plan/forward-pass-2026-06-10.md` with 3 Critical · 16 High · 33
+> Medium findings batched A–F. **Workplan owes a keystone Batch A**
+> (write spec amendment A30, refresh STATUS, DECISIONS). Active
+> items in section "v1.3 audit follow-throughs (2026-06-11)" below.
+
 > **2026-06-02 — v1.2.2 tagged.** 33 forward-pass findings + 9
 > self-review bugs closed across 9 commits. Detail in
 > `plan/forward-pass-2026-06-02.md` and `plan/v1.2.2-release-notes.md`.
@@ -662,6 +670,95 @@ executed in sequence; results below for reference.
   Requires real browser + ~30-60 min clicking through 6 sidecar
   jobs. v1.3.0 tag is gated on 6/6 PASS.
 - **W3.2 slice B chunk 7 — tag v1.3.0** once chunk 5 evidence is in.
+
+## v1.3 audit follow-throughs (2026-06-11)
+
+Surfaced by `plan/forward-pass-2026-06-10.md`. IDs preserved.
+**Batch A is the keystone** — once spec amendment A30 is written
+the rest can land without doc-debt forks.
+
+### Now (high priority)
+
+- **C2 — Write spec amendment A30** (cap raise to 750 KB) in
+  `plan/spec-amendments.md`, update STATUS.md with v1.3 M0–M6
+  entries, update DECISIONS.md with budget-raise rationale.
+  Cross-ref commit `a0fa5cf`. **Keystone — Batch A.**
+- **C1 — Fix dead Explain-error button** (`src/ui/cells/sql-cell.ts:234`)
+  by removing the static `hidden` HTML attribute. v1.1 sidecar job
+  has been silently broken since shipping. **[test in Chrome]**
+- **C3 — Rewrite roundTripInvariantHolds**
+  (`src/core/lineage-edit.ts:144-153`) so it can actually fail.
+  Currently calls applyCanvasOp twice with identical inputs.
+- **H1 — Call deleteHandle on session/source delete** — fix two
+  one-line callsite gaps (`sessions.deleteSession`, `'removeSource'`
+  action). FSA handle leak in IDB.
+- **H2 — Extend lens-confirm modal to preview SQL cell bodies** —
+  shared `.naklidata` can ship arbitrary SQL that auto-mounts +
+  awaits user's Run click.
+- **H3 — Cap gzip decompression at 2 MB** in `decodeLensParam`.
+- **H4 — Cycle guard for walk() in lineage.ts** — `WeakSet<object>`.
+- **H5 — Reject non-finite limit in query-builder validateSpec.**
+- **H8 — Extend smoke test to cover stats + report + measures-panel.**
+- **H9 — Add 'stats' branch to cellWithoutResults** in persistence.
+- **H10 — Scope report print CSS via `[data-printing]` attribute.**
+  **[test in Chrome]**
+- **H11 — beforeprint listener to clone cell-ref content into the
+  report placeholders.** **[test in Chrome]**
+
+### Now (visible UI gaps)
+
+- **H12 — Carry newCellKind into LineageNode** (M6 prep).
+- **H13 — Selection key (type, value) shape** — typed SQL literals.
+- **H14 — Demo-mode column-name leak** — mask `td.dataset.column` too.
+- **H15 — Stats cell header shows `@<cellId>`, not `@<cellName>`.**
+- **H16 — try/finally around `_modalEl` in 3 modals.**
+
+### Now (correctness corner cases)
+
+- **H6 — extractFilePath regex covers S3 URLs + query strings + .gz.**
+- **H7 — Enforce selectColumns+aggregates GROUP BY rule** in QB.
+- **M1 — Stats SQL alias collision** on `__`-substring columns.
+- **M2 — measures validator strips `"..."` idents** before keyword scan.
+- **M3 — Validate margins + clamp range** in report layout.
+- **M4 — Dedupe newCellId in applyCanvasOp.**
+- **M5 — Walk expanded SQL for `@-name` captures.**
+- **M6 — Kind-guard inputCell in handleRunStats.**
+- **M7 — Widen typeof to `bigint`** in stats bucketing.
+- **M8 — CSS.escape on naklidataRenderReport id.**
+- **M13 — Source chart-cell picker from type union** (add funnel + path).
+- **M15 — Extend QB date regex for TZ offsets.**
+- **M16 — Cap FSA folder walk count.**
+- **M18 — Greedy markdown-fence strip in propose-chart parser.**
+- **M25 — Validate version regex in compareVersion.**
+- **M26 — trimStart before JSON-prefix check in explainPlan.**
+- **M29 — try/catch+engine.drop around mount* row-count.**
+- **M31 — Number.isFinite filter for mean/stddev/median.**
+- **M32 — Static cycle pre-pass in validateMeasuresFile.**
+
+### Now (CI infra)
+
+- **M20 — `verify` job in deploy.yml** running
+  `npm run check && npm test && npm run smoke` before build.
+- **M21 — PR triggers** on the verify job.
+- **M22 — chart-shelves + lineage-edit in WATCHED_OPTIONAL.**
+- **L19 — Smoke waitUntil → 'load'.**
+- **L20 — Timeout on postinstall fetchers.**
+
+### Parked (low priority, ship-later)
+
+- **M9–M14, M17, M19, M23, M24** — minor UX + redundancy notes.
+- **L1–L24** — polish items detailed in audit report.
+- **S1–S18** — stray cleanup; lowest priority.
+
+### Open questions
+
+- A30 amendment shape: lean decision-only entry or full threat-model
+  rewrite of spec §7.1?
+- Phase 2 UI scheduling — autonomous proceed vs. user gate?
+- Manual associations panel scope (handoff §M1) — smallest useful
+  starter shape?
+- Should C3's round-trip rewrite use serialise-replay or another
+  oracle?
 
 ## Sources
 
