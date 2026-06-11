@@ -44,7 +44,22 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 - [product-shape.md](./product-shape.md) — the seven-axis view of the product, used for scoping.
 - [product-analytics-comparison.md](./product-analytics-comparison.md) — how NakliData stacks up against Mixpanel / Amplitude / PostHog / Plausible / Heap; what's in scope to add (Theme 5 / Wave 4) and what isn't.
 - [data-platform-comparison.md](./data-platform-comparison.md) — how NakliData stacks up against Databricks / Snowflake / Microsoft Fabric / BigQuery + Looker / Hex / Mode. Where we deliberately don't compete (RBAC, schedules, fabric) and what's worth borrowing (AI SQL, sensitivity labels, assertion cells). Proposes Wave 5 + Wave 6.
+- [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — **(2026-06-11, post-v1.3.0)** NakliData vs Snowflake / BigQuery (warehouses), Power BI / Tableau / Metabase (BI), Segment / RudderStack (CDP). Current 2025/26 pricing + data-gravity per platform, cited. Category map + 8-col matrix + win / non-competitor-by-design / ranked gaps. Extends the two docs above (which had no CDP coverage). Surprising find: RudderStack's warehouse-native "you own the data" pitch is our closest *philosophical* ally despite being orthogonal; MotherDuck's DuckDB-local-first marketing is worth watching.
 - [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
+
+---
+
+## v1.4+ candidate gaps (competitive analysis 2026-06-11)
+
+From [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — ranked by value-to-fit, all constraint-checked (browser-only, no-server, no-account; none breaks a Hard NOT). Full rationale + citations in that doc.
+
+1. **Deepen the semantic / metrics layer beyond `MEASURE()`** (high/high, M) — add named *dimensions* + a metrics catalog panel + optional Cube/LookML-style declarative block. Pure client-side macro expansion; builds on v1.3 M2; compounds charts + query builder + AI.
+2. **Calculated / derived fields on a result** (high/high, M) — the BI ergonomic we lack (Tableau/Power BI/Metabase). Reuse the existing injection-safe no-string-concat emitter; output stays a user-run cell (Hard NOT #4 preserved).
+3. **"Profile this table" X-Ray** (high/high, S–M) — bundle the shipped column-profile + stats + correlation + quick-chart into one action (Metabase X-Ray pattern). All DuckDB-side.
+4. **Grow the visual query builder toward Metabase "ask a question"** (med-high/high, M) — multi-step / multi-join on the same safe emitter.
+5. **Embeddable read-only `?lens=` widget** (med/med, M–L) — closes the embed gap server-free; must stay read-only / no-telemetry / no-account; needs a sandboxing + CSP review. Already noted for v2.1.
+
+**Do NOT chase (breaks a Hard NOT / category):** scheduled refresh/alerts, RBAC/multi-user, event ingestion/identity (CDP), server-side authed embeds, Tableau-Pulse-style AI prose narration.
 
 ---
 
