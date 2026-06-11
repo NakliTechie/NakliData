@@ -23,13 +23,21 @@ import type { CellHandlers, StatsCellState } from './types.ts';
  * happens via `computeStats` (which the notebook calls before
  * rendering).
  */
-export function renderStatsCell(cell: StatsCellState, handlers: CellHandlers): HTMLElement {
+export function renderStatsCell(
+  cell: StatsCellState,
+  cells: ReadonlyArray<{ id: string; name: string | null }>,
+  handlers: CellHandlers,
+): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'cell cell-stats';
   wrap.dataset.cellId = cell.id;
   wrap.dataset.cellKind = 'stats';
 
-  const inputName = cell.inputCell ? `@${cell.inputCell}` : '(no input)';
+  // Resolve the upstream cell id to its human name (forward-pass H15 —
+  // the head used to show the internal `@c_ab12cd` id). Fall back to the
+  // id when the upstream cell is unnamed, mirroring chart/pivot cells.
+  const upstream = cell.inputCell ? cells.find((c) => c.id === cell.inputCell) : null;
+  const inputName = cell.inputCell ? `@${upstream?.name ?? cell.inputCell}` : '(no input)';
 
   wrap.innerHTML = `
     <div class="cell-head">

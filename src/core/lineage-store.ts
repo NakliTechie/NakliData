@@ -22,6 +22,14 @@ import type { LineageInput } from './lineage.ts';
 
 export type LineageNodeKind = 'source' | 'cell' | 'sink';
 
+/**
+ * Cell kinds a lineage `cell` node can materialise as. Carried on
+ * canvas-inserted nodes so a future canvas-to-cell action knows what to
+ * create (M6 Phase 2 prep — forward-pass H12). Single source of truth;
+ * `lineage-edit.ts` aliases this as `NewCellKind`.
+ */
+export type LineageCellKind = 'sql' | 'chart' | 'pivot' | 'stats' | 'report';
+
 export interface LineageNode {
   id: string;
   kind: LineageNodeKind;
@@ -30,6 +38,9 @@ export interface LineageNode {
   label: string;
   /** Optional path/URL/source-of-truth for the node. */
   ref?: string;
+  /** For `cell` nodes inserted via the lineage canvas: which cell kind
+   *  the node should materialise as (M6 Phase 2 prep, forward-pass H12). */
+  cellKind?: LineageCellKind;
 }
 
 export interface LineageEdge {
@@ -52,6 +63,13 @@ export function emptyLineageGraph(): LineageGraph {
 }
 
 const LINEAGE_NODE_KINDS: ReadonlySet<string> = new Set(['source', 'cell', 'sink']);
+const LINEAGE_CELL_KINDS: ReadonlySet<string> = new Set([
+  'sql',
+  'chart',
+  'pivot',
+  'stats',
+  'report',
+]);
 
 /**
  * Reconstruct a `LineageGraph` from an untrusted JSON value — e.g. the
@@ -81,11 +99,12 @@ export function lineageGraphFromJson(value: unknown): LineageGraph {
     if (typeof r.id !== 'string' || typeof r.label !== 'string') continue;
     if (typeof r.kind !== 'string' || !LINEAGE_NODE_KINDS.has(r.kind)) continue;
     const kind = r.kind as LineageNodeKind;
-    nodes.push(
-      typeof r.ref === 'string'
-        ? { id: r.id, kind, label: r.label, ref: r.ref }
-        : { id: r.id, kind, label: r.label },
-    );
+    const node: LineageNode = { id: r.id, kind, label: r.label };
+    if (typeof r.ref === 'string') node.ref = r.ref;
+    if (typeof r.cellKind === 'string' && LINEAGE_CELL_KINDS.has(r.cellKind)) {
+      node.cellKind = r.cellKind as LineageCellKind;
+    }
+    nodes.push(node);
   }
 
   const edges: LineageEdge[] = [];

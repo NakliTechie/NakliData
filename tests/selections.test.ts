@@ -200,4 +200,73 @@ describe('buildIntraTableSelectionPredicate', () => {
     // The DROP TABLE token lives inside the quoted SQL literal, never
     // as a free SQL fragment.
   });
+
+  // --- H13: type-correct literal emission ---
+  it('defaults to quoted-string literals when no type is given (back-compat)', () => {
+    const pred = buildIntraTableSelectionPredicate({ table: 'orders', column: 'total' }, [
+      { table: 'orders', column: 'vendor', values: ['Acme'] },
+    ]);
+    expect(pred).toBe(`"vendor" IN ('Acme')`);
+  });
+
+  it('emits BARE numbers for a numeric column (not quoted strings)', () => {
+    const pred = buildIntraTableSelectionPredicate({ table: 'orders', column: 'vendor' }, [
+      { table: 'orders', column: 'amount', values: ['42', '100.5'], type: 'number' },
+    ]);
+    expect(pred).toBe(`"amount" IN (42, 100.5)`);
+  });
+
+  it('drops non-numeric values for a numeric column, skips an all-invalid clause', () => {
+    const pred = buildIntraTableSelectionPredicate({ table: 'orders', column: 'vendor' }, [
+      { table: 'orders', column: 'amount', values: ['42', 'oops'], type: 'number' },
+      { table: 'orders', column: 'qty', values: ['nope'], type: 'number' },
+    ]);
+    expect(pred).toBe(`"amount" IN (42)`); // qty clause dropped entirely
+  });
+
+  it('emits TRUE/FALSE for a boolean column', () => {
+    const pred = buildIntraTableSelectionPredicate({ table: 'orders', column: 'vendor' }, [
+      { table: 'orders', column: 'is_paid', values: ['true', 'false'], type: 'boolean' },
+    ]);
+    expect(pred).toBe(`"is_paid" IN (TRUE, FALSE)`);
+  });
+
+  it('emits typed DATE literals for ISO dates, quotes non-ISO date values', () => {
+    const pred = buildIntraTableSelectionPredicate({ table: 'orders', column: 'vendor' }, [
+      { table: 'orders', column: 'day', values: ['2026-01-01', 'last week'], type: 'date' },
+    ]);
+    expect(pred).toBe(`"day" IN (DATE '2026-01-01', 'last week')`);
+  });
+});
+
+describe('SelectionsStore — type tracking (H13)', () => {
+  it('records + round-trips the column type through setEntry/list/toFile', () => {
+    const s = new SelectionsStore();
+    s.setEntry({ table: 'orders', column: 'amount' }, ['42'], 'number');
+    expect(s.list()).toEqual([
+      { table: 'orders', column: 'amount', values: ['42'], type: 'number' },
+    ]);
+
+    const reloaded = new SelectionsStore();
+    reloaded.loadFromFile(s.toFile());
+    expect(reloaded.list()).toEqual([
+      { table: 'orders', column: 'amount', values: ['42'], type: 'number' },
+    ]);
+  });
+
+  it('omits type when none is given + forgets it when the entry clears', () => {
+    const s = new SelectionsStore();
+    s.toggle({ table: 'orders', column: 'vendor' }, 'Acme');
+    expect(s.list()).toEqual([{ table: 'orders', column: 'vendor', values: ['Acme'] }]);
+    s.toggle({ table: 'orders', column: 'amount' }, '42', 'number');
+    s.toggle({ table: 'orders', column: 'amount' }, '42', 'number'); // clears it
+    // After full clear the type is forgotten; re-adding without a type
+    // must not resurrect 'number'.
+    s.toggle({ table: 'orders', column: 'amount' }, '99');
+    expect(s.list().find((e) => e.column === 'amount')).toEqual({
+      table: 'orders',
+      column: 'amount',
+      values: ['99'],
+    });
+  });
 });

@@ -397,6 +397,36 @@ async function main() {
   if (!dashOk?.affordance) fail('dashboard empty-items affordance missing');
   log('✓ dashboard cell rendered + empty-items affordance present');
 
+  // 12d. v1.3 — adding stats + report cells renders their DOM. (Forward-
+  //      pass H8: smoke had zero coverage of the v1.3 M3/M4 surfaces.)
+  await page.click('[data-nb-action="add-stats"]');
+  await delay(400);
+  const statsOk = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="stats"]');
+    if (!cell) return null;
+    const hasRun = !!cell.querySelector('[data-action="run-stats"]');
+    const hasBody = (cell.querySelector('.cell-output')?.textContent ?? '').length > 0;
+    return { hasRun, hasBody };
+  });
+  if (!statsOk) fail('add-stats did not render a .cell[data-cell-kind="stats"]');
+  if (!statsOk.hasRun) fail('stats cell missing the Run button');
+  if (!statsOk.hasBody) fail('stats cell has no output body');
+  log('✓ stats cell rendered (Run button + body present)');
+
+  await page.click('[data-nb-action="add-report"]');
+  await delay(400);
+  const reportOk = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="report"]');
+    if (!cell) return null;
+    const hasPaper = !!cell.querySelector('.report-paper');
+    const hasPrint = !!cell.querySelector('[data-action="report-print"]');
+    return { hasPaper, hasPrint };
+  });
+  if (!reportOk) fail('add-report did not render a .cell[data-cell-kind="report"]');
+  if (!reportOk.hasPaper) fail('report cell missing .report-paper');
+  if (!reportOk.hasPrint) fail('report cell missing the Print-to-PDF button');
+  log('✓ report cell rendered (paper + Print-to-PDF button present)');
+
   // 12c. Presentation mode toggles via class — flip the class manually
   //      (skip the URL-reload path because full reboot in smoke is
   //      expensive) and check that the sidebars hide.

@@ -32,11 +32,22 @@ export function selectionKeyString(k: SelectionKey): string {
   return `${k.table}::${k.column}`;
 }
 
+/**
+ * Value type of a selected column — drives type-correct SQL literal
+ * emission in the cross-filter predicate (forward-pass H13). A numeric
+ * column must emit `IN (42)`, not `IN ('42')`, or DuckDB compares a
+ * number column against a string. Absent ⇒ treated as `'string'` for
+ * back-compat with pre-H13 selections.
+ */
+export type SelectionValueType = 'string' | 'number' | 'date' | 'boolean';
+
 export interface SelectionEntry {
   table: string;
   column: string;
   /** The set of currently-selected values, stringified. */
   values: ReadonlyArray<string>;
+  /** Column value type. Optional; absent ⇒ `'string'`. */
+  type?: SelectionValueType;
 }
 
 export interface SelectionsFile {
@@ -103,6 +114,8 @@ export function computeValueStates(
  */
 export class SelectionsStore {
   private entries = new Map<string, Set<string>>();
+  /** Per-key column value type (H13). Only set when the caller knows it. */
+  private types = new Map<string, SelectionValueType>();
   private listeners = new Set<(entries: ReadonlyArray<SelectionEntry>) => void>();
 
   /** Snapshot of all current selections, ordered by table then column. */
@@ -110,7 +123,13 @@ export class SelectionsStore {
     return Array.from(this.entries.entries())
       .map(([key, values]) => {
         const [table, column] = key.split('::');
-        return { table: table ?? '', column: column ?? '', values: Array.from(values) };
+        const type = this.types.get(key);
+        const entry: SelectionEntry = {
+          table: table ?? '',
+          column: column ?? '',
+          values: Array.from(values),
+        };
+        return type ? { ...entry, type } : entry;
       })
       .sort((a, b) => a.table.localeCompare(b.table) || a.column.localeCompare(b.column));
   }
@@ -137,16 +156,20 @@ export class SelectionsStore {
    * Toggle a value's membership in the selection for (table, column).
    * Returns true if the value is now SELECTED, false if cleared.
    */
-  toggle(key: SelectionKey, value: string): boolean {
+  toggle(key: SelectionKey, value: string, type?: SelectionValueType): boolean {
     const k = selectionKeyString(key);
     let set = this.entries.get(k);
     if (!set) {
       set = new Set<string>();
       this.entries.set(k, set);
     }
+    if (type) this.types.set(k, type);
     if (set.has(value)) {
       set.delete(value);
-      if (set.size === 0) this.entries.delete(k);
+      if (set.size === 0) {
+        this.entries.delete(k);
+        this.types.delete(k);
+      }
       this.notify();
       return false;
     }
@@ -156,25 +179,31 @@ export class SelectionsStore {
   }
 
   /** Replace the entire value set for one (table, column). */
-  setEntry(key: SelectionKey, values: ReadonlyArray<string>): void {
+  setEntry(key: SelectionKey, values: ReadonlyArray<string>, type?: SelectionValueType): void {
     const k = selectionKeyString(key);
     if (values.length === 0) {
       this.entries.delete(k);
+      this.types.delete(k);
     } else {
       this.entries.set(k, new Set(values));
+      if (type) this.types.set(k, type);
     }
     this.notify();
   }
 
   /** Clear one (table, column) entry. */
   clearEntry(key: SelectionKey): void {
-    if (this.entries.delete(selectionKeyString(key))) this.notify();
+    const k = selectionKeyString(key);
+    const had = this.entries.delete(k);
+    this.types.delete(k);
+    if (had) this.notify();
   }
 
   /** Clear EVERY selection. */
   clearAll(): void {
     if (this.entries.size === 0) return;
     this.entries.clear();
+    this.types.clear();
     this.notify();
   }
 
@@ -184,13 +213,13 @@ export class SelectionsStore {
    */
   loadFromFile(file: SelectionsFile | undefined): void {
     this.entries.clear();
+    this.types.clear();
     if (file && file.version === 1) {
       for (const e of file.entries) {
         if (e.values.length > 0) {
-          this.entries.set(
-            selectionKeyString({ table: e.table, column: e.column }),
-            new Set(e.values),
-          );
+          const k = selectionKeyString({ table: e.table, column: e.column });
+          this.entries.set(k, new Set(e.values));
+          if (e.type) this.types.set(k, e.type);
         }
       }
     }
@@ -250,11 +279,42 @@ export function buildIntraTableSelectionPredicate(
   for (const sel of sameTable) {
     if (sel.column === target.column) continue; // self-selection doesn't change the value set
     if (sel.values.length === 0) continue;
-    const literals = sel.values.map(quoteLiteral).join(', ');
-    clauses.push(`${quoteIdent(sel.column)} IN (${literals})`);
+    // Emit type-correct literals (H13): numeric/boolean/date columns get
+    // bare/typed literals, not quoted strings. Values that don't fit the
+    // declared type are dropped (defensive — same posture as the query
+    // builder); a clause with no surviving literals is skipped entirely.
+    const literals = sel.values
+      .map((v) => emitSelectionLiteral(sel.type ?? 'string', v))
+      .filter((lit): lit is string => lit !== null);
+    if (literals.length === 0) continue;
+    clauses.push(`${quoteIdent(sel.column)} IN (${literals.join(', ')})`);
   }
   if (clauses.length === 0) return null;
   return clauses.join(' AND ');
+}
+
+/**
+ * Emit a single SQL literal for a selected value, type-correct for the
+ * column. Returns null when the value can't be represented as the
+ * declared type (so the caller drops it).
+ */
+function emitSelectionLiteral(type: SelectionValueType, value: string): string | null {
+  if (type === 'number') {
+    const n = Number(value);
+    return Number.isFinite(n) ? String(n) : null;
+  }
+  if (type === 'boolean') {
+    if (value === 'true') return 'TRUE';
+    if (value === 'false') return 'FALSE';
+    return null;
+  }
+  if (type === 'date') {
+    // ISO `YYYY-MM-DD` → a typed DATE literal; anything else falls back to
+    // a quoted string (DuckDB casts in comparison context).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `DATE '${value.replace(/'/g, "''")}'`;
+    return quoteLiteral(value);
+  }
+  return quoteLiteral(value);
 }
 
 function quoteIdent(name: string): string {

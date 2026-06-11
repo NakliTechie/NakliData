@@ -79,6 +79,21 @@ describe('applyCanvasOp — insert-on-edge', () => {
     const next = applyCanvasOp(g, op);
     expect(next.nodes.find((n) => n.id === 'new1')?.kind).toBe('cell');
   });
+
+  it('carries the requested newCellKind onto the node + survives the round-trip (H12)', () => {
+    const g = graph();
+    const op: CanvasOp = {
+      kind: 'insert-on-edge',
+      edge: { from: 'a', to: 'b' },
+      newCellKind: 'stats',
+      newCellId: 'new1',
+    };
+    const next = applyCanvasOp(g, op);
+    expect(next.nodes.find((n) => n.id === 'new1')?.cellKind).toBe('stats');
+    // And the round-trip invariant still holds (cellKind survives the
+    // serialise → revive → project path).
+    expect(roundTripInvariantHolds(g, op)).toBe(true);
+  });
 });
 
 describe('applyCanvasOp — delete-node', () => {

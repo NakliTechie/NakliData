@@ -26,7 +26,9 @@ import type {
   MapCellState,
   MarkdownCellState,
   PivotCellState,
+  ReportCellState,
   SqlCellState,
+  StatsCellState,
 } from '../src/ui/cells/types.ts';
 
 const baseInput: Omit<SerializeInput, 'cells'> = {
@@ -200,6 +202,70 @@ describe('persistence round-trip — assertion cell (W5.5)', () => {
       lastError: null,
       lastResult: null,
     });
+  });
+});
+
+describe('persistence round-trip — stats cell (v1.3 M4, forward-pass H9)', () => {
+  it('strips the engine snapshot (descriptives/correlations/status/error)', () => {
+    const cell: StatsCellState = {
+      id: 'c_stats_1',
+      kind: 'stats',
+      order: 5,
+      name: 'invoice_stats',
+      inputCell: 'c_sql_1',
+      descriptives: [
+        {
+          name: 'amount',
+          type: 'numeric',
+          count: 100,
+          nulls: 0,
+          distinct: 90,
+          mean: 42.5,
+          stddev: 3.1,
+          median: 40,
+        },
+      ],
+      correlations: [{ a: 'amount', b: 'qty', value: 0.8 }],
+      status: 'success',
+      lastError: 'stale error',
+    };
+    const [out] = roundTripCells([cell]);
+    expect(out).toEqual({
+      id: 'c_stats_1',
+      kind: 'stats',
+      order: 5,
+      name: 'invoice_stats',
+      inputCell: 'c_sql_1',
+      descriptives: null,
+      correlations: null,
+      status: 'idle',
+      lastError: null,
+    });
+  });
+});
+
+describe('persistence round-trip — report cell (v1.3 M3)', () => {
+  it('survives the full report definition', () => {
+    const cell: ReportCellState = {
+      id: 'c_report_1',
+      kind: 'report',
+      order: 6,
+      name: 'monthly',
+      definition: {
+        title: 'Monthly spend',
+        pageSize: 'A4',
+        margins: { top: 20, right: 15, bottom: 20, left: 15 },
+        subtitle: 'FY26',
+        items: [
+          { kind: 'kpi-row', tiles: [{ measure: 'revenue', label: 'Revenue' }] },
+          { kind: 'cell-ref', cellName: 'spend_chart' },
+          { kind: 'page-break' },
+          { kind: 'spacer', height: 24 },
+        ],
+      },
+    };
+    const [out] = roundTripCells([cell]);
+    expect(out).toEqual(cell);
   });
 });
 

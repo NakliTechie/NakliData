@@ -243,6 +243,18 @@ function cellWithoutResults(c: CellState): CellState {
       lastResult: null,
     };
   }
+  if (c.kind === 'stats') {
+    // Descriptives + correlations are engine snapshots — recomputed on Run
+    // from the upstream cell. Don't persist them (forward-pass H9); a
+    // loaded notebook re-derives them when the stats cell runs.
+    return {
+      ...c,
+      status: 'idle',
+      lastError: null,
+      descriptives: null,
+      correlations: null,
+    };
+  }
   return c;
 }
 

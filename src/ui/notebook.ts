@@ -532,7 +532,7 @@ export function renderNotebook(
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
     else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
-    else if (cell.kind === 'stats') root.append(renderStatsCell(cell, handlers));
+    else if (cell.kind === 'stats') root.append(renderStatsCell(cell, cells, handlers));
     else if (cell.kind === 'report') root.append(renderReportCell(cell, handlers));
   }
 

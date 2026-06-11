@@ -61,43 +61,58 @@ export function openLensConfirmModal(
       return;
     }
     const previouslyFocused = (document.activeElement as HTMLElement) ?? null;
-    const overlay = render(remotes, notebookTitle, cells);
-    document.body.append(overlay);
-    _modalEl = overlay;
+    let overlay: HTMLElement | null = null;
+    try {
+      overlay = render(remotes, notebookTitle, cells);
+      document.body.append(overlay);
+      _modalEl = overlay;
 
-    const close = (proceed: boolean): void => {
-      if (_modalEl?.parentElement) _modalEl.parentElement.removeChild(_modalEl);
+      const close = (proceed: boolean): void => {
+        if (_modalEl?.parentElement) _modalEl.parentElement.removeChild(_modalEl);
+        _modalEl = null;
+        if (_onKey) {
+          document.removeEventListener('keydown', _onKey);
+          _onKey = null;
+        }
+        restoreModalFocus(previouslyFocused);
+        resolve(proceed);
+      };
+
+      overlay.addEventListener('click', (ev) => {
+        const target = ev.target as HTMLElement | null;
+        if (!target) return;
+        // Backdrop click = cancel
+        if (target === overlay) {
+          close(false);
+          return;
+        }
+        const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
+        if (action === 'lens-confirm-continue') close(true);
+        else if (action === 'lens-confirm-cancel') close(false);
+      });
+
+      _onKey = (ev: KeyboardEvent) => {
+        if (ev.key === 'Escape') close(false);
+      };
+      document.addEventListener('keydown', _onKey);
+
+      // Focus the Cancel button — defaulting focus to "Continue" would
+      // make Enter-key dismissals proceed with the fetch, which is the
+      // opposite of what this modal exists to prevent.
+      overlay.querySelector<HTMLElement>('[data-action="lens-confirm-cancel"]')?.focus();
+    } catch {
+      // Never strand the singleton — a half-open modal would block every
+      // future lens confirm. A failed open resolves `false` (declined),
+      // the safe default for this SSRF/exec gate (forward-pass H16).
+      if (overlay?.parentElement) overlay.parentElement.removeChild(overlay);
       _modalEl = null;
       if (_onKey) {
         document.removeEventListener('keydown', _onKey);
         _onKey = null;
       }
       restoreModalFocus(previouslyFocused);
-      resolve(proceed);
-    };
-
-    overlay.addEventListener('click', (ev) => {
-      const target = ev.target as HTMLElement | null;
-      if (!target) return;
-      // Backdrop click = cancel
-      if (target === overlay) {
-        close(false);
-        return;
-      }
-      const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
-      if (action === 'lens-confirm-continue') close(true);
-      else if (action === 'lens-confirm-cancel') close(false);
-    });
-
-    _onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') close(false);
-    };
-    document.addEventListener('keydown', _onKey);
-
-    // Focus the Cancel button — defaulting focus to "Continue" would
-    // make Enter-key dismissals proceed with the fetch, which is the
-    // opposite of what this modal exists to prevent.
-    overlay.querySelector<HTMLElement>('[data-action="lens-confirm-cancel"]')?.focus();
+      resolve(false);
+    }
   });
 }
 

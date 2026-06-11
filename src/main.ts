@@ -123,31 +123,72 @@ function bootUnsupported(reason: string): void {
   `;
 }
 
+// --- v1.3 M3 report printing (forward-pass H10 + H11) ---
+// Restore thunks for the cell-ref placeholders embedded at print time.
+const _reportRefRestore: Array<() => void> = [];
+
 /**
- * v1.3 M3 — agent / automation surface. External callers (sidecars,
- * Playwright drivers) can request a report render via:
- *   window.naklidataRenderReport(reportCellId)
- *
- * The function locates the report cell, scrolls it into view, and
- * triggers the browser's print dialog. The report cell's @media print
- * CSS scopes visibility to the report only — header / sidebar / other
- * cells are hidden in the resulting PDF.
- *
- * No scheduling, no queue, no background execution (handoff §M3 +
- * §"What NOT to do"). The function returns void; the caller observes
- * the print dialog directly.
+ * H11 — fill a report's `[data-cell-ref]` placeholders with a clone of
+ * the referenced cell's rendered output (minus its edit chrome) just
+ * before printing. Each embed registers a restore thunk so afterprint
+ * puts the placeholder back exactly as it was. A ref to a missing or
+ * unnamed cell keeps its "[@name — content embedded at render]"
+ * placeholder text.
  */
-(window as unknown as { naklidataRenderReport: (id: string) => void }).naklidataRenderReport = (
-  reportCellId: string,
-) => {
+function embedReportCellRefs(
+  reportEl: HTMLElement,
+  cells: ReadonlyArray<{ id: string; name: string | null }>,
+): void {
+  const nameToId = new Map<string, string>();
+  for (const c of cells) if (c.name) nameToId.set(c.name, c.id);
+  for (const ph of reportEl.querySelectorAll<HTMLElement>('.report-cell-ref[data-cell-ref]')) {
+    const targetId = nameToId.get(ph.dataset.cellRef ?? '');
+    const targetEl = targetId
+      ? document.querySelector<HTMLElement>(`.cell[data-cell-id="${targetId}"]`)
+      : null;
+    if (!targetEl) continue;
+    const savedHtml = ph.innerHTML;
+    const savedStyle = ph.getAttribute('style');
+    _reportRefRestore.push(() => {
+      ph.innerHTML = savedHtml;
+      if (savedStyle === null) ph.removeAttribute('style');
+      else ph.setAttribute('style', savedStyle);
+    });
+    const clone = targetEl.cloneNode(true) as HTMLElement;
+    clone.querySelector('.cell-head')?.remove();
+    ph.innerHTML = '';
+    ph.style.cssText = 'margin-bottom:10mm;';
+    ph.append(clone);
+  }
+}
+
+function restoreReportCellRefs(): void {
+  for (const fn of _reportRefRestore.splice(0)) fn();
+}
+
+/**
+ * v1.3 M3 — print one report cell (also the agent/automation surface:
+ * `window.naklidataRenderReport(reportCellId)`).
+ *
+ * Sets `[data-printing]` on the target so the scoped @media print CSS
+ * (H10) reveals only this report, then opens the browser print dialog.
+ * The boot-time beforeprint/afterprint listeners embed + restore the
+ * cell-ref placeholders (H11). No scheduling, no queue, no background
+ * execution (handoff §M3).
+ */
+function triggerReportPrint(reportCellId: string): void {
   const el = document.querySelector<HTMLElement>(`[data-cell-id="${reportCellId}"].cell-report`);
   if (!el) {
-    console.warn(`[naklidata] renderReport: cell not found: ${reportCellId}`);
+    console.warn(`[naklidata] report print: cell not found: ${reportCellId}`);
     return;
   }
+  el.setAttribute('data-printing', '');
   el.scrollIntoView({ block: 'start' });
   window.print();
-};
+}
+
+(window as unknown as { naklidataRenderReport: (id: string) => void }).naklidataRenderReport =
+  triggerReportPrint;
 
 async function boot(): Promise<void> {
   const root = document.getElementById('app');
@@ -355,6 +396,7 @@ async function boot(): Promise<void> {
   installAutoSave(engine);
   installUserTypesSync();
   installDemoModeListener(engine, root);
+  installReportPrintListeners(engine);
   // W3.2 slice B chunk 4 — auto-load the local model on boot when:
   //   (a) provider === 'local' is configured AND
   //   (b) a model id is set AND
@@ -411,6 +453,27 @@ async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
  * effect immediately without a reload. Also re-renders any open
  * notebook so SQL-result column headers flip.
  */
+/**
+ * v1.3 M3 — report print lifecycle (forward-pass H10 + H11). `beforeprint`
+ * embeds the `[data-printing]` report's cell-ref placeholders with the
+ * referenced cells' rendered DOM; `afterprint` restores the placeholders
+ * and clears the `[data-printing]` flag. Works for both the "Print to PDF"
+ * button and `window.naklidataRenderReport(id)` — both set `[data-printing]`
+ * then call `window.print()`.
+ */
+function installReportPrintListeners(engine: Engine): void {
+  window.addEventListener('beforeprint', () => {
+    const reportEl = document.querySelector<HTMLElement>('.cell-report[data-printing]');
+    if (reportEl) embedReportCellRefs(reportEl, getNotebook(engine).get().cells);
+  });
+  window.addEventListener('afterprint', () => {
+    restoreReportCellRefs();
+    for (const el of document.querySelectorAll<HTMLElement>('.cell-report[data-printing]')) {
+      el.removeAttribute('data-printing');
+    }
+  });
+}
+
 function installDemoModeListener(engine: Engine, root: HTMLElement): void {
   document.addEventListener('naklidata-demo-mode-changed', () => {
     const wb = getWorkbook().get();
@@ -1382,10 +1445,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       return;
     }
     case 'report-print': {
-      // v1.3 M3 — print the report. Browser's print dialog handles
-      // PDF generation. The report cell's @media print CSS scopes the
-      // visible region to just the report.
-      window.print();
+      // v1.3 M3 — print the report. `triggerReportPrint` sets
+      // [data-printing] so the scoped @media print CSS reveals only this
+      // report (H10); beforeprint embeds the cell-ref content (H11).
+      const cellId = el?.dataset.cellId;
+      if (cellId) triggerReportPrint(cellId);
       return;
     }
     case 'open-settings': {

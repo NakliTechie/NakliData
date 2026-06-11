@@ -67,13 +67,29 @@ let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 export async function openSettingsModal(): Promise<void> {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
-  const overlay = renderModal();
-  document.body.append(overlay);
-  _modalEl = overlay;
-  await refresh();
-  // Move focus into the modal so keyboard users can interact + Escape works
-  // even when focus was last on a now-hidden element.
-  overlay.querySelector<HTMLElement>('[data-action="close-settings"]')?.focus();
+  let overlay: HTMLElement | null = null;
+  try {
+    overlay = renderModal();
+    document.body.append(overlay);
+    _modalEl = overlay;
+    // `refresh()` is async (loads settings + cached-model list); if it
+    // throws after `_modalEl` is set, the modal singleton would be
+    // stranded and the keydown listener leaked (forward-pass H16).
+    await refresh();
+    // Move focus into the modal so keyboard users can interact + Escape works
+    // even when focus was last on a now-hidden element.
+    overlay.querySelector<HTMLElement>('[data-action="close-settings"]')?.focus();
+  } catch (err) {
+    if (overlay?.parentElement) overlay.parentElement.removeChild(overlay);
+    _modalEl = null;
+    if (_onKey) {
+      document.removeEventListener('keydown', _onKey);
+      _onKey = null;
+    }
+    restoreModalFocus(_previouslyFocused);
+    _previouslyFocused = null;
+    throw err;
+  }
 }
 
 export function closeSettingsModal(): void {

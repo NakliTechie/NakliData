@@ -10,7 +10,7 @@
 // globals. Pure data + the canvas-op projection.
 
 import { lineageGraphFromJson } from './lineage-store.ts';
-import type { LineageGraph, LineageNode } from './lineage-store.ts';
+import type { LineageCellKind, LineageGraph, LineageNode } from './lineage-store.ts';
 
 /**
  * Canvas operations the user can perform in lineage edit mode. Each
@@ -31,8 +31,10 @@ export type CanvasOp =
   | { kind: 'delete-node'; nodeId: string }
   | { kind: 'reposition'; nodeId: string; column?: number; row?: number };
 
-/** Cell kinds the canvas palette offers. NO canvas-only types. */
-export type NewCellKind = 'sql' | 'chart' | 'pivot' | 'stats' | 'report';
+/** Cell kinds the canvas palette offers. NO canvas-only types. Aliases
+ *  the single source of truth in lineage-store so the inserted node's
+ *  `cellKind` and the op's `newCellKind` can't drift (H12). */
+export type NewCellKind = LineageCellKind;
 
 /**
  * Apply a canvas op to a `LineageGraph` to produce the next graph
@@ -61,6 +63,9 @@ export function applyCanvasOp(graph: LineageGraph, op: CanvasOp): LineageGraph {
       id: op.newCellId,
       kind: 'cell',
       label: `cell_${op.newCellId}`,
+      // Carry the requested cell kind so a future canvas-to-cell
+      // materialisation knows what to create (H12).
+      cellKind: op.newCellKind,
     };
     return {
       version: 1,

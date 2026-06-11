@@ -112,10 +112,14 @@ export function buildPageCss(report: ReportDefinition): string {
       .report-cell { box-shadow: none; border: 0; }
       .report-item { page-break-inside: avoid; break-inside: avoid; }
       .report-page-break { page-break-after: always; break-after: page; }
-      /* Hide everything but the report on print */
+      /* Hide everything but the ONE report being printed. The host sets
+         [data-printing] on the target cell before window.print() so a
+         notebook with several report cells doesn't print them stacked
+         on top of each other (forward-pass H10). */
       body * { visibility: hidden; }
-      .report-cell, .report-cell * { visibility: visible; }
-      .report-cell { position: absolute; left: 0; top: 0; width: 100%; }
+      .report-cell[data-printing], .report-cell[data-printing] * { visibility: visible; }
+      .report-cell[data-printing] { position: absolute; left: 0; top: 0; width: 100%; }
+      .report-cell:not([data-printing]) { display: none; }
     }
   `;
 }

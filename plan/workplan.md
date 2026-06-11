@@ -112,39 +112,43 @@ coverage is H8/Chunk 4).
 
 ---
 
-## Chunk 4 — v1.3 wire-up gaps (Phase 2 starters, ~3 hours)
+## Chunk 4 — v1.3 wire-up gaps (Phase 2 starters, ~3 hours) — ✅ DONE 2026-06-11
 
 v1.3 milestones shipped data layer + tests; this chunk closes
 the user-visible gaps. Order by impact + dependency.
 
-- [ ] **H8** — Extend `scripts/smoke.mjs` to click `add-stats`
-      + `add-report` toolbar buttons, assert cell DOM renders.
-      Mirror Wave 5/6 checks at smoke.mjs:368-396.
-      **[test via npm run smoke]**
-- [ ] **H9** — Add `'stats'` branch to `cellWithoutResults` in
-      `persistence.ts` zeroing transient fields. Add round-trip
-      test.
-- [ ] **H10** — Scope report print CSS via `[data-printing]`
-      attribute on target cell; rewrite `@media print` rules so
-      only the printing cell un-hides. **[test in Chrome]** —
-      actually open print dialog.
-- [ ] **H11** — `beforeprint` listener cloning
-      `.report-cell-ref[data-cell-ref]` placeholders' referenced
-      cell DOM. Restore on `afterprint`. **[test in Chrome]**
-- [ ] **H15** — Resolve `cell.inputCell` → upstream `.name` in
-      stats cell renderer (currently shows internal cell id).
-- [ ] **H16** — try/finally guards around `_modalEl = overlay`
-      in `lens-confirm-modal.ts`, `nl-to-sql-modal.ts`,
-      `settings-modal.ts`.
-- [ ] **H12** — Carry `newCellKind` into `LineageNode` (M6
-      Phase 2 prep — supports future canvas-to-cell
-      materialisation).
-- [ ] **H13** — Selection `(type, value)` shape; emit
-      type-correct SQL literals in
-      `buildIntraTableSelectionPredicate`.
-- [ ] **H14** — Plumb masked column name through
-      `td.dataset.column` in demo mode (or strip click-to-select
-      in demo mode).
+- [x] **H8** — `scripts/smoke.mjs` now clicks `add-stats` +
+      `add-report`, asserts the stats cell (Run button + body) and
+      report cell (`.report-paper` + Print button) render. Smoke green.
+- [x] **H9** — `'stats'` branch added to `cellWithoutResults`
+      (zeroes descriptives/correlations/status/error). +2 round-trip
+      tests (stats + report).
+- [x] **H10** — Report print CSS scoped to `.report-cell[data-printing]`
+      + `:not([data-printing]) { display:none }`. **Verified in Chrome**
+      via `@media print` emulation: only the printing report shows. +1 test.
+- [x] **H11** — `beforeprint`/`afterprint` listeners (boot-installed)
+      clone the referenced cell DOM (chrome stripped) into
+      `.report-cell-ref` placeholders + restore + clear `data-printing`.
+      Shared `triggerReportPrint` for button + `naklidataRenderReport`.
+      **Verified in Chrome**.
+- [x] **H15** — Stats renderer resolves `cell.inputCell` → upstream
+      `.name` (was the internal id); `renderStatsCell` now takes the
+      cell list, mirroring chart/pivot.
+- [x] **H16** — try/catch teardown around the `_modalEl = overlay`
+      sequence in lens-confirm / nl-to-sql / settings modals — a
+      half-open modal no longer strands the singleton or leaks the
+      keydown listener.
+- [x] **H12** — `LineageNode.cellKind` (new `LineageCellKind` in
+      lineage-store, single source of truth; `NewCellKind` aliases it);
+      `applyCanvasOp` carries `op.newCellKind`; `lineageGraphFromJson`
+      preserves it. +1 test.
+- [x] **H13** — `SelectionEntry.type` + type-correct emission in
+      `buildIntraTableSelectionPredicate` (bare numbers, TRUE/FALSE,
+      typed DATE); threaded through the store (toggle/setEntry/list/
+      round-trip). +9 tests.
+- [x] **H14** — demo mode strips click-to-select entirely (the real
+      column name leaked via `td.dataset.column` even with masked
+      headers; masking it would break the cross-filter query).
 
 ---
 

@@ -118,4 +118,14 @@ describe('buildPageCss', () => {
     const css = buildPageCss(emptyReportDefinition());
     expect(css).toMatch(/@media\s+print\s*{/);
   });
+
+  it('scopes visibility to the [data-printing] report only (forward-pass H10)', () => {
+    const css = buildPageCss(emptyReportDefinition());
+    // The visible-region rule must require [data-printing], not match every
+    // .report-cell (which would stack multiple reports on print).
+    expect(css).toContain('.report-cell[data-printing], .report-cell[data-printing] *');
+    expect(css).toContain('.report-cell:not([data-printing]) { display: none; }');
+    // The old unscoped rule must be gone.
+    expect(css).not.toMatch(/\.report-cell,\s*\.report-cell \* { visibility: visible/);
+  });
 });

@@ -31,11 +31,27 @@ export interface OpenNlToSqlOpts {
 export function openNlToSqlModal(opts: OpenNlToSqlOpts): void {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
-  const overlay = renderModal(opts);
-  document.body.append(overlay);
-  _modalEl = overlay;
-  // Focus the question textarea so keyboard users can type immediately.
-  overlay.querySelector<HTMLTextAreaElement>('[data-nl-field="question"]')?.focus();
+  let overlay: HTMLElement | null = null;
+  try {
+    overlay = renderModal(opts);
+    document.body.append(overlay);
+    _modalEl = overlay;
+    // Focus the question textarea so keyboard users can type immediately.
+    overlay.querySelector<HTMLTextAreaElement>('[data-nl-field="question"]')?.focus();
+  } catch (err) {
+    // A half-opened modal leaks the keydown listener renderModal()
+    // registered AND strands the `_modalEl` singleton, which would block
+    // every future open. Tear down on failure (forward-pass H16).
+    if (overlay?.parentElement) overlay.parentElement.removeChild(overlay);
+    _modalEl = null;
+    if (_onKey) {
+      document.removeEventListener('keydown', _onKey);
+      _onKey = null;
+    }
+    restoreModalFocus(_previouslyFocused);
+    _previouslyFocused = null;
+    throw err;
+  }
 }
 
 export function closeNlToSqlModal(): void {

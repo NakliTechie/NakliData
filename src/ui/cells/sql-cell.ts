@@ -3,7 +3,7 @@
 // CM6). The upgrade preserves the current doc + cursor and survives
 // notebook re-renders via a per-cell-id registry of mounted CM6 views.
 
-import { maskLabel } from '../../core/demo-mode.ts';
+import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
@@ -285,7 +285,12 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
         // v1.3 M1 — make the value clickable to toggle a selection.
         // The "table" key is the cell id (intra-cell highlighting for v1;
         // inter-cell highlighting via taxonomy-type matching is a follow-up).
-        if (v !== null && v !== undefined) {
+        // Demo mode strips click-to-select entirely: `data-column` would
+        // otherwise carry the REAL column name (the header is masked but
+        // the dataset wasn't), leaking the schema intent demo mode hides —
+        // and masking the name would just break the cross-filter query
+        // (the predicate needs the real name). Forward-pass H14.
+        if (v !== null && v !== undefined && !getDemoMode()) {
           td.dataset.action = 'toggle-selection';
           td.dataset.table = `cell_${cell.id}`;
           td.dataset.column = col;
