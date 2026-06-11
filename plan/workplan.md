@@ -79,8 +79,9 @@ pass.
       `plan/w32-slice-b-validation.md`. Needs WebGPU — can't be
       smoke-tested headless.
 - [x] **e2e** — DONE (2026-06-11). `npm run test:e2e` → 55/55 green
-      before the v1.3.0 tag. Wiring e2e into the CI verify job is left as
-      a follow-up (DECISIONS AH).
+      before the v1.3.0 tag. **Now also wired into the CI verify job**
+      (`deploy.yml` runs check → test → smoke → e2e on every push + PR;
+      closes DECISIONS AH's follow-up).
 
 ---
 

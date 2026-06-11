@@ -1,11 +1,11 @@
 name: Verify and Deploy
 
 # W1.8 — public hosted build. The `verify` job runs the full local gate
-# suite (check + unit tests + headless smoke) on every push to main AND
-# on every pull request (forward-pass M20/M21 — the deploy used to ship
-# straight from `npm ci && npm run build`, so a red tree could reach GH
-# Pages). `build` + `deploy` are gated on `verify` passing and only run
-# for pushes / manual dispatch, never for PRs.
+# suite (check + unit tests + headless smoke + Playwright e2e) on every
+# push to main AND on every pull request (forward-pass M20/M21 — the
+# deploy used to ship straight from `npm ci && npm run build`, so a red
+# tree could reach GH Pages). `build` + `deploy` are gated on `verify`
+# passing and only run for pushes / manual dispatch, never for PRs.
 #
 # Repo must have Pages enabled: Settings → Pages → Source = GitHub
 # Actions. That's a one-time manual step the first time this workflow
@@ -66,6 +66,13 @@ jobs:
 
       - name: Smoke (headless build + browser)
         run: npm run smoke
+
+      - name: E2e (Playwright, 55 specs, offline path)
+        # Reuses the Chromium installed above. The specs serve dist/ via
+        # their own static server with ?offline=1, so no CDN dependency.
+        # 2 workers matches the config default (ubuntu-latest has 2 cores;
+        # >2 hammering the DuckDB-wasm boot causes engine-boot timeouts).
+        run: npm run test:e2e
 
   build:
     needs: verify
