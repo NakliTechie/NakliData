@@ -116,8 +116,13 @@ const IGNORE_OPS = new Set([
 function inputFromNode(node: Record<string, unknown>): LineageInput | null {
   const nameVal = node.name;
   const opTypeVal = node.operator_type;
-  const name = typeof nameVal === 'string' ? nameVal.toUpperCase() : null;
-  const operator = typeof opTypeVal === 'string' ? opTypeVal.toUpperCase() : null;
+  // TRIM before matching: duckdb-wasm 1.29.0 emits scan operator names
+  // padded with a trailing space — `"SEQ_SCAN "`, `"READ_CSV_AUTO "` —
+  // so an un-trimmed `.toUpperCase()` never matches the op sets and the
+  // whole walk silently returns []. (This was the primary cause of the
+  // empty-lineage bug; the M2 fixtures had no trailing spaces.)
+  const name = typeof nameVal === 'string' ? nameVal.trim().toUpperCase() : null;
+  const operator = typeof opTypeVal === 'string' ? opTypeVal.trim().toUpperCase() : null;
   const op = name ?? operator;
   if (!op) return null;
   if (IGNORE_OPS.has(op)) return null;
@@ -149,11 +154,14 @@ function extractTableName(node: Record<string, unknown>): string | null {
   const extra = node.extra_info;
   if (extra && typeof extra === 'object') {
     const eo = extra as Record<string, unknown>;
-    const t = eo.Table;
-    if (typeof t === 'string' && t.trim()) return t.trim();
-    // Some DuckDB shapes use lowercase `table`.
-    const t2 = eo.table;
-    if (typeof t2 === 'string' && t2.trim()) return t2.trim();
+    // `Table` (older builds / M2 fixtures), `table` (lowercase variant),
+    // and `Text` — duckdb-wasm 1.29.0 carries the scanned base-table name
+    // in `extra_info.Text` for SEQ_SCAN (e.g. `{"Text":"base_t",...}`).
+    // Accept all three.
+    for (const key of ['Table', 'table', 'Text'] as const) {
+      const v = eo[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
   }
   if (typeof extra === 'string') {
     // Try `Table: <name>` first.
@@ -238,6 +246,20 @@ export function extractInputsFromSqlRegex(
     .replace(/'(?:[^']|'')*'/g, "''")
     .replace(/"((?:[^"]|"")*)"/g, ' $1 '); // strip surrounding quotes from idents
 
+  // CTE-defined names shadow catalog tables: `WITH vendors AS (...) SELECT
+  // * FROM vendors` reads the CTE, not the mounted `vendors`. Collect the
+  // CTE names (`<name> AS (`) and exclude them from the FROM/JOIN matches so
+  // the sniff doesn't false-positive on a shadowed source. The `<ident> AS (`
+  // shape is specific to CTE definitions — derived-table aliases are
+  // `(...) AS x` and column aliases are `expr AS x` (no paren), so neither
+  // collides. This is what lets the sniff run alongside a successful EXPLAIN
+  // (handoff §M2's CTE-shadow guarantee) instead of only as a parse-failure
+  // fallback.
+  const cteNames = new Set<string>();
+  for (const m of stripped.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi)) {
+    if (m[1]) cteNames.add(m[1]);
+  }
+
   const inputs = new Map<string, LineageInput>();
 
   // FROM / JOIN <ident> — without trailing call-paren (`(` means function).
@@ -245,10 +267,34 @@ export function extractInputsFromSqlRegex(
   for (const m of stripped.matchAll(fromRe)) {
     const ident = m[1];
     if (!ident) continue;
+    if (cteNames.has(ident)) continue;
     if (knownTables.has(ident)) {
       inputs.set(`table:${ident}`, { kind: 'table', name: ident });
     }
   }
 
   return Array.from(inputs.values());
+}
+
+/**
+ * Union two lists of lineage inputs, deduplicating by identity
+ * (`table:<name>` / `file:<path>`).
+ *
+ * Used by the cell-run lineage recorder to combine the physical-plan walk
+ * (base-table scans + any inline file paths the build exposes) with the
+ * catalog-filtered SQL sniff (view-backed source names the inlined plan
+ * discarded). DuckDB inlines VIEWs at bind time, and every mounted
+ * CSV/JSON/Parquet/Iceberg source is a view — so the plan alone misses them;
+ * the sniff recovers them from the query text. See `extractInputsFromSqlRegex`.
+ */
+export function mergeLineageInputs(
+  a: ReadonlyArray<LineageInput>,
+  b: ReadonlyArray<LineageInput>,
+): LineageInput[] {
+  const seen = new Map<string, LineageInput>();
+  for (const inp of [...a, ...b]) {
+    const key = inp.kind === 'table' ? `table:${inp.name}` : `file:${inp.path}`;
+    if (!seen.has(key)) seen.set(key, inp);
+  }
+  return Array.from(seen.values());
 }

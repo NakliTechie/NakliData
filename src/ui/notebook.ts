@@ -12,7 +12,11 @@
 
 import type { Engine } from '../core/engine.ts';
 import { getLineageStore } from '../core/lineage-store.ts';
-import { extractInputsFromPlan, extractInputsFromSqlRegex } from '../core/lineage.ts';
+import {
+  extractInputsFromPlan,
+  extractInputsFromSqlRegex,
+  mergeLineageInputs,
+} from '../core/lineage.ts';
 import { getMeasuresStore } from '../core/measures-store.ts';
 import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
@@ -380,14 +384,29 @@ LIMIT 100`,
     // Try EXPLAIN first. The plan walker is robust to CTE shadowing +
     // FROM read_parquet().
     const plan = await this.engine.explainPlan(`SELECT * FROM (${rewritten})`);
+    const known = await this.knownTableNames();
     let inputs: ReturnType<typeof extractInputsFromPlan> = [];
     let confidence: 'high' | 'low' = 'high';
     if (plan) {
-      inputs = extractInputsFromPlan(plan);
+      // The physical-plan walk catches base-table scans (Arrow-IPC mounts)
+      // and inline file paths. But DuckDB inlines VIEWs at bind time, and
+      // every CSV/JSON/Parquet/Iceberg source is mounted as a view
+      // (engine.registerCsv et al.); the optimized physical plan discards
+      // both the view name AND the underlying file path (duckdb-wasm 1.29.0
+      // emits a bare `READ_CSV_AUTO` node with no File field). A plan-only
+      // walk therefore records NO lineage for any view-backed source — the
+      // empty-graph bug. Union in a catalog-filtered, CTE-aware SQL sniff to
+      // recover those source names from the query text. The sniff's CTE
+      // exclusion preserves the §M2 CTE-shadow guarantee even though it now
+      // runs on a successful EXPLAIN (not just on parse failure).
+      // See tests/lineage.test.ts — "live duckdb-wasm 1.29.0 plan" block.
+      inputs = mergeLineageInputs(
+        extractInputsFromPlan(plan),
+        extractInputsFromSqlRegex(rewritten, known),
+      );
     } else {
-      // Regex fallback — confidence: low. Pass the known table names
-      // from the workbook so we don't false-positive on function calls.
-      const known = await this.knownTableNames();
+      // EXPLAIN itself errored (SQL didn't parse) — regex-only fallback,
+      // confidence: low. `known` filters out function calls + typos.
       inputs = extractInputsFromSqlRegex(rewritten, known);
       confidence = 'low';
     }

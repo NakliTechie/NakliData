@@ -9,7 +9,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { type LineageGraph, LineageStore, emptyLineageGraph } from '../src/core/lineage-store.ts';
-import { extractInputsFromPlan, extractInputsFromSqlRegex } from '../src/core/lineage.ts';
+import {
+  extractInputsFromPlan,
+  extractInputsFromSqlRegex,
+  mergeLineageInputs,
+} from '../src/core/lineage.ts';
 
 describe('extractInputsFromPlan — CTE shadow safety (gate case 1)', () => {
   it('a plain SEQ_SCAN over a mounted table returns the table as an input', () => {
@@ -416,6 +420,165 @@ describe('extractInputsFromPlan — cycle guard (forward-pass H4)', () => {
 
     const inputs = extractInputsFromPlan(root);
     expect(inputs).toEqual([{ kind: 'table', name: 'vendors' }]);
+  });
+});
+
+describe('live duckdb-wasm 1.29.0 plan — regression for the empty-lineage bug', () => {
+  // These fixtures are REAL `EXPLAIN (FORMAT JSON)` output captured from
+  // @duckdb/duckdb-wasm@1.29.0 (the exact build vendored for the offline
+  // bundle), not hand-authored shapes. The M2 fixtures used `{Table:'x'}`
+  // with clean op names — shapes this build never emits — which is why the
+  // unit tests stayed green while live source→cell lineage was broken.
+
+  it('base-table SEQ_SCAN: trailing-space op name + `Text` key still extracts the table', () => {
+    // Captured from `SELECT * FROM base_t` (a CREATE TABLE, i.e. an
+    // Arrow-IPC mount). Note the trailing space in the op name and the
+    // `Text` key (not `Table`).
+    const plan = [
+      {
+        name: 'SEQ_SCAN ',
+        children: [],
+        extra_info: { Text: 'base_t', Projections: ['a', 'b'], 'Estimated Cardinality': '1' },
+      },
+    ];
+    expect(extractInputsFromPlan(plan)).toEqual([{ kind: 'table', name: 'base_t' }]);
+  });
+
+  it('view-backed source: the inlined physical plan yields NO inputs on its own', () => {
+    // Captured from `SELECT * FROM (SELECT * FROM invoices LIMIT 50)` where
+    // `invoices` is `CREATE VIEW invoices AS SELECT * FROM read_csv_auto(...)`
+    // (how the example bundle + every CSV/JSON/Parquet mount is registered).
+    // DuckDB inlined the view: the plan is a bare READ_CSV_AUTO with no File
+    // field and no table name. Documents WHY a plan-only walk returns [] —
+    // the source name must come from the SQL sniff instead.
+    const plan = [
+      {
+        name: 'STREAMING_LIMIT',
+        children: [
+          {
+            name: 'READ_CSV_AUTO ',
+            children: [],
+            extra_info: {
+              Function: 'READ_CSV_AUTO',
+              Projections: ['invoice_id', 'vendor', 'amount'],
+              'Estimated Cardinality': '5',
+            },
+          },
+        ],
+        extra_info: {},
+      },
+    ];
+    expect(extractInputsFromPlan(plan)).toEqual([]);
+  });
+
+  it('view-backed source: plan walk ∪ catalog-filtered SQL sniff recovers `invoices`', () => {
+    // The combination recordLineageForCell now performs. The plan contributes
+    // nothing (view inlined); the sniff recovers the source name from the
+    // query text, filtered against the live catalog.
+    const plan = [
+      {
+        name: 'STREAMING_LIMIT',
+        children: [
+          { name: 'READ_CSV_AUTO ', children: [], extra_info: { Function: 'READ_CSV_AUTO' } },
+        ],
+        extra_info: {},
+      },
+    ];
+    const rewritten = 'SELECT * FROM (SELECT * FROM invoices LIMIT 50)';
+    const known = new Set(['invoices', 'vendors', 'payments']);
+    const inputs = mergeLineageInputs(
+      extractInputsFromPlan(plan),
+      extractInputsFromSqlRegex(rewritten, known),
+    );
+    expect(inputs).toEqual([{ kind: 'table', name: 'invoices' }]);
+  });
+
+  it('CTE shadowing a real view emits NO edge even when EXPLAIN succeeds', () => {
+    // `WITH invoices AS (SELECT 1 AS a) SELECT * FROM invoices` — the
+    // physical plan has no scan of the catalog `invoices`, and the sniff
+    // must drop the CTE-shadowed name. This is the §M2 guarantee, now upheld
+    // on the plan-success path (the sniff runs alongside EXPLAIN, not only
+    // on parse failure).
+    const plan = [{ name: 'PROJECTION', children: [], extra_info: {} }];
+    const rewritten = 'WITH invoices AS (SELECT 1 AS a) SELECT * FROM invoices';
+    const known = new Set(['invoices']);
+    const inputs = mergeLineageInputs(
+      extractInputsFromPlan(plan),
+      extractInputsFromSqlRegex(rewritten, known),
+    );
+    expect(inputs).toEqual([]);
+  });
+
+  it('base table + view join: plan-side base table ∪ sniff-side view, deduped', () => {
+    // A base table (plan-visible) joined to a view (sniff-only). Both land,
+    // and a name present in both lists is not duplicated.
+    const plan = [
+      {
+        name: 'HASH_JOIN',
+        children: [
+          { name: 'SEQ_SCAN ', children: [], extra_info: { Text: 'base_t' } },
+          { name: 'READ_CSV_AUTO ', children: [], extra_info: { Function: 'READ_CSV_AUTO' } },
+        ],
+        extra_info: {},
+      },
+    ];
+    const rewritten = 'SELECT * FROM base_t b JOIN invoices i ON b.a = i.vendor';
+    const known = new Set(['base_t', 'invoices']);
+    const inputs = mergeLineageInputs(
+      extractInputsFromPlan(plan),
+      extractInputsFromSqlRegex(rewritten, known),
+    );
+    expect(inputs).toContainEqual({ kind: 'table', name: 'base_t' });
+    expect(inputs).toContainEqual({ kind: 'table', name: 'invoices' });
+    expect(inputs).toHaveLength(2);
+  });
+});
+
+describe('mergeLineageInputs', () => {
+  it('unions and dedupes by identity', () => {
+    const a = [
+      { kind: 'table', name: 'base_t' },
+      { kind: 'file', path: '/p/x.parquet' },
+    ] as const;
+    const b = [
+      { kind: 'table', name: 'base_t' }, // dup
+      { kind: 'table', name: 'invoices' }, // new
+    ] as const;
+    expect(mergeLineageInputs(a, b)).toEqual([
+      { kind: 'table', name: 'base_t' },
+      { kind: 'file', path: '/p/x.parquet' },
+      { kind: 'table', name: 'invoices' },
+    ]);
+  });
+
+  it('handles empty inputs on either side', () => {
+    expect(mergeLineageInputs([], [{ kind: 'table', name: 'x' }])).toEqual([
+      { kind: 'table', name: 'x' },
+    ]);
+    expect(mergeLineageInputs([{ kind: 'table', name: 'x' }], [])).toEqual([
+      { kind: 'table', name: 'x' },
+    ]);
+  });
+});
+
+describe('extractInputsFromSqlRegex — CTE-shadow exclusion', () => {
+  it('drops a FROM match whose name is defined as a CTE', () => {
+    const known = new Set(['vendors']);
+    const sql = 'WITH vendors AS (SELECT 1 AS a) SELECT * FROM vendors';
+    expect(extractInputsFromSqlRegex(sql, known)).toEqual([]);
+  });
+
+  it('keeps a real table read alongside a CTE that shadows a different name', () => {
+    const known = new Set(['vendors', 'orders']);
+    // `staging` is a CTE; `vendors` is a real table read in the CTE body.
+    const sql =
+      'WITH staging AS (SELECT * FROM vendors) SELECT * FROM staging JOIN orders USING (id)';
+    const inputs = extractInputsFromSqlRegex(sql, known);
+    expect(inputs).toContainEqual({ kind: 'table', name: 'vendors' });
+    expect(inputs).toContainEqual({ kind: 'table', name: 'orders' });
+    // `staging` is a CTE name → excluded even though it appears in FROM.
+    expect(inputs).not.toContainEqual({ kind: 'table', name: 'staging' });
+    expect(inputs).toHaveLength(2);
   });
 });
 

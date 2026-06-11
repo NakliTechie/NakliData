@@ -270,6 +270,41 @@ async function main() {
   );
   log('✓ chart cell rendered SVG');
 
+  // 9a. M2 lineage — the template's SQL cell reads a mounted example source
+  // (a CSV registered as a VIEW over read_csv_auto). Source→cell lineage must
+  // be recorded. Regression guard for the empty-lineage bug: duckdb-wasm
+  // 1.29.0 inlines the view and emits trailing-space op names with no file
+  // path, so a plan-only walk returned [] and the panel stayed empty. The
+  // catalog-filtered SQL sniff (unioned with the plan walk) recovers the
+  // source name. This whole class slips past tsc + vitest — only a live run
+  // catches it.
+  // recordLineageForCell is fire-and-forget after the result ships (notebook
+  // .ts), and the panel renders a snapshot at open time — so poll by
+  // reopening until lineage lands (the EXPLAIN + information_schema sniff
+  // finishes shortly after the rows render). ~6 s budget.
+  let lineage = { empty: true, hasSource: false };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.click('[data-action="open-lineage"]');
+    await page.waitForSelector('.lineage-list', { timeout: 5000 });
+    lineage = await page.evaluate(() => {
+      const txt = document.querySelector('.lineage-list')?.textContent ?? '';
+      return {
+        empty: txt.includes('No lineage recorded yet'),
+        hasSource: /invoices|vendors|payments|access_logs|events/i.test(txt),
+      };
+    });
+    if (!lineage.empty && lineage.hasSource) break;
+    await page.click('[data-action="close-lineage"]').catch(() => {});
+    await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(500);
+  }
+  if (lineage.empty) fail('lineage panel is empty after running a source-reading SQL cell');
+  if (!lineage.hasSource) fail('lineage panel recorded no mounted-source node (source→cell edge missing)');
+  log('✓ source→cell lineage recorded (panel shows a mounted-source node)');
+  // Close the panel so it doesn't overlay later steps.
+  await page.click('[data-action="close-lineage"]').catch(() => {});
+  await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
+
   // 10. Add a SQL cell with a syntax error to verify error UX.
   const sqlCellCountBefore = await page.evaluate(
     () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
