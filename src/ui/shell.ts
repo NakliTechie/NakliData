@@ -51,6 +51,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="export-html" title="Export the notebook as a self-contained HTML file (markdown + charts + tables, no engine).">
         ${iconSvg('download', 14)} <span>Export HTML</span>
       </button>
+      <button class="btn btn-ghost" data-action="embed-snippet" title="Get a sandboxed <iframe> snippet to embed this notebook read-only in a wiki / intranet — no server.">
+        ${iconSvg('link', 14)} <span>Embed</span>
+      </button>
       <button class="btn btn-ghost" data-action="share-link" title="Copy share link (no data, just the workbook description)">
         ${iconSvg('link', 14)} <span>Share</span>
       </button>

@@ -65,6 +65,7 @@ import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
+import { openEmbedModal } from './ui/embed-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
 import {
   type LensConfirmCell,
@@ -1652,6 +1653,26 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         toast(`Export failed: ${msg}`, 'error');
+      }
+      return;
+    }
+    case 'embed-snippet': {
+      // v1.4 F9 — wrap the self-contained Export-HTML doc in a sandboxed
+      // <iframe srcdoc> snippet for read-only embedding.
+      if (workbook.get().sources.length === 0) {
+        toast('Nothing to embed yet — mount a source first.');
+        return;
+      }
+      const notebookEl = document.querySelector<HTMLElement>('[data-region="notebook"]');
+      if (!notebookEl) {
+        toast('Notebook not ready yet.');
+        return;
+      }
+      try {
+        const title = _activeSession?.name?.trim() || 'NakliData notebook';
+        openEmbedModal(buildStandaloneHtml({ notebookRoot: notebookEl, title }));
+      } catch (err) {
+        toast(`Embed failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
       }
       return;
     }

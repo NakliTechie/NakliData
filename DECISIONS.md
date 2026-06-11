@@ -2,6 +2,28 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.4 F9 — embeddable read-only widget (+ v1.4 complete)
+
+### Decision AO — Embed via sandboxed `<iframe srcdoc>` of the Export-HTML doc, not a `?lens=` iframe
+
+The feature sketch said "?lens=-powered iframe." But a lens carries the
+workbook DESCRIPTION, no data — a lens iframe would render EMPTY charts
+for any local-file notebook (the common case) and needs a reachable
+server. Instead the "Embed" button wraps the existing self-contained
+**Export-HTML** doc (markdown + chart SVGs + result tables, NO JS, NO
+engine) in `<iframe srcdoc="…" sandbox>`. The export has no scripts, so
+the sandbox is EMPTY (no `allow-scripts`, no `allow-same-origin`) —
+maximally locked down. Renders the actual content, works offline, no
+server. The doc is attribute-escaped (`&` then `"`) so it round-trips.
+Trade-off: a static snapshot (not live/interactive) + a bulky srcdoc;
+acceptable for a wiki/intranet embed. `buildEmbedSnippet` is a pure
+string transform (4 vitest); the modal copies via clipboard with a
+select-to-copy fallback.
+
+**v1.4 feature build COMPLETE — all 9 competitive-analysis candidates
+shipped (F1–F9), each gated + Chrome-verified.** See
+`plan/feature-candidates.md`.
+
 ## 2026-06-11 — v1.4 F7/F8 — "X-Ray" profile + numeric distribution
 
 ### Decision AN — F8 numeric stats via TRY_CAST (type-agnostic); F7 reuses the stats cell

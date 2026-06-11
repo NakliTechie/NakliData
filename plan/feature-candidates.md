@@ -1,5 +1,14 @@
 # Feature candidates — from the competitive analysis (2026-06-11)
 
+> **✅ ALL SHIPPED (2026-06-11).** Every candidate F1–F9 below was built,
+> gated (check/test/smoke), and Chrome-verified — see STATUS + DECISIONS
+> AI–AO. F1 dimensions · F2 metrics catalog · F3 code view · F4 calculated
+> fields · F5 window/LOD · F6 multi-join query builder · F7 X-Ray ·
+> F8 numeric distribution · F9 embed widget. (A latent M2 bug — the lazy
+> measures panel's split store singletons — was fixed along the way.)
+> The S1/S2 strategic/positioning notes + the "explicitly out" list stand.
+
+
 Derived from [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md)
 (NakliData vs Snowflake / BigQuery / Power BI / Tableau / Metabase /
 Segment / RudderStack). Every item below is **constraint-clean** — browser-
