@@ -58,13 +58,14 @@ v1.2 (Lakehouse Parity) + v1.3 (Prior Art) + the forward-pass are all
 done. Cut the release once Phase 2 UI is shipped (or explicitly
 deferred) and W3.2 slice B is validated (Chunk 3).
 
-- [ ] Write `plan/v1.3.0-release-notes.md` (canonical changelog;
-      mirror the v1.2.x notes shape).
-- [ ] Tag `v1.3.0` on `main` + push the tag.
-- [ ] Bump README version surface if it cites v1.x.
+- [x] Write `plan/v1.3.0-release-notes.md` — DONE.
+- [x] Tag `v1.3.0` on `main` + push the tag — DONE (`87b7c49`, deployed).
+- [x] README refreshed with the v1.3 surfaces (no version-badge to bump;
+      package.json stays `0.1.0` per established convention).
 
-**Prereq:** Chunk 3 (slice-B validation) green, or a logged decision to
-ship v1.3.0 without the local-model path validated.
+**v1.3.0 SHIPPED 2026-06-11** with a logged decision (DECISIONS AG) to
+ship without the WebGPU slice-B validation (autonomous/user-away; can't
+run headless). e2e gate run green first (DECISIONS AH).
 
 ---
 
@@ -77,10 +78,9 @@ pass.
       jobs against the loaded local Transformers.js model. Checklist in
       `plan/w32-slice-b-validation.md`. Needs WebGPU — can't be
       smoke-tested headless.
-- [ ] **e2e** — run `npm run test:e2e` (55 Playwright specs). NOT
-      re-run during the forward-pass pass; the CI verify job runs
-      check/test/smoke but not e2e. Confirm green, then consider adding
-      e2e to the CI verify job (or a separate CI job).
+- [x] **e2e** — DONE (2026-06-11). `npm run test:e2e` → 55/55 green
+      before the v1.3.0 tag. Wiring e2e into the CI verify job is left as
+      a follow-up (DECISIONS AH).
 
 ---
 
@@ -89,8 +89,9 @@ pass.
 Low-priority items the 6-chunk pass deliberately skipped. Batch
 opportunistically.
 
-- [ ] **M9–M14, M17, M19, M23, M24** — minor UX + redundancy notes
-      from `plan/forward-pass-2026-06-10.md`.
+- [x] **M12** (addCell exhaustiveness `never` guard) + **L6** (selection-bar
+      palette → tokens) DONE 2026-06-11. M13/M23/M24 already closed earlier;
+      M9–M11/M14/M17/M19 remain parked (UX/intentional/needs-decision).
 - [ ] **Remaining L-items** (L1–L7, L9–L12, L14, L15, L17, L18, L21,
       L23, L24) — polish.
 - [ ] **Remaining S-items** (S1–S3, S9–S13, S16–S18) — stray cleanup.

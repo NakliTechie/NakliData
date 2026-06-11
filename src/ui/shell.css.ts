@@ -1183,4 +1183,31 @@ button {
 .assoc-unlink { color: var(--text-muted); }
 .assoc-unlink:hover { color: var(--danger); }
 .assoc-empty { color: var(--text-muted); font-size: 12px; margin: var(--space-1) 0; }
+/* v1.3 M1 — selections bar (forward-pass L6: token-derived, was hardcoded amber). */
+.selections-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border-top: 1px solid color-mix(in srgb, var(--warning) 40%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 40%, var(--surface));
+}
+.selections-bar-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--warning) 65%, var(--text));
+}
+.selection-chips { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selection-chip {
+  background: color-mix(in srgb, var(--warning) 26%, var(--surface));
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-right: 6px;
+}
 `;

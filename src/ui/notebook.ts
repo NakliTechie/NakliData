@@ -217,7 +217,7 @@ LIMIT 100`,
         name: null,
         definition: emptyReportDefinition(),
       } satisfies ReportCellState;
-    } else {
+    } else if (kind === 'chart') {
       cell = {
         id: genCellId(),
         kind: 'chart',
@@ -229,6 +229,13 @@ LIMIT 100`,
         y: null,
         facet: null,
       } satisfies ChartCellState;
+    } else {
+      // Exhaustiveness guard (forward-pass M12). The if/else-if chain
+      // covered every typed kind; `chart` used to be the unconditional
+      // `else`, so a typo'd kind from a non-type-checked `data-nb-action`
+      // string silently produced a chart cell. Now an unknown kind throws.
+      const _exhaustive: never = kind;
+      throw new Error(`addCell: unknown cell kind "${String(_exhaustive)}"`);
     }
     this.state = { cells: [...this.state.cells, cell] };
     this.notify();

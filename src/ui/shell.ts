@@ -100,14 +100,16 @@ export function renderSelectionsBar(
     .map((e) => {
       const tail = e.values.length > 3 ? `, +${e.values.length - 3}` : '';
       const head = e.values.slice(0, 3).map(escapeHtml).join(', ');
-      return `<span class="selection-chip" style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:11px;margin-right:6px;">${escapeHtml(e.column)}: ${head}${tail}</span>`;
+      return `<span class="selection-chip">${escapeHtml(e.column)}: ${head}${tail}</span>`;
     })
     .join('');
   mount.hidden = false;
+  // Styling lives in shell.css.ts (token-derived; forward-pass L6 — the
+  // amber palette was hardcoded hex here, violating the tokens-only rule).
   mount.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fefce8;border-top:1px solid #fde68a;border-bottom:1px solid #fde68a;font-size:12px;">
-      <strong style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#92400e;">Selection</strong>
-      <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${chipsHtml}</div>
+    <div class="selections-bar-inner">
+      <strong class="selections-bar-label">Selection</strong>
+      <div class="selection-chips">${chipsHtml}</div>
       <button class="btn btn-ghost" data-action="selections-clear" title="Clear all selections" style="font-size:11px;">Clear all</button>
     </div>
   `;
