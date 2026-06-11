@@ -54,7 +54,9 @@ async function sourceBytes(name) {
   }
   const url = `${CDN}/${name}`;
   console.log(`[naklidata]   ${name}: fetching from CDN (node_modules copy missing)`);
-  const res = await fetch(url);
+  // 60s ceiling so a hung CDN connection fails the install loudly instead
+  // of stalling `npm ci` indefinitely (forward-pass L20).
+  const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
 }

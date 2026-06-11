@@ -43,23 +43,30 @@ messages. Land first so the rest doesn't fork doc debt.
 
 ---
 
-## Chunk 2 — CI infrastructure (~45 min)
+## Chunk 2 — CI infrastructure (~45 min) — ✅ DONE 2026-06-11
 
 `deploy.yml` runs only `npm ci && npm run build` — a red gate
 ships to GH Pages today. Land this BEFORE the fix batches so
 they're protected against regression as they go in.
 
-- [ ] **M20** — Add `verify` job to `deploy.yml` running
-      `npm run check && npm test && npm run smoke` before the
-      build/deploy job. Gate deploy on verify passing.
-- [ ] **M21** — Add `pull_request` trigger to the verify job.
-- [ ] **M22** — Add `src/core/chart-shelves.ts` +
-      `src/core/lineage-edit.ts` to `WATCHED_OPTIONAL` in
-      `check-engine-boundary.mjs`. Two-line change.
-- [ ] **L19** — Switch `scripts/smoke.mjs` `waitUntil` from
-      `'domcontentloaded'` to `'load'`.
-- [ ] **L20** — Add `AbortSignal.timeout(60_000)` to postinstall
-      fetchers.
+- [x] **M20** — Added `verify` job to `deploy.yml` running
+      `npm run build && npm run check && npm test && npm run smoke`
+      (build-first so the bundle-size gate has a dist/ to measure).
+      `build` + `deploy` now `needs: verify`. Workflow renamed
+      "Verify and Deploy".
+- [x] **M21** — Added `pull_request` trigger; `build`/`deploy`
+      gated `if: push || workflow_dispatch` so PRs stop after
+      verify. Concurrency scoped to `${{ github.ref }}` so PR runs
+      don't cancel a main deploy.
+- [x] **M22** — Added `src/core/chart-shelves.ts` +
+      `src/core/lineage-edit.ts` to `WATCHED_OPTIONAL`. Verified
+      both are pure (no browser globals); check now reports
+      "10 required + 6 optional".
+- [x] **L19** — `scripts/smoke.mjs` `waitUntil` → `'load'` (+
+      comment). Smoke still green.
+- [x] **L20** — `AbortSignal.timeout(60_000)` on both postinstall
+      fetchers (`fetch-duckdb-fallback.mjs`,
+      `fetch-duckdb-extensions.mjs`).
 
 ---
 

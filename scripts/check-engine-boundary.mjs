@@ -49,6 +49,8 @@ const WATCHED_OPTIONAL = [
   'src/core/selections.ts', // v1.3 M1
   'src/core/stats.ts', // v1.3 M4
   'src/core/report-layout.ts', // v1.3 M3
+  'src/core/chart-shelves.ts', // v1.3 M5 — shelf-based chart authoring
+  'src/core/lineage-edit.ts', // v1.3 M6 — lineage edit mode (pure ops)
 ];
 
 const FORBIDDEN_PATTERNS = [

@@ -102,7 +102,9 @@ async function main() {
   // fallback path (?offline=1) for the smoke test.
   const targetUrl = `${url}/index.html?offline=1`;
   log(`loading ${targetUrl}`);
-  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+  // 'load' (not 'domcontentloaded'): the app hydrates after DOMContentLoaded,
+  // so waiting for the full load event reduces flake on slower CI runners.
+  await page.goto(targetUrl, { waitUntil: 'load' });
 
   // 1. The shell mounted.
   await page.waitForSelector('.shell-header', { timeout: 5000 });

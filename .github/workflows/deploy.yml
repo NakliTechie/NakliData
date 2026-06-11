@@ -1,9 +1,11 @@
-name: Deploy to GitHub Pages
+name: Verify and Deploy
 
-# W1.8 — public hosted build. Runs on every push to main, plus on
-# manual dispatch. The dist/ directory is uploaded as a Pages artifact
-# and deployed; the page is fully static so there's nothing else to
-# orchestrate.
+# W1.8 — public hosted build. The `verify` job runs the full local gate
+# suite (check + unit tests + headless smoke) on every push to main AND
+# on every pull request (forward-pass M20/M21 — the deploy used to ship
+# straight from `npm ci && npm run build`, so a red tree could reach GH
+# Pages). `build` + `deploy` are gated on `verify` passing and only run
+# for pushes / manual dispatch, never for PRs.
 #
 # Repo must have Pages enabled: Settings → Pages → Source = GitHub
 # Actions. That's a one-time manual step the first time this workflow
@@ -11,6 +13,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -20,14 +24,15 @@ permissions:
   pages: write
   id-token: write
 
-# Only one deploy can be in flight at a time; cancel in-progress runs
-# so the latest commit wins.
+# Scope concurrency to the ref so a new push to main cancels an older
+# in-flight main run (latest commit wins), while PR runs and main runs
+# stay in separate groups — a PR check never cancels a main deploy.
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,8 +44,44 @@ jobs:
 
       - name: Install dependencies
         # The `postinstall` script downloads the DuckDB-wasm fallback
-        # (~75 MB) and the vendored extensions; both end up in
-        # public/ and get copied to dist/ by the build.
+        # (~75 MB) and the vendored extensions; both end up in public/.
+        # The smoke test boots with ?offline=1 against those bytes.
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        # Build first so the bundle-size gate inside `npm run check` has a
+        # dist/ to measure (check-bundle-size.mjs is a no-op when dist/ is
+        # absent). The smoke step rebuilds — esbuild is ~1s, so the
+        # redundant build is negligible.
+        run: npm run build
+
+      - name: Check (tsc + biome + engine-boundary + bundle-size)
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Smoke (headless build + browser)
+        run: npm run smoke
+
+  build:
+    needs: verify
+    # Only push / manual dispatch produce a deployable artifact; PRs stop
+    # after `verify`.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
         run: npm ci
 
       - name: Build
@@ -59,6 +100,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
