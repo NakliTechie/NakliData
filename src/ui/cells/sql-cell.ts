@@ -325,6 +325,9 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     <button class="btn btn-ghost cell-sidecar-trigger" data-action="propose-chart" data-cell-id="${cell.id}" title="Ask the sidecar to propose a chart configuration for this result">
       ${iconSvg('chart', 12)} <span>Suggest chart</span>
     </button>
+    <button class="btn btn-ghost" data-action="calc-field" data-cell-id="${cell.id}" title="Add a calculated / derived column — inserts a new SQL cell you run">
+      ${iconSvg('plus', 12)} <span>Calc field</span>
+    </button>
   `;
   container.append(meta);
 

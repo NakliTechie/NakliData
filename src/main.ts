@@ -59,6 +59,7 @@ import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
+import { openCalcFieldModal } from './ui/calc-field-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
 import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
@@ -1125,6 +1126,25 @@ function handleOpenAssociations(): void {
   openAssociationsModal(options);
 }
 
+/**
+ * v1.4 F4/F5 — open the calculated-field modal for a SQL cell's result.
+ * The upstream cell's code is wrapped as a subquery; on insert, a new
+ * SQL cell lands after it (the user runs it — Hard NOT #4).
+ */
+function handleCalcField(cellId: string): void {
+  const nb = getNotebook(getEngine());
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first — calculated fields build on a result.');
+    return;
+  }
+  openCalcFieldModal({ upstreamSql: cell.code, columns: cell.lastResult.columns }, (sql) => {
+    const newCell = nb.addCell('sql');
+    nb.patchCell(newCell.id, { code: sql });
+    toast('Calculated-field cell inserted — review then click Run.');
+  });
+}
+
 function handleOpenQueryBuilder(engine: Engine): void {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
@@ -1517,6 +1537,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-associations': {
       handleOpenAssociations();
+      return;
+    }
+    case 'calc-field': {
+      const cellId = el?.dataset.cellId;
+      if (cellId) handleCalcField(cellId);
       return;
     }
     case 'selections-clear': {

@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.4 F4/F5 — calculated / derived fields
+
+### Decision AL — Calc field wraps the upstream as a subquery; reuses the M5 safe emitter
+
+A "Calc field" button on every SQL result opens a modal that emits a NEW
+SQL cell (Hard NOT #4 — the user runs it): `SELECT *, (<expr>) AS
+"<alias>" FROM (<upstream_sql>) AS calc_src`. **Wrapping the upstream as
+a subquery** (vs referencing a view name / @ref) makes the new cell
+self-contained — no coupling to view names or run-order. Injection
+posture reuses M5: the alias flows through `quoteIdent`; the expression
+is guarded by `validateMeasureExpression` (no semicolons, no DDL/DML) —
+same "fragment in a query slot" shape as a measure body. **F5 (LOD/
+window)** builds `<fn>(<col>) OVER (PARTITION BY <part>)` from a fixed fn
+allowlist + `quoteIdent`-quoted identifiers — safe by construction.
+Single-column partition for v1 (multi-column is a trivial extension).
+
 ## 2026-06-11 — v1.4 F1/F2/F3 — semantic layer (dimensions + catalog + code view)
 
 ### Decision AI — `DIM(name)` expanded in the same pass as `MEASURE(name)`
