@@ -11,6 +11,7 @@
 
 import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
+import type { AssociationsFile } from './associations.ts';
 import type { LineageGraph } from './lineage-store.ts';
 import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
@@ -55,6 +56,12 @@ export interface NakliDataFile {
    * pre-M1 files round-trip cleanly.
    */
   selections?: SelectionsFile;
+  /**
+   * Associations (v1.3 M1 Phase 2 — cross-table links). Pairs of
+   * (table, column) keys declared the same field; drive inter-cell
+   * cross-filter. Optional — pre-Phase-2 files round-trip cleanly.
+   */
+  associations?: AssociationsFile;
   settings: { auto_accept_threshold: number };
 }
 
@@ -129,6 +136,8 @@ export interface SerializeInput {
   measures?: MeasuresFile;
   /** v1.3 M1 — selections snapshot. Optional. */
   selections?: SelectionsFile;
+  /** v1.3 M1 Phase 2 — associations snapshot. Optional. */
+  associations?: AssociationsFile;
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -229,6 +238,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     ...(input.lineage ? { lineage: input.lineage } : {}),
     ...(input.measures ? { measures: input.measures } : {}),
     ...(input.selections ? { selections: input.selections } : {}),
+    ...(input.associations ? { associations: input.associations } : {}),
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

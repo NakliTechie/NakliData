@@ -1145,4 +1145,42 @@ button {
 }
 .lineage-insert-kind { font-size: 11px; }
 .lineage-insert-go { font-size: 11px; padding: 1px 6px; color: var(--accent); }
+/* v1.3 M1 Phase 2 — associations modal. */
+.assoc-body { padding: var(--space-4) var(--space-5); overflow: auto; }
+.assoc-section { margin-bottom: var(--space-4); }
+.assoc-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2) 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.assoc-count {
+  background: var(--surface-alt);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.assoc-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.assoc-form select { font-size: 12px; flex: 1 1 200px; min-width: 0; }
+.assoc-link-glyph { color: var(--text-muted); display: inline-flex; }
+.assoc-list { list-style: none; margin: 0; padding: 0; }
+.assoc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.assoc-pair { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.assoc-row .btn { margin-left: auto; font-size: 11px; padding: 2px 10px; }
+.assoc-add { color: var(--accent); }
+.assoc-unlink { color: var(--text-muted); }
+.assoc-unlink:hover { color: var(--danger); }
+.assoc-empty { color: var(--text-muted); font-size: 12px; margin: var(--space-1) 0; }
 `;

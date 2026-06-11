@@ -66,6 +66,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="open-measures" title="Manage named measures — referenceable via MEASURE(name) in SQL cells">
         ${iconSvg('table', 14)} <span>Measures</span>
       </button>
+      <button class="btn btn-ghost" data-action="open-associations" title="Link columns across cells so a selection in one cross-filters the others (associative model)">
+        ${iconSvg('link', 14)} <span>Associations</span>
+      </button>
       <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
         ${iconSvg('info', 14)} <span>Settings</span>
       </button>

@@ -1,3 +1,4 @@
+import { getAssociationsStore } from './core/associations.ts';
 import { setDemoMode } from './core/demo-mode.ts';
 import { type Engine, getEngine } from './core/engine.ts';
 import {
@@ -56,6 +57,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
 import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
@@ -248,6 +250,10 @@ async function boot(): Promise<void> {
   // Render the initial state (may be empty on first boot; populated by
   // .naklidata-restored selections after applyLoadedFile).
   renderSelectionsBar(root, getSelectionsStore().list());
+
+  // v1.3 M1 Phase 2 — associations changing alters the effective
+  // (propagated) selections, so repaint every cell's cross-filter.
+  getAssociationsStore().subscribe(() => repaintSelectionStates(root, engine));
 
   const workbook = getWorkbook();
   workbook.subscribe((wb) => {
@@ -1087,6 +1093,36 @@ async function handleOpenMeasures(engine: Engine): Promise<void> {
   });
 }
 
+/**
+ * v1.3 M1 Phase 2 — gather linkable columns (every SQL cell result column
+ * + its resolved taxonomy type) and open the Associations modal. Type ids
+ * come from the workbook assignments keyed by column NAME — the same
+ * by-name lookup `sqlExtra` uses; this is what powers the "suggest links
+ * between same-type columns across cells" pass.
+ */
+function handleOpenAssociations(): void {
+  const nb = getNotebook(getEngine());
+  const wb = getWorkbook().get();
+  const typeByName = new Map<string, string | null>();
+  for (const a of Object.values(wb.assignments)) {
+    typeByName.set(a.columnName, a.assigned?.typeId ?? null);
+  }
+  const options: AssocColumnOption[] = [];
+  for (const cell of nb.get().cells) {
+    if (cell.kind !== 'sql' || !cell.lastResult) continue;
+    const cellLabel = cell.name?.trim() || `cell_${cell.id}`;
+    for (const col of cell.lastResult.columns) {
+      options.push({
+        table: `cell_${cell.id}`,
+        cellLabel,
+        column: col,
+        typeId: typeByName.get(col) ?? null,
+      });
+    }
+  }
+  openAssociationsModal(options);
+}
+
 function handleOpenQueryBuilder(engine: Engine): void {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
@@ -1182,6 +1218,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       lineage: getLineageStore().toJSON(),
       measures: getMeasuresStore().toFile(),
       selections: getSelectionsStore().toFile(),
+      associations: getAssociationsStore().toFile(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -1473,6 +1510,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-measures': {
       await handleOpenMeasures(engine);
+      return;
+    }
+    case 'open-associations': {
+      handleOpenAssociations();
       return;
     }
     case 'selections-clear': {
@@ -2161,6 +2202,8 @@ async function doApplyLoadedFile(
   getMeasuresStore().loadFromFile(file.measures);
   // v1.3 M1 — restore selections (optional).
   getSelectionsStore().loadFromFile(file.selections);
+  // v1.3 M1 Phase 2 — restore associations (optional).
+  getAssociationsStore().loadFromFile(file.associations);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {

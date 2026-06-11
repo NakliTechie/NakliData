@@ -2,6 +2,115 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — M2 lineage: source→cell extraction was dead against duckdb-wasm 1.29.0
+
+**Context:** Chrome-verifying M6 lineage edit mode, a single SQL cell
+reading a mounted example source (`SELECT * FROM invoices LIMIT 50`,
+`?offline=1`) produced an EMPTY lineage graph — `getLineageStore().toJSON()`
+had no nodes/edges, panel showed "No lineage recorded yet" — even though the
+query returned rows and no console errors fired. Only the `@name` cellRef
+path (pure regex on SQL text, EXPLAIN-independent) populated lineage, which
+masked the breakage.
+
+**Root cause (captured the REAL `EXPLAIN (FORMAT JSON)` from the vendored
+`@duckdb/duckdb-wasm@1.29.0` via a node-blocking harness):** three format
+drifts from what `extractInputsFromPlan` expected, none covered by the M2
+fixtures (which were hand-authored `{Table:'x'}` shapes this build never
+emits):
+
+1. **Trailing-space op names** — the build emits `"SEQ_SCAN "`,
+   `"READ_CSV_AUTO "`. The walker uppercased but never trimmed, so NOTHING
+   matched the op sets → every scan dropped. (Primary cause; breaks even
+   base-table lineage.)
+2. **Base-table name in `extra_info.Text`**, not `.Table` — e.g.
+   `{"Text":"base_t",...}`. `extractTableName` only checked `Table`/`table`.
+3. **View-backed sources are unrecoverable from the physical plan.** Every
+   CSV/JSON/Parquet/Iceberg mount is a `CREATE VIEW … AS SELECT * FROM
+   read_*()` (engine.registerCsv et al.). DuckDB inlines the view at bind
+   time; the optimized plan is a bare `READ_CSV_AUTO` node with **no File
+   field and no view name** — both the source name and the file path are
+   gone. `getTableNames()` is no help either: it returns `[]` for views
+   (only real base tables come back). `information_schema.tables`, however,
+   DOES list views — so the catalog still knows the name.
+
+### Decision — Union the physical-plan walk with a CTE-aware, catalog-filtered SQL sniff (don't gate the sniff on EXPLAIN failure)
+
+The plan can recover base-table scans (fixes 1+2) and inline file paths, but
+**cannot** recover view-backed source names (fix 3) — that signal only
+survives in the SQL text. So `recordLineageForCell` now runs BOTH on every
+successful EXPLAIN and unions the results (`mergeLineageInputs`):
+
+- plan walk → base tables + any inline file paths the build exposes;
+- `extractInputsFromSqlRegex(rewritten, knownTableNames())` → catalog
+  tables/views referenced by `FROM`/`JOIN`, filtered against
+  `information_schema` (which includes views), so `invoices` lands.
+
+Previously the sniff ran ONLY when EXPLAIN errored (parse failure). Since
+the plan was non-null-but-empty here, the sniff never fired — that gating is
+the structural reason the bug was invisible.
+
+**CTE-shadow safety preserved.** The whole reason §M2 chose EXPLAIN over
+regex was `WITH vendors AS (…) SELECT * FROM vendors` must NOT emit a
+`vendors` edge. Now that the sniff runs alongside a successful EXPLAIN, it
+would re-introduce that false positive — so `extractInputsFromSqlRegex` now
+excludes CTE-defined names (the `<name> AS (` shape, distinct from
+derived-table `(…) AS x` and column `expr AS x` aliases). Confidence stays
+`high` when EXPLAIN succeeded (SQL parsed; names are real catalog entries).
+
+**Known limitation (logged, not fixed):** inline `read_parquet('/p/x')`
+with no catalog entry yields no lineage on THIS build — the path isn't in
+the plan and the sniff skips function-call FROMs. It was never working on
+1.29.0; the plan-side extractor is retained for builds that do expose `File`.
+
+**Regression coverage added on two levels** (the gap that let this survive):
+`tests/lineage.test.ts` now embeds the REAL captured 1.29.0 plans (trailing
+space + `Text`; the inlined view yielding `[]`; plan∪sniff recovering
+`invoices`; CTE-shadow stays empty), and `scripts/smoke.mjs` now opens the
+Lineage panel after a source-reading SQL cell and asserts a mounted-source
+node appears — integration coverage, since this class slips past tsc+vitest.
+
+## 2026-06-11 — v1.3 M1 Phase 2 — manual-associations panel (inter-cell cross-filter)
+
+**Context:** the M1 grey-out shipped INTRA-cell (a selection greys other
+columns of the SAME result). The associations panel extends the
+cross-filter across cells. User chose the **hybrid** authoring shape
+(auto-suggest by taxonomy-type/name + a manual link form).
+
+### Decision AE — Inter-cell cross-filter via in-memory selection propagation, not engine queries
+
+An association declares two `(table, column)` keys are the SAME logical
+field. The question was how a selection in cell A then cross-filters cell
+B. Options:
+
+- A: Engine-backed — on each selection, run a join/EXISTS against the
+  mounted tables to find co-occurring values in B (what
+  `buildIntraTableSelectionPredicate` was built toward). General, but
+  async + a real perf surface on every click.
+- B: In-memory propagation — because "same field" means the selected
+  *values* are shared, just mirror A's selected values onto B's linked
+  column, then let B paint from its OWN materialised rows via the
+  existing `computeValueStates`.
+
+**Chosen: B.** `resolveEffectiveSelectionsForTable` BFS-walks the
+association graph and unions every selected value across a column's
+cluster into a synthetic `SelectionEntry` for the target table; the
+caller feeds that straight to `computeIntraCellValueStates`. The
+inter-cell case thus REDUCES to the intra-cell engine — no engine
+round-trip, no async, same in-memory posture as the grey-out. Transitive
+(a↔b↔c) by construction. Limitation (acceptable for v1): values are
+matched as display-text strings, so a link only cross-filters when the
+two columns render the same text for the same field — true for "same
+field" links, which is the whole premise.
+
+### Decision AF — Associations persist like selections; modal reads the store directly
+
+`associations` is a new optional `.naklidata` field mirroring
+`selections` (lives in `persistSnapshot`; pre-Phase-2 files round-trip).
+The modal is a thin editor over `getAssociationsStore()` (reads + writes
+it directly, re-renders its own body), matching the lineage-panel
+pattern; `main.ts` repaints all cells on an association-store tick since
+a link changes every cell's effective selections.
+
 ## 2026-06-11 — v1.3 M6 Phase 2 — lineage edit-mode UI
 
 **Context:** M6 shipped data-only (`applyCanvasOp` + `getDependentsOfNode`

@@ -3,6 +3,10 @@
 // CM6). The upgrade preserves the current doc + cursor and survives
 // notebook re-renders via a per-cell-id registry of mounted CM6 views.
 
+import {
+  getAssociationsStore,
+  resolveEffectiveSelectionsForTable,
+} from '../../core/associations.ts';
 import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
@@ -361,9 +365,14 @@ export function paintResultSelectionStates(tableEl: HTMLElement, cell: SqlCellSt
   // Demo mode strips click-to-select entirely (H14); nothing to paint.
   if (getDemoMode()) return;
   const table = `cell_${cell.id}`;
-  const selections = getSelectionsStore()
-    .list()
-    .filter((s) => s.table === table);
+  // Effective selections = this cell's own selections UNIONED with values
+  // selected on any associated column elsewhere (M1 Phase 2 inter-cell
+  // cross-filter). Reduces to the intra-cell engine once resolved.
+  const selections = resolveEffectiveSelectionsForTable(
+    table,
+    getSelectionsStore().list(),
+    getAssociationsStore().list(),
+  );
   if (selections.length === 0) return;
 
   const rows = result.rows.map((r) => {

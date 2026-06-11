@@ -24,10 +24,12 @@ scheduling/scope decision — see Open questions.**
       binder + `repaintSelectionStates` surgical subscriber + token CSS.
       737 vitest / check / smoke green; **Chrome-verified**. See STATUS +
       DECISIONS W/X/Y.
-- [ ] **M1 UI manual-associations panel** (handoff §M1) — still open.
-      Smallest useful shape TBD (see Open questions). Lets the user pin
-      inter-cell `(table,col)↔(table,col)` relationships so the
-      cross-filter spans cells, not just intra-cell. **[test in Chrome]**
+- [x] **M1 UI manual-associations panel** — DONE (2026-06-11). Hybrid:
+      auto-suggest (type/name) + manual link form + active-links list.
+      `associations.ts` (store + `resolveEffectiveSelectionsForTable` +
+      `suggestAssociations`) + modal + paint propagation + persistence.
+      Inter-cell cross-filter via in-memory propagation (DECISIONS AE/AF).
+      770 vitest / check / smoke green; **Chrome-verified**.
 - [x] **M5 UI** — DONE (2026-06-11). Manual|Shelves mode toggle on the
       chart cell; field tray + x/y/color drop-zones (DnD + select
       fallback) → `compileShelvesToConfig` → cell config. `inferFieldClass`
@@ -40,11 +42,10 @@ scheduling/scope decision — see Open questions.**
       AC). 745 vitest / check / smoke green; **Chrome-verified**.
       DECISIONS AC/AD.
 
-**Phase 2 UI is feature-complete** except the M1 manual-associations
-panel (needs a scope decision — see Open questions). Spawned a follow-up
-task: source→cell lineage came back empty from EXPLAIN against the
-offline DuckDB build (only `@name` refs populated it) — possible M2
-regression, needs investigation.
+**Phase 2 UI is COMPLETE** (M1 grey-out + M1 associations panel + M5 +
+M6). The lineage-empty bug flagged during M6 was investigated + fixed
+(`de1a309` — duckdb-wasm 1.29.0 inlines view-backed mounts; plan walk now
+unions a CTE-aware SQL sniff). **Next up: Chunk 2 — v1.3.0 release.**
 
 **Prereq:** decide the Phase 2 scope/scheduling question first. Each
 sub-item is independently shippable, so this can land incrementally.

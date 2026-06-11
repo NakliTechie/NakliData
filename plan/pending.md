@@ -702,16 +702,15 @@ S15) shipped across commits `06ae2aa`, `196ab28`, `8568530`,
 
 ### Open questions
 
-- **Phase 2 UI scheduling** — RESOLVED 2026-06-11: autonomous-proceed,
-  land incrementally. **M1 grey-out DONE**, **M5 shelf authoring DONE**
-  (Z/AA/AB), **M6 lineage edit mode DONE** (AC/AD — insert + delete wired,
-  reposition deferred). All Chrome-verified. **Phase 2 UI feature-complete**
-  except the M1 manual-associations panel (open scope question below).
-- **NEW (2026-06-11, spawned task):** source→cell lineage recorded EMPTY
-  from a plain `SELECT * FROM invoices` against the offline DuckDB build —
-  only `@name` cellRefs populated the graph. Suggests `extractInputsFromPlan`
-  doesn't match the vendored build's EXPLAIN JSON + the regex fallback
-  doesn't fire on zero EXPLAIN inputs. Possible silent M2 regression.
+- **Phase 2 UI — COMPLETE (2026-06-11).** M1 grey-out, **M1 associations
+  panel** (hybrid; AE/AF), M5 shelf authoring (Z/AA/AB), M6 lineage edit
+  mode (AC/AD). All Chrome-verified. The scope question is resolved (user
+  chose hybrid associations).
+- **Lineage-empty bug — FIXED (2026-06-11, `de1a309`).** Root cause:
+  duckdb-wasm 1.29.0 inlines view-backed mounts (every CSV/JSON/Parquet
+  source is a view) so the physical plan drops source names; op names are
+  also space-padded. Plan walk now unions a CTE-aware SQL sniff +
+  `extra_info.Text`. 770 vitest green.
 - **Manual associations panel scope** (handoff §M1) — smallest useful
   starter shape?
 - **v1.3.0 tag timing** — cut now (v1.2 + v1.3 + audit done) or after
