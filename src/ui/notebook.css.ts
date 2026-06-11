@@ -110,6 +110,19 @@ export const notebookCss = `
   top: 0;
 }
 .result-table td.numeric { text-align: right; }
+/* v1.3 M1 Phase 2 — associative cross-filter cell states. */
+.result-table td[data-action="toggle-selection"]:hover {
+  background: var(--surface-alt);
+}
+.result-table td.xf-selected {
+  background: color-mix(in srgb, var(--warning) 26%, var(--surface));
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.result-table td.xf-excluded {
+  opacity: 0.4;
+  color: var(--text-muted);
+}
 .cell-result-meta {
   padding: 6px 12px;
   font-size: 11px;

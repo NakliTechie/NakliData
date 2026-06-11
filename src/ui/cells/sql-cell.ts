@@ -5,6 +5,7 @@
 
 import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { SINKS, blockReasonFor } from '../sinks/sinks.ts';
@@ -304,6 +305,9 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     }
     table.appendChild(body);
     container.append(table);
+    // v1.3 M1 Phase 2 — paint the associative cross-filter states onto
+    // the freshly-rendered table (selected highlighted, excluded greyed).
+    paintResultSelectionStates(table, cell);
   }
   const meta = document.createElement('div');
   meta.className = 'cell-result-meta';
@@ -327,6 +331,57 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
   sidecar.className = 'cell-sidecar-result';
   sidecar.dataset.region = `sidecar-result-${cell.id}`;
   container.append(sidecar);
+}
+
+/**
+ * v1.3 M1 Phase 2 — paint associative cross-filter states onto a SQL
+ * result table in place. SELECTED values get a highlight; EXCLUDED
+ * values (present in the data but never co-occurring with the
+ * selection) are greyed — not hidden — per the spec's absence-as-signal
+ * rule. Idempotent: clears prior state classes first, so it doubles as
+ * the repaint hook called when the selection store changes.
+ *
+ * Co-occurrence is computed in JS over the cell's full materialised
+ * result (`cell.lastResult.rows`), not just the 50 painted preview
+ * rows, so a value co-occurring only in row 51+ is still correctly
+ * associated. The compute is skipped entirely when no selection touches
+ * this cell (the common case) — cheap for every other cell.
+ *
+ * Exported so `main.ts` can repaint a whole notebook's tables on a
+ * selection-store tick without a full re-render (which would reset
+ * scroll + focus).
+ */
+export function paintResultSelectionStates(tableEl: HTMLElement, cell: SqlCellState): void {
+  // Always clear first so a cleared/changed selection un-greys stale tds.
+  for (const td of tableEl.querySelectorAll<HTMLElement>('td.xf-selected, td.xf-excluded')) {
+    td.classList.remove('xf-selected', 'xf-excluded');
+  }
+  const result = cell.lastResult;
+  if (!result) return;
+  // Demo mode strips click-to-select entirely (H14); nothing to paint.
+  if (getDemoMode()) return;
+  const table = `cell_${cell.id}`;
+  const selections = getSelectionsStore()
+    .list()
+    .filter((s) => s.table === table);
+  if (selections.length === 0) return;
+
+  const rows = result.rows.map((r) => {
+    const o: Record<string, string> = {};
+    for (const col of result.columns) o[col] = formatCell(r[col]).text;
+    return o;
+  });
+  const states = computeIntraCellValueStates(result.columns, rows, selections);
+  if (!states) return;
+
+  for (const td of tableEl.querySelectorAll<HTMLElement>('td[data-column][data-value]')) {
+    const col = td.dataset.column;
+    const value = td.dataset.value;
+    if (col === undefined || value === undefined) continue;
+    const state = states.get(col)?.get(value);
+    if (state === 'selected') td.classList.add('xf-selected');
+    else if (state === 'excluded') td.classList.add('xf-excluded');
+  }
 }
 
 function formatCell(v: unknown): { text: string; numeric: boolean } {

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SelectionsStore,
   buildIntraTableSelectionPredicate,
+  computeIntraCellValueStates,
   computeValueStates,
   emptySelectionsFile,
   selectionKeyString,
@@ -53,6 +54,80 @@ describe('computeValueStates', () => {
   it('selected takes precedence over associated', () => {
     const states = computeValueStates(['a'], new Set(['a']), new Set(['a']), true);
     expect(states.get('a')).toBe('selected');
+  });
+});
+
+describe('computeIntraCellValueStates (Phase 2 grey-out binder)', () => {
+  // A small two-column result: vendor × status.
+  const columns = ['vendor', 'status'];
+  const rows: Record<string, string>[] = [
+    { vendor: 'Acme', status: 'paid' },
+    { vendor: 'Acme', status: 'open' },
+    { vendor: 'Globex', status: 'paid' },
+    { vendor: 'Initech', status: 'void' },
+  ];
+
+  it('returns null when no selection touches the table', () => {
+    expect(computeIntraCellValueStates(columns, rows, [])).toBeNull();
+  });
+
+  it('returns null when selections carry only empty value sets', () => {
+    expect(
+      computeIntraCellValueStates(columns, rows, [
+        { table: 'cell_x', column: 'vendor', values: [] },
+      ]),
+    ).toBeNull();
+  });
+
+  it('greys other-column values that never co-occur with the selection', () => {
+    // Select vendor=Acme. status=paid + status=open co-occur (Acme rows);
+    // status=void belongs only to Initech ⇒ excluded.
+    const states = computeIntraCellValueStates(columns, rows, [
+      { table: 'cell_x', column: 'vendor', values: ['Acme'] },
+    ]);
+    expect(states).not.toBeNull();
+    const vendor = states?.get('vendor');
+    const status = states?.get('status');
+    expect(vendor?.get('Acme')).toBe('selected');
+    // No other-column constraint on `vendor` ⇒ the rest associate, not excluded.
+    expect(vendor?.get('Globex')).toBe('associated');
+    expect(vendor?.get('Initech')).toBe('associated');
+    expect(status?.get('paid')).toBe('associated');
+    expect(status?.get('open')).toBe('associated');
+    expect(status?.get('void')).toBe('excluded');
+  });
+
+  it('intersects multi-column selections (AND across columns)', () => {
+    // vendor=Acme AND status=paid. Only the (Acme, paid) row survives,
+    // so within `status`, `open` no longer co-occurs ⇒ excluded.
+    const states = computeIntraCellValueStates(columns, rows, [
+      { table: 'cell_x', column: 'vendor', values: ['Acme'] },
+      { table: 'cell_x', column: 'status', values: ['paid'] },
+    ]);
+    const vendor = states?.get('vendor');
+    const status = states?.get('status');
+    // `vendor` is constrained only by status=paid: Acme + Globex have a
+    // paid row ⇒ associated/selected; Initech (void only) ⇒ excluded.
+    expect(vendor?.get('Acme')).toBe('selected');
+    expect(vendor?.get('Globex')).toBe('associated');
+    expect(vendor?.get('Initech')).toBe('excluded');
+    expect(status?.get('paid')).toBe('selected');
+    // `status` is constrained only by vendor=Acme (its own selection adds
+    // no self-constraint): `open` still co-occurs with Acme ⇒ associated.
+    expect(status?.get('open')).toBe('associated');
+    expect(status?.get('void')).toBe('excluded');
+  });
+
+  it('skips columns whose values are undefined in a row', () => {
+    const sparse: Record<string, string>[] = [
+      { vendor: 'Acme', status: 'paid' },
+      { vendor: 'Acme' }, // no status key
+    ];
+    const states = computeIntraCellValueStates(['vendor', 'status'], sparse, [
+      { table: 'cell_x', column: 'vendor', values: ['Acme'] },
+    ]);
+    // Only the one real status value is tracked; no crash on the gap.
+    expect(Array.from(states?.get('status')?.keys() ?? [])).toEqual(['paid']);
   });
 });
 

@@ -702,10 +702,11 @@ S15) shipped across commits `06ae2aa`, `196ab28`, `8568530`,
 
 ### Open questions
 
-- **Phase 2 UI scheduling** — the v1.3 data layers are live but
-  several surfaces are still data-only: M1 grey-out renderer +
-  manual-associations panel, M5 shelf drop-zones, M6 edit-mode toggle.
-  Autonomous-proceed or user-gate?
+- **Phase 2 UI scheduling** — RESOLVED 2026-06-11: autonomous-proceed,
+  land incrementally. **M1 grey-out renderer DONE** (`computeIntraCellValueStates`
+  + paint binder + surgical repaint; 737 vitest / check / smoke green;
+  Chrome-verified). Still data-only: M1 manual-associations panel, M5
+  shelf drop-zones, M6 edit-mode toggle.
 - **Manual associations panel scope** (handoff §M1) — smallest useful
   starter shape?
 - **v1.3.0 tag timing** — cut now (v1.2 + v1.3 + audit done) or after

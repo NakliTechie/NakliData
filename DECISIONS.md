@@ -2,6 +2,57 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.3 M1 Phase 2 — associative cross-filter grey-out UI
+
+**Context:** v1.3 M1 shipped data-only at `a0fa5cf` (selection store +
+`computeValueStates` + predicate builder + persistence); the grey-out
+renderer was deferred to Phase 2. This is the first Phase 2 UI ship —
+making the cross-filter user-visible. Three load-bearing calls:
+
+### Decision W — Intra-cell scope, computed in JS over the materialised result
+
+The selection "table" is `cell_<id>` (set by the existing click-to-select
+wiring), not a mounted DuckDB table — so the result rows are already in
+memory in `cell.lastResult.rows`. Options for computing the
+associated/excluded sets:
+
+- A: Register each result as a temp table and run
+  `SELECT DISTINCT <col> … WHERE <buildIntraTableSelectionPredicate>`
+  against the engine on every selection change.
+- B: Compute co-occurrence in JS over the materialised rows.
+
+**Chosen: B.** For the v1 intra-cell scope the rows are right there;
+an engine round-trip per click buys nothing and adds latency + async
+complexity to a synchronous repaint. New pure primitive
+`computeIntraCellValueStates` does it in O(rows×cols), gated to skip
+entirely when no selection touches the cell (the common case). The
+predicate builder stays as-is for the eventual inter-cell / mounted-table
+path (the documented Phase 2+ follow-up). Compute runs over the **full**
+result, not just the 50 painted preview rows, so a value co-occurring
+only in row 51+ is still correctly associated.
+
+### Decision X — Surgical per-td repaint, not a full `renderNotebook`
+
+The selection store already re-renders the selections bar on every tick.
+Cells, though, were never repainted. Re-rendering the whole notebook on
+each toggle would work (CM editors survive via the registry) but resets
+result-table scroll + editor focus — bad for a high-frequency
+click-a-value interaction. **Chosen:** a `repaintSelectionStates(root,
+engine)` subscriber that walks the SQL result tables in the DOM, looks up
+each cell's `lastResult` via the notebook singleton, and toggles
+`xf-selected` / `xf-excluded` classes in place. Idempotent (clears prior
+classes first), so it doubles as the initial-render paint hook.
+
+### Decision Y — Same-column unselected values stay associated, not excluded
+
+`computeValueStates` has four states but no Qlik "alternative". A
+selection on column T does not constrain T's own associated set (mirrors
+the predicate builder's `sel.column === target.column` skip), so the
+other values in a selected column render associated (normal), not greyed.
+Greying is reserved for genuine cross-column exclusion. Verified in
+Chrome: selecting `vendor=Acme` left `Globex`/`Initech` ungreyed in the
+vendor column while greying the non-co-occurring `status=void`.
+
 ## 2026-06-11 — v1.3 close + bundle budget raise
 
 **Context:** v1.3 "Prior Art" handoff closed M0→M6 in the same

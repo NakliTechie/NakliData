@@ -108,6 +108,73 @@ export function computeValueStates(
 }
 
 /**
+ * Compute per-(column, value) states for an intra-cell associative
+ * cross-filter, over a single result's already-display-formatted rows.
+ *
+ * v1 scope is intra-cell (handoff §M1): the "table" is the cell's own
+ * result, materialised in memory, so co-occurrence is computed in JS
+ * over the rows — no engine round-trip. (Inter-cell association via
+ * taxonomy-type matching is the documented Phase 2+ follow-up.)
+ *
+ * `selections` must already be filtered to THIS cell's table; when it
+ * is empty (or holds only empty value sets) the function returns null
+ * and the caller paints nothing / clears prior classes.
+ *
+ * For a target column T:
+ *   - selected   — the value is in T's own selection set.
+ *   - associated — T-values appearing in rows that satisfy EVERY other
+ *     selected column's constraint (the cross-filter co-occurrence).
+ *   - excluded   — T-values that never co-occur — greyed, not hidden.
+ *
+ * A selection on T itself does not constrain T's own associated set
+ * (self-selection adds no cross-filter — mirrors the predicate builder,
+ * which skips `sel.column === target.column`).
+ *
+ * Rows must be keyed by display text — the same text the UI renders and
+ * stores as the selected value — so state lookups match by string.
+ */
+export function computeIntraCellValueStates(
+  columns: ReadonlyArray<string>,
+  rows: ReadonlyArray<Record<string, string>>,
+  selections: ReadonlyArray<SelectionEntry>,
+): Map<string, Map<string, ValueState>> | null {
+  const selByCol = new Map<string, ReadonlySet<string>>();
+  for (const s of selections) {
+    if (s.values.length > 0) selByCol.set(s.column, new Set(s.values));
+  }
+  if (selByCol.size === 0) return null;
+
+  const out = new Map<string, Map<string, ValueState>>();
+  for (const col of columns) {
+    const selected = selByCol.get(col) ?? new Set<string>();
+    // Every OTHER selected column constrains this column's associated
+    // set. A self-selection on `col` is excluded from the constraints.
+    const constraints = Array.from(selByCol.entries()).filter(([c]) => c !== col);
+    const allValues = new Set<string>();
+    const associated = new Set<string>();
+    for (const row of rows) {
+      const v = row[col];
+      if (v === undefined) continue;
+      allValues.add(v);
+      // The value co-occurs iff its row satisfies every other-column
+      // constraint. With no other-column selection, `constraints` is
+      // empty ⇒ every value co-occurs ⇒ nothing is excluded.
+      let coOccurs = true;
+      for (const [c, set] of constraints) {
+        const rv = row[c];
+        if (rv === undefined || !set.has(rv)) {
+          coOccurs = false;
+          break;
+        }
+      }
+      if (coOccurs) associated.add(v);
+    }
+    out.set(col, computeValueStates(Array.from(allValues), selected, associated, true));
+  }
+  return out;
+}
+
+/**
  * Singleton store for selection state. Same pattern as
  * `lineage-store.ts` + `measures-store.ts` (observable + IDB-
  * compatible toFile/loadFromFile pair).

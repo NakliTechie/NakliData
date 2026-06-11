@@ -56,6 +56,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
 import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
@@ -231,7 +232,12 @@ async function boot(): Promise<void> {
 
   // v1.3 M1 — render the selections bar reactively. Subscribe once at
   // boot; the store calls back on every set/toggle/clear.
-  getSelectionsStore().subscribe((entries) => renderSelectionsBar(root, entries));
+  getSelectionsStore().subscribe((entries) => {
+    renderSelectionsBar(root, entries);
+    // Phase 2 — repaint the cross-filter grey-out in place (no full
+    // notebook re-render, which would reset scroll + focus).
+    repaintSelectionStates(root, engine);
+  });
   // Render the initial state (may be empty on first boot; populated by
   // .naklidata-restored selections after applyLoadedFile).
   renderSelectionsBar(root, getSelectionsStore().list());
@@ -465,6 +471,28 @@ async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
  * button and `window.naklidataRenderReport(id)` — both set `[data-printing]`
  * then call `window.print()`.
  */
+/**
+ * v1.3 M1 Phase 2 — repaint the associative cross-filter grey-out on
+ * every SQL result table currently in the DOM, in place. Triggered on a
+ * selection-store tick. Surgical (per-td class toggles) rather than a
+ * full `renderNotebook`, so clicking a value in a long result doesn't
+ * scroll-jump the table or steal editor focus.
+ */
+function repaintSelectionStates(root: HTMLElement, engine: Engine): void {
+  const cellsById = new Map(
+    getNotebook(engine)
+      .get()
+      .cells.map((c) => [c.id, c]),
+  );
+  for (const tableEl of root.querySelectorAll<HTMLElement>(
+    '[data-cell-kind="sql"] table.result-table',
+  )) {
+    const id = tableEl.closest<HTMLElement>('[data-cell-id]')?.dataset.cellId;
+    const cell = id ? cellsById.get(id) : undefined;
+    if (cell?.kind === 'sql') paintResultSelectionStates(tableEl, cell);
+  }
+}
+
 function installReportPrintListeners(engine: Engine): void {
   window.addEventListener('beforeprint', () => {
     const reportEl = document.querySelector<HTMLElement>('.cell-report[data-printing]');

@@ -19,11 +19,15 @@ The v1.3 data layers all ship + are tested, but several surfaces are
 still data-only. This chunk makes them user-visible. **Blocked on a
 scheduling/scope decision — see Open questions.**
 
-- [ ] **M1 UI** — Associative Cross-Filter: grey-out renderer for
-      EXCLUDED values (the selection store + `computeValueStates` +
-      `buildIntraTableSelectionPredicate` exist; the binder that paints
-      cell values by state isn't wired) + the manual-associations
-      panel (handoff §M1). **[test in Chrome]**
+- [x] **M1 UI grey-out** — DONE (2026-06-11). `computeIntraCellValueStates`
+      (pure, intra-cell, JS over materialised rows) + `paintResultSelectionStates`
+      binder + `repaintSelectionStates` surgical subscriber + token CSS.
+      737 vitest / check / smoke green; **Chrome-verified**. See STATUS +
+      DECISIONS W/X/Y.
+- [ ] **M1 UI manual-associations panel** (handoff §M1) — still open.
+      Smallest useful shape TBD (see Open questions). Lets the user pin
+      inter-cell `(table,col)↔(table,col)` relationships so the
+      cross-filter spans cells, not just intra-cell. **[test in Chrome]**
 - [ ] **M5 UI** — shelf-based chart authoring: drop-zone UI over the
       `chart-shelves.ts` logic. **[test in Chrome]**
 - [ ] **M6 UI** — lineage edit mode: edit-mode toggle + canvas
