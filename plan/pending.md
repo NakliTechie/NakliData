@@ -2,6 +2,19 @@
 
 Working list of features to consider, drawn from competitive recon. Items are tagged by status:
 
+> **2026-06-11 (session 3) — v1.3.0 RELEASED + v1.4 feature slate (F1–F9) COMPLETE.**
+> Shipped v1.3 Phase 2 UI (cross-filter grey-out, associations panel,
+> shelf authoring, lineage edit), tagged **v1.3.0**, then built ALL 9
+> competitive-analysis features (dimensions, metrics catalog, code view,
+> calculated/window fields, multi-join query builder, X-Ray profile,
+> numeric distribution, embed widget). 19 commits `07f9eb9..f01c21d`,
+> CI-green + deployed; 798 vitest / 55 e2e / smoke. Also: retired GH Pages
+> (Cloudflare is canonical), e2e in the CI gate, a latent M2 bug fixed.
+> Detail in `plan/2026-06-11-summary.md`.
+> **NOW (top open items):** (1) cut **v1.4.0** (notes + tag + README
+> feature refresh); (2) **WebGPU slice-B validation** (only owed v1.3
+> item; needs a capable machine).
+
 > **2026-06-11 (session 2) — forward-pass audit CLOSED.** All 6
 > chunks (3 Critical · 16 High · ~30 supporting findings) shipped
 > across 7 commits `9a6027a..f8542e5`, pushed + deployed. 732 vitest +
@@ -49,15 +62,17 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 
 ---
 
-## v1.4+ candidate gaps (competitive analysis 2026-06-11)
+## v1.4+ candidate gaps (competitive analysis 2026-06-11) — ✅ ALL SHIPPED (F1–F9)
 
-From [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — ranked by value-to-fit, all constraint-checked (browser-only, no-server, no-account; none breaks a Hard NOT). Full rationale + citations in that doc; the granular, individually-shippable breakdown (features F1–F9 + a suggested v1.4 slate) is in [feature-candidates.md](./feature-candidates.md).
+From [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md); the granular F1–F9 breakdown is in [feature-candidates.md](./feature-candidates.md). **All five ranked gaps shipped 2026-06-11 (DECISIONS AI–AO):**
 
-1. **Deepen the semantic / metrics layer beyond `MEASURE()`** (high/high, M) — add named *dimensions* + a metrics catalog panel + optional Cube/LookML-style declarative block. Pure client-side macro expansion; builds on v1.3 M2; compounds charts + query builder + AI.
-2. **Calculated / derived fields on a result** (high/high, M) — the BI ergonomic we lack (Tableau/Power BI/Metabase). Reuse the existing injection-safe no-string-concat emitter; output stays a user-run cell (Hard NOT #4 preserved).
-3. **"Profile this table" X-Ray** (high/high, S–M) — bundle the shipped column-profile + stats + correlation + quick-chart into one action (Metabase X-Ray pattern). All DuckDB-side.
-4. **Grow the visual query builder toward Metabase "ask a question"** (med-high/high, M) — multi-step / multi-join on the same safe emitter.
-5. **Embeddable read-only `?lens=` widget** (med/med, M–L) — closes the embed gap server-free; must stay read-only / no-telemetry / no-account; needs a sandboxing + CSP review. Already noted for v2.1.
+1. ✅ Semantic/metrics layer — F1 named dimensions (`DIM()`) + F2 metrics catalog + F3 code view (`d27d5a9`).
+2. ✅ Calculated / derived fields — F4 + F5 window/LOD (`5faa598`).
+3. ✅ "Profile this table" X-Ray — F7 + F8 numeric distribution/outliers (`c390cc3`).
+4. ✅ "Ask a question" query builder — F6 multi-join (`a34f1e0`).
+5. ✅ Embeddable read-only widget — F9 sandboxed `<iframe srcdoc>` (`f01c21d`).
+
+**Deferred stretches (not blockers):** multi-step query-builder pipelines (filter→summarise→re-summarise); multi-column window partitions. **Strategic (positioning, not features):** S1 Compute Bridge ↔ MotherDuck alignment; S2 RudderStack co-existence narrative.
 
 **Do NOT chase (breaks a Hard NOT / category):** scheduled refresh/alerts, RBAC/multi-user, event ingestion/identity (CDP), server-side authed embeds, Tableau-Pulse-style AI prose narration.
 
