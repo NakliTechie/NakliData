@@ -1145,6 +1145,30 @@ function handleCalcField(cellId: string): void {
   });
 }
 
+/**
+ * v1.4 F7 — "X-Ray" a SQL result: insert a markdown header + a stats cell
+ * bound to it (descriptives + correlation matrix, v1.3 M4) + run the
+ * stats cell. Bundles the heaviest profiling piece into one click.
+ */
+function handleXRay(cellId: string): void {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first — X-Ray profiles a result.');
+    return;
+  }
+  const label = cell.name?.trim() || `cell_${cell.id}`;
+  const md = nb.addCell('markdown');
+  nb.patchCell(md.id, {
+    code: `## X-Ray — ${label}\nDescriptive statistics + correlation matrix for the result above.`,
+  });
+  const stats = nb.addCell('stats');
+  nb.patchCell(stats.id, { inputCell: cellId });
+  void handleRunStats(engine, stats.id);
+  toast('X-Ray inserted — descriptive stats + correlations.');
+}
+
 function handleOpenQueryBuilder(engine: Engine): void {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
@@ -1542,6 +1566,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'calc-field': {
       const cellId = el?.dataset.cellId;
       if (cellId) handleCalcField(cellId);
+      return;
+    }
+    case 'xray': {
+      const cellId = el?.dataset.cellId;
+      if (cellId) handleXRay(cellId);
       return;
     }
     case 'selections-clear': {

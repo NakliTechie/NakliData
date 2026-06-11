@@ -414,6 +414,18 @@ function renderProfilePanel(p: ColumnProfile): string {
         <span class="schema-profile-label">Length</span>
         <span class="schema-profile-value">${lengthLine}</span>
       </div>
+      ${
+        p.numeric
+          ? `<div class="schema-profile-row">
+        <span class="schema-profile-label">Distribution</span>
+        <span class="schema-profile-value">min ${fmtNum(p.numeric.min)} · q1 ${fmtNum(p.numeric.q1)} · med ${fmtNum(p.numeric.median)} · q3 ${fmtNum(p.numeric.q3)} · max ${fmtNum(p.numeric.max)}</span>
+      </div>
+      <div class="schema-profile-row">
+        <span class="schema-profile-label">Outliers</span>
+        <span class="schema-profile-value">${p.numeric.outliers.toLocaleString()} <span class="schema-profile-pct">(IQR rule)</span></span>
+      </div>`
+          : ''
+      }
     </div>
     ${
       p.topK.length > 0

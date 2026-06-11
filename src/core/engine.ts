@@ -57,6 +57,21 @@ export interface ColumnProfile {
   lengthAvg: number | null;
   /** Top 5 values by count (descending). Values are stringified. */
   topK: Array<{ value: string; count: number }>;
+  /**
+   * Numeric distribution (v1.4 F8). Present only when the column has
+   * numeric-castable values: five-number summary + an IQR-rule outlier
+   * count (values outside `[q1 - 1.5·IQR, q3 + 1.5·IQR]`). `null` for
+   * non-numeric columns.
+   */
+  numeric: {
+    min: number;
+    q1: number;
+    median: number;
+    q3: number;
+    max: number;
+    count: number;
+    outliers: number;
+  } | null;
 }
 
 /**
@@ -805,6 +820,11 @@ export class Engine {
       value: r.value === null || r.value === undefined ? '∅' : String(r.value),
       count: Number(r.cnt),
     }));
+    // v1.4 F8 — numeric five-number summary + IQR-rule outlier count.
+    // TRY_CAST makes this type-agnostic: a non-numeric column yields zero
+    // numeric values (`c = 0`) → no numeric stats. One query computes the
+    // quartiles + a correlated subquery counts the outliers.
+    const numeric = await this.profileNumeric(safeTable, safeCol);
     return {
       totalRows: Number(summary.total),
       nullCount: Number(summary.null_count),
@@ -813,7 +833,55 @@ export class Engine {
       lengthMax: summary.len_max === null ? null : Number(summary.len_max),
       lengthAvg: summary.len_avg === null ? null : Number(summary.len_avg),
       topK,
+      numeric,
     };
+  }
+
+  private async profileNumeric(
+    safeTable: string,
+    safeCol: string,
+  ): Promise<ColumnProfile['numeric']> {
+    try {
+      const rows = await this.query<{
+        mn: number | null;
+        q1: number | null;
+        med: number | null;
+        q3: number | null;
+        mx: number | null;
+        c: number | bigint;
+        outliers: number | bigint;
+      }>(
+        `WITH n AS (
+           SELECT TRY_CAST(${safeCol} AS DOUBLE) AS v
+           FROM ${safeTable}
+           WHERE TRY_CAST(${safeCol} AS DOUBLE) IS NOT NULL
+         ),
+         q AS (
+           SELECT MIN(v) AS mn, approx_quantile(v, 0.25) AS q1, approx_quantile(v, 0.5) AS med,
+                  approx_quantile(v, 0.75) AS q3, MAX(v) AS mx, COUNT(*) AS c
+           FROM n
+         )
+         SELECT mn, q1, med, q3, mx, c,
+           (SELECT COUNT(*) FROM n
+             WHERE n.v < q.q1 - 1.5 * (q.q3 - q.q1)
+                OR n.v > q.q3 + 1.5 * (q.q3 - q.q1)) AS outliers
+         FROM q`,
+      );
+      const r = rows[0];
+      if (!r || Number(r.c) === 0 || r.q1 === null || r.q3 === null) return null;
+      return {
+        min: Number(r.mn),
+        q1: Number(r.q1),
+        median: Number(r.med),
+        q3: Number(r.q3),
+        max: Number(r.mx),
+        count: Number(r.c),
+        outliers: Number(r.outliers),
+      };
+    } catch {
+      // A column DuckDB can't TRY_CAST at all — treat as non-numeric.
+      return null;
+    }
   }
 
   /**

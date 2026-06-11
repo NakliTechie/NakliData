@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.4 F7/F8 — "X-Ray" profile + numeric distribution
+
+### Decision AN — F8 numeric stats via TRY_CAST (type-agnostic); F7 reuses the stats cell
+
+**F8:** `Engine.profileColumn` gains a five-number summary + IQR-rule
+outlier count. Rather than branch on the column's declared type, the
+extra query computes over `TRY_CAST(col AS DOUBLE)` — a non-numeric
+column yields zero castable values (`COUNT = 0`) → no numeric stats
+(`numeric: null`); a numeric-OR-numeric-string column (e.g. a 2-char
+state code) gets quartiles. One query: a CTE for the cast values + a
+correlated subquery for the outlier count. Wrapped in try/catch so an
+un-castable column degrades to non-numeric. **F7:** the "X-Ray" button on
+a SQL result inserts a markdown header + a **stats cell** bound to the
+result and runs it — bundling the heaviest profiling piece (descriptives
++ correlation matrix, v1.3 M4) into one click rather than building a new
+profiling engine. Both are engine/DOM surfaces (like `profileColumn`
+itself) — Chrome-verified, not unit-tested.
+
 ## 2026-06-11 — v1.4 F6 — multi-join visual query builder
 
 ### Decision AM — `join` → `joins[]`; table-qualified pickers; in-scope guard
