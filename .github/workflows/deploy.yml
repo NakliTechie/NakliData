@@ -1,32 +1,30 @@
-name: Verify and Deploy
+name: Verify
 
-# W1.8 — public hosted build. The `verify` job runs the full local gate
-# suite (check + unit tests + headless smoke + Playwright e2e) on every
-# push to main AND on every pull request (forward-pass M20/M21 — the
-# deploy used to ship straight from `npm ci && npm run build`, so a red
-# tree could reach GH Pages). `build` + `deploy` are gated on `verify`
-# passing and only run for pushes / manual dispatch, never for PRs.
+# CI gate. Runs the full local gate suite (check + unit tests + headless
+# smoke + Playwright e2e) on every push to main AND on every pull request
+# (forward-pass M20/M21 — a red tree must not reach production).
 #
-# Repo must have Pages enabled: Settings → Pages → Source = GitHub
-# Actions. That's a one-time manual step the first time this workflow
-# is wired up.
+# DEPLOY is handled by Cloudflare Workers, NOT here. `wrangler.jsonc`
+# serves dist/ as static assets at https://naklidata.naklitechie.com/ ;
+# Cloudflare's Git integration (Workers Builds) auto-deploys on push to
+# main. The old GitHub Pages build/deploy jobs were retired 2026-06-11
+# once Cloudflare became the canonical deploy (the github.io URL is no
+# longer advertised). To fully decommission Pages, also flip
+# Settings → Pages → Source to "None" in the repo settings (dashboard-only
+# step; the last Pages deploy otherwise stays frozen-but-live).
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
-# Required for the deploy job to publish to GitHub Pages.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Scope concurrency to the ref so a new push to main cancels an older
-# in-flight main run (latest commit wins), while PR runs and main runs
-# stay in separate groups — a PR check never cancels a main deploy.
+# in-flight main run (latest commit wins); PR runs and main runs stay in
+# separate groups.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -45,7 +43,7 @@ jobs:
       - name: Install dependencies
         # The `postinstall` script downloads the DuckDB-wasm fallback
         # (~75 MB) and the vendored extensions; both end up in public/.
-        # The smoke test boots with ?offline=1 against those bytes.
+        # The smoke + e2e specs boot with ?offline=1 against those bytes.
         run: npm ci
 
       - name: Install Playwright Chromium
@@ -54,8 +52,8 @@ jobs:
       - name: Build
         # Build first so the bundle-size gate inside `npm run check` has a
         # dist/ to measure (check-bundle-size.mjs is a no-op when dist/ is
-        # absent). The smoke step rebuilds — esbuild is ~1s, so the
-        # redundant build is negligible.
+        # absent). The smoke + e2e steps rebuild — esbuild is ~1s, so the
+        # redundant builds are negligible.
         run: npm run build
 
       - name: Check (tsc + biome + engine-boundary + bundle-size)
@@ -73,45 +71,3 @@ jobs:
         # 2 workers matches the config default (ubuntu-latest has 2 cores;
         # >2 hammering the DuckDB-wasm boot causes engine-boot timeouts).
         run: npm run test:e2e
-
-  build:
-    needs: verify
-    # Only push / manual dispatch produce a deployable artifact; PRs stop
-    # after `verify`.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Sanity-check build
-        # Fail loudly if the build didn't produce the inlined shell.
-        run: |
-          test -f dist/index.html
-          ls -lh dist/index.html
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v5
