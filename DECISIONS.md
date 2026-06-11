@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.3.0 release cut
+
+### Decision AG — Ship v1.3.0 WITHOUT the WebGPU slice-B manual validation
+
+The Chunk 2 (release) prereq was "Chunk 3 slice-B validation green, OR a
+logged decision to ship without the local-model path validated." The
+W3.2 slice-B per-job validation (`plan/w32-slice-b-validation.md`)
+requires a real browser with WebGPU + a multi-hundred-MB model download —
+it cannot run headless, and this release was cut in an autonomous,
+user-away session. **Chosen: cut v1.3.0 now; slice-B validation stays
+owed.** The local-model runtime CODE shipped + is unit-tested
+(transformers chunk, OPFS cache, settings UI, boot auto-load); the owed
+piece is *manual per-job QA against a live model*, not a code gap. The
+770 vitest + 55 e2e + smoke gates are green; bundle is under budget. The
+local provider is opt-in (BYOK cloud/custom stay the default paths), so an
+unvalidated local path can't regress shipped defaults. The validation
+checklist remains a tracked follow-up; v1.3.1 can close it on a WebGPU box.
+
+### Decision AH — e2e run before the tag; not yet added to the CI gate
+
+Ran `npm run test:e2e` (55 specs) green BEFORE tagging, rather than
+trusting the CI verify job (which runs check/test/smoke but not e2e).
+Wiring e2e into CI is left as a follow-up (the run is ~1 min + offline-
+capable, so it's a cheap future win) — not blocking the tag.
+
 ## 2026-06-11 — M2 lineage: source→cell extraction was dead against duckdb-wasm 1.29.0
 
 **Context:** Chrome-verifying M6 lineage edit mode, a single SQL cell
