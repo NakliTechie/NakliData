@@ -1,14 +1,14 @@
-// M5 — Visual Query Builder modal.
+// M5 + v1.4 F6 — Visual Query Builder modal ("ask a question").
 //
-// Form-based interface that emits parametrised SQL (via the pure
-// emitter in `src/core/query-builder.ts`). On Generate, the SQL is
-// dropped into a new SQL cell via the callback the caller wires up;
-// the user clicks Run themselves (Hard NOT #4 — never auto-execute).
+// Form-based interface that emits parametrised SQL (via the pure emitter
+// in `src/core/query-builder.ts`). On Generate, the SQL is dropped into a
+// new SQL cell via the callback; the user clicks Run (Hard NOT #4).
 //
-// Scope (handoff §M5): single table + optional single JOIN + filter
-// (AND-joined) + ORDER BY (single column) + LIMIT + GROUP BY +
-// aggregates (SUM/AVG/COUNT/MIN/MAX). NO nested subqueries, NO
-// window functions, NO multi-join.
+// Scope: a source table + ZERO-OR-MORE JOINs (F6 — was single-join),
+// filters (AND-joined, table-qualified), aggregates (table-qualified
+// SUM/AVG/COUNT/MIN/MAX), ORDER BY, LIMIT. Still NO nested subqueries, NO
+// window functions (those are the calc-field cell's job). Every column
+// picker spans the in-scope tables (fromTable + joined tables).
 
 import {
   type QueryBuilderSpec,
@@ -54,21 +54,18 @@ export function openQueryBuilderModal(
   onGenerate: (sql: string) => void,
 ): void {
   if (_modalEl) return;
-  if (desc.tables.length === 0) {
-    return;
-  }
+  if (desc.tables.length === 0) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   let spec: QueryBuilderSpec = emptySpec(desc.tables[0]!.name);
-  const overlay = renderModal(desc, spec);
-  document.body.append(overlay);
-  _modalEl = overlay;
-
   const rerender = (): void => {
     const fresh = renderModal(desc, spec);
-    overlay.replaceWith(fresh);
+    _modalEl?.replaceWith(fresh);
     _modalEl = fresh;
+    wire(fresh);
+  };
+  function wire(overlay: HTMLElement): void {
     wireHandlers(
-      fresh,
+      overlay,
       desc,
       () => spec,
       (next) => {
@@ -77,18 +74,11 @@ export function openQueryBuilderModal(
       onGenerate,
       rerender,
     );
-  };
-  wireHandlers(
-    overlay,
-    desc,
-    () => spec,
-    (next) => {
-      spec = next;
-    },
-    onGenerate,
-    rerender,
-  );
-
+  }
+  const overlay = renderModal(desc, spec);
+  document.body.append(overlay);
+  _modalEl = overlay;
+  wire(overlay);
   overlay.querySelector<HTMLElement>('[data-action="qb-cancel"]')?.focus();
 }
 
@@ -103,6 +93,19 @@ export function closeQueryBuilderModal(): void {
   _previouslyFocused = null;
 }
 
+function lookupTable(desc: QueryBuilderDescriptor, name: string): QueryBuilderTable | undefined {
+  return desc.tables.find((t) => t.name === name);
+}
+
+function colsOf(desc: QueryBuilderDescriptor, table: string): ReadonlyArray<QueryColumnSpec> {
+  return lookupTable(desc, table)?.columns ?? [];
+}
+
+/** Tables in scope for column pickers: the source + every joined table. */
+function inScopeTables(spec: QueryBuilderSpec): string[] {
+  return [spec.fromTable, ...spec.joins.map((j) => j.table)];
+}
+
 function wireHandlers(
   overlay: HTMLElement,
   desc: QueryBuilderDescriptor,
@@ -111,154 +114,263 @@ function wireHandlers(
   onGenerate: (sql: string) => void,
   rerender: () => void,
 ): void {
+  const idxOf = (target: HTMLElement, attr: string, sel: string): number =>
+    Number(target.closest<HTMLElement>(sel)?.dataset[attr]);
+
   overlay.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
     if (target === overlay) return closeQueryBuilderModal();
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
+    const spec = getSpec();
+
     if (action === 'qb-cancel' || action === 'qb-close') return closeQueryBuilderModal();
+
+    if (action === 'qb-add-join') {
+      // Attach a NOT-yet-joined table to the source on first columns.
+      const used = new Set(inScopeTables(spec));
+      const next = desc.tables.find((t) => !used.has(t.name));
+      if (!next) return;
+      const left = colsOf(desc, spec.fromTable)[0];
+      const right = next.columns[0];
+      if (!left || !right) return;
+      setSpec({
+        ...spec,
+        joins: [
+          ...spec.joins,
+          {
+            table: next.name,
+            leftTable: spec.fromTable,
+            leftColumn: left.name,
+            rightColumn: right.name,
+          },
+        ],
+      });
+      return rerender();
+    }
+    if (action === 'qb-remove-join') {
+      const idx = idxOf(target, 'joinIdx', '[data-join-idx]');
+      // Dropping a join also drops later joins that depended on it +
+      // resets filters/aggregates (they may reference a removed table).
+      const kept = spec.joins.filter((_, i) => i < idx);
+      setSpec({ ...emptySpec(spec.fromTable), joins: kept });
+      return rerender();
+    }
     if (action === 'qb-add-filter') {
-      const spec = getSpec();
-      const fromCol = lookupTable(desc, spec.fromTable)?.columns[0];
-      if (!fromCol) return;
+      const col = colsOf(desc, spec.fromTable)[0];
+      if (!col) return;
       setSpec({
         ...spec,
         filters: [
           ...spec.filters,
-          {
-            table: spec.fromTable,
-            column: fromCol.name,
-            columnType: fromCol.type,
-            op: '=',
-            value: '',
-          },
+          { table: spec.fromTable, column: col.name, columnType: col.type, op: '=', value: '' },
         ],
       });
-      rerender();
+      return rerender();
     }
     if (action === 'qb-remove-filter') {
-      const idx = Number(target.closest<HTMLElement>('[data-filter-idx]')?.dataset.filterIdx);
-      const spec = getSpec();
+      const idx = idxOf(target, 'filterIdx', '[data-filter-idx]');
       setSpec({ ...spec, filters: spec.filters.filter((_, i) => i !== idx) });
-      rerender();
+      return rerender();
     }
     if (action === 'qb-add-agg') {
-      const spec = getSpec();
-      const fromCol =
-        lookupTable(desc, spec.fromTable)?.columns.find((c) => c.type === 'numeric') ??
-        lookupTable(desc, spec.fromTable)?.columns[0];
-      if (!fromCol) return;
+      const col =
+        colsOf(desc, spec.fromTable).find((c) => c.type === 'numeric') ??
+        colsOf(desc, spec.fromTable)[0];
+      if (!col) return;
       setSpec({
         ...spec,
         aggregates: [
           ...spec.aggregates,
-          {
-            fn: 'SUM',
-            table: spec.fromTable,
-            column: fromCol.name,
-            alias: `${fromCol.name}_sum`,
-          },
+          { fn: 'SUM', table: spec.fromTable, column: col.name, alias: `${col.name}_sum` },
         ],
       });
-      rerender();
+      return rerender();
     }
     if (action === 'qb-remove-agg') {
-      const idx = Number(target.closest<HTMLElement>('[data-agg-idx]')?.dataset.aggIdx);
-      const spec = getSpec();
+      const idx = idxOf(target, 'aggIdx', '[data-agg-idx]');
       setSpec({ ...spec, aggregates: spec.aggregates.filter((_, i) => i !== idx) });
-      rerender();
+      return rerender();
     }
     if (action === 'qb-generate') {
       let sql: string;
       try {
         sql = emitSql(getSpec());
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
         const status = overlay.querySelector<HTMLElement>('[data-region="qb-status"]');
-        if (status) status.textContent = msg;
+        if (status) status.textContent = err instanceof Error ? err.message : String(err);
         return;
       }
       closeQueryBuilderModal();
       onGenerate(sql);
     }
   });
+
   overlay.addEventListener('change', (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
     const action = target.dataset.action;
     const spec = getSpec();
+    const val = (target as HTMLSelectElement | HTMLInputElement).value;
+    const fIdx = idxOf(target, 'filterIdx', '[data-filter-idx]');
+    const aIdx = idxOf(target, 'aggIdx', '[data-agg-idx]');
+    const jIdx = idxOf(target, 'joinIdx', '[data-join-idx]');
+
     if (action === 'qb-from-table') {
-      const newTable = (target as HTMLSelectElement).value;
-      // Filters carry over with column re-validation (handoff §M5 gate).
-      const newTbl = lookupTable(desc, newTable);
-      const newCols = new Set(newTbl?.columns.map((c) => c.name) ?? []);
+      const newCols = new Set(colsOf(desc, val).map((c) => c.name));
       const carriedFilters = spec.filters
         .filter((f) => f.table === spec.fromTable && newCols.has(f.column))
-        .map((f) => ({ ...f, table: newTable }));
-      setSpec({ ...emptySpec(newTable), filters: carriedFilters });
-      rerender();
+        .map((f) => ({ ...f, table: val }));
+      setSpec({ ...emptySpec(val), filters: carriedFilters });
+      return rerender();
     }
     if (action === 'qb-limit') {
-      const n = Number((target as HTMLInputElement).value);
-      if (Number.isFinite(n) && n >= 1) {
-        setSpec({ ...spec, limit: Math.floor(n) });
-      }
+      const n = Number(val);
+      if (Number.isFinite(n) && n >= 1) setSpec({ ...spec, limit: Math.floor(n) });
+      return;
     }
-    if (action === 'qb-filter-column') {
-      const idx = Number(target.closest<HTMLElement>('[data-filter-idx]')?.dataset.filterIdx);
-      const newCol = (target as HTMLSelectElement).value;
-      const colSpec = lookupTable(desc, spec.fromTable)?.columns.find((c) => c.name === newCol);
-      if (!colSpec) return;
+    // ── Joins ──
+    if (action === 'qb-join-table') {
+      const right = colsOf(desc, val)[0];
+      setSpec({
+        ...spec,
+        joins: spec.joins.map((j, i) =>
+          i === jIdx ? { ...j, table: val, rightColumn: right?.name ?? j.rightColumn } : j,
+        ),
+      });
+      return rerender();
+    }
+    if (action === 'qb-join-rightcol') {
+      setSpec({
+        ...spec,
+        joins: spec.joins.map((j, i) => (i === jIdx ? { ...j, rightColumn: val } : j)),
+      });
+      return;
+    }
+    if (action === 'qb-join-lefttable') {
+      const left = colsOf(desc, val)[0];
+      setSpec({
+        ...spec,
+        joins: spec.joins.map((j, i) =>
+          i === jIdx ? { ...j, leftTable: val, leftColumn: left?.name ?? j.leftColumn } : j,
+        ),
+      });
+      return rerender();
+    }
+    if (action === 'qb-join-leftcol') {
+      setSpec({
+        ...spec,
+        joins: spec.joins.map((j, i) => (i === jIdx ? { ...j, leftColumn: val } : j)),
+      });
+      return;
+    }
+    // ── Filters (table-qualified) ──
+    if (action === 'qb-filter-table') {
+      const col = colsOf(desc, val)[0];
       setSpec({
         ...spec,
         filters: spec.filters.map((f, i) =>
-          i === idx ? { ...f, column: newCol, columnType: colSpec.type } : f,
+          i === fIdx
+            ? { ...f, table: val, column: col?.name ?? '', columnType: col?.type ?? 'string' }
+            : f,
         ),
       });
+      return rerender();
+    }
+    if (action === 'qb-filter-column') {
+      const f = spec.filters[fIdx];
+      const colSpec = f && colsOf(desc, f.table).find((c) => c.name === val);
+      if (!colSpec) return;
+      setSpec({
+        ...spec,
+        filters: spec.filters.map((ff, i) =>
+          i === fIdx ? { ...ff, column: val, columnType: colSpec.type } : ff,
+        ),
+      });
+      return;
     }
     if (action === 'qb-filter-op') {
-      const idx = Number(target.closest<HTMLElement>('[data-filter-idx]')?.dataset.filterIdx);
-      const op = (target as HTMLSelectElement).value as QueryFilter['op'];
       setSpec({
         ...spec,
-        filters: spec.filters.map((f, i) => (i === idx ? { ...f, op } : f)),
+        filters: spec.filters.map((f, i) =>
+          i === fIdx ? { ...f, op: val as QueryFilter['op'] } : f,
+        ),
       });
+      return;
     }
     if (action === 'qb-filter-value') {
-      const idx = Number(target.closest<HTMLElement>('[data-filter-idx]')?.dataset.filterIdx);
-      const value = (target as HTMLInputElement).value;
       setSpec({
         ...spec,
-        filters: spec.filters.map((f, i) => (i === idx ? { ...f, value } : f)),
+        filters: spec.filters.map((f, i) => (i === fIdx ? { ...f, value: val } : f)),
       });
+      return;
     }
-    if (action === 'qb-agg-fn') {
-      const idx = Number(target.closest<HTMLElement>('[data-agg-idx]')?.dataset.aggIdx);
-      const fn = (target as HTMLSelectElement).value as (typeof AGG_FNS)[number];
-      setSpec({
-        ...spec,
-        aggregates: spec.aggregates.map((a, i) => (i === idx ? { ...a, fn } : a)),
-      });
-    }
-    if (action === 'qb-agg-column') {
-      const idx = Number(target.closest<HTMLElement>('[data-agg-idx]')?.dataset.aggIdx);
-      const column = (target as HTMLSelectElement).value;
+    // ── Aggregates (table-qualified) ──
+    if (action === 'qb-agg-table') {
+      const col = colsOf(desc, val)[0];
       setSpec({
         ...spec,
         aggregates: spec.aggregates.map((a, i) =>
-          i === idx ? { ...a, column, alias: `${column}_${a.fn.toLowerCase()}` } : a,
+          i === aIdx
+            ? {
+                ...a,
+                table: val,
+                column: col?.name ?? '',
+                alias: `${col?.name ?? 'x'}_${a.fn.toLowerCase()}`,
+              }
+            : a,
         ),
       });
+      return rerender();
+    }
+    if (action === 'qb-agg-fn') {
+      setSpec({
+        ...spec,
+        aggregates: spec.aggregates.map((a, i) =>
+          i === aIdx ? { ...a, fn: val as (typeof AGG_FNS)[number] } : a,
+        ),
+      });
+      return;
+    }
+    if (action === 'qb-agg-column') {
+      setSpec({
+        ...spec,
+        aggregates: spec.aggregates.map((a, i) =>
+          i === aIdx ? { ...a, column: val, alias: `${val}_${a.fn.toLowerCase()}` } : a,
+        ),
+      });
+      return;
     }
   });
+
   _onKey = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') closeQueryBuilderModal();
   };
   document.addEventListener('keydown', _onKey);
 }
 
-function lookupTable(desc: QueryBuilderDescriptor, name: string): QueryBuilderTable | undefined {
-  return desc.tables.find((t) => t.name === name);
+function tableSelect(action: string, tables: string[], current: string): string {
+  return `<select data-action="${action}">${tables
+    .map(
+      (t) =>
+        `<option value="${escapeAttr(t)}" ${t === current ? 'selected' : ''}>${escapeHtml(t)}</option>`,
+    )
+    .join('')}</select>`;
+}
+
+function colSelect(
+  desc: QueryBuilderDescriptor,
+  action: string,
+  table: string,
+  current: string,
+  withType = false,
+): string {
+  return `<select data-action="${action}">${colsOf(desc, table)
+    .map(
+      (c) =>
+        `<option value="${escapeAttr(c.name)}" ${c.name === current ? 'selected' : ''}>${escapeHtml(c.name)}${withType ? ` (${c.type})` : ''}</option>`,
+    )
+    .join('')}</select>`;
 }
 
 function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTMLElement {
@@ -268,7 +380,7 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-labelledby', 'qb-title');
 
-  const fromTable = lookupTable(desc, spec.fromTable);
+  const scope = inScopeTables(spec);
   let livePreview = '';
   try {
     livePreview = emitSql(spec);
@@ -276,35 +388,39 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
     livePreview = err instanceof Error ? `(${err.message})` : String(err);
   }
 
+  const h3 =
+    'font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-3) 0 var(--space-1) 0;';
+  const canJoin = desc.tables.length > scope.length;
+
   overlay.innerHTML = `
     <div class="schema-graph-modal qb-modal" role="document"
-         style="width:min(800px,100%);height:auto;max-height:min(90vh,860px);display:flex;flex-direction:column;">
+         style="width:min(820px,100%);height:auto;max-height:min(90vh,860px);display:flex;flex-direction:column;">
       <header class="schema-graph-header">
         <h2 id="qb-title" style="margin:0;font-size:var(--text-md,15px);display:flex;align-items:center;gap:6px;">
           ${iconSvg('chart', 14)} Visual query builder
         </h2>
-        <button class="btn btn-ghost schema-graph-close" data-action="qb-close" aria-label="Close">
-          ${iconSvg('x', 14)}
-        </button>
+        <button class="btn btn-ghost schema-graph-close" data-action="qb-close" aria-label="Close">${iconSvg('x', 14)}</button>
       </header>
       <div class="qb-body" style="padding:var(--space-3) var(--space-4);overflow:auto;flex:1;min-height:0;">
-        <div class="qb-row" style="margin-bottom:var(--space-3);">
+        <div class="qb-row" style="margin-bottom:var(--space-2);">
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">From table</label>
-          <select data-action="qb-from-table" style="margin-left:6px;">
-            ${desc.tables.map((t) => `<option value="${escapeAttr(t.name)}" ${t.name === spec.fromTable ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
-          </select>
+          ${tableSelect(
+            'qb-from-table',
+            desc.tables.map((t) => t.name),
+            spec.fromTable,
+          )}
         </div>
 
-        <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-3) 0 var(--space-1) 0;">Filters (AND-joined)</h3>
-        <div class="qb-filters">
-          ${spec.filters.map((f, i) => renderFilterRow(f, i, fromTable)).join('')}
-        </div>
+        <h3 style="${h3}">Joins</h3>
+        <div class="qb-joins">${spec.joins.map((j, i) => renderJoinRow(desc, spec, j, i)).join('')}</div>
+        ${canJoin ? `<button class="btn btn-ghost" data-action="qb-add-join" style="margin-top:6px;">${iconSvg('plus', 12)} <span>Add join</span></button>` : `<p style="font-size:11px;color:var(--text-muted);margin:4px 0;">Mount / project more than one table to join.</p>`}
+
+        <h3 style="${h3}">Filters (AND-joined)</h3>
+        <div class="qb-filters">${spec.filters.map((f, i) => renderFilterRow(desc, scope, f, i)).join('')}</div>
         <button class="btn btn-ghost" data-action="qb-add-filter" style="margin-top:6px;">${iconSvg('plus', 12)} <span>Add filter</span></button>
 
-        <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-3) 0 var(--space-1) 0;">Aggregates</h3>
-        <div class="qb-aggs">
-          ${spec.aggregates.map((a, i) => renderAggRow(a, i, fromTable)).join('')}
-        </div>
+        <h3 style="${h3}">Aggregates</h3>
+        <div class="qb-aggs">${spec.aggregates.map((a, i) => renderAggRow(desc, scope, a, i)).join('')}</div>
         <button class="btn btn-ghost" data-action="qb-add-agg" style="margin-top:6px;">${iconSvg('plus', 12)} <span>Add aggregate</span></button>
 
         <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3);align-items:baseline;">
@@ -312,9 +428,9 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
           <input type="number" data-action="qb-limit" value="${spec.limit}" min="1" max="1000000" style="width:90px;" />
         </div>
 
-        <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-3) 0 var(--space-1) 0;">SQL preview</h3>
-        <pre style="background:var(--surface-subtle,#f9fafb);padding:var(--space-2) var(--space-3);border-radius:4px;font-size:11px;line-height:1.5;color:var(--text);white-space:pre-wrap;overflow:auto;border:1px solid var(--border);">${escapeHtml(livePreview)}</pre>
-        <div data-region="qb-status" style="color:#b91c1c;font-size:12px;margin-top:6px;"></div>
+        <h3 style="${h3}">SQL preview</h3>
+        <pre style="background:var(--surface-alt);padding:var(--space-2) var(--space-3);border-radius:4px;font-size:11px;line-height:1.5;color:var(--text);white-space:pre-wrap;overflow:auto;border:1px solid var(--border);">${escapeHtml(livePreview)}</pre>
+        <div data-region="qb-status" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
       </div>
       <footer style="display:flex;gap:var(--space-2);justify-content:flex-end;padding:var(--space-3) var(--space-4);border-top:1px solid var(--border);">
         <button class="btn btn-ghost" data-action="qb-cancel">Cancel</button>
@@ -325,23 +441,42 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
   return overlay;
 }
 
+function renderJoinRow(
+  desc: QueryBuilderDescriptor,
+  spec: QueryBuilderSpec,
+  j: QueryBuilderSpec['joins'][number],
+  idx: number,
+): string {
+  // Left side can attach to the source or any EARLIER join's table.
+  const leftTables = [spec.fromTable, ...spec.joins.slice(0, idx).map((x) => x.table)];
+  return `
+    <div class="qb-join-row" data-join-idx="${idx}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap;">
+      ${tableSelect('qb-join-lefttable', leftTables, j.leftTable)}
+      ${colSelect(desc, 'qb-join-leftcol', j.leftTable, j.leftColumn)}
+      <span style="color:var(--text-muted);">=</span>
+      <strong style="font-size:11px;">JOIN</strong>
+      ${tableSelect(
+        'qb-join-table',
+        desc.tables.map((t) => t.name),
+        j.table,
+      )}
+      ${colSelect(desc, 'qb-join-rightcol', j.table, j.rightColumn)}
+      <button class="btn btn-ghost" data-action="qb-remove-join" aria-label="Remove join">${iconSvg('x', 12)}</button>
+    </div>
+  `;
+}
+
 function renderFilterRow(
+  desc: QueryBuilderDescriptor,
+  scope: string[],
   f: QueryFilter,
   idx: number,
-  table: QueryBuilderTable | undefined,
 ): string {
-  const cols = table?.columns ?? [];
   const valueDisabled = f.op === 'IS NULL' || f.op === 'IS NOT NULL';
   return `
-    <div class="qb-filter-row" data-filter-idx="${idx}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;">
-      <select data-action="qb-filter-column">
-        ${cols
-          .map(
-            (c) =>
-              `<option value="${escapeAttr(c.name)}" ${c.name === f.column ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type})</option>`,
-          )
-          .join('')}
-      </select>
+    <div class="qb-filter-row" data-filter-idx="${idx}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap;">
+      ${scope.length > 1 ? tableSelect('qb-filter-table', scope, f.table) : ''}
+      ${colSelect(desc, 'qb-filter-column', f.table, f.column, true)}
       <select data-action="qb-filter-op">
         ${COMPARISON_OPS.map((o) => `<option value="${o}" ${o === f.op ? 'selected' : ''}>${o}</option>`).join('')}
       </select>
@@ -352,26 +487,20 @@ function renderFilterRow(
 }
 
 function renderAggRow(
-  a: { fn: (typeof AGG_FNS)[number]; column: string; alias: string },
+  desc: QueryBuilderDescriptor,
+  scope: string[],
+  a: { fn: (typeof AGG_FNS)[number]; table: string; column: string; alias: string },
   idx: number,
-  table: QueryBuilderTable | undefined,
 ): string {
-  const cols = table?.columns ?? [];
   return `
-    <div class="qb-agg-row" data-agg-idx="${idx}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;">
+    <div class="qb-agg-row" data-agg-idx="${idx}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap;">
       <select data-action="qb-agg-fn">
         ${AGG_FNS.map((fn) => `<option value="${fn}" ${fn === a.fn ? 'selected' : ''}>${fn}</option>`).join('')}
       </select>
-      <select data-action="qb-agg-column">
-        ${cols
-          .map(
-            (c) =>
-              `<option value="${escapeAttr(c.name)}" ${c.name === a.column ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type})</option>`,
-          )
-          .join('')}
-      </select>
+      ${scope.length > 1 ? tableSelect('qb-agg-table', scope, a.table) : ''}
+      ${colSelect(desc, 'qb-agg-column', a.table, a.column, true)}
       <span style="font-size:11px;color:var(--text-muted);">AS</span>
-      <code style="font-size:11px;background:var(--surface-subtle,#f9fafb);padding:2px 6px;border-radius:3px;">${escapeHtml(a.alias)}</code>
+      <code style="font-size:11px;background:var(--surface-alt);padding:2px 6px;border-radius:3px;">${escapeHtml(a.alias)}</code>
       <button class="btn btn-ghost" data-action="qb-remove-agg" aria-label="Remove aggregate">${iconSvg('x', 12)}</button>
     </div>
   `;

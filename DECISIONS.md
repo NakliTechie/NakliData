@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.4 F6 — multi-join visual query builder
+
+### Decision AM — `join` → `joins[]`; table-qualified pickers; in-scope guard
+
+Grew the v1.2 M5 builder from single-join toward Metabase's question
+builder. The transient spec's `join: {...} | null` became
+`joins: ReadonlyArray<{table, leftTable, leftColumn, rightColumn}>` (no
+persistence/back-compat concern — the spec lives only inside the modal).
+`buildFrom` loops; `validateSpec` enforces each join attaches to an
+**in-scope** table (the source or an earlier join) — else the ON clause
+would reference a table not in the FROM. The modal gained a Joins section
+(add/remove) AND every filter/aggregate column picker became
+**table-qualified** (a table select spanning in-scope tables + a column
+select) — without that, a joined table's columns would be unreachable and
+the join useless. The modal had NO join UI before this (the M5 emitter
+supported single-join but the modal never exposed it). Multi-step
+pipelines (filter→summarise→re-summarise) remain the deferred stretch.
+
 ## 2026-06-11 — v1.4 F4/F5 — calculated / derived fields
 
 ### Decision AL — Calc field wraps the upstream as a subquery; reuses the M5 safe emitter

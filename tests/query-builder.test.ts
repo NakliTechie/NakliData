@@ -109,11 +109,9 @@ describe('emitSql — JOIN case', () => {
   it('builds a single-key join, no subquery', () => {
     const spec: QueryBuilderSpec = {
       ...emptySpec('orders'),
-      join: {
-        table: 'vendors',
-        leftColumn: 'vendor_id',
-        rightColumn: 'id',
-      },
+      joins: [
+        { table: 'vendors', leftTable: 'orders', leftColumn: 'vendor_id', rightColumn: 'id' },
+      ],
     };
     const sql = emitSql(spec);
     expect(sql).toContain('FROM "orders" JOIN "vendors" ON "orders"."vendor_id" = "vendors"."id"');
@@ -130,11 +128,9 @@ describe('emitSql — JOIN case', () => {
         { table: 'orders', column: 'id' },
         { table: 'vendors', column: 'name' },
       ],
-      join: {
-        table: 'vendors',
-        leftColumn: 'vendor_id',
-        rightColumn: 'id',
-      },
+      joins: [
+        { table: 'vendors', leftTable: 'orders', leftColumn: 'vendor_id', rightColumn: 'id' },
+      ],
       filters: [
         {
           table: 'orders',
@@ -149,6 +145,31 @@ describe('emitSql — JOIN case', () => {
     expect(sql).toContain('SELECT "orders"."id", "vendors"."name"');
     expect(sql).toContain('FROM "orders" JOIN "vendors"');
     expect(sql).toContain('WHERE "orders"."amount" >= 500');
+  });
+
+  it('chains MULTIPLE joins in order (F6)', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      joins: [
+        { table: 'vendors', leftTable: 'orders', leftColumn: 'vendor_id', rightColumn: 'id' },
+        { table: 'regions', leftTable: 'vendors', leftColumn: 'region_id', rightColumn: 'id' },
+      ],
+    };
+    const sql = emitSql(spec);
+    expect(sql).toContain(
+      'FROM "orders" JOIN "vendors" ON "orders"."vendor_id" = "vendors"."id" JOIN "regions" ON "vendors"."region_id" = "regions"."id"',
+    );
+  });
+
+  it('rejects a join attaching to an out-of-scope table (F6 scope guard)', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      // regions references vendors, but vendors hasn't been joined yet.
+      joins: [
+        { table: 'regions', leftTable: 'vendors', leftColumn: 'region_id', rightColumn: 'id' },
+      ],
+    };
+    expect(() => emitSql(spec)).toThrow(/isn't the source table or an earlier join/);
   });
 });
 
