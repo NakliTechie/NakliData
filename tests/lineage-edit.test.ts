@@ -68,6 +68,17 @@ describe('applyCanvasOp — insert-on-edge', () => {
     expect(applyCanvasOp(g, op)).toEqual(g);
   });
 
+  it('no-ops if newCellId already exists (forward-pass M4)', () => {
+    const g = graph();
+    const op: CanvasOp = {
+      kind: 'insert-on-edge',
+      edge: { from: 'a', to: 'b' },
+      newCellKind: 'sql',
+      newCellId: 'b', // collides with an existing node
+    };
+    expect(applyCanvasOp(g, op)).toEqual(g); // unchanged — no duplicate node
+  });
+
   it('the new cell is a cell-kind node (NOT a source / sink)', () => {
     const g = graph();
     const op: CanvasOp = {

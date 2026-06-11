@@ -152,44 +152,50 @@ the user-visible gaps. Order by impact + dependency.
 
 ---
 
-## Chunk 5 — Query / stats / measures correctness corner cases (~2 hours)
+## Chunk 5 — Query / stats / measures correctness corner cases (~2 hours) — ✅ DONE 2026-06-11
 
 Pure-logic fixes, mostly one-liners with a regression test
-added per fix. Ship in 2–3 sittings without UI dependencies.
+added per fix. All 19 closed; +17 vitest cases.
 
-- [ ] **H6** — Extend `extractFilePath` regex for query strings
-      + gz + s3:// + https:// schemes.
-- [ ] **H7** — Enforce selectColumns + aggregates GROUP BY rule
-      in `validateSpec`.
-- [ ] **M1** — Non-injective alias scheme in `stats.ts` (e.g.,
-      `${i}_${stat}` index-prefixed); add `__`-collision test.
-- [ ] **M2** — Strip `"..."` identifier literals before keyword
-      scan in `validateMeasureExpression`.
-- [ ] **M3** — Coerce + clamp margins in `buildPageCss` +
-      `validateReport` (CSS injection guard).
-- [ ] **M4** — Early-return on duplicate `newCellId` in
-      `applyCanvasOp`.
-- [ ] **M5** — Walk `measureExpanded.sql` for `@-name` captures
-      in `recordLineageForCell`.
-- [ ] **M6** — Kind-guard `handleRunStats`'s manual `inputCell`
-      branch.
-- [ ] **M7** — Widen typeof to `number | bigint` in stats
-      column bucketing.
-- [ ] **M8** — `CSS.escape(reportCellId)` in
-      `naklidataRenderReport`.
-- [ ] **M13** — Source chart-cell picker options from type
-      union (add `'funnel'`, `'path'`).
-- [ ] **M15** — Extend QB date regex for TZ offsets.
-- [ ] **M16** — Cap FSA folder walk at 5000 files.
-- [ ] **M18** — Greedy markdown-fence strip in
-      `parseProposeChartResponse`.
-- [ ] **M25** — Validate version regex in `compareVersion`.
-- [ ] **M26** — `trimStart` before JSON-prefix check in
-      `explainPlan`.
-- [ ] **M29** — try/catch+engine.drop around mount* row-count
-      steps.
-- [ ] **M31** — `Number.isFinite` filter for mean/stddev/median.
-- [ ] **M32** — Static cycle pre-pass in `validateMeasuresFile`.
+- [x] **H6** — `extractFilePath` string-blob regex now matches
+      s3:// / gs:// / http(s):// / azure:// URLs + `.gz` + query
+      strings. +2 tests.
+- [x] **H7** — `validateSpec` throws when a plain SELECT column is
+      neither grouped nor aggregated (was silently dropped). +3 tests.
+- [x] **M1** — stats descriptives aliases are now index-prefixed
+      (`c<i>__<stat>`) — injective regardless of column names. Emit +
+      parse updated; +1 collision test.
+- [x] **M2** — `validateMeasureExpression` strips `"..."` identifiers
+      before the keyword scan (a column named `"insert"` no longer
+      false-trips). +1 test.
+- [x] **M3** — `buildPageCss` coerces + clamps margins to finite
+      [0,100] mm; `validateReport` rejects bad margins (CSS injection
+      guard). +2 tests.
+- [x] **M4** — `applyCanvasOp` no-ops on a duplicate `newCellId`. +1 test.
+- [x] **M5** — `recordLineageForCell` scans the MEASURE-expanded SQL
+      for `@refs`, so a measure body's cell refs contribute edges.
+- [x] **M6** — `handleRunStats` kind-guards the manual `inputCell`
+      (a markdown/chart ref now errors clearly).
+- [x] **M7** — `fmtMaybe` coerces `bigint` (BIGINT min/max) so it
+      formats as a number, not `"100n"`.
+- [x] **M8** — `CSS.escape` on the cell ids in `triggerReportPrint` +
+      the cell-ref embed selector.
+- [x] **M13** — chart picker options moved to a `satisfies`-checked
+      const; `'funnel'` + `'path'` added (were missing from the union).
+- [x] **M15** — QB date regex accepts numeric TZ offsets. +1 test.
+- [x] **M16** — FSA folder walk capped at 5000 entries.
+- [x] **M18** — `parseProposeChartResponse` extracts the fenced block
+      (tolerates a prose tail after the closing fence). +1 test.
+- [x] **M25** — `parse` validates the version string shape (`1.x`
+      no longer slips past the newer-version guard). +1 test.
+- [x] **M26** — `explainPlan` `trimStart`s before the JSON-prefix
+      check (a newline-prefixed plan no longer forces the regex path).
+- [x] **M29** — `getRowCount` drops the table on a failed COUNT then
+      rethrows — no orphaned view (single-point fix, all mounts).
+- [x] **M31** — `parseDescriptivesRow` coerces non-finite
+      mean/stddev/median to null. +1 test.
+- [x] **M32** — `validateMeasuresFile` runs a static cycle pre-pass
+      over the `MEASURE()` graph. +3 tests.
 
 ---
 

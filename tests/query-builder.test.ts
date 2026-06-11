@@ -356,3 +356,53 @@ describe('emitValueLiteral — type-validated emission', () => {
     expect(emitValueLiteral('boolean', '1')).toBeNull();
   });
 });
+
+describe('emitSql — GROUP BY consistency (forward-pass H7)', () => {
+  it('throws when a SELECT column is neither grouped nor aggregated', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      selectColumns: [{ table: 'orders', column: 'amount' }],
+      groupBy: [{ table: 'orders', column: 'vendor' }],
+      aggregates: [{ fn: 'SUM', table: 'orders', column: 'total', alias: 'sum_total' }],
+    };
+    expect(() => emitSql(spec)).toThrow(/GROUP BY/);
+  });
+
+  it('accepts a SELECT column that is itself grouped', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      selectColumns: [{ table: 'orders', column: 'vendor' }],
+      groupBy: [{ table: 'orders', column: 'vendor' }],
+      aggregates: [{ fn: 'SUM', table: 'orders', column: 'total', alias: 'sum_total' }],
+    };
+    expect(() => emitSql(spec)).not.toThrow();
+  });
+
+  it('accepts a SELECT column that matches an aggregated column', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      selectColumns: [{ table: 'orders', column: 'total' }],
+      groupBy: [{ table: 'orders', column: 'vendor' }],
+      aggregates: [{ fn: 'SUM', table: 'orders', column: 'total', alias: 'sum_total' }],
+    };
+    expect(() => emitSql(spec)).not.toThrow();
+  });
+});
+
+describe('emitSql — date filter TZ offset (forward-pass M15)', () => {
+  it('accepts an ISO datetime with a numeric TZ offset', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      filters: [
+        {
+          table: 'orders',
+          column: 'created_at',
+          columnType: 'date',
+          op: '>=',
+          value: '2026-01-01T00:00:00+05:30',
+        },
+      ],
+    };
+    expect(emitSql(spec)).toContain("'2026-01-01T00:00:00+05:30'");
+  });
+});

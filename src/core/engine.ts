@@ -1038,11 +1038,15 @@ export class Engine {
         // Find the FIRST string value that parses as JSON.
         for (const v of Object.values(obj)) {
           if (typeof v !== 'string' || v.length === 0) continue;
-          const first = v.charCodeAt(0);
+          // trimStart first: some DuckDB builds prefix the plan JSON with
+          // a newline, which would make the first-char check reject a
+          // perfectly good plan and force the regex fallback (M26).
+          const s = v.trimStart();
+          const first = s.charCodeAt(0);
           // 0x5B = '[', 0x7B = '{' — quick reject for non-JSON values.
           if (first !== 0x5b && first !== 0x7b) continue;
           try {
-            return JSON.parse(v);
+            return JSON.parse(s);
           } catch {
             // try next column
           }

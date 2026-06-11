@@ -914,10 +914,12 @@ export function parseProposeChartResponse(
 ): ProposeChartResponse {
   const trimmed = raw.trim();
   // Strip markdown fences if the model emitted them despite instructions.
-  const stripped = trimmed
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/i, '')
-    .trim();
+  // Extract the contents of the FIRST fenced block when present, which
+  // tolerates a trailing prose tail after the closing fence — the old
+  // `/```$/` only matched a fence at the exact end of the string, so
+  // "```json … ``` Hope this helps!" failed to parse (forward-pass M18).
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const stripped = (fenceMatch?.[1] ?? trimmed).trim();
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripped);

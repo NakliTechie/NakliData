@@ -55,10 +55,13 @@ export function emitDescriptivesSql(
     return `SELECT 0 AS _empty_no_columns FROM ${quoteIdent(tableName)} LIMIT 0`;
   }
   const exprs: string[] = [];
-  for (const c of columns) {
+  columns.forEach((c, i) => {
     validateIdent(c.name);
     const col = quoteIdent(c.name);
-    const alias = (s: string) => quoteIdent(`${c.name}__${s}`);
+    // Index-prefixed alias (`c<i>__<stat>`) is injective regardless of
+    // column names — a column literally named like another column's
+    // `<name>__<stat>` alias can no longer collide (forward-pass M1).
+    const alias = (s: string) => quoteIdent(`c${i}__${s}`);
     exprs.push(`COUNT(${col}) AS ${alias('count')}`);
     exprs.push(`SUM(CASE WHEN ${col} IS NULL THEN 1 ELSE 0 END) AS ${alias('nulls')}`);
     exprs.push(`COUNT(DISTINCT ${col}) AS ${alias('distinct')}`);
@@ -70,7 +73,7 @@ export function emitDescriptivesSql(
       // quantile_cont returns DOUBLE; works on any orderable type.
       exprs.push(`quantile_cont(CAST(${col} AS DOUBLE), 0.5) AS ${alias('median')}`);
     }
-  }
+  });
   return `SELECT ${exprs.join(', ')} FROM ${quoteIdent(tableName)}`;
 }
 
@@ -135,9 +138,13 @@ export function parseDescriptivesRow(
   row: Record<string, unknown>,
   columns: ReadonlyArray<StatsColumnSpec>,
 ): ColumnDescriptives[] {
-  return columns.map((c) => {
+  // Non-finite NaN/Infinity (e.g. STDDEV of a single row) → null so the
+  // renderer shows "—" instead of "NaN" (forward-pass M31).
+  const finite = (v: number | null): number | null => (v !== null && Number.isFinite(v) ? v : null);
+  return columns.map((c, i) => {
+    // Index-prefixed keys mirror the injective emit aliases (M1).
     const get = <T>(stat: string): T | null => {
-      const v = row[`${c.name}__${stat}`];
+      const v = row[`c${i}__${stat}`];
       return v === null || v === undefined ? null : (v as T);
     };
     const out: ColumnDescriptives = {
@@ -147,11 +154,11 @@ export function parseDescriptivesRow(
       distinct: get<number>('distinct'),
     };
     if (c.type === 'numeric') {
-      out.min = row[`${c.name}__min`];
-      out.max = row[`${c.name}__max`];
-      out.mean = get<number>('mean');
-      out.stddev = get<number>('stddev');
-      out.median = get<number>('median');
+      out.min = row[`c${i}__min`];
+      out.max = row[`c${i}__max`];
+      out.mean = finite(get<number>('mean'));
+      out.stddev = finite(get<number>('stddev'));
+      out.median = finite(get<number>('median'));
     }
     return out;
   });

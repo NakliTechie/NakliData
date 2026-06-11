@@ -262,6 +262,13 @@ export function parse(text: string): NakliDataFile {
   const obj = JSON.parse(text) as Partial<NakliDataFile>;
   if (obj.format !== 'naklidata') throw new Error('Not a .naklidata file.');
   if (!obj.version) throw new Error('Missing version.');
+  // Validate the version shape before comparing — a malformed string like
+  // "1.x" makes compareVersion return NaN, and `NaN > 0` is false, so a
+  // forged version would slip past the "saved by a newer NakliData" guard
+  // (forward-pass M25).
+  if (!/^\d+(\.\d+)*$/.test(obj.version)) {
+    throw new Error(`Invalid version string: ${obj.version}`);
+  }
   if (compareVersion(obj.version, NAKLIDATA_VERSION) > 0) {
     throw new Error(
       `This notebook was saved with a newer version of NakliData (${obj.version}). Please update.`,

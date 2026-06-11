@@ -199,8 +199,15 @@ function extractFilePath(node: Record<string, unknown>): string | null {
     }
   }
   if (typeof extra === 'string') {
-    // Try to pull a path-like token from the blob.
-    const m = /'([^']+\.(?:parquet|csv|tsv|json|jsonl|arrow|ndjson))'/i.exec(extra);
+    // Try to pull a path-like token from the blob. Matches (a) a
+    // scheme URL (s3:// / gs:// / http(s):// / azure://) or (b) a path
+    // ending in a known extension, optionally gzip-compressed and/or
+    // followed by a query string (forward-pass H6 — the old regex
+    // missed remote URLs, `.csv.gz`, and `…parquet?token=…`).
+    const m =
+      /'((?:s3|gs|https?|azure):\/\/[^']+|[^']+\.(?:parquet|csv|tsv|json|jsonl|ndjson|arrow|feather)(?:\.gz)?(?:\?[^']*)?)'/i.exec(
+        extra,
+      );
     if (m?.[1]) return m[1];
     // Or `File: /p/x.parquet`.
     const m2 = /(?:^|\n)\s*Files?:\s*([^\n]+)/i.exec(extra);

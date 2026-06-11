@@ -128,4 +128,30 @@ describe('buildPageCss', () => {
     // The old unscoped rule must be gone.
     expect(css).not.toMatch(/\.report-cell,\s*\.report-cell \* { visibility: visible/);
   });
+
+  it('coerces + clamps hostile / out-of-range margins (forward-pass M3)', () => {
+    const evil = {
+      ...emptyReportDefinition(),
+      margins: {
+        top: '0;}body{display:none}@page{margin:0',
+        right: -5,
+        bottom: 999,
+        left: Number.NaN,
+      },
+    } as unknown as ReportDefinition;
+    const css = buildPageCss(evil);
+    expect(css).not.toContain('display:none'); // no injection survives
+    // top: NaN→0, right: -5→0, bottom: 999→100, left: NaN→0
+    expect(css).toContain('margin: 0mm 0mm 100mm 0mm;');
+  });
+});
+
+describe('validateReport — margins (forward-pass M3)', () => {
+  it('rejects a non-numeric or out-of-range margin', () => {
+    const bad = {
+      ...emptyReportDefinition(),
+      margins: { top: 10, right: 10, bottom: 10, left: 200 },
+    };
+    expect(validateReport(bad, []).some((e) => /Margin left/.test(e))).toBe(true);
+  });
 });

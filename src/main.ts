@@ -144,7 +144,7 @@ function embedReportCellRefs(
   for (const ph of reportEl.querySelectorAll<HTMLElement>('.report-cell-ref[data-cell-ref]')) {
     const targetId = nameToId.get(ph.dataset.cellRef ?? '');
     const targetEl = targetId
-      ? document.querySelector<HTMLElement>(`.cell[data-cell-id="${targetId}"]`)
+      ? document.querySelector<HTMLElement>(`.cell[data-cell-id="${CSS.escape(targetId)}"]`)
       : null;
     if (!targetEl) continue;
     const savedHtml = ph.innerHTML;
@@ -177,7 +177,11 @@ function restoreReportCellRefs(): void {
  * execution (handoff §M3).
  */
 function triggerReportPrint(reportCellId: string): void {
-  const el = document.querySelector<HTMLElement>(`[data-cell-id="${reportCellId}"].cell-report`);
+  // CSS.escape the id — a cell id is normally safe, but it crosses the
+  // window.naklidataRenderReport boundary where a caller controls it (M8).
+  const el = document.querySelector<HTMLElement>(
+    `[data-cell-id="${CSS.escape(reportCellId)}"].cell-report`,
+  );
   if (!el) {
     console.warn(`[naklidata] report print: cell not found: ${reportCellId}`);
     return;
@@ -906,18 +910,29 @@ async function handleRunStats(engine: Engine, cellId: string): Promise<void> {
   // above this one with a successful result. The user can manually
   // set inputCell via the name input; if not set, auto-pick.
   const idx = nb.get().cells.findIndex((c) => c.id === cellId);
-  const upstream =
-    cell.inputCell !== null && cell.inputCell !== ''
-      ? nb.get().cells.find((c) => c.id === cell.inputCell)
-      : nb
-          .get()
-          .cells.slice(0, idx)
-          .reverse()
-          .find(
-            (c) =>
-              (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') &&
-              (c as { lastResult: unknown }).lastResult !== null,
-          );
+  const RESULT_KINDS = new Set(['sql', 'cohort', 'assertion']);
+  let upstream: ReturnType<typeof nb.get>['cells'][number] | undefined;
+  if (cell.inputCell !== null && cell.inputCell !== '') {
+    const ref = nb.get().cells.find((c) => c.id === cell.inputCell);
+    // Kind-guard the MANUAL reference (forward-pass M6): the auto-pick
+    // branch already filters by kind, but a user-set inputCell could point
+    // at a markdown / chart / input cell that has no result — surface a
+    // clear error instead of the generic "has no result".
+    if (ref && !RESULT_KINDS.has(ref.kind)) {
+      nb.patchCell(cellId, {
+        status: 'error',
+        lastError: `Input cell "${ref.name ?? ref.id}" is a ${ref.kind} cell — stats needs a SQL / cohort / assertion cell.`,
+      });
+      return;
+    }
+    upstream = ref;
+  } else {
+    upstream = nb
+      .get()
+      .cells.slice(0, idx)
+      .reverse()
+      .find((c) => RESULT_KINDS.has(c.kind) && (c as { lastResult: unknown }).lastResult !== null);
+  }
   if (!upstream) {
     nb.patchCell(cellId, {
       status: 'error',

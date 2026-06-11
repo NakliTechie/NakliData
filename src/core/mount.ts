@@ -333,11 +333,23 @@ export async function mountExampleBundle(
 
 async function getRowCount(engine: Engine, tableName: string): Promise<number> {
   const safe = tableName.replace(/"/g, '""');
-  const rows = await engine.query<{ n: bigint | number }>(
-    `SELECT COUNT(*)::BIGINT AS n FROM "${safe}"`,
-  );
-  const v = rows[0]?.n;
-  return typeof v === 'bigint' ? Number(v) : (v ?? 0);
+  try {
+    const rows = await engine.query<{ n: bigint | number }>(
+      `SELECT COUNT(*)::BIGINT AS n FROM "${safe}"`,
+    );
+    const v = rows[0]?.n;
+    return typeof v === 'bigint' ? Number(v) : (v ?? 0);
+  } catch (err) {
+    // A table we can't even COUNT is broken — drop it so a failed mount
+    // doesn't leave an orphaned view/table behind for the next
+    // CREATE OR REPLACE / engine.drop to trip over (forward-pass M29).
+    try {
+      await engine.drop(tableName);
+    } catch {
+      /* best-effort cleanup */
+    }
+    throw err;
+  }
 }
 
 /**
@@ -362,10 +374,20 @@ export async function mountFolder(
     ref: handleId,
     tables: [],
   };
-  // Walk the top-level entries; ignore subdirs in v1.0.
+  // Walk the top-level entries; ignore subdirs in v1.0. Cap the walk at
+  // 5000 entries so a pathological folder (a node_modules, a media dump)
+  // can't hang the mount indefinitely (forward-pass M16).
+  const MAX_FOLDER_ENTRIES = 5000;
+  let walked = 0;
   for await (const [name, entry] of (
     dirHandle as unknown as { entries(): AsyncIterableIterator<[string, FileSystemHandle]> }
   ).entries()) {
+    if (++walked > MAX_FOLDER_ENTRIES) {
+      console.warn(
+        `[naklidata] folder mount stopped at ${MAX_FOLDER_ENTRIES} entries — remaining files skipped.`,
+      );
+      break;
+    }
     if (entry.kind !== 'file') continue;
     const format = detectFormat(name);
     if (!format) continue;

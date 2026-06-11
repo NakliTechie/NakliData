@@ -74,6 +74,14 @@ export function validateReport(
   if (report.pageSize !== 'A4' && report.pageSize !== 'Letter') {
     errors.push(`Unknown page size: ${report.pageSize}`);
   }
+  // Margins must be finite numbers in [0, 100] mm — a non-numeric margin
+  // would be an injection vector in buildPageCss if it weren't clamped (M3).
+  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    const v = report.margins?.[side];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) {
+      errors.push(`Margin ${side} must be a number in [0, 100] mm.`);
+    }
+  }
   for (let i = 0; i < report.items.length; i++) {
     const item = report.items[i] as ReportItem;
     if (item.kind === 'cell-ref' && !names.has(item.cellName)) {
@@ -102,11 +110,25 @@ export function validateReport(
  */
 export function buildPageCss(report: ReportDefinition): string {
   const { pageSize, margins } = report;
+  // Coerce + clamp each margin to a finite value in [0, 100] mm. The type
+  // says `number`, but a loaded `.naklidata` / `?lens=` could carry a
+  // hostile string that would otherwise inject arbitrary CSS into the
+  // print stylesheet (forward-pass M3).
+  const mm = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+  };
+  const m = {
+    top: mm(margins.top),
+    right: mm(margins.right),
+    bottom: mm(margins.bottom),
+    left: mm(margins.left),
+  };
   return `
     @media print {
       @page {
         size: ${pageSize === 'A4' ? 'A4' : 'Letter'};
-        margin: ${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm;
+        margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;
       }
       body { background: #fff; }
       .report-cell { box-shadow: none; border: 0; }

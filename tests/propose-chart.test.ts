@@ -61,6 +61,22 @@ describe('parseProposeChartResponse — happy path', () => {
     expect(res.proposal?.groupColumn).toBe('vendor_name');
   });
 
+  it('tolerates a prose tail after the closing fence (forward-pass M18)', () => {
+    const inner = JSON.stringify({
+      chart_type: 'bar',
+      x_column: 'vendor_name',
+      y_column: 'amount',
+      group_column: null,
+      title: 'Sum amount by vendor_name',
+    });
+    // The old `/```$/` only matched a fence at the exact end — trailing
+    // prose broke the parse. Extracting the fenced block fixes it.
+    const raw = `Here you go:\n\`\`\`json\n${inner}\n\`\`\`\n\nHope this helps!`;
+    const res = parseProposeChartResponse(raw, COLUMNS);
+    expect(res.proposal?.chartType).toBe('bar');
+    expect(res.proposal?.xColumn).toBe('vendor_name');
+  });
+
   it('handles all eight allowed chart types', () => {
     const types = ['bar', 'line', 'area', 'scatter', 'pie', 'histogram', 'stat', 'table'] as const;
     for (const t of types) {

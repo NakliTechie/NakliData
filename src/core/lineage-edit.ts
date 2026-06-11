@@ -59,6 +59,9 @@ export function applyCanvasOp(graph: LineageGraph, op: CanvasOp): LineageGraph {
   if (op.kind === 'insert-on-edge') {
     const edgeExists = graph.edges.some((e) => e.from === op.edge.from && e.to === op.edge.to);
     if (!edgeExists) return graph;
+    // Don't materialise a node id that already exists — a duplicate would
+    // create two nodes sharing an id and ambiguous edges (forward-pass M4).
+    if (graph.nodes.some((n) => n.id === op.newCellId)) return graph;
     const newNode: LineageNode = {
       id: op.newCellId,
       kind: 'cell',

@@ -418,3 +418,27 @@ describe('extractInputsFromPlan — cycle guard (forward-pass H4)', () => {
     expect(inputs).toEqual([{ kind: 'table', name: 'vendors' }]);
   });
 });
+
+describe('extractInputsFromPlan — extended path schemes (forward-pass H6)', () => {
+  it('extracts an s3:// URL from a string extra_info blob', () => {
+    const plan = {
+      name: 'READ_PARQUET',
+      extra_info: "Function: read_parquet('s3://bucket/data.parquet')",
+      children: [],
+    };
+    expect(extractInputsFromPlan(plan)).toEqual([
+      { kind: 'file', path: 's3://bucket/data.parquet' },
+    ]);
+  });
+
+  it('extracts a gzip-compressed path with a query string', () => {
+    const plan = {
+      name: 'READ_CSV',
+      extra_info: "read_csv('https://host.example/logs/access.csv.gz?token=abc')",
+      children: [],
+    };
+    expect(extractInputsFromPlan(plan)).toEqual([
+      { kind: 'file', path: 'https://host.example/logs/access.csv.gz?token=abc' },
+    ]);
+  });
+});

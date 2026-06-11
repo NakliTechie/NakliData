@@ -87,6 +87,13 @@ describe('validateMeasureExpression', () => {
   it('allows keyword-like substrings inside line comments', () => {
     expect(validateMeasureExpression('SUM(amount) -- DROP this is a comment')).toBeNull();
   });
+
+  it('allows a keyword as a double-quoted identifier (forward-pass M2)', () => {
+    // A column literally named "insert" / "delete" is a quoted identifier,
+    // not an executable keyword — must not false-trip.
+    expect(validateMeasureExpression('SUM("insert")')).toBeNull();
+    expect(validateMeasureExpression('COUNT("delete") FILTER (WHERE "update" > 0)')).toBeNull();
+  });
 });
 
 describe('validateMeasuresFile', () => {
@@ -113,6 +120,35 @@ describe('validateMeasuresFile', () => {
     const file: MeasuresFile = {
       version: 1,
       measures: [m('revenue', 'SUM(amount)'), m('orders', 'COUNT(*)')],
+    };
+    expect(validateMeasuresFile(file)).toEqual([]);
+  });
+
+  it('detects a direct cyclic MEASURE() reference (forward-pass M32)', () => {
+    const file: MeasuresFile = {
+      version: 1,
+      measures: [m('a', 'MEASURE(b) + 1'), m('b', 'MEASURE(a) + 2')],
+    };
+    const errors = validateMeasuresFile(file);
+    expect(errors.some((e) => /cyclic measure reference/.test(e))).toBe(true);
+  });
+
+  it('detects an indirect 3-measure cycle', () => {
+    const file: MeasuresFile = {
+      version: 1,
+      measures: [m('a', 'MEASURE(b)'), m('b', 'MEASURE(c)'), m('c', 'MEASURE(a)')],
+    };
+    expect(validateMeasuresFile(file).some((e) => /cyclic/.test(e))).toBe(true);
+  });
+
+  it('does NOT flag a valid DAG of measure references', () => {
+    const file: MeasuresFile = {
+      version: 1,
+      measures: [
+        m('base', 'SUM(amount)'),
+        m('a', 'MEASURE(base) * 2'),
+        m('b', 'MEASURE(base) + MEASURE(a)'),
+      ],
     };
     expect(validateMeasuresFile(file)).toEqual([]);
   });

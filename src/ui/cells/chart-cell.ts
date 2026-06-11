@@ -6,6 +6,28 @@ import { renderChart } from '../../charts/render.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, ChartCellState, SqlCellState } from './types.ts';
 
+/**
+ * Chart-type picker options. `satisfies` keeps every entry a valid member
+ * of the `ChartCellState['chartType']` union, so the picker can't offer an
+ * unrenderable type — and it now includes `funnel` + `path`, which the
+ * union has but the picker had been silently omitting (forward-pass M13).
+ */
+const CHART_TYPE_OPTIONS = [
+  'bar',
+  'line',
+  'area',
+  'scatter',
+  'histogram',
+  'pie',
+  'stacked-bar',
+  'area-stacked',
+  'heatmap',
+  'funnel',
+  'path',
+  'stat',
+  'table',
+] as const satisfies ReadonlyArray<ChartCellState['chartType']>;
+
 export function renderChartCell(
   cell: ChartCellState,
   upstreamCells: SqlCellState[],
@@ -36,23 +58,9 @@ export function renderChartCell(
           .join('')}
       </select>
       <select data-action="chart-type" aria-label="Chart type" style="font-size:12px;">
-        ${[
-          'bar',
-          'line',
-          'area',
-          'scatter',
-          'histogram',
-          'pie',
-          'stacked-bar',
-          'area-stacked',
-          'heatmap',
-          'stat',
-          'table',
-        ]
-          .map(
-            (k) => `<option value="${k}" ${cell.chartType === k ? 'selected' : ''}>${k}</option>`,
-          )
-          .join('')}
+        ${CHART_TYPE_OPTIONS.map(
+          (k) => `<option value="${k}" ${cell.chartType === k ? 'selected' : ''}>${k}</option>`,
+        ).join('')}
       </select>
       ${cols.length > 0 ? renderColPickers(cell, cols) : ''}
       <div class="cell-actions">

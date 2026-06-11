@@ -17,37 +17,38 @@ import {
 
 describe('emitDescriptivesSql', () => {
   it('numeric column gets count + nulls + distinct + min + max + mean + stddev + median', () => {
+    // Aliases are index-prefixed (c0__*) for injectivity — M1.
     const cols: StatsColumnSpec[] = [{ name: 'amount', type: 'numeric' }];
     const sql = emitDescriptivesSql('invoices', cols);
-    expect(sql).toContain('COUNT("amount") AS "amount__count"');
-    expect(sql).toContain('SUM(CASE WHEN "amount" IS NULL THEN 1 ELSE 0 END) AS "amount__nulls"');
-    expect(sql).toContain('COUNT(DISTINCT "amount") AS "amount__distinct"');
-    expect(sql).toContain('MIN("amount") AS "amount__min"');
-    expect(sql).toContain('MAX("amount") AS "amount__max"');
-    expect(sql).toContain('AVG(CAST("amount" AS DOUBLE)) AS "amount__mean"');
-    expect(sql).toContain('STDDEV(CAST("amount" AS DOUBLE)) AS "amount__stddev"');
-    expect(sql).toContain('quantile_cont(CAST("amount" AS DOUBLE), 0.5) AS "amount__median"');
+    expect(sql).toContain('COUNT("amount") AS "c0__count"');
+    expect(sql).toContain('SUM(CASE WHEN "amount" IS NULL THEN 1 ELSE 0 END) AS "c0__nulls"');
+    expect(sql).toContain('COUNT(DISTINCT "amount") AS "c0__distinct"');
+    expect(sql).toContain('MIN("amount") AS "c0__min"');
+    expect(sql).toContain('MAX("amount") AS "c0__max"');
+    expect(sql).toContain('AVG(CAST("amount" AS DOUBLE)) AS "c0__mean"');
+    expect(sql).toContain('STDDEV(CAST("amount" AS DOUBLE)) AS "c0__stddev"');
+    expect(sql).toContain('quantile_cont(CAST("amount" AS DOUBLE), 0.5) AS "c0__median"');
     expect(sql).toContain('FROM "invoices"');
   });
 
   it('identifier column gets ONLY count + nulls + distinct (no numeric stats)', () => {
     const cols: StatsColumnSpec[] = [{ name: 'gstin', type: 'identifier' }];
     const sql = emitDescriptivesSql('invoices', cols);
-    expect(sql).toContain('"gstin__count"');
-    expect(sql).toContain('"gstin__nulls"');
-    expect(sql).toContain('"gstin__distinct"');
-    expect(sql).not.toContain('"gstin__mean"');
-    expect(sql).not.toContain('"gstin__stddev"');
-    expect(sql).not.toContain('"gstin__median"');
-    expect(sql).not.toContain('"gstin__min"');
-    expect(sql).not.toContain('"gstin__max"');
+    expect(sql).toContain('"c0__count"');
+    expect(sql).toContain('"c0__nulls"');
+    expect(sql).toContain('"c0__distinct"');
+    expect(sql).not.toContain('"c0__mean"');
+    expect(sql).not.toContain('"c0__stddev"');
+    expect(sql).not.toContain('"c0__median"');
+    expect(sql).not.toContain('"c0__min"');
+    expect(sql).not.toContain('"c0__max"');
   });
 
   it('"other" column type behaves like identifier — no numeric stats', () => {
     const cols: StatsColumnSpec[] = [{ name: 'created_at', type: 'other' }];
     const sql = emitDescriptivesSql('orders', cols);
-    expect(sql).toContain('"created_at__count"');
-    expect(sql).not.toContain('"created_at__mean"');
+    expect(sql).toContain('"c0__count"');
+    expect(sql).not.toContain('"c0__mean"');
   });
 
   it('handles mixed column types in one SELECT', () => {
@@ -57,9 +58,23 @@ describe('emitDescriptivesSql', () => {
       { name: 'created_at', type: 'other' },
     ];
     const sql = emitDescriptivesSql('invoices', cols);
-    expect(sql).toContain('"amount__mean"'); // numeric column has mean
-    expect(sql).not.toContain('"gstin__mean"'); // identifier doesn't
-    expect(sql).not.toContain('"created_at__mean"'); // other doesn't
+    expect(sql).toContain('"c0__mean"'); // numeric column (index 0) has mean
+    expect(sql).not.toContain('"c1__mean"'); // identifier (index 1) doesn't
+    expect(sql).not.toContain('"c2__mean"'); // other (index 2) doesn't
+  });
+
+  it('uses index-based aliases so __-containing names cannot collide (M1)', () => {
+    // Under the old `<name>__<stat>` scheme these names produced
+    // overlapping alias strings; index prefixes make collision impossible.
+    const cols: StatsColumnSpec[] = [
+      { name: 'a', type: 'numeric' },
+      { name: 'a__mean', type: 'numeric' },
+    ];
+    const sql = emitDescriptivesSql('t', cols);
+    expect(sql).toContain('AVG(CAST("a" AS DOUBLE)) AS "c0__mean"');
+    expect(sql).toContain('AVG(CAST("a__mean" AS DOUBLE)) AS "c1__mean"');
+    // No alias is derived from the column name, so no name can shadow another.
+    expect(sql).not.toContain('AS "a__mean"');
   });
 
   it('empty column list emits a safe placeholder query', () => {
@@ -109,14 +124,14 @@ describe('parseDescriptivesRow', () => {
   it('parses a numeric column row into structured descriptives', () => {
     const cols: StatsColumnSpec[] = [{ name: 'amount', type: 'numeric' }];
     const row = {
-      amount__count: 100,
-      amount__nulls: 5,
-      amount__distinct: 80,
-      amount__min: 10,
-      amount__max: 1000,
-      amount__mean: 200.5,
-      amount__stddev: 50.2,
-      amount__median: 150,
+      c0__count: 100,
+      c0__nulls: 5,
+      c0__distinct: 80,
+      c0__min: 10,
+      c0__max: 1000,
+      c0__mean: 200.5,
+      c0__stddev: 50.2,
+      c0__median: 150,
     };
     const parsed = parseDescriptivesRow(row, cols);
     expect(parsed).toEqual([
@@ -137,9 +152,9 @@ describe('parseDescriptivesRow', () => {
   it('identifier column row omits numeric stats', () => {
     const cols: StatsColumnSpec[] = [{ name: 'gstin', type: 'identifier' }];
     const row = {
-      gstin__count: 100,
-      gstin__nulls: 0,
-      gstin__distinct: 50,
+      c0__count: 100,
+      c0__nulls: 0,
+      c0__distinct: 50,
     };
     const parsed = parseDescriptivesRow(row, cols);
     expect(parsed).toEqual([{ name: 'gstin', count: 100, nulls: 0, distinct: 50 }]);
@@ -149,14 +164,14 @@ describe('parseDescriptivesRow', () => {
     // Null-heavy column: COUNT == 0, every numeric agg returns null.
     const cols: StatsColumnSpec[] = [{ name: 'sparse', type: 'numeric' }];
     const row = {
-      sparse__count: 0,
-      sparse__nulls: 1000,
-      sparse__distinct: 0,
-      sparse__min: null,
-      sparse__max: null,
-      sparse__mean: null,
-      sparse__stddev: null,
-      sparse__median: null,
+      c0__count: 0,
+      c0__nulls: 1000,
+      c0__distinct: 0,
+      c0__min: null,
+      c0__max: null,
+      c0__mean: null,
+      c0__stddev: null,
+      c0__median: null,
     };
     const parsed = parseDescriptivesRow(row, cols);
     expect(parsed[0]).toEqual({
@@ -173,6 +188,24 @@ describe('parseDescriptivesRow', () => {
     // Critically: no NaN, no undefined.
     expect(parsed[0]?.mean).toBeNull();
     expect(Number.isNaN(parsed[0]?.mean as number)).toBe(false);
+  });
+
+  it('coerces non-finite mean/stddev/median to null (forward-pass M31)', () => {
+    const cols: StatsColumnSpec[] = [{ name: 'x', type: 'numeric' }];
+    const row = {
+      c0__count: 1,
+      c0__nulls: 0,
+      c0__distinct: 1,
+      c0__min: 5,
+      c0__max: 5,
+      c0__mean: Number.NaN,
+      c0__stddev: Number.POSITIVE_INFINITY,
+      c0__median: 5,
+    };
+    const parsed = parseDescriptivesRow(row, cols);
+    expect(parsed[0]?.mean).toBeNull();
+    expect(parsed[0]?.stddev).toBeNull();
+    expect(parsed[0]?.median).toBe(5);
   });
 });
 

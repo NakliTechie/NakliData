@@ -321,7 +321,10 @@ LIMIT 100`,
       });
       // M2 — Cell Lineage Tracker. Fire-and-forget after the result
       // ships; lineage failures must NOT regress the cell to error.
-      void this.recordLineageForCell(id, code, rewritten).catch(() => {
+      // Scan the MEASURE-expanded SQL (not the raw code) for @refs so a
+      // measure whose body references @cells contributes those edges too
+      // (forward-pass M5).
+      void this.recordLineageForCell(id, measureExpanded.sql, rewritten).catch(() => {
         /* lineage extraction is best-effort */
       });
     } catch (err) {
@@ -365,7 +368,9 @@ LIMIT 100`,
    */
   private async recordLineageForCell(
     cellId: string,
-    originalCode: string,
+    // SQL with MEASURE() already expanded but @refs not yet rewritten —
+    // scanning this captures @refs introduced by a measure body (M5).
+    preRewriteSql: string,
     rewritten: string,
   ): Promise<void> {
     const store = getLineageStore();
@@ -387,12 +392,13 @@ LIMIT 100`,
       confidence = 'low';
     }
 
-    // @name references — captured from the ORIGINAL code (before
-    // rewriting). These add cell-to-cell edges that survive even
-    // when the upstream cell hasn't yet executed (so EXPLAIN can't
-    // see its view).
+    // @name references — captured from the pre-rewrite SQL (MEASURE()
+    // already expanded, @refs not yet rewritten). These add cell-to-cell
+    // edges that survive even when the upstream cell hasn't yet executed
+    // (so EXPLAIN can't see its view), and now include @refs a measure
+    // body introduced (M5).
     const cellRefs: Array<{ refCellId: string; refLabel: string }> = [];
-    for (const match of originalCode.matchAll(/@([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    for (const match of preRewriteSql.matchAll(/@([A-Za-z_][A-Za-z0-9_]*)/g)) {
       const refName = match[1];
       if (!refName) continue;
       const upstream = this.state.cells.find((c) => c.name === refName);

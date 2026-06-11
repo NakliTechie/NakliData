@@ -196,9 +196,13 @@ export async function computeStats(opts: {
 
 function fmtMaybe(v: unknown): string {
   if (v === null || v === undefined) return '∅';
-  if (typeof v === 'number') {
-    if (!Number.isFinite(v)) return '∅';
-    return Math.abs(v) < 0.01 || Math.abs(v) > 1e6 ? v.toExponential(2) : v.toFixed(2);
+  // DuckDB returns BIGINT/HUGEINT aggregates (e.g. MIN/MAX on an integer
+  // column) as a JS bigint; coerce so they format as numbers instead of
+  // falling through to String() and printing "100n" (forward-pass M7).
+  const n = typeof v === 'bigint' ? Number(v) : v;
+  if (typeof n === 'number') {
+    if (!Number.isFinite(n)) return '∅';
+    return Math.abs(n) < 0.01 || Math.abs(n) > 1e6 ? n.toExponential(2) : n.toFixed(2);
   }
   return String(v);
 }

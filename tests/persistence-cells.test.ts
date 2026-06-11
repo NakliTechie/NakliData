@@ -478,4 +478,15 @@ describe('persistence — parse error paths', () => {
       /newer version of NakliData/,
     );
   });
+
+  it('rejects a malformed version string (forward-pass M25)', () => {
+    // "1.x" → compareVersion returns NaN, NaN > 0 is false, so without
+    // the regex guard this would slip past the "newer version" check.
+    expect(() => parse(JSON.stringify({ format: 'naklidata', version: '1.x' }))).toThrow(
+      /Invalid version/,
+    );
+    expect(() => parse(JSON.stringify({ format: 'naklidata', version: 'latest' }))).toThrow(
+      /Invalid version/,
+    );
+  });
 });

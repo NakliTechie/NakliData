@@ -123,10 +123,12 @@ const FORBIDDEN_KEYWORDS = new Set([
 export function validateMeasureExpression(expression: string): string | null {
   const trimmed = expression.trim();
   if (!trimmed) return 'Expression is required.';
-  // Strip string literals + line / block comments before keyword check
-  // so a string like `'INSERT'` doesn't false-trip.
+  // Strip string literals, double-quoted identifiers, and line / block
+  // comments before the keyword check so a string like `'INSERT'` OR a
+  // column named `"insert"` doesn't false-trip (forward-pass M2).
   const stripped = trimmed
     .replace(/'(?:[^']|'')*'/g, "''")
+    .replace(/"(?:[^"]|"")*"/g, '""')
     .replace(/--[^\n]*/g, '')
     .replace(/\/\*[\s\S]*?\*\//g, '');
   if (stripped.includes(';')) {
@@ -161,6 +163,52 @@ export function validateMeasuresFile(file: MeasuresFile): string[] {
     }
     const exprErr = validateMeasureExpression(m.expression);
     if (exprErr) errors.push(`${m.name}: ${exprErr}`);
+  }
+  // M32 — static cycle pre-pass. expandMeasures has a runtime MAX_DEPTH
+  // guard, but catching a cyclic `MEASURE(...)` graph here surfaces a
+  // clear error at edit time instead of a depth-cap failure at run time.
+  errors.push(...detectMeasureCycles(file.measures));
+  return errors;
+}
+
+/**
+ * Detect cycles in the `MEASURE(name)` reference graph (M32). Returns one
+ * error per distinct cycle; references to unknown measures are ignored
+ * here (the expansion path reports those).
+ */
+function detectMeasureCycles(measures: ReadonlyArray<MeasureDefinition>): string[] {
+  const deps = new Map<string, string[]>();
+  for (const m of measures) {
+    if (!m.name) continue;
+    const refs = [...m.expression.matchAll(MEASURE_CALL_RE)]
+      .map((x) => x[1])
+      .filter((r): r is string => !!r);
+    deps.set(m.name, refs);
+  }
+  const errors: string[] = [];
+  const reported = new Set<string>();
+  const onStack = new Set<string>();
+  const done = new Set<string>();
+  const dfs = (name: string, path: string[]): void => {
+    onStack.add(name);
+    for (const dep of deps.get(name) ?? []) {
+      if (!deps.has(dep)) continue; // unknown measure — not our concern
+      if (onStack.has(dep)) {
+        const members = path.slice(path.indexOf(dep));
+        const key = [...members].sort().join(',');
+        if (!reported.has(key)) {
+          reported.add(key);
+          errors.push(`${dep}: cyclic measure reference (${[...members, dep].join(' → ')}).`);
+        }
+      } else if (!done.has(dep)) {
+        dfs(dep, [...path, dep]);
+      }
+    }
+    onStack.delete(name);
+    done.add(name);
+  };
+  for (const name of deps.keys()) {
+    if (!done.has(name)) dfs(name, [name]);
   }
   return errors;
 }
