@@ -33,9 +33,18 @@ scheduling/scope decision — see Open questions.**
       fallback) → `compileShelvesToConfig` → cell config. `inferFieldClass`
       pure helper + 8 tests. 745 vitest / check / smoke green;
       **Chrome-verified**. DECISIONS Z/AA/AB.
-- [ ] **M6 UI** — lineage edit mode: edit-mode toggle + canvas
-      insert/delete wired to `applyCanvasOp` (reposition deferred —
-      layout-only no-op in core). **[test in Chrome]**
+- [x] **M6 UI** — DONE (2026-06-11). Edit|Done toggle on the lineage
+      panel; per-node delete (dependents-listed inline confirm) +
+      per-edge insert wired to `applyCanvasOp`, persisted via
+      `loadFromJson`. Reposition deferred (layout-only no-op; DECISIONS
+      AC). 745 vitest / check / smoke green; **Chrome-verified**.
+      DECISIONS AC/AD.
+
+**Phase 2 UI is feature-complete** except the M1 manual-associations
+panel (needs a scope decision — see Open questions). Spawned a follow-up
+task: source→cell lineage came back empty from EXPLAIN against the
+offline DuckDB build (only `@name` refs populated it) — possible M2
+regression, needs investigation.
 
 **Prereq:** decide the Phase 2 scope/scheduling question first. Each
 sub-item is independently shippable, so this can land incrementally.

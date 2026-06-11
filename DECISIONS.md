@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-11 — v1.3 M6 Phase 2 — lineage edit-mode UI
+
+**Context:** M6 shipped data-only (`applyCanvasOp` + `getDependentsOfNode`
++ `projectToCanvas` + round-trip invariant). This wires the edit UI onto
+the lineage panel.
+
+### Decision AC — Wire insert-on-edge + delete-node; defer reposition
+
+`applyCanvasOp` has three ops. Two are graph mutations with real user
+value: **insert-on-edge** (split an edge with a new cell node) and
+**delete-node** (remove a node + edges, dependents listed first per
+§M6). **reposition** is layout-only — the core returns the graph
+unchanged and the comment notes "the canvas layout is computed from
+row/column hints the caller stores separately." No such hint store
+exists, and the SVG auto-lays-out by topological depth. Wiring drag-to-
+reposition would mean building + persisting a layout-hints layer for a
+mutation that, by design, changes nothing about the graph. **Deferred**
+— not worth the surface for v1. Insert + delete are the load-bearing
+edit ops; reposition can come with the layout-hints work if ever needed.
+
+### Decision AD — Edit ops mutate the lineage graph (a projection), not notebook cells
+
+The handoff frames the canvas as an editable projection of the notebook
+("canvas action → notebook diff → re-rendered canvas"). The CORE only
+provides graph-level `applyCanvasOp`, and the notebook→lineage
+derivation is EXPLAIN-based (inserting "a cell on an edge" has no
+automatic notebook-cell equivalent — you'd have to synthesise + rewrite
+SQL). So this UI edits the lineage GRAPH and persists it via
+`getLineageStore().loadFromJson` (survives panel close/reopen + workbook
+serialisation). **Honest boundary, stated inline + in the edit hint:**
+re-running a cell recomputes its inbound edges and overwrites that cell's
+canvas edits; materialising graph edits back into real cells (the node's
+`cellKind` is carried for exactly this — H12) is the §M6 follow-up. Edit
+affordances live in the LIST view only (the panel's "accessible truth");
+the SVG re-renders read-only.
+
 ## 2026-06-11 — v1.3 M5 Phase 2 — shelf-based chart authoring UI
 
 **Context:** M5 shipped data-only (`compileShelvesToConfig` +

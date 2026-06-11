@@ -703,11 +703,15 @@ S15) shipped across commits `06ae2aa`, `196ab28`, `8568530`,
 ### Open questions
 
 - **Phase 2 UI scheduling** — RESOLVED 2026-06-11: autonomous-proceed,
-  land incrementally. **M1 grey-out DONE** (`computeIntraCellValueStates`
-  + paint binder + surgical repaint). **M5 shelf authoring DONE**
-  (Manual|Shelves toggle + drop-zones + `inferFieldClass`; DECISIONS
-  Z/AA/AB). All Chrome-verified. Still data-only: **M6 edit-mode toggle**,
-  M1 manual-associations panel.
+  land incrementally. **M1 grey-out DONE**, **M5 shelf authoring DONE**
+  (Z/AA/AB), **M6 lineage edit mode DONE** (AC/AD — insert + delete wired,
+  reposition deferred). All Chrome-verified. **Phase 2 UI feature-complete**
+  except the M1 manual-associations panel (open scope question below).
+- **NEW (2026-06-11, spawned task):** source→cell lineage recorded EMPTY
+  from a plain `SELECT * FROM invoices` against the offline DuckDB build —
+  only `@name` cellRefs populated the graph. Suggests `extractInputsFromPlan`
+  doesn't match the vendored build's EXPLAIN JSON + the regex fallback
+  doesn't fire on zero EXPLAIN inputs. Possible silent M2 regression.
 - **Manual associations panel scope** (handoff §M1) — smallest useful
   starter shape?
 - **v1.3.0 tag timing** — cut now (v1.2 + v1.3 + audit done) or after

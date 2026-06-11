@@ -1109,4 +1109,40 @@ button {
 .lineage-svg-node:focus rect {
   stroke-width: 2;
 }
+/* v1.3 M6 Phase 2 — lineage edit mode. */
+.lineage-edit-hint {
+  margin: 0 0 var(--space-3) 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-alt);
+  border-left: 2px solid var(--accent);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.lineage-del-btn {
+  margin-left: auto;
+  padding: 2px 6px;
+  color: var(--text-muted);
+}
+.lineage-del-btn:hover { color: var(--danger); }
+.lineage-del-confirm {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.lineage-del-msg { color: var(--text); }
+.lineage-del-confirm .btn { font-size: 11px; padding: 2px 8px; }
+.lineage-del-go { color: var(--danger); border-color: var(--danger); }
+.lineage-insert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+.lineage-insert-kind { font-size: 11px; }
+.lineage-insert-go { font-size: 11px; padding: 1px 6px; color: var(--accent); }
 `;
