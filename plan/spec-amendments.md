@@ -37,6 +37,7 @@ The original spec stays authoritative for everything not listed here.
 | [A27](#a27--incremental-refresh-v12-m3-amends-spec-41--38) | §4.1 + §3.8 | Per-source fingerprint (FSA: size+lastModified; HTTP: ETag+Last-Modified+Content-Length; others: unsupported sentinel). New "Refresh" header button: HEAD all sources, diff vs persisted fingerprints, cascade stale set via M2 lineage, re-run affected cells. User-initiated only — no background polling. |
 | [A28](#a28--sidecar-job-7-propose-chart-v12-m4-amends-spec-43) | §4.3 | 7th sidecar job `propose-chart` — input: SQL + result columns + 10 sample rows; output: strict JSON `ChartProposal` (chartType from an 8-value allowlist + xColumn/yColumn/groupColumn from the input columns + title ≤ 80 chars). No prose narration. New "Suggest chart" chip on SQL cell results materialises the proposal as a chart cell. |
 | [A29](#a29--visual-query-builder-v12-m5-amends-spec-33--38) | §3.3 + §3.8 | New "Build query" header button opens a form-based query builder: source table + optional single JOIN + AND-joined filters + LIMIT + GROUP BY + aggregates. Pure SQL emitter routes every identifier through `quoteIdent` + every literal through a TYPE-VALIDATED emitter (numeric / string / date / boolean). NO multi-join, NO nested subqueries, NO window functions. Output → new SQL cell (user clicks Run). |
+| [A30](#a30--shell-bundle-budget-raised-to-750-kb-v13-prior-art-amends-spec-71) | §7.1 | Shell bundle budget raised 600 KB → 750 KB for v1.3's six notebook-native surfaces (M1–M6). Lazy-load stays the default for heavy libraries; the raised cap covers accumulated shared-shell surface, not a license to dump deps. No trust boundary moves. |
 
 ---
 
@@ -1211,6 +1212,81 @@ in `tests/query-builder.test.ts`) / 55 e2e / smoke / check green.
 Bundle 590.6 KB / 600 KB (98.4%, 9.4 KB headroom). v1.2 Lakehouse
 Parity track complete — M1 → M5 closed in a single autonomous
 session (handoff at `4be16c6` → `5871b53` over ~6 hours).
+
+---
+
+## A30 — Shell bundle budget raised to 750 KB (v1.3 Prior Art) (amends spec §7.1)
+
+**Original §7.1 (paraphrased):**
+> The single-file shell (`dist/index.html`) must stay ≤ 600 KB.
+> Heavy functionality ships as lazy chunks fetched on demand; the
+> gate is enforced by `scripts/check-bundle-size.mjs`.
+
+The 600 KB figure was set at v1.0, when the shell carried the mount
+layer, taxonomy classifier, schema panel, the seven hand-rolled
+chart types, and the sink picker — and nothing else. Every heavy
+capability added since (CodeMirror, Observable Plot, MapLibre,
+Cytoscape, deck.gl, Transformers.js) shipped as a lazy chunk, so the
+shell crept up only from the *shared* surface those features need
+(cell kinds, modals, store wiring), never from the libraries
+themselves.
+
+v1.3 (Prior Art) adds six notebook-native surfaces — Associative
+Cross-Filter (M1), Measures Layer (M2), Report layout (M3), Stats
+cell (M4), shelf-based chart authoring (M5), lineage edit mode (M6).
+Their pure logic plus the cell/panel wiring that can't be
+lazy-loaded pushed the shell to 599.9 KB / 600 KB at M1 — one
+good-sized panel away from the gate failing on every commit.
+
+**Amended:**
+
+> **The shell budget is 750 KB.** `scripts/check-bundle-size.mjs`
+> caps `dist/index.html` at `750 * 1024` bytes. **Lazy-loading
+> remains the default** for any new heavy capability — the cap raise
+> is NOT a license to dump dependencies into the shell. The rule is
+> unchanged in spirit: a feature that pulls a multi-hundred-KB
+> library still ships as a `src/lazy/<name>.ts` chunk fetched on
+> first use. The raised number covers the accumulated *shared shell*
+> (cell kinds, modals, the store, the schema panel) that every
+> session pays on first paint regardless of which feature it uses.
+
+**Why raise rather than lazy-load everything new:**
+
+- The v1.3 surfaces are notebook-native cell kinds and panels, not
+  opt-in heavy viewers. A stats cell or measures panel that pays a
+  ~100 ms chunk-fetch tax on first click felt worse than a higher,
+  honestly-documented shell budget. (We *did* lazy-chunk the
+  measures panel — `src/lazy/measures-panel.ts` — when it tipped the
+  shell over 600 KB at M2; the pattern stays available for future
+  panels. The cap raise covers the surfaces where lazy-loading hurts
+  UX more than it helps.)
+- 600 KB was a v1.0-era number for a v1.0-era surface. The product
+  is materially larger now — 9 cell kinds, 7 sidecar jobs, 5
+  remote-source data planes. The budget should track the product,
+  not a frozen snapshot.
+- The lazy-load posture — the thing that actually keeps the shell
+  from ballooning — is unchanged. CodeMirror (370 KB), Observable
+  Plot (276 KB), MapLibre (1.0 MB), Cytoscape (443 KB), deck.gl
+  (620 KB), Transformers.js (525 KB) all still load on demand. None
+  are in the shell, and the cap raise does not move them in.
+
+**Threat-model note (no new attack surface):** the bundle gate is a
+*budget* control, not a *security* control. The byte-integrity gates
+— SRI verification (A14), the postinstall hash-pin (A20), and the
+CSP defence-in-depth set (A22) — are what protect the bytes, and
+none of them change here. Raising the budget ceiling does not widen
+any trust boundary: the shell is still build-time-produced from this
+repo, the inline `<script>` is still SHA-256-pinned into
+`script-src`, and lazy chunks are still same-origin. The only thing
+750 KB changes is how much first-paint JavaScript the user
+downloads.
+
+**Status:** Raised at v1.3 M1 (`a0fa5cf`) — `BUDGET_BYTES = 750 *
+1024` in `scripts/check-bundle-size.mjs`. Current shell 607 KB /
+750 KB (142 KB headroom) after v1.3 M0–M6. This amendment is the doc
+the script's user-facing error message ("Spec §7.1 (A30) caps the
+shell at 750 KB") points at — written here to close forward-pass
+finding C2.
 
 ---
 

@@ -16,25 +16,27 @@ shipped through commit `40360b1`.
 
 ---
 
-## Chunk 1 — Spec amendment A30 + STATUS/DECISIONS hygiene (keystone, ~30 min)
+## Chunk 1 — Spec amendment A30 + STATUS/DECISIONS hygiene (keystone, ~30 min) — ✅ DONE 2026-06-11
 
 The bundle-size script (raised to 750 KB in commit `a0fa5cf`)
 cites "spec amendment A30" that was never written. STATUS.md
 still reads `590.6 KB / 600 KB` from v1.2 M5. DECISIONS.md has
 no entry for v1.3. Closes the doc debt blocking everything else.
 
-- [ ] **C2** — Write A30 in `plan/spec-amendments.md` (mirrors
+- [x] **C2** — Write A30 in `plan/spec-amendments.md` (mirrors
       A25–A29 shape): cap raise 600 → 750 KB, rationale (v1.3
       adds 6 surfaces, original 600 was v1.0-era, lazy-load
-      remains default), status pointer to `a0fa5cf`.
-- [ ] **C2** — STATUS.md new top-of-file last-update entry
-      covering v1.2 M1–M5 + v1.3 M0–M6: 18 commits, 695 vitest,
-      142 KB headroom on the raised cap, Phase 2 wire-up gaps.
-- [ ] **C2** — DECISIONS.md `## 2026-06-11 — v1.3 close + bundle
-      budget raise` with the load-bearing v1.3 decisions: M2
-      measure-as-FILTER-aggregate, M3 print-CSS-over-pdf-lib,
-      engine-boundary lint contract, Phase 1 ship strategy for
-      M1/M3/M5/M6.
+      remains default), status pointer to `a0fa5cf`. Added a
+      threat-model note (no trust boundary moves) + index row.
+- [x] **C2** — STATUS.md new top-of-file last-update entry
+      (`2026-06-11T04:00:00Z`) covering v1.2 M1–M5 + v1.3 M0–M6:
+      18 commits, 695 vitest, 607.4 KB / 750 KB (142 KB headroom),
+      Phase 2 wire-up gaps + CI/M22/H8 owed-items.
+- [x] **C2** — DECISIONS.md `## 2026-06-11 — v1.3 close + bundle
+      budget raise` with decisions V–AA: V bundle cap raise (A30),
+      W Phase 1 ship strategy, X engine-boundary contract, Y M2
+      measure-as-FILTER-aggregate, Z M3 print-CSS-over-pdf-lib,
+      AA M5 one-schema-three-producers.
 
 **Why keystone:** every other batch references A30 in commit
 messages. Land first so the rest doesn't fork doc debt.
