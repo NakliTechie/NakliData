@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-13 — v1.4.0 release cut
+
+### Decision AP — Cut v1.4.0 from the green slate; no new amendments; e2e not re-run
+
+The v1.4 feature slate (F1–F9) + the M2 fix + the infra reconcile have
+been on `origin/main` and CI-green since the session-3 windup
+(`cbb19ed`). Re-verified the tree before tagging: **798 vitest + smoke +
+check green; bundle 666.9 KB / 750 KB**. Cut v1.4.0 as a docs-only
+release commit (release notes + README v1.4 refresh + this entry).
+
+- **No new spec amendments.** Every F-feature extends an already-amended
+  surface (semantic layer, A29 query builder, column profile, A18
+  export-HTML), so A30 stays the highest amendment. The design decisions
+  live in entries AI–AO. Logged here so it's not re-discovered as a gap.
+- **e2e not re-run locally for this tag** (contrast Decision AH, which
+  did, because e2e wasn't in CI then). e2e is now in the CI verify gate
+  (`4f8506f`) and the 55-spec run was green at the session-3 windup; this
+  release adds **only docs/README**, no code change since that run, so
+  the verified-green code is byte-identical. CI re-runs e2e on push.
+- **Slice-B validation still owed** (same posture as Decision AG): the
+  WebGPU per-job manual QA can't run headless; it stays a tracked
+  v1.4.1/v1.3.1 follow-up and is not a v1.4.0 blocker.
+
 ## 2026-06-11 — v1.4 F9 — embeddable read-only widget (+ v1.4 complete)
 
 ### Decision AO — Embed via sandboxed `<iframe srcdoc>` of the Export-HTML doc, not a `?lens=` iframe
