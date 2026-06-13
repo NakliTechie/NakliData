@@ -68,8 +68,11 @@ describe('parseHfUrl', () => {
 });
 
 describe('DEFAULT_LOCAL_MODEL_ID', () => {
-  it('points at the scoping-doc-chosen default', () => {
-    // Locked in per DECISIONS J / scoping Decision 1.
-    expect(DEFAULT_LOCAL_MODEL_ID).toBe('onnx-community/Qwen2.5-1.5B-Instruct');
+  it('defaults to the fits-anywhere 0.5B model', () => {
+    // Changed from the 1.5B (DECISIONS J / scoping Decision 1) to the
+    // 0.5B in the slice-B re-validation (DECISIONS AU): the 1.5B OOM'd
+    // on wasm AND on WebGPU with plain q4; the 0.5B fits any machine, so
+    // it's the safe default. Larger models stay opt-in (need WebGPU).
+    expect(DEFAULT_LOCAL_MODEL_ID).toBe('onnx-community/Qwen2.5-0.5B-Instruct');
   });
 });

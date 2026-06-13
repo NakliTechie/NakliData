@@ -47,6 +47,7 @@ import {
 } from './core/sessions.ts';
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
 import { dispatchJob } from './core/sidecar/client.ts';
+import { registerLocalGenerator } from './core/sidecar/local-runtime.ts';
 import { SidecarError } from './core/sidecar/types.ts';
 import type { StatsColumnSpec } from './core/stats.ts';
 import {
@@ -463,7 +464,10 @@ async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
     // initialises onnxruntime against the cached weights — we don't
     // block other boot tasks on it.
     const mod = await loadChunk('transformers');
-    await mod.loadAndRegister(modelId);
+    const gen = await mod.loadModel(modelId);
+    // Register from the MAIN bundle so the dispatch's local-runtime
+    // singleton sees it (the chunk has its own copy — see loadModel).
+    registerLocalGenerator(gen);
     toast(`Local model ${modelId} ready (loaded from cache).`);
   } catch (err) {
     // Boot-path auto-load failures should never tank the rest of the

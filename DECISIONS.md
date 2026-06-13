@@ -2,6 +2,64 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-13 — Local-model path fixes + re-validation (after DECISIONS AT)
+
+### Decision AU — Fixed the load + registration plumbing; in-browser inference quality is a deeper, still-open issue
+
+Followed the slice-B FAIL (AT) with fixes, re-validated live in the same
+WebGPU Chrome against a local prod build. Two layers fixed, one deeper
+layer found:
+
+**Layer 1 — load (FIXED + confirmed).**
+- **WebGPU device path** — `loadPipeline` now picks `device: 'webgpu'` when
+  an adapter resolves, else `'wasm'` (`pickLocalDevice`). On WebGPU it uses
+  `dtype: 'q4f16'` (fp16 activations ≈ half the GPU working set of plain
+  q4). The 1-2B models OOM'd on plain q4 even on WebGPU; **q4f16 makes the
+  1.5B fit** (its q4f16 download is 1.14 GB, smaller than q4's 1.66 GB).
+  Confirmed: Qwen2.5-0.5B AND Qwen2.5-1.5B both load on WebGPU now.
+- **Graceful OOM** — session-creation OOM is caught and surfaced as
+  "out of memory … enable WebGPU / pick a smaller model" instead of raw
+  `std::bad_alloc`.
+- **Model-size labels fixed** (~2× understated) + added
+  **Qwen2.5-0.5B-Instruct as the fits-anywhere recommended default**
+  (DEFAULT_LOCAL_MODEL_ID); larger models stay opt-in (need WebGPU).
+
+**Layer 2 — registration (FIXED + confirmed) — the real blocker.**
+The lazy `transformers.ts` chunk called `registerLocalGenerator`, but
+esbuild `splitting:false` gives the chunk its OWN copy of
+`local-runtime.ts`'s `_generator` singleton, so the main-bundle dispatch
+(`client.ts`) never saw it → every local job reported "model not loaded"
+**even after a successful load**. Same split-singleton class as the
+measures-panel bug (AJ). This would have ALWAYS blocked the local sidecar;
+the OOM just masked it. Fix: the chunk's `loadAndRegister` → `loadModel`
+now RETURNS the generator, and the MAIN bundle (`main.ts` boot path +
+`settings-modal.ts` Download&load) registers it. Confirmed: jobs now
+dispatch to the model — the error flipped from "not loaded" to a
+response-parse error (model generated + job parsed). Also fixes the gap
+where a Settings-initiated load didn't make the sidecar usable without a
+reload.
+
+**Layer 3 — inference output quality (STILL OPEN, deeper).**
+With the plumbing fixed, every structured-output job still fails because
+the local model produces **incoherent output** — `{SQL!!!!!!` under greedy,
+`'\'%-*02*'` under low-temp sampling — that no JSON/SELECT parser accepts.
+Tried `do_sample:false → light sampling + repetition_penalty` (helps
+greedy degeneracy in principle; didn't rescue output). The garbage is
+near-random, which points at **onnxruntime-web WebGPU + q4/q4f16
+numerical/kernel issues** (a known in-browser-inference fragility) or a
+chat-template mismatch — NOT the sidecar. So the **local sidecar jobs do
+not yet yield usable output**; a **cloud BYOK provider works** (the default
+path, exercised by the 60-case eval harness). The local provider is now
+labelled **experimental** in Settings.
+
+**Disposition / v1.4.1+ follow-up:** ship Layers 1+2 (real bug fixes +
+prerequisites; local is opt-in/off-by-default so cloud is unaffected).
+Layer 3 needs a focused deep-dive: wasm-vs-WebGPU numerical comparison on
+a known-good prompt, verify the chat template is applied, try alternate
+model exports/dtypes, or a different in-browser runtime. Tracked in
+`plan/pending.md` "Now open". Full run notes in
+`plan/w32-slice-b-validation.md`.
+
 ## 2026-06-13 — W3.2 slice-B validation RAN → FAIL (local model OOMs on wasm)
 
 ### Decision AT — Slice B does NOT pass; local-model path needs a WebGPU fix before it can be called validated

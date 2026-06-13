@@ -705,17 +705,25 @@ executed in sequence; results below for reference.
   `plan/w32-slice-b-validation.md`). The local model never loads on the
   wasm device (`std::bad_alloc`), so 0/6 jobs were exercisable. The
   download + OPFS cache UI + cleanup all work; the **load** is the defect.
-- **v1.4.1 — fix the local-model load path** (the slice-B FAIL):
-  1. **Wire the WebGPU device path** — detect `navigator.gpu`, use
-     `device: 'webgpu'` with a wasm fallback (`src/lazy/transformers.ts:262`
-     currently hard-codes `'wasm'`). Primary fix for the OOM.
-  2. **Fix model-size labels** — understated ~2× (Qwen "~0.9 GB" → 1.7 GB
-     actual; Llama "~0.7 GB" → ~1.58 GB).
-  3. **Graceful OOM handling** — catch the session-creation failure →
-     "model too large for the CPU runtime; enable WebGPU or pick a smaller
-     model"; move the load off the main thread (it froze the tab ~45 s).
-  4. Consider a genuinely small (≤0.5B) model for non-WebGPU browsers.
-  Re-run the slice-B checklist after the fix (a WebGPU box is available).
+- **Local-model load + registration — FIXED 2026-06-13 (DECISIONS AU).**
+  WebGPU device path + `q4f16` on WebGPU (1-2B models now load; 1.5B fits);
+  graceful OOM; labels corrected; Qwen2.5-0.5B added as fits-anywhere
+  default; **split-singleton registration fix** (the chunk now returns the
+  generator, the main bundle registers it). Confirmed live: jobs dispatch
+  to the model. Local provider labelled experimental.
+- **v1.4.1+ — local-model INFERENCE QUALITY (still open, Layer 3).** With
+  the plumbing fixed, in-browser inference still produces **incoherent
+  output** (`{SQL!!!!!!` / `'\'%-*02*'`) across all structured-output jobs,
+  even with the 1.5B + sampling — so local jobs don't yield usable results.
+  Likely **onnxruntime-web WebGPU + q4/q4f16 numerical/kernel issue** or a
+  chat-template mismatch, not the sidecar. Deep-dive needed:
+  1. wasm-vs-WebGPU numerical comparison on a fixed prompt (is WebGPU the
+     culprit?); 2. verify the tokenizer chat template is applied to the
+     local prompt; 3. try alternate model exports/dtypes (e.g. fp16, or a
+     different ONNX export); 4. consider a different in-browser runtime.
+  Until then, recommend a cloud BYOK provider for the sidecar jobs (the
+  default; the 60-case eval harness exercises it). Re-run the slice-B
+  checklist after — a WebGPU box is available.
 
 ## v1.3 audit follow-throughs (2026-06-11)
 

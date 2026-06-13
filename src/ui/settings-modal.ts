@@ -20,6 +20,7 @@ import {
   isOpfsAvailable,
   listCachedModels,
 } from '../core/sidecar/local-cache.ts';
+import { registerLocalGenerator } from '../core/sidecar/local-runtime.ts';
 import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
@@ -43,20 +44,30 @@ const LOCAL_MODEL_OPTIONS: ReadonlyArray<{
   label: string;
   summary: string;
 }> = [
+  // Sizes are the actual q4 ONNX download (measured 2026-06-13 — the prior
+  // ~0.9/0.7 GB labels were ~2× understated). The 1-2B models OOM'd on BOTH
+  // wasm and WebGPU on a 16 GB machine with plain q4 (DECISIONS AT/AU) —
+  // they now load on WebGPU via q4f16, but need a capable GPU. The 0.5B is
+  // the safe default: it fits in-browser everywhere (wasm or WebGPU).
+  {
+    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
+    label: 'Qwen2.5-0.5B-Instruct (recommended)',
+    summary: '~0.5 GB · Apache 2.0 · fits any machine (wasm or WebGPU)',
+  },
   {
     id: 'onnx-community/Qwen2.5-1.5B-Instruct',
-    label: 'Qwen2.5-1.5B-Instruct (recommended)',
-    summary: '~0.9 GB · Apache 2.0 · balanced quality + size',
+    label: 'Qwen2.5-1.5B-Instruct',
+    summary: '~1.7 GB · Apache 2.0 · better quality · needs WebGPU + ~4 GB GPU',
   },
   {
     id: 'onnx-community/Phi-3.5-mini-instruct',
     label: 'Phi-3.5-mini-instruct',
-    summary: '~2.3 GB · MIT · best NL→SQL quality',
+    summary: '~2.5 GB · MIT · best NL→SQL quality · needs WebGPU + ~6 GB GPU',
   },
   {
     id: 'onnx-community/Llama-3.2-1B-Instruct',
     label: 'Llama-3.2-1B-Instruct',
-    summary: '~0.7 GB · Llama license · smallest, fastest',
+    summary: '~1.6 GB · Llama license · needs WebGPU',
   },
 ];
 
@@ -362,7 +373,7 @@ function renderModal(): HTMLElement {
             </div>
           </label>
           <div class="settings-field" data-region="settings-local-section" hidden>
-            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em></span>
+            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Experimental: needs WebGPU; in-browser inference output quality varies and can be unreliable for the structured-output jobs — a cloud provider is recommended for those.</em></span>
             <div class="settings-local-picker">
               ${LOCAL_MODEL_OPTIONS.map(
                 (m) => `
@@ -744,8 +755,9 @@ async function testCustomConnection(overlay: HTMLElement, target: HTMLElement): 
 /**
  * Click handler for "Download & load" in the Local model section.
  * Loads the Transformers.js chunk (lazy), starts the model download
- * via `loadAndRegister`, surfaces progress in the status line, and
- * refreshes the cached-models list when done. Disables the button
+ * via `loadModel`, registers the returned generator, surfaces progress
+ * in the status line, and refreshes the cached-models list when done.
+ * Disables the button
  * while in flight so the user can't double-click.
  */
 async function loadLocalModel(overlay: HTMLElement): Promise<void> {
@@ -771,9 +783,13 @@ async function loadLocalModel(overlay: HTMLElement): Promise<void> {
   try {
     const mod = await loadChunk('transformers');
     setLocalStatus(overlay, `Preparing ${modelId}…`);
-    await mod.loadAndRegister(modelId, (p) => {
+    const gen = await mod.loadModel(modelId, (p) => {
       setLocalStatus(overlay, formatLocalProgress(p));
     });
+    // Register from the MAIN bundle so the dispatch sees it — and so a
+    // Settings-initiated load makes the sidecar usable without a reload
+    // (the chunk registering its own copy did neither — see loadModel).
+    registerLocalGenerator(gen);
     setLocalStatus(overlay, `${modelId} loaded and ready.`);
     flashStatus(overlay, `Local model ${modelId} ready.`);
     await refreshLocalCacheList(overlay);

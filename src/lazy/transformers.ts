@@ -28,7 +28,8 @@
 //    tokenizer's chat template so the system/user prompt format
 //    matches what the model was trained on.
 //
-// Public entry point: `loadAndRegister(modelId, onProgress)`. Callers
+// Public entry point: `loadModel(modelId, onProgress)` → returns the
+// generator; the MAIN bundle registers it (see loadModel for why). Callers
 // (Settings UI; the boot path when `provider === 'local'` lands on a
 // job) call this once; the chunk handles the rest.
 //
@@ -45,10 +46,7 @@ import {
   readModelFile,
   writeModelFile,
 } from '../core/sidecar/local-cache.ts';
-import {
-  type LocalGenerateRequest,
-  registerLocalGenerator,
-} from '../core/sidecar/local-runtime.ts';
+import type { LocalGenerateRequest, LocalGenerator } from '../core/sidecar/local-runtime.ts';
 
 /**
  * Default model id when the user hasn't configured one yet. Picked
@@ -56,7 +54,7 @@ import {
  * quantized, Apache 2.0. The `onnx-community/` org maintains
  * canonical ONNX exports.
  */
-export const DEFAULT_LOCAL_MODEL_ID = 'onnx-community/Qwen2.5-1.5B-Instruct';
+export const DEFAULT_LOCAL_MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
 
 /**
  * Parse a Hugging Face Hub URL into (modelId, relativePath).
@@ -254,12 +252,20 @@ export async function loadPipeline(
     await disposePipeline();
   }
   configureEnv();
+  // Prefer WebGPU when the browser exposes a usable adapter. The wasm32
+  // runtime can't allocate the ~1.5-2 GB q4 weights of the 1-2B models and
+  // throws `std::bad_alloc` on session creation (slice-B validation
+  // 2026-06-13, DECISIONS AT); WebGPU offloads the weights to GPU memory
+  // and sidesteps the wasm-heap ceiling. Falls back to wasm where WebGPU is
+  // absent (smaller models can still load there).
+  const device = await pickLocalDevice();
   const promise = pipeline('text-generation', modelId, {
-    // q4 quantization → ~0.9 GB for the 1.5B-param model.
-    dtype: 'q4',
-    // wasm is the universal device; chunk 3 (Settings) can let users
-    // opt into webgpu when their browser supports it.
-    device: 'wasm',
+    // On WebGPU use q4f16 — fp16 activations roughly halve the GPU working
+    // set vs q4 (fp32 activations), which is what lets the 1-2B models fit
+    // (plain q4 OOM'd even on WebGPU — slice-B re-validation 2026-06-13).
+    // wasm keeps q4 (no fp16 path there).
+    dtype: device === 'webgpu' ? 'q4f16' : 'q4',
+    device,
     ...(onProgress ? { progress_callback: onProgress } : {}),
   });
   _pendingPipelinePromise = promise;
@@ -269,6 +275,18 @@ export async function loadPipeline(
     _activePipeline = pipe;
     _activeModelId = modelId;
     return pipe;
+  } catch (err) {
+    // Graceful OOM handling — a raw `std::bad_alloc` / "Can't create a
+    // session" is opaque. Surface what actually went wrong + the fix.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/bad_alloc|create a session|out of memory|allocation failed/i.test(msg)) {
+      throw new Error(
+        device === 'wasm'
+          ? `Couldn't load "${modelId}" — out of memory on the CPU (wasm) runtime. This model is too large for wasm; open in a browser with WebGPU, or pick a smaller model.`
+          : `Couldn't load "${modelId}" — GPU out of memory. Try a smaller model or free up GPU memory.`,
+      );
+    }
+    throw err;
   } finally {
     // Only clear the pending slot if WE own it — a concurrent switch
     // may have overwritten it; clearing in that case would orphan
@@ -278,6 +296,25 @@ export async function loadPipeline(
       _pendingPipelineModelId = null;
     }
   }
+}
+
+/**
+ * Choose the onnxruntime device. WebGPU is strongly preferred — see
+ * `loadPipeline`. We pick `'webgpu'` only when an adapter actually
+ * resolves (a present `navigator.gpu` doesn't guarantee a usable adapter);
+ * otherwise `'wasm'`.
+ */
+export async function pickLocalDevice(): Promise<'webgpu' | 'wasm'> {
+  try {
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu;
+    if (gpu?.requestAdapter) {
+      const adapter = await gpu.requestAdapter();
+      if (adapter) return 'webgpu';
+    }
+  } catch {
+    /* fall through to wasm */
+  }
+  return 'wasm';
 }
 
 /**
@@ -315,7 +352,15 @@ export async function generate(req: LocalGenerateRequest): Promise<string> {
   // turn at the end.
   const output = (await pipe(messages, {
     max_new_tokens: 512,
-    do_sample: false, // deterministic for the sidecar's structured-output jobs
+    // Pure greedy (do_sample:false) DEGENERATES on the small local models
+    // into repeated-token loops (e.g. `{SQL!!!!!!`), which breaks every
+    // JSON-structured sidecar parser (slice-B re-validation 2026-06-13).
+    // Low-temperature sampling + a repetition penalty keeps output
+    // near-deterministic for structured jobs while escaping the loops.
+    do_sample: true,
+    temperature: 0.3,
+    top_p: 0.9,
+    repetition_penalty: 1.2,
     ...(req.signal ? { signal: req.signal } : {}),
     // biome-ignore lint/suspicious/noExplicitAny: pipeline call args are loosely typed
   } as any)) as Array<{ generated_text: unknown }> | { generated_text: unknown };
@@ -342,19 +387,24 @@ export async function generate(req: LocalGenerateRequest): Promise<string> {
 
 /**
  * The single public entry point the rest of the app calls. Loads the
- * model (downloading + caching as needed), registers the generator
- * with the sidecar dispatch layer, and returns once the pipeline is
- * ready.
+ * model (downloading + caching as needed) and RETURNS the generator
+ * function. The caller (in the MAIN bundle) registers it with the
+ * sidecar dispatch via `registerLocalGenerator`.
  *
- * After this resolves, sidecar jobs with `provider: 'local'` route
- * through `generate()` above. Until this is called, dispatch surfaces
- * the L3 "no-provider" UI affordance (see DECISIONS 2026-06-02 L3 +
- * v1.2.2 L3 fix).
+ * **Why return instead of register here:** esbuild runs with
+ * `splitting: false`, so this lazy chunk bundles its OWN copy of
+ * `local-runtime.ts`. If the chunk called `registerLocalGenerator`, it
+ * would write the CHUNK's copy of the `_generator` singleton — which the
+ * main-bundle dispatch (`client.ts`) never reads. Every local job would
+ * then report "model not loaded" despite a successful load. Returning the
+ * generator and letting the main bundle register it keeps a single shared
+ * singleton. (Same split-singleton class as the measures-panel bug,
+ * DECISIONS AJ; surfaced in the slice-B re-validation, DECISIONS AU.)
  */
-export async function loadAndRegister(
+export async function loadModel(
   modelId: string = DEFAULT_LOCAL_MODEL_ID,
   onProgress?: (p: LoadProgress) => void,
-): Promise<void> {
+): Promise<LocalGenerator> {
   await loadPipeline(modelId, onProgress);
-  registerLocalGenerator(async (req) => generate(req));
+  return (req) => generate(req);
 }

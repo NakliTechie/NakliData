@@ -1,10 +1,21 @@
 # W3.2 slice B — per-job manual validation
 
-**Status: RAN 2026-06-13 (real Chrome + WebGPU box, via Chrome MCP, against
-the live deployed build). VERDICT: ❌ FAIL — the local-model path does NOT
-function on the wasm device. 0/6 sidecar jobs could be exercised because no
-curated model loads.** Details in the "Validation run" section below; the
-original checklist (kept for reference) follows.
+**Status: RAN 2026-06-13, then FIXED + RE-RAN same day (real Chrome + WebGPU
+box, via Chrome MCP).**
+
+- **First run → ❌ FAIL:** no curated model loaded (`std::bad_alloc` on wasm,
+  GPU-OOM on plain-q4 WebGPU). See "Validation run" below.
+- **After fixes (DECISIONS AU) → PARTIAL:** models now **load** (WebGPU +
+  q4f16; the 1.5B fits) and the **split-singleton registration bug** is
+  fixed, so jobs now reach the model. **But the local inference output is
+  incoherent** (`{SQL!!!!!!` / `'\'%-*02*'`) across all structured jobs —
+  so they still don't produce usable results. Likely an onnxruntime-web
+  WebGPU/q4 numerical or chat-template issue (Layer 3, still open). A cloud
+  BYOK provider works (default + eval-tested). Local provider now labelled
+  experimental. Full picture in DECISIONS AU.
+
+Details in the "Validation run" section below; the original checklist (kept
+for reference) follows.
 
 ---
 
