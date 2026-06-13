@@ -305,6 +305,87 @@ async function main() {
   await page.click('[data-action="close-lineage"]').catch(() => {});
   await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
 
+  // 9b. Cloud-BYOK sidecar path — exercised end-to-end against a MOCKED
+  //     transport. The local-model provider can't run headless (needs
+  //     WebGPU + a multi-GB download), and we never put a real BYOK key in
+  //     CI (secrets/telemetry are Hard NOTs). So we monkeypatch
+  //     `window.fetch` to return a canned chat-completion (a JS-returned
+  //     Response makes no real request — CSP-clean), set a dummy key, and
+  //     drive a real job through the WHOLE path we own: dispatch → provider
+  //     call → response parse → render. This is what catches a regression
+  //     in that wiring; the live network/auth leg stays a manual BYOK check.
+  //     Handles both the Anthropic + OpenAI response shapes so it works
+  //     against whatever the default provider is. (Added 2026-06-13 after
+  //     the cloud path was asserted-but-not-verified — DECISIONS AU.)
+  await page.evaluate(() => {
+    const CANNED = JSON.stringify({ observation: 'SMOKE_SIDECAR_OK — top vendor leads total.' });
+    window.__origFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (/api\.anthropic\.com|\/v1\/messages/i.test(url)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ content: [{ type: 'text', text: CANNED }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+      if (/api\.openai\.com|chat\/completions/i.test(url)) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ choices: [{ message: { content: CANNED }, finish_reason: 'stop' }] }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      return window.__origFetch(input, init);
+    };
+    // Dummy BYOK keys (sessionStorage is where loadKey looks first). No
+    // real secret — the mocked fetch never validates them.
+    sessionStorage.setItem('naklidata.byok.anthropic', 'sk-ant-smoke-dummy');
+    sessionStorage.setItem('naklidata.byok.openai', 'sk-smoke-dummy');
+  });
+  // Enable the sidecar (keeps the default provider) via the Settings UI.
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-action="settings-enable"]', { timeout: 5000 });
+  await page.evaluate(() => {
+    const en = document.querySelector('[data-action="settings-enable"]');
+    if (en && !en.checked) {
+      en.checked = true;
+      en.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.click('[data-action="close-settings"]').catch(() => {});
+  await delay(300);
+  // Re-run the first SQL cell so its result re-renders with the (now-enabled)
+  // sidecar chips, then click Summarise.
+  await page.evaluate(() => {
+    document
+      .querySelector('.cell[data-cell-kind="sql"]')
+      ?.querySelector('[data-action="cell-run"]')
+      ?.click();
+  });
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('button,[data-action]')].some((e) =>
+        /summaris/i.test(e.textContent || ''),
+      ),
+    null,
+    { timeout: 10000 },
+  );
+  await page.evaluate(() => {
+    [...document.querySelectorAll('button,[data-action]')]
+      .find((e) => /summaris/i.test(e.textContent || ''))
+      ?.click();
+  });
+  await page.waitForFunction(() => document.body.innerText.includes('SMOKE_SIDECAR_OK'), null, {
+    timeout: 15000,
+  });
+  await page.evaluate(() => {
+    if (window.__origFetch) window.fetch = window.__origFetch;
+  });
+  log('✓ cloud-BYOK sidecar path (mocked transport): summarise dispatched → parsed → rendered');
+
   // 10. Add a SQL cell with a syntax error to verify error UX.
   const sqlCellCountBefore = await page.evaluate(
     () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
