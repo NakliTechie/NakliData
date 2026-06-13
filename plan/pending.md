@@ -700,30 +700,26 @@ executed in sequence; results below for reference.
 
 ### Now open
 
-- ~~**W3.2 slice B chunk 5 — per-job validation.**~~ **RAN 2026-06-13 →
-  ❌ FAIL** (DECISIONS AT; full results in
-  `plan/w32-slice-b-validation.md`). The local model never loads on the
-  wasm device (`std::bad_alloc`), so 0/6 jobs were exercisable. The
-  download + OPFS cache UI + cleanup all work; the **load** is the defect.
-- **Local-model load + registration — FIXED 2026-06-13 (DECISIONS AU).**
-  WebGPU device path + `q4f16` on WebGPU (1-2B models now load; 1.5B fits);
-  graceful OOM; labels corrected; Qwen2.5-0.5B added as fits-anywhere
-  default; **split-singleton registration fix** (the chunk now returns the
-  generator, the main bundle registers it). Confirmed live: jobs dispatch
-  to the model. Local provider labelled experimental.
-- **v1.4.1+ — local-model INFERENCE QUALITY (still open, Layer 3).** With
+- **W3.2 slice-B — local-model load + registration: DONE 2026-06-13**
+  (DECISIONS AT→AU). WebGPU + `q4f16` (the 1.5B fits at 1.14 GB);
+  graceful OOM; labels corrected (~2× understated); **split-singleton
+  registration fix** (chunk returns the generator, main bundle registers —
+  same class as AJ); Qwen2.5-0.5B fits-anywhere default; local provider
+  labelled experimental. Confirmed live: models load + jobs dispatch.
+- **🔴 v1.4.1+ — local-model INFERENCE QUALITY (Layer 3, still open).** With
   the plumbing fixed, in-browser inference still produces **incoherent
-  output** (`{SQL!!!!!!` / `'\'%-*02*'`) across all structured-output jobs,
-  even with the 1.5B + sampling — so local jobs don't yield usable results.
-  Likely **onnxruntime-web WebGPU + q4/q4f16 numerical/kernel issue** or a
-  chat-template mismatch, not the sidecar. Deep-dive needed:
-  1. wasm-vs-WebGPU numerical comparison on a fixed prompt (is WebGPU the
-     culprit?); 2. verify the tokenizer chat template is applied to the
-     local prompt; 3. try alternate model exports/dtypes (e.g. fp16, or a
-     different ONNX export); 4. consider a different in-browser runtime.
-  Until then, recommend a cloud BYOK provider for the sidecar jobs (the
-  default; the 60-case eval harness exercises it). Re-run the slice-B
-  checklist after — a WebGPU box is available.
+  output** (`{SQL!!!!!!` / `'\'%-*02*'`, near-random, all jobs + sizes), so
+  local jobs don't yield usable results. Grounded R&D plan +
+  ranked hypotheses (onnxruntime-web WebGPU q4 kernels first) in
+  **`plan/w32-local-inference-rnd.md`**. Deferred ("take it up later").
+  Until then, use a cloud BYOK provider for the sidecar jobs.
+- **Cloud-BYOK verification.** Wiring now covered by a browser smoke step
+  (mocked transport — `scripts/smoke.mjs`, DECISIONS AU). **Owed:** a
+  live real-key call (manual — BYOK keys can't go in CI).
+- **NL→SQL quality polish (optional, not started).** Borrow from the
+  nl2sql literature without the dependency: few-shot DuckDB examples in the
+  prompt + a dry-run-`EXPLAIN` self-correction retry (constraint-safe — no
+  data returned). Helps weak/local models on the A23 NL→SQL job.
 
 ## v1.3 audit follow-throughs (2026-06-11)
 
