@@ -11,11 +11,13 @@
 // picker spans the in-scope tables (fromTable + joined tables).
 
 import {
+  type DerivedFilter,
+  type DerivedStep,
   type QueryBuilderSpec,
   type QueryColumnSpec,
   type QueryColumnType,
   type QueryFilter,
-  emitSql,
+  emitPipeline,
   emptySpec,
 } from '../core/query-builder.ts';
 import { iconSvg } from '../tokens/icons.ts';
@@ -57,8 +59,9 @@ export function openQueryBuilderModal(
   if (desc.tables.length === 0) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
   let spec: QueryBuilderSpec = emptySpec(desc.tables[0]!.name);
+  let steps: DerivedStep[] = [];
   const rerender = (): void => {
-    const fresh = renderModal(desc, spec);
+    const fresh = renderModal(desc, spec, steps);
     _modalEl?.replaceWith(fresh);
     _modalEl = fresh;
     wire(fresh);
@@ -71,11 +74,15 @@ export function openQueryBuilderModal(
       (next) => {
         spec = next;
       },
+      () => steps,
+      (next) => {
+        steps = next;
+      },
       onGenerate,
       rerender,
     );
   }
-  const overlay = renderModal(desc, spec);
+  const overlay = renderModal(desc, spec, steps);
   document.body.append(overlay);
   _modalEl = overlay;
   wire(overlay);
@@ -111,11 +118,17 @@ function wireHandlers(
   desc: QueryBuilderDescriptor,
   getSpec: () => QueryBuilderSpec,
   setSpec: (next: QueryBuilderSpec) => void,
+  getSteps: () => DerivedStep[],
+  setSteps: (next: DerivedStep[]) => void,
   onGenerate: (sql: string) => void,
   rerender: () => void,
 ): void {
   const idxOf = (target: HTMLElement, attr: string, sel: string): number =>
     Number(target.closest<HTMLElement>(sel)?.dataset[attr]);
+  // Columns available to derived step `k` = the output of the stage before
+  // it (base output, or the prior step's output).
+  const stageInputCols = (k: number): QueryColumnSpec[] =>
+    stageInputs(desc, getSpec(), getSteps())[k] ?? [];
 
   overlay.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement | null;
@@ -195,7 +208,7 @@ function wireHandlers(
     if (action === 'qb-generate') {
       let sql: string;
       try {
-        sql = emitSql(getSpec());
+        sql = emitPipeline(getSpec(), getSteps());
       } catch (err) {
         const status = overlay.querySelector<HTMLElement>('[data-region="qb-status"]');
         if (status) status.textContent = err instanceof Error ? err.message : String(err);
@@ -203,6 +216,79 @@ function wireHandlers(
       }
       closeQueryBuilderModal();
       onGenerate(sql);
+    }
+
+    // ── Derived steps (F6 pipelines) ──
+    if (action === 'qb-step-add') {
+      // Seed an empty filter-only step over the prior stage's output.
+      setSteps([...getSteps(), { filters: [], groupBy: [], aggregates: [] }]);
+      return rerender();
+    }
+    if (action === 'qb-step-remove') {
+      const k = idxOf(target, 'stepIdx', '[data-step-idx]');
+      // Removing a step also drops the steps after it (their column pickers
+      // were resolved against this step's now-gone output).
+      setSteps(getSteps().filter((_, i) => i < k));
+      return rerender();
+    }
+    if (action === 'qb-step-add-filter') {
+      const k = idxOf(target, 'stepIdx', '[data-step-idx]');
+      const col = stageInputCols(k)[0];
+      if (!col) return;
+      setSteps(
+        getSteps().map((s, i) =>
+          i === k
+            ? {
+                ...s,
+                filters: [
+                  ...s.filters,
+                  { column: col.name, columnType: col.type, op: '=', value: '' },
+                ],
+              }
+            : s,
+        ),
+      );
+      return rerender();
+    }
+    if (action === 'qb-step-remove-filter') {
+      const k = idxOf(target, 'stepIdx', '[data-step-idx]');
+      const fi = idxOf(target, 'sfilterIdx', '[data-sfilter-idx]');
+      setSteps(
+        getSteps().map((s, i) =>
+          i === k ? { ...s, filters: s.filters.filter((_, j) => j !== fi) } : s,
+        ),
+      );
+      return rerender();
+    }
+    if (action === 'qb-step-add-agg') {
+      const k = idxOf(target, 'stepIdx', '[data-step-idx]');
+      const cols = stageInputCols(k);
+      const col = cols.find((c) => c.type === 'numeric') ?? cols[0];
+      if (!col) return;
+      setSteps(
+        getSteps().map((s, i) =>
+          i === k
+            ? {
+                ...s,
+                aggregates: [
+                  ...s.aggregates,
+                  { fn: 'SUM', column: col.name, alias: `${col.name}_sum` },
+                ],
+              }
+            : s,
+        ),
+      );
+      return rerender();
+    }
+    if (action === 'qb-step-remove-agg') {
+      const k = idxOf(target, 'stepIdx', '[data-step-idx]');
+      const ai = idxOf(target, 'saggIdx', '[data-sagg-idx]');
+      setSteps(
+        getSteps().map((s, i) =>
+          i === k ? { ...s, aggregates: s.aggregates.filter((_, j) => j !== ai) } : s,
+        ),
+      );
+      return rerender();
     }
   });
 
@@ -347,6 +433,77 @@ function wireHandlers(
       });
       return;
     }
+
+    // ── Derived-step change handlers (F6) ──
+    const STEP_ACTIONS = new Set([
+      'qb-step-filter-column',
+      'qb-step-filter-op',
+      'qb-step-filter-value',
+      'qb-step-agg-fn',
+      'qb-step-agg-column',
+      'qb-step-gb',
+    ]);
+    if (action && STEP_ACTIONS.has(action)) {
+      const sk = idxOf(target, 'stepIdx', '[data-step-idx]');
+      const sfi = idxOf(target, 'sfilterIdx', '[data-sfilter-idx]');
+      const sai = idxOf(target, 'saggIdx', '[data-sagg-idx]');
+      const steps = getSteps();
+      const step = steps[sk];
+      if (!step) return;
+      const commit = (next: DerivedStep): void => {
+        setSteps(steps.map((s, j) => (j === sk ? next : s)));
+      };
+      if (action === 'qb-step-filter-column') {
+        const colType = stageInputCols(sk).find((c) => c.name === val)?.type ?? 'string';
+        commit({
+          ...step,
+          filters: step.filters.map((f, j) =>
+            j === sfi ? { ...f, column: val, columnType: colType } : f,
+          ),
+        });
+        return;
+      }
+      if (action === 'qb-step-filter-op') {
+        commit({
+          ...step,
+          filters: step.filters.map((f, j) =>
+            j === sfi ? { ...f, op: val as QueryFilter['op'] } : f,
+          ),
+        });
+        return rerender(); // op change toggles the value field's disabled state
+      }
+      if (action === 'qb-step-filter-value') {
+        commit({
+          ...step,
+          filters: step.filters.map((f, j) => (j === sfi ? { ...f, value: val } : f)),
+        });
+        return;
+      }
+      if (action === 'qb-step-agg-fn') {
+        commit({
+          ...step,
+          aggregates: step.aggregates.map((a, j) =>
+            j === sai ? { ...a, fn: val as DerivedStep['aggregates'][number]['fn'] } : a,
+          ),
+        });
+        return;
+      }
+      if (action === 'qb-step-agg-column') {
+        commit({
+          ...step,
+          aggregates: step.aggregates.map((a, j) =>
+            j === sai ? { ...a, column: val, alias: `${val}_${a.fn.toLowerCase()}` } : a,
+          ),
+        });
+        return rerender(); // alias derives from the column — reflect it
+      }
+      if (action === 'qb-step-gb') {
+        const checked = (target as HTMLInputElement).checked;
+        const nextGb = checked ? [...step.groupBy, val] : step.groupBy.filter((c) => c !== val);
+        commit({ ...step, groupBy: nextGb });
+        return;
+      }
+    }
   });
 
   _onKey = (ev: KeyboardEvent) => {
@@ -379,7 +536,11 @@ function colSelect(
     .join('')}</select>`;
 }
 
-function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTMLElement {
+function renderModal(
+  desc: QueryBuilderDescriptor,
+  spec: QueryBuilderSpec,
+  steps: DerivedStep[],
+): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'schema-graph-overlay qb-overlay';
   overlay.setAttribute('role', 'dialog');
@@ -389,7 +550,7 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
   const scope = inScopeTables(spec);
   let livePreview = '';
   try {
-    livePreview = emitSql(spec);
+    livePreview = emitPipeline(spec, steps);
   } catch (err) {
     livePreview = err instanceof Error ? `(${err.message})` : String(err);
   }
@@ -397,6 +558,8 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
   const h3 =
     'font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-3) 0 var(--space-1) 0;';
   const canJoin = desc.tables.length > scope.length;
+  // Typed columns available to each derived step (the prior stage's output).
+  const stages = stageInputs(desc, spec, steps);
 
   overlay.innerHTML = `
     <div class="schema-graph-modal qb-modal" role="document"
@@ -433,6 +596,10 @@ function renderModal(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): HTML
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Limit</label>
           <input type="number" data-action="qb-limit" value="${spec.limit}" min="1" max="1000000" style="width:90px;" />
         </div>
+
+        <h3 style="${h3}">Derived steps (summarise the result further)</h3>
+        <div class="qb-steps">${steps.map((s, i) => renderStepCard(s, i, stages[i] ?? [])).join('')}</div>
+        <button class="btn btn-ghost" data-action="qb-step-add" style="margin-top:6px;">${iconSvg('plus', 12)} <span>Add derived step</span></button>
 
         <h3 style="${h3}">SQL preview</h3>
         <pre style="background:var(--surface-alt);padding:var(--space-2) var(--space-3);border-radius:4px;font-size:11px;line-height:1.5;color:var(--text);white-space:pre-wrap;overflow:auto;border:1px solid var(--border);">${escapeHtml(livePreview)}</pre>
@@ -510,6 +677,129 @@ function renderAggRow(
       <button class="btn btn-ghost" data-action="qb-remove-agg" aria-label="Remove aggregate">${iconSvg('x', 12)}</button>
     </div>
   `;
+}
+
+// ── F6 derived-step helpers ──
+
+/** Typed output columns of the base query (for the first step's pickers). */
+function baseTypedOutput(desc: QueryBuilderDescriptor, spec: QueryBuilderSpec): QueryColumnSpec[] {
+  const findType = (table: string, column: string): QueryColumnType =>
+    colsOf(desc, table).find((c) => c.name === column)?.type ?? 'string';
+  if (spec.aggregates.length > 0) {
+    return [
+      ...spec.groupBy.map((g) => ({ name: g.column, type: findType(g.table, g.column) })),
+      ...spec.aggregates.map((a) => ({ name: a.alias, type: 'numeric' as QueryColumnType })),
+    ];
+  }
+  if (spec.selectColumns.length > 0) {
+    return spec.selectColumns.map((c) => ({ name: c.column, type: findType(c.table, c.column) }));
+  }
+  // SELECT * → every in-scope column.
+  return inScopeTables(spec).flatMap((t) =>
+    colsOf(desc, t).map((c) => ({ name: c.name, type: c.type })),
+  );
+}
+
+/** Typed output of a derived step given its input columns. */
+function derivedTypedOutput(step: DerivedStep, prior: QueryColumnSpec[]): QueryColumnSpec[] {
+  if (step.aggregates.length > 0) {
+    return [
+      ...step.groupBy.map(
+        (name) => prior.find((c) => c.name === name) ?? { name, type: 'string' as QueryColumnType },
+      ),
+      ...step.aggregates.map((a) => ({ name: a.alias, type: 'numeric' as QueryColumnType })),
+    ];
+  }
+  return [...prior];
+}
+
+/** `stageInputs(...)[k]` = the typed columns available to derived step `k`. */
+function stageInputs(
+  desc: QueryBuilderDescriptor,
+  spec: QueryBuilderSpec,
+  steps: ReadonlyArray<DerivedStep>,
+): QueryColumnSpec[][] {
+  const out: QueryColumnSpec[][] = [];
+  let prev = baseTypedOutput(desc, spec);
+  for (const step of steps) {
+    out.push(prev);
+    prev = derivedTypedOutput(step, prev);
+  }
+  return out;
+}
+
+function colSelectFromList(
+  action: string,
+  cols: ReadonlyArray<QueryColumnSpec>,
+  current: string,
+  withType = false,
+): string {
+  return `<select data-action="${action}">${cols
+    .map(
+      (c) =>
+        `<option value="${escapeAttr(c.name)}" ${c.name === current ? 'selected' : ''}>${escapeHtml(c.name)}${withType ? ` (${c.type})` : ''}</option>`,
+    )
+    .join('')}</select>`;
+}
+
+function renderStepFilterRow(
+  stepIdx: number,
+  fi: number,
+  f: DerivedFilter,
+  cols: QueryColumnSpec[],
+): string {
+  const valueDisabled = f.op === 'IS NULL' || f.op === 'IS NOT NULL';
+  return `
+    <div class="qb-sfilter-row" data-sfilter-idx="${fi}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap;">
+      ${colSelectFromList('qb-step-filter-column', cols, f.column, true)}
+      <select data-action="qb-step-filter-op">
+        ${COMPARISON_OPS.map((o) => `<option value="${o}" ${o === f.op ? 'selected' : ''}>${o}</option>`).join('')}
+      </select>
+      <input type="text" data-action="qb-step-filter-value" value="${escapeAttr(f.value)}" ${valueDisabled ? 'disabled' : ''} placeholder="${valueDisabled ? '(no value)' : 'value…'}" style="flex:1;min-width:70px;" />
+      <button class="btn btn-ghost" data-action="qb-step-remove-filter" data-step-idx="${stepIdx}" aria-label="Remove filter">${iconSvg('x', 12)}</button>
+    </div>`;
+}
+
+function renderStepAggRow(
+  stepIdx: number,
+  ai: number,
+  a: DerivedStep['aggregates'][number],
+  cols: QueryColumnSpec[],
+): string {
+  return `
+    <div class="qb-sagg-row" data-sagg-idx="${ai}" style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap;">
+      <select data-action="qb-step-agg-fn">
+        ${AGG_FNS.map((fn) => `<option value="${fn}" ${fn === a.fn ? 'selected' : ''}>${fn}</option>`).join('')}
+      </select>
+      ${colSelectFromList('qb-step-agg-column', cols, a.column, true)}
+      <span style="font-size:11px;color:var(--text-muted);">AS</span>
+      <code style="font-size:11px;background:var(--surface-alt);padding:2px 6px;border-radius:3px;">${escapeHtml(a.alias)}</code>
+      <button class="btn btn-ghost" data-action="qb-step-remove-agg" data-step-idx="${stepIdx}" aria-label="Remove aggregate">${iconSvg('x', 12)}</button>
+    </div>`;
+}
+
+function renderStepCard(step: DerivedStep, idx: number, cols: QueryColumnSpec[]): string {
+  const gbChecks = cols
+    .map(
+      (c) =>
+        `<label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;"><input type="checkbox" data-action="qb-step-gb" value="${escapeAttr(c.name)}" ${step.groupBy.includes(c.name) ? 'checked' : ''} /> ${escapeHtml(c.name)}</label>`,
+    )
+    .join('');
+  return `
+    <div class="qb-step" data-step-idx="${idx}" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <strong style="font-size:12px;">Step ${idx + 1} — over the ${cols.length}-column result above</strong>
+        <button class="btn btn-ghost" data-action="qb-step-remove" data-step-idx="${idx}" aria-label="Remove step">${iconSvg('x', 12)}</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin:4px 0 2px;">Filter</div>
+      ${step.filters.map((f, fi) => renderStepFilterRow(idx, fi, f, cols)).join('')}
+      <button class="btn btn-ghost" data-action="qb-step-add-filter" data-step-idx="${idx}" style="margin:2px 0;">${iconSvg('plus', 12)} <span>Add filter</span></button>
+      <div style="font-size:11px;color:var(--text-muted);margin:6px 0 2px;">Group by</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">${gbChecks || '<span style="font-size:11px;color:var(--text-muted);">(no columns)</span>'}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin:6px 0 2px;">Aggregate</div>
+      ${step.aggregates.map((a, ai) => renderStepAggRow(idx, ai, a, cols)).join('')}
+      <button class="btn btn-ghost" data-action="qb-step-add-agg" data-step-idx="${idx}" style="margin:2px 0;">${iconSvg('plus', 12)} <span>Add aggregate</span></button>
+    </div>`;
 }
 
 function escapeHtml(s: string): string {

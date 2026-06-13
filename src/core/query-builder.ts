@@ -95,7 +95,7 @@ export function emptySpec(fromTable: string): QueryBuilderSpec {
  * containing characters that can't be safely escaped — defence in
  * depth; the UI should never let this happen.
  */
-export function emitSql(spec: QueryBuilderSpec): string {
+export function emitSql(spec: QueryBuilderSpec, opts?: { omitLimit?: boolean }): string {
   validateSpec(spec);
 
   const select = buildSelect(spec);
@@ -103,13 +103,14 @@ export function emitSql(spec: QueryBuilderSpec): string {
   const where = buildWhere(spec);
   const groupBy = buildGroupBy(spec);
   const orderBy = buildOrderBy(spec);
-  const limit = buildLimit(spec);
 
   const parts: string[] = [`SELECT ${select}`, `FROM ${from}`];
   if (where) parts.push(`WHERE ${where}`);
   if (groupBy) parts.push(`GROUP BY ${groupBy}`);
   if (orderBy) parts.push(`ORDER BY ${orderBy}`);
-  parts.push(`LIMIT ${limit}`);
+  // Pipelines (F6) omit the base/intermediate LIMIT so the detail isn't
+  // truncated before a downstream summarise; only the final step caps.
+  if (!opts?.omitLimit) parts.push(`LIMIT ${buildLimit(spec)}`);
   return parts.join('\n');
 }
 
@@ -298,4 +299,159 @@ function buildOrderBy(spec: QueryBuilderSpec): string | null {
 
 function buildLimit(spec: QueryBuilderSpec): string {
   return String(Math.max(1, Math.min(1_000_000, Math.floor(spec.limit))));
+}
+
+// ── F6 — multi-step pipelines (derived steps) ──────────────────────────
+//
+// A pipeline wraps the base query as a subquery and layers additional
+// "summarise / filter" steps over its OUTPUT columns — Metabase's
+// derived-step / re-summarise pattern. Each step references the prior
+// step's output by a single alias (`step_1`, `step_2`, …), so the same
+// `quoteIdent` + `emitValueLiteral` injection-safety contract holds:
+//
+//   SELECT step_1."region", SUM(step_1."total") AS "grand"
+//   FROM ( <base sql, no LIMIT> ) AS step_1
+//   GROUP BY step_1."region"
+//   LIMIT 100   ← only the final step caps rows
+
+const STEP_AGG_FNS = new Set(['SUM', 'AVG', 'COUNT', 'MIN', 'MAX']);
+
+export interface DerivedFilter {
+  column: string;
+  columnType: QueryColumnType;
+  op: QueryFilter['op'];
+  value: string;
+}
+
+export interface DerivedStep {
+  /** Filters on the prior step's output columns (AND-joined). */
+  filters: ReadonlyArray<DerivedFilter>;
+  /** Group-by output-column names (empty = no grouping). */
+  groupBy: ReadonlyArray<string>;
+  /** Aggregates over output columns. */
+  aggregates: ReadonlyArray<{
+    fn: 'SUM' | 'AVG' | 'COUNT' | 'MIN' | 'MAX';
+    column: string;
+    alias: string;
+  }>;
+}
+
+function checkIdentSafe(s: string): void {
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) < 0x20) {
+      throw new Error(
+        `Query builder: identifier contains control characters: ${JSON.stringify(s)}`,
+      );
+    }
+  }
+}
+
+function validateDerivedStep(step: DerivedStep, alias: string): void {
+  checkIdentSafe(alias);
+  for (const g of step.groupBy) checkIdentSafe(g);
+  for (const a of step.aggregates) {
+    if (!STEP_AGG_FNS.has(a.fn)) throw new Error(`Query builder: invalid aggregate fn "${a.fn}".`);
+    checkIdentSafe(a.column);
+    checkIdentSafe(a.alias);
+  }
+  for (const f of step.filters) checkIdentSafe(f.column);
+  // A grouping step must aggregate — otherwise GROUP BY without aggregates
+  // is a DISTINCT-by-stealth that drops every other output column.
+  if (step.groupBy.length > 0 && step.aggregates.length === 0) {
+    throw new Error('Query builder: a derived GROUP BY step must include at least one aggregate.');
+  }
+}
+
+function indentSql(sql: string): string {
+  return sql
+    .split('\n')
+    .map((l) => `  ${l}`)
+    .join('\n');
+}
+
+function emitDerivedStep(
+  inner: string,
+  alias: string,
+  step: DerivedStep,
+  limit: number | null,
+): string {
+  validateDerivedStep(step, alias);
+  const qcol = (c: string): string => `${quoteIdent(alias)}.${quoteIdent(c)}`;
+
+  let select: string;
+  if (step.aggregates.length > 0) {
+    const groupExprs = step.groupBy.map(qcol);
+    const aggExprs = step.aggregates.map(
+      (a) => `${a.fn}(${qcol(a.column)}) AS ${quoteIdent(a.alias)}`,
+    );
+    select = [...groupExprs, ...aggExprs].join(', ') || '*';
+  } else {
+    // Filter-only pass-through.
+    select = '*';
+  }
+
+  const preds: string[] = [];
+  for (const f of step.filters) {
+    const col = qcol(f.column);
+    if (f.op === 'IS NULL' || f.op === 'IS NOT NULL') {
+      preds.push(`${col} ${f.op}`);
+      continue;
+    }
+    const lit = emitValueLiteral(f.columnType, f.value);
+    if (lit === null) continue;
+    preds.push(`${col} ${f.op} ${lit}`);
+  }
+
+  const parts: string[] = [
+    `SELECT ${select}`,
+    `FROM (\n${indentSql(inner)}\n) AS ${quoteIdent(alias)}`,
+  ];
+  if (preds.length > 0) parts.push(`WHERE ${preds.join('\n  AND ')}`);
+  if (step.groupBy.length > 0) parts.push(`GROUP BY ${step.groupBy.map(qcol).join(', ')}`);
+  if (limit !== null) parts.push(`LIMIT ${Math.max(1, Math.min(1_000_000, Math.floor(limit)))}`);
+  return parts.join('\n');
+}
+
+/**
+ * Emit a multi-step pipeline: the base query plus zero or more derived
+ * steps. With no steps it's exactly `emitSql(base)`. The base + every
+ * intermediate step omit LIMIT (no premature truncation); only the final
+ * step caps rows at `base.limit`.
+ */
+export function emitPipeline(base: QueryBuilderSpec, steps: ReadonlyArray<DerivedStep>): string {
+  if (steps.length === 0) return emitSql(base);
+  let sql = emitSql(base, { omitLimit: true });
+  steps.forEach((step, i) => {
+    const isLast = i === steps.length - 1;
+    sql = emitDerivedStep(sql, `step_${i + 1}`, step, isLast ? base.limit : null);
+  });
+  return sql;
+}
+
+/**
+ * The output column NAMES a base spec produces — used by the modal to
+ * populate the first derived step's pickers. When the base is `SELECT *`
+ * (no explicit projection / aggregation) the caller passes the known
+ * base-table columns as the fallback.
+ */
+export function baseOutputColumns(
+  base: QueryBuilderSpec,
+  baseTableColumns: ReadonlyArray<string>,
+): string[] {
+  if (base.aggregates.length > 0) {
+    return [...base.groupBy.map((g) => g.column), ...base.aggregates.map((a) => a.alias)];
+  }
+  if (base.selectColumns.length > 0) return base.selectColumns.map((c) => c.column);
+  return [...baseTableColumns];
+}
+
+/** The output column NAMES a derived step produces, given its input columns. */
+export function derivedStepOutputColumns(
+  step: DerivedStep,
+  priorColumns: ReadonlyArray<string>,
+): string[] {
+  if (step.aggregates.length > 0) {
+    return [...step.groupBy, ...step.aggregates.map((a) => a.alias)];
+  }
+  return [...priorColumns];
 }

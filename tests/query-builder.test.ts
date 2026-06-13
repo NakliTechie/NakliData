@@ -12,7 +12,11 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  type DerivedStep,
   type QueryBuilderSpec,
+  baseOutputColumns,
+  derivedStepOutputColumns,
+  emitPipeline,
   emitSql,
   emitValueLiteral,
   emptySpec,
@@ -448,5 +452,120 @@ describe('emitSql — date filter TZ offset (forward-pass M15)', () => {
       ],
     };
     expect(emitSql(spec)).toContain("'2026-01-01T00:00:00+05:30'");
+  });
+});
+
+describe('emitPipeline — multi-step derived steps (F6)', () => {
+  const base: QueryBuilderSpec = {
+    ...emptySpec('invoices'),
+    groupBy: [{ table: 'invoices', column: 'vendor' }],
+    aggregates: [{ fn: 'SUM', table: 'invoices', column: 'amount', alias: 'total' }],
+    limit: 100,
+  };
+
+  it('with no steps emits exactly emitSql(base)', () => {
+    expect(emitPipeline(base, [])).toBe(emitSql(base));
+  });
+
+  it('wraps the base as a subquery and re-summarises (summarise → re-summarise)', () => {
+    const step: DerivedStep = {
+      filters: [],
+      groupBy: [],
+      aggregates: [{ fn: 'AVG', column: 'total', alias: 'avg_total' }],
+    };
+    const sql = emitPipeline(base, [step]);
+    expect(sql).toContain('AS "step_1"');
+    expect(sql).toContain('AVG("step_1"."total") AS "avg_total"');
+    // Base LIMIT is omitted (no premature truncation); only the final caps.
+    const limitCount = (sql.match(/LIMIT/g) ?? []).length;
+    expect(limitCount).toBe(1);
+    expect(sql.trimEnd().endsWith('LIMIT 100')).toBe(true);
+  });
+
+  it('filters the summary then re-groups (filter → re-summarise)', () => {
+    const filterStep: DerivedStep = {
+      filters: [{ column: 'total', columnType: 'numeric', op: '>', value: '1000' }],
+      groupBy: [],
+      aggregates: [],
+    };
+    const sql = emitPipeline(base, [filterStep]);
+    expect(sql).toContain('WHERE "step_1"."total" > 1000');
+    expect(sql).toContain('SELECT *');
+  });
+
+  it('chains TWO derived steps with nested aliases', () => {
+    const s1: DerivedStep = {
+      filters: [{ column: 'total', columnType: 'numeric', op: '>=', value: '500' }],
+      groupBy: [],
+      aggregates: [],
+    };
+    const s2: DerivedStep = {
+      filters: [],
+      groupBy: [],
+      aggregates: [{ fn: 'COUNT', column: 'vendor', alias: 'n' }],
+    };
+    const sql = emitPipeline(base, [s1, s2]);
+    expect(sql).toContain('AS "step_1"');
+    expect(sql).toContain('AS "step_2"');
+    expect(sql).toContain('COUNT("step_2"."vendor") AS "n"');
+  });
+
+  it('rejects a derived GROUP BY step with no aggregate', () => {
+    const bad: DerivedStep = { filters: [], groupBy: ['vendor'], aggregates: [] };
+    expect(() => emitPipeline(base, [bad])).toThrow(/must include at least one aggregate/);
+  });
+
+  it('INJECTION: hostile derived-step value lands inside one quoted literal', () => {
+    const step: DerivedStep = {
+      filters: [{ column: 'vendor', columnType: 'string', op: '=', value: "x' OR 1=1; --" }],
+      groupBy: [],
+      aggregates: [],
+    };
+    const sql = emitPipeline(base, [step]);
+    // The hostile value lands inside ONE quoted literal with the internal
+    // quote doubled — never as a free SQL fragment.
+    expect(sql).toContain("'x'' OR 1=1; --'");
+    // The un-escaped break-out form (`'x' OR …`) must NOT appear.
+    expect(sql).not.toContain("'x' OR");
+  });
+
+  it('INJECTION: hostile derived-step column name is quote-escaped', () => {
+    const step: DerivedStep = {
+      filters: [],
+      groupBy: [],
+      aggregates: [{ fn: 'SUM', column: 'a" + (SELECT 1)', alias: 'x' }],
+    };
+    const sql = emitPipeline(base, [step]);
+    expect(sql).toContain('"a"" + (SELECT 1)"');
+  });
+});
+
+describe('pipeline output columns (F6 — for the modal pickers)', () => {
+  it('baseOutputColumns reports group-by columns + aggregate aliases', () => {
+    const base: QueryBuilderSpec = {
+      ...emptySpec('invoices'),
+      groupBy: [{ table: 'invoices', column: 'vendor' }],
+      aggregates: [{ fn: 'SUM', table: 'invoices', column: 'amount', alias: 'total' }],
+      limit: 100,
+    };
+    expect(baseOutputColumns(base, ['vendor', 'amount', 'date'])).toEqual(['vendor', 'total']);
+  });
+
+  it('baseOutputColumns falls back to the table columns for SELECT *', () => {
+    expect(baseOutputColumns(emptySpec('t'), ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('derivedStepOutputColumns: aggregating step → group-by + aliases', () => {
+    const step: DerivedStep = {
+      filters: [],
+      groupBy: ['region'],
+      aggregates: [{ fn: 'SUM', column: 'total', alias: 'grand' }],
+    };
+    expect(derivedStepOutputColumns(step, ['region', 'total'])).toEqual(['region', 'grand']);
+  });
+
+  it('derivedStepOutputColumns: pass-through step keeps prior columns', () => {
+    const step: DerivedStep = { filters: [], groupBy: [], aggregates: [] };
+    expect(derivedStepOutputColumns(step, ['a', 'b'])).toEqual(['a', 'b']);
   });
 });
