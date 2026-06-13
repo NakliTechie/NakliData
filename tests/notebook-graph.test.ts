@@ -5,7 +5,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { AssertionCellState, InputCellState, SqlCellState } from '../src/ui/cells/types.ts';
-import { detectRefIssue, extractRefs, refIssueMessage } from '../src/ui/notebook-graph.ts';
+import {
+  detectRefIssue,
+  extractRefs,
+  refIssueMessage,
+  topoOrderRunnableCells,
+} from '../src/ui/notebook-graph.ts';
 
 function sql(id: string, name: string | null, code: string): SqlCellState {
   return {
@@ -208,5 +213,36 @@ describe('detectRefIssue — duplicate-name resolution matches the runtime', () 
     if (issue?.kind === 'cycle') {
       expect(issue.path).toEqual(['x', 'y', 'x']);
     }
+  });
+});
+
+describe('topoOrderRunnableCells (forward-pass M14)', () => {
+  it('runs a referenced cell BEFORE the cell that references it, even when it is later in document order', () => {
+    const cells = [sql('c1', 'a', 'SELECT * FROM @b'), sql('c2', 'b', 'SELECT 1')];
+    expect(topoOrderRunnableCells(cells)).toEqual(['c2', 'c1']);
+  });
+
+  it('orders an a → b → c chain so c, then b, then a', () => {
+    const cells = [
+      sql('c1', 'a', 'SELECT * FROM @b'),
+      sql('c2', 'b', 'SELECT * FROM @c'),
+      sql('c3', 'c', 'SELECT 1'),
+    ];
+    expect(topoOrderRunnableCells(cells)).toEqual(['c3', 'c2', 'c1']);
+  });
+
+  it('preserves document order when there are no cross-references', () => {
+    const cells = [sql('c1', 'a', 'SELECT 1'), sql('c2', 'b', 'SELECT 2')];
+    expect(topoOrderRunnableCells(cells)).toEqual(['c1', 'c2']);
+  });
+
+  it('terminates on a cycle and still returns every runnable cell', () => {
+    const cells = [sql('c1', 'a', 'SELECT * FROM @b'), sql('c2', 'b', 'SELECT * FROM @a')];
+    expect([...topoOrderRunnableCells(cells)].sort()).toEqual(['c1', 'c2']);
+  });
+
+  it('excludes non-runnable kinds (input cells inline, they do not run)', () => {
+    const cells = [input('c1', 'inp', '5'), sql('c2', 'a', 'SELECT @inp AS v')];
+    expect(topoOrderRunnableCells(cells)).toEqual(['c2']);
   });
 });

@@ -27,6 +27,7 @@ import {
   validateMeasuresFile,
 } from '../core/measures.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { confirmModal } from './confirm-modal.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
@@ -255,11 +256,11 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
       return rerender(desc);
     }
     if (action === 'measure-delete') {
-      handleDelete(target, desc, 'measure');
+      void handleDelete(target, desc, 'measure');
       return;
     }
     if (action === 'dim-delete') {
-      handleDelete(target, desc, 'dimension');
+      void handleDelete(target, desc, 'dimension');
       return;
     }
     if (action === 'measure-add') {
@@ -274,26 +275,47 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
       handleCodeApply(overlay, desc);
     }
   });
+  // Enter inside a single-line input in either new-entry form submits it,
+  // so the user doesn't have to mouse to "Add" (forward-pass M9). The
+  // expression textareas are intentionally excluded — Enter inserts a
+  // newline there.
+  overlay.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    const target = ev.target as HTMLElement | null;
+    if (!(target instanceof HTMLInputElement)) return;
+    const region = target.dataset.region ?? '';
+    if (region.startsWith('m-')) {
+      ev.preventDefault();
+      handleAddMeasure(overlay, desc);
+    } else if (region.startsWith('d-')) {
+      ev.preventDefault();
+      handleAddDimension(overlay, desc);
+    }
+  });
   _onKey = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') closeMeasuresPanel();
   };
   document.addEventListener('keydown', _onKey);
 }
 
-function handleDelete(
+async function handleDelete(
   target: HTMLElement,
   desc: MeasuresPanelDescriptor,
   kind: 'measure' | 'dimension',
-): void {
+): Promise<void> {
   const name = target.closest<HTMLElement>('[data-name]')?.dataset.name;
   if (!name) return;
   const refsOf = kind === 'measure' ? findReferencedMeasures : findReferencedDimensions;
   const usageCount = desc.cellSqls.filter((c) => refsOf(c.sql).includes(name)).length;
+  // Prompt via the on-brand confirm modal rather than window.confirm —
+  // a native confirm inside this panel is jarring and can be suppressed
+  // under stricter UA settings (forward-pass M10).
   const proceed =
     usageCount === 0 ||
-    window.confirm(
+    (await confirmModal(
       `"${name}" is referenced by ${usageCount} cell${usageCount === 1 ? '' : 's'}. Delete anyway? Those cells will fail until you remove the references.`,
-    );
+      { confirmLabel: 'Delete', cancelLabel: 'Keep' },
+    ));
   if (!proceed) return;
   if (kind === 'measure') getMeasuresStore().remove(name);
   else getDimensionsStore().remove(name);

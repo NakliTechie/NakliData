@@ -32,7 +32,12 @@
 //
 // The check is pure — call from runCell / runAll before executing.
 
-import type { CellState } from './cells/types.ts';
+import type {
+  AssertionCellState,
+  CellState,
+  CohortCellState,
+  SqlCellState,
+} from './cells/types.ts';
 
 /** Names of all "view-materialising" cells, i.e. ones a `@name` can resolve to. */
 function viewCellNames(cells: CellState[]): Map<string, string> {
@@ -144,6 +149,55 @@ export function detectRefIssue(targetId: string, cells: CellState[]): RefIssue |
   }
 
   return null;
+}
+
+/**
+ * Order the runnable (view-materialising) cells so every cell runs AFTER
+ * the cells it references via `@name`. Document order is the tiebreak and
+ * the fallback for cells caught in a cycle — `detectRefIssue` then
+ * surfaces the cycle error when `runCell` reaches the offending cell.
+ *
+ * runAll previously ran in pure document order, which silently ran a
+ * cell before its input when the input was defined LATER in the notebook
+ * (forward-pass M14). Returns the runnable cell ids in run order.
+ */
+export function topoOrderRunnableCells(cells: CellState[]): string[] {
+  const isRunnable = (c: CellState): c is SqlCellState | CohortCellState | AssertionCellState =>
+    c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion';
+  const runnable = cells.filter(isRunnable);
+  const nameToId = viewCellNames(cells);
+  const byId = new Map<string, CellState>();
+  for (const c of cells) byId.set(c.id, c);
+  const docIndex = new Map<string, number>();
+  runnable.forEach((c, i) => docIndex.set(c.id, i));
+
+  const order: string[] = [];
+  const done = new Set<string>();
+  const onPath = new Set<string>();
+
+  function visit(id: string): void {
+    if (done.has(id) || onPath.has(id)) return; // visited, or a cycle back-edge
+    onPath.add(id);
+    const cell = byId.get(id);
+    if (cell && isRunnable(cell)) {
+      // Dependencies = @-refs resolving to another runnable cell, visited
+      // in document order for a deterministic result.
+      const deps = extractRefs(cell.code)
+        .map((name) => nameToId.get(name))
+        .filter((depId): depId is string => !!depId && depId !== id)
+        .map((depId) => byId.get(depId))
+        .filter((c): c is CellState => !!c && isRunnable(c))
+        .sort((a, b) => (docIndex.get(a.id) ?? 0) - (docIndex.get(b.id) ?? 0));
+      for (const dep of deps) visit(dep.id);
+    }
+    onPath.delete(id);
+    done.add(id);
+    order.push(id);
+  }
+
+  // Seed in document order so output is document-stable absent cross-refs.
+  for (const c of runnable) visit(c.id);
+  return order;
 }
 
 /** Render a RefIssue as a one-line user-facing error message. */

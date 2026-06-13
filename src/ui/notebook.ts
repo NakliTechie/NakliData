@@ -48,7 +48,7 @@ import type {
   SqlCellState,
   StatsCellState,
 } from './cells/types.ts';
-import { detectRefIssue, refIssueMessage } from './notebook-graph.ts';
+import { detectRefIssue, refIssueMessage, topoOrderRunnableCells } from './notebook-graph.ts';
 import { notebookCss } from './notebook.css.ts';
 
 let _idSeq = 1;
@@ -82,9 +82,13 @@ export class Notebook {
     // EditorViews don't leak across .naklidata loads + session switches.
     // Cell ids are timestamp-prefixed (see genCellId) so the incoming
     // set never collides with the outgoing set — we can dispose all old
-    // SQL cells unconditionally.
+    // SQL-backed cells unconditionally. Cohort + assertion cells render
+    // via renderSqlCell too, so they hold CM6 editors keyed by the same
+    // cell id and must be disposed here as well (forward-pass L12).
     for (const old of this.state.cells) {
-      if (old.kind === 'sql') disposeSqlCellEditor(old.id);
+      if (old.kind === 'sql' || old.kind === 'cohort' || old.kind === 'assertion') {
+        disposeSqlCellEditor(old.id);
+      }
     }
     this.state = { cells };
     this.notify();
@@ -353,9 +357,11 @@ LIMIT 100`,
   }
 
   async runAll(): Promise<void> {
-    // Topologically sort by @name dependencies — simple version: just run
-    // in document order; cells reference views which are created by prior
-    // cells, so document-order matches DAG order in the common case.
+    // Run in @name-dependency (topological) order, not raw document order,
+    // so a cell that references a @name defined LATER in the notebook
+    // still runs after its input (forward-pass M14). Cycle-safe — cells in
+    // a cycle fall back to document order and runCell's detectRefIssue
+    // surfaces the cycle error.
     //
     // Cells with empty `code` are skipped silently. The notebook seeds a
     // single empty SQL cell on first mount as a "type here" affordance;
@@ -364,11 +370,12 @@ LIMIT 100`,
     // matches what every notebook (Jupyter, Hex, Observable) does — the
     // "Run all" affordance treats empty cells as no-ops.
     // (Demo-verification finding 2026-05-31; see plan/pending.md.)
-    for (const c of this.state.cells) {
-      if (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') {
-        if (!c.code.trim()) continue;
-        await this.runCell(c.id);
-      }
+    const byId = new Map(this.state.cells.map((c) => [c.id, c]));
+    for (const id of topoOrderRunnableCells(this.state.cells)) {
+      const c = byId.get(id);
+      if (!c || (c.kind !== 'sql' && c.kind !== 'cohort' && c.kind !== 'assertion')) continue;
+      if (!c.code.trim()) continue;
+      await this.runCell(id);
     }
   }
 
