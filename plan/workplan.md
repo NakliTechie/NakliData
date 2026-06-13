@@ -6,9 +6,12 @@ stretches, 5 commits `df54216`…`9a984a5`, Chunk 3). 819 vitest / smoke /
 check green; bundle 677.3 KB / 750 KB. Detail in `plan/2026-06-13-…`
 (this session) + DECISIONS AP–AS.
 
-**The ONLY thing left is Chunk 2 — WebGPU slice-B validation** — which
-needs a real WebGPU browser and can't run headless. Everything else on
-the workplan is done.
+**Chunk 2 — slice-B validation — RAN 2026-06-13 → ❌ FAIL.** The local
+model OOMs on load on the wasm device (`std::bad_alloc`); 0/6 jobs were
+runnable (DECISIONS AT; `plan/w32-slice-b-validation.md`). It surfaced a
+real defect → **v1.4.1** work: wire the WebGPU device path, fix the
+understated model-size labels, add graceful OOM handling. See
+`plan/pending.md` "Now open".
 
 ---
 

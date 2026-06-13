@@ -700,11 +700,22 @@ executed in sequence; results below for reference.
 
 ### Now open
 
-- **W3.2 slice B chunk 5 — per-job validation against the loaded
-  Qwen model.** Checklist at `plan/w32-slice-b-validation.md`.
-  Requires real browser + ~30-60 min clicking through 6 sidecar
-  jobs. v1.3.0 tag is gated on 6/6 PASS.
-- **W3.2 slice B chunk 7 — tag v1.3.0** once chunk 5 evidence is in.
+- ~~**W3.2 slice B chunk 5 — per-job validation.**~~ **RAN 2026-06-13 →
+  ❌ FAIL** (DECISIONS AT; full results in
+  `plan/w32-slice-b-validation.md`). The local model never loads on the
+  wasm device (`std::bad_alloc`), so 0/6 jobs were exercisable. The
+  download + OPFS cache UI + cleanup all work; the **load** is the defect.
+- **v1.4.1 — fix the local-model load path** (the slice-B FAIL):
+  1. **Wire the WebGPU device path** — detect `navigator.gpu`, use
+     `device: 'webgpu'` with a wasm fallback (`src/lazy/transformers.ts:262`
+     currently hard-codes `'wasm'`). Primary fix for the OOM.
+  2. **Fix model-size labels** — understated ~2× (Qwen "~0.9 GB" → 1.7 GB
+     actual; Llama "~0.7 GB" → ~1.58 GB).
+  3. **Graceful OOM handling** — catch the session-creation failure →
+     "model too large for the CPU runtime; enable WebGPU or pick a smaller
+     model"; move the load off the main thread (it froze the tab ~45 s).
+  4. Consider a genuinely small (≤0.5B) model for non-WebGPU browsers.
+  Re-run the slice-B checklist after the fix (a WebGPU box is available).
 
 ## v1.3 audit follow-throughs (2026-06-11)
 

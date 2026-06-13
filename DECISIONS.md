@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-13 — W3.2 slice-B validation RAN → FAIL (local model OOMs on wasm)
+
+### Decision AT — Slice B does NOT pass; local-model path needs a WebGPU fix before it can be called validated
+
+Ran the owed slice-B per-job validation (`plan/w32-slice-b-validation.md`)
+via Chrome MCP against the live build, in a real Chrome with WebGPU on a
+16 GB box. **Outcome: FAIL — 0/6 sidecar jobs runnable**, because the
+recommended default **Qwen2.5-1.5B fails to load** on the wasm device:
+`Can't create a session. ERROR_CODE: 6, ERROR_MESSAGE: std::bad_alloc`.
+Reproduced twice, including a clean load from the OPFS cache — the wasm32
+runtime can't allocate the ~1.7 GB q4 weights.
+
+**Why it matters:** the local provider, as shipped (`device: 'wasm'`,
+`src/lazy/transformers.ts:262`), is effectively non-functional for the
+curated models. The 6-job validation can't even begin.
+
+**Root cause + fix:** `device: 'wasm'` was the chunk-3 default with a
+"WebGPU opt-in is a planned follow-up" note — that follow-up was never
+done. WebGPU was confirmed available in the test browser; it offloads
+weights to GPU memory and is the standard cure for this wasm-heap OOM.
+Filed as v1.4.1 work (pending.md "Now open"):
+1. wire the WebGPU device path (detect `navigator.gpu`, wasm fallback);
+2. fix the model-size labels (understated ~2×: Qwen "~0.9 GB" → 1.7 GB);
+3. graceful OOM handling (catch bad_alloc → "enable WebGPU / smaller
+   model" message; move the load off the main thread — it froze the tab
+   ~45 s);
+4. maybe add a genuinely small model for non-WebGPU browsers.
+
+**What DID pass** (so the failure is scoped to load, not the whole path):
+the download pipeline, the OPFS cache UI (list + per-model delete +
+forget-all, verified to actually free disk — usage 1.68 GB → 2 MB),
+auto-cleanup of interrupted partial downloads, and settings persistence
+across a crash. So this is a load-path defect, not a teardown/plumbing one.
+
+**Process note:** this is exactly the kind of defect headless gates can't
+catch (DECISIONS AG/AP shipped slice B "unvalidated" precisely because it
+needs a real browser + model download). The real-browser run found it. The
+v1.3.0/v1.4.0 tags stand — the local provider is opt-in and off by default,
+so shipped defaults never hit this path; but the feature needs the fix
+before it can be advertised as working.
+
 ## 2026-06-13 — Chunk 3 backlog pass (parked forward-pass minors + F5/F6 stretches)
 
 Autonomous run through `plan/workplan.md` Chunk 3. Shipped across 5

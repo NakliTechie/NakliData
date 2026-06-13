@@ -1,10 +1,87 @@
 # W3.2 slice B — per-job manual validation
 
-**Status:** OWED — autonomous chunks 1-4 shipped the code, but the
-6 sidecar jobs need real-model exercise before tagging v1.3.0. Per
-scoping doc Decision 5, eval harness coverage for `local` is a
-v1.3.x follow-up — slice B's validation bar is "every job produces
-sensible output via the real Qwen2.5-1.5B pipeline."
+**Status: RAN 2026-06-13 (real Chrome + WebGPU box, via Chrome MCP, against
+the live deployed build). VERDICT: ❌ FAIL — the local-model path does NOT
+function on the wasm device. 0/6 sidecar jobs could be exercised because no
+curated model loads.** Details in the "Validation run" section below; the
+original checklist (kept for reference) follows.
+
+---
+
+## Validation run — 2026-06-13 — VERDICT: ❌ FAIL (0/6 jobs runnable)
+
+Driven via Chrome MCP against `https://naklidata.naklitechie.com/` (the live
+HEAD build) in a real Chrome on a 16 GB / 14-core macOS box **with WebGPU
+available** (`navigator.gpu` present).
+
+### Blocking finding — model fails to LOAD on wasm (`std::bad_alloc`)
+
+The recommended default **Qwen2.5-1.5B downloads fully but fails to load**:
+
+```
+Load failed: Can't create a session. ERROR_CODE: 6, ERROR_MESSAGE: std::bad_alloc
+```
+
+Reproduced across **two fresh sessions**, including a clean load **from the
+OPFS cache** (no re-download). The wasm32 onnxruntime can't allocate the q4
+weights (~1.7 GB) in linear memory — the contiguous-allocation ceiling on
+wasm32 is well below what a 1.5B q4 model needs, even on a 16 GB machine.
+
+Because nothing loads, **Steps 1 (load), 2 (auto-load), and 3 (the 6 jobs)
+cannot complete.** This is a real defect in the shipped local path, not a
+test-environment issue.
+
+### Supporting findings
+
+1. **Model-size labels are ~2× understated.** Settings labels vs actual
+   OPFS download:
+   - Qwen2.5-1.5B "~0.9 GB" → **1.67–1.79 GB** on disk.
+   - Llama-3.2-1B "~0.7 GB" → **~1.58 GB** of q4 weights.
+   - (Phi-3.5-mini "~2.3 GB" → not tested, but proportionally larger.)
+2. **WebGPU is available but unused.** `src/lazy/transformers.ts:262`
+   hard-codes `device: 'wasm'`; the WebGPU opt-in (chunk-3 note) was never
+   wired. WebGPU offloads weights to GPU memory and is the standard way to
+   avoid this exact wasm-heap OOM for Transformers.js — the likely fix.
+3. **The failed load blocks the main thread** (~45 s `document_idle`
+   freeze during session creation). Even the *attempt* hangs the tab; it
+   should be off-main-thread and/or guarded.
+4. **Llama-3.2-1B (smallest) not conclusively tested** — its weights
+   download was interrupted by a mid-run crash. But at ~1.58 GB it has
+   essentially the same footprint as Qwen, so it would very likely hit the
+   same `bad_alloc`.
+
+### What DID pass
+
+- **Download pipeline works** — Transformers.js chunk loads, files stream to
+  OPFS, per-file progress renders (`Downloading onnx/model_q4.onnx: …`).
+- **Cache UI works** — "Cached on this device" lists each model + size, with
+  per-model `×` delete and "Forget all cached models".
+- **Cleanup works** — "Forget all cached models" deletes the OPFS files
+  (verified: `navigator.storage` usage dropped from ~1.68 GB back to ~2 MB),
+  shows the empty state, and after reload **no auto-load toast** fires
+  (correct — nothing cached). Partial weights from the interrupted download
+  were auto-cleaned (Llama left at 11.2 MB, just the tokenizer).
+- **Settings persistence** — sidecar-enabled + provider=Local + selected
+  model survived a tab crash + reload (IDB).
+
+### Disposition
+
+Slice B is **NOT clear to close as "validated"**. Filed as v1.4.1 follow-up
+work (see `plan/pending.md` "Now open" + DECISIONS AT). Recommended fixes,
+in priority order:
+1. **Wire the WebGPU device path** — detect `navigator.gpu`, use
+   `device: 'webgpu'` with a wasm fallback. Primary fix for the OOM.
+2. **Fix the model-size labels** to reflect actual q4 download sizes.
+3. **Graceful OOM handling** — catch the session-creation failure and
+   surface "model too large for the CPU runtime — enable WebGPU or pick a
+   smaller model" instead of a raw `std::bad_alloc`; move the load
+   off the main thread.
+4. Consider adding a genuinely small (≤0.5B / more-quantized) model that
+   fits the wasm heap for non-WebGPU browsers.
+
+---
+
+## Original checklist (reference — pre-run)
 
 Run this checklist after loading the model in Settings. Fill in the
 results inline (replace each `<TODO>`).
