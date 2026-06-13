@@ -50,71 +50,8 @@ export interface ChartConfig {
   title: string;
 }
 
-const VALID_CHART_TYPES: ReadonlySet<ChartType> = new Set([
-  'bar',
-  'line',
-  'area',
-  'scatter',
-  'pie',
-  'histogram',
-  'stat',
-  'table',
-]);
-
-/**
- * Type guard for `ChartConfig` — used by producers that accept
- * unknown JSON (e.g., the sidecar response parser, the .naklidata
- * load path). Returns false on missing fields or invalid chart type
- * or non-string title > 80 chars.
- *
- * Does NOT validate that the column names exist in any particular
- * result — that check belongs to the call site (which knows the
- * result's columns).
- */
-export function isChartConfig(value: unknown): value is ChartConfig {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  if (typeof v.chartType !== 'string') return false;
-  if (!VALID_CHART_TYPES.has(v.chartType as ChartType)) return false;
-  if (v.xColumn !== null && typeof v.xColumn !== 'string') return false;
-  if (v.yColumn !== null && typeof v.yColumn !== 'string') return false;
-  if (v.groupColumn !== null && typeof v.groupColumn !== 'string') return false;
-  if (typeof v.title !== 'string') return false;
-  if (v.title.length === 0 || v.title.length > 80) return false;
-  return true;
-}
-
-/**
- * Validate a `ChartConfig` against an actual column allowlist. Returns
- * a list of error messages (empty when valid). The sidecar parser +
- * the chart cell's manual editor both call this to confirm a config
- * is actionable against the current result.
- */
-export function validateAgainstColumns(cfg: ChartConfig, columns: ReadonlyArray<string>): string[] {
-  const errors: string[] = [];
-  const colSet = new Set(columns);
-  if (cfg.xColumn !== null && !colSet.has(cfg.xColumn)) {
-    errors.push(`xColumn "${cfg.xColumn}" is not in the result columns.`);
-  }
-  if (cfg.yColumn !== null && !colSet.has(cfg.yColumn)) {
-    errors.push(`yColumn "${cfg.yColumn}" is not in the result columns.`);
-  }
-  if (cfg.groupColumn !== null && !colSet.has(cfg.groupColumn)) {
-    errors.push(`groupColumn "${cfg.groupColumn}" is not in the result columns.`);
-  }
-  return errors;
-}
-
-/**
- * Empty/default config — used by the chart cell when no producer has
- * authored a config yet. The user picks chart type + columns manually.
- */
-export function defaultChartConfig(): ChartConfig {
-  return {
-    chartType: 'bar',
-    xColumn: null,
-    yColumn: null,
-    groupColumn: null,
-    title: 'Chart',
-  };
-}
+// Note: `isChartConfig`, `validateAgainstColumns`, and `defaultChartConfig`
+// validators were removed as dead code (forward-pass S1) — they were
+// exported but never wired to any producer. This module's job is the
+// shared ChartConfig type ("one schema, three producers"); re-add a
+// validator here if a load-path / sidecar-parser check is ever wired.

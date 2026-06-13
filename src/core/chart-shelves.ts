@@ -219,10 +219,9 @@ export function configToShelves(
   config: ChartConfig,
   classOf?: (name: string) => FieldClass,
 ): ShelfState {
-  const cls = (name: string | null): FieldClass => {
-    if (name === null) return 'unknown';
-    return classOf?.(name) ?? 'unknown';
-  };
+  // Every call site guards with `config.xColumn ? … : null`, so cls only
+  // ever sees a real column name — no dead null branch (forward-pass L14).
+  const cls = (name: string): FieldClass => classOf?.(name) ?? 'unknown';
   return {
     x: config.xColumn ? { name: config.xColumn, class: cls(config.xColumn) } : null,
     y: config.yColumn ? { name: config.yColumn, class: cls(config.yColumn) } : null,
