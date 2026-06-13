@@ -66,10 +66,15 @@ function currentExpr(): string {
     const fn = (_modalEl.querySelector<HTMLSelectElement>('[data-region="cf-fn"]')?.value ??
       'SUM') as WindowFn;
     const col = _modalEl.querySelector<HTMLSelectElement>('[data-region="cf-col"]')?.value ?? '';
-    const part = _modalEl.querySelector<HTMLSelectElement>('[data-region="cf-part"]')?.value ?? '';
     if (!col) return '';
+    // F5 — multi-column partition: every checked column joins the
+    // PARTITION BY (none = whole-result window). The core emitter quotes
+    // each identifier + checks the fn allowlist.
+    const partitionBy = [
+      ..._modalEl.querySelectorAll<HTMLInputElement>('[data-region="cf-part-col"]:checked'),
+    ].map((el) => el.value);
     try {
-      return emitWindowExpression(fn, col, part ? [part] : []);
+      return emitWindowExpression(fn, col, partitionBy);
     } catch {
       return '';
     }
@@ -118,14 +123,24 @@ function render(): HTMLElement {
         <textarea data-region="cf-expr" rows="2" placeholder="cgst + sgst + igst" style="width:100%;display:block;margin-top:2px;font-family:var(--font-mono);font-size:11px;"></textarea></label>
       <div class="cf-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">${chips}</div>
     </div>`;
+  const partChecks = desc.columns
+    .map(
+      (c) =>
+        `<label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;"><input type="checkbox" data-region="cf-part-col" value="${escapeAttr(c)}" /> ${escapeHtml(c)}</label>`,
+    )
+    .join('');
   const windowPane = `
-    <div data-region="cf-pane-window" ${_mode === 'expression' ? 'hidden' : ''} style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-      <label style="font-size:12px;">Function
-        <select data-region="cf-fn" style="display:block;margin-top:2px;">${WINDOW_FNS.map((f) => `<option>${f}</option>`).join('')}</select></label>
-      <label style="font-size:12px;">Of column
-        <select data-region="cf-col" style="display:block;margin-top:2px;"><option value="">—</option>${colOptions}</select></label>
-      <label style="font-size:12px;">Partitioned by (optional)
-        <select data-region="cf-part" style="display:block;margin-top:2px;"><option value="">(whole result)</option>${colOptions}</select></label>
+    <div data-region="cf-pane-window" ${_mode === 'expression' ? 'hidden' : ''}>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+        <label style="font-size:12px;">Function
+          <select data-region="cf-fn" style="display:block;margin-top:2px;">${WINDOW_FNS.map((f) => `<option>${f}</option>`).join('')}</select></label>
+        <label style="font-size:12px;">Of column
+          <select data-region="cf-col" style="display:block;margin-top:2px;"><option value="">—</option>${colOptions}</select></label>
+      </div>
+      <fieldset style="border:1px solid var(--border);border-radius:4px;margin:var(--space-2) 0 0 0;padding:6px 10px;">
+        <legend style="font-size:11px;color:var(--text-muted);padding:0 4px;">Partitioned by (optional — none = whole result)</legend>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${partChecks}</div>
+      </fieldset>
     </div>`;
 
   overlay.innerHTML = `
