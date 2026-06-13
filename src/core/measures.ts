@@ -258,10 +258,13 @@ export function expandMeasures(
   const unknownDimensions: string[] = [];
   let current = sql;
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
-    const hasMeasure = MEASURE_CALL_RE.test(current);
-    MEASURE_CALL_RE.lastIndex = 0;
-    const hasDim = DIM_CALL_RE.test(current);
-    DIM_CALL_RE.lastIndex = 0;
+    // Fresh, non-global regexes for the presence check — a global
+    // regex's `lastIndex` is stateful across `.test()` calls, so the
+    // module-level ones would need a manual reset every time. The
+    // `.replace()` calls below still use the `/g` module regexes (they
+    // must, to replace all occurrences). Defence-in-depth per L15.
+    const hasMeasure = new RegExp(MEASURE_CALL_RE.source).test(current);
+    const hasDim = new RegExp(DIM_CALL_RE.source).test(current);
     if (!hasMeasure && !hasDim) {
       return { sql: current, expansions, unknownMeasures, unknownDimensions };
     }

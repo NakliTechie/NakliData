@@ -352,6 +352,27 @@ describe('fingerprintFromFile / fingerprintFromHeaders constructors', () => {
     }
   });
 
+  // forward-pass L1 — a zero-byte file (content-length: 0) must keep a
+  // contentLength of 0, not get coerced to null by `0 || null` (which
+  // would make a later non-zero change harder to spot via length alone).
+  it('fingerprintFromHeaders preserves a zero content-length', () => {
+    const headers = new Headers();
+    headers.set('content-length', '0');
+    const fp = fingerprintFromHeaders(headers);
+    if (fp.kind === 'http') {
+      expect(fp.contentLength).toBe(0);
+    }
+  });
+
+  it('fingerprintFromHeaders with a non-numeric content-length → null', () => {
+    const headers = new Headers();
+    headers.set('content-length', 'not-a-number');
+    const fp = fingerprintFromHeaders(headers);
+    if (fp.kind === 'http') {
+      expect(fp.contentLength).toBeNull();
+    }
+  });
+
   it('fingerprintFromHeaders with no relevant headers → all nulls', () => {
     const fp = fingerprintFromHeaders(new Headers());
     expect(fp.kind).toBe('http');

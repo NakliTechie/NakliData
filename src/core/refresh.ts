@@ -175,11 +175,19 @@ export function fingerprintFromFile(file: File): SourceFingerprint {
  */
 export function fingerprintFromHeaders(headers: Headers): SourceFingerprint {
   const cl = headers.get('content-length');
+  // Parse to a number, but keep a legitimate 0 (`'0' || null` would
+  // coerce a zero-byte file's length to null and never mark it stale —
+  // forward-pass L1). Only a non-numeric header becomes null.
+  let contentLength: number | null = null;
+  if (cl !== null) {
+    const n = Number.parseInt(cl, 10);
+    contentLength = Number.isNaN(n) ? null : n;
+  }
   return {
     kind: 'http',
     etag: headers.get('etag'),
     lastModifiedHeader: headers.get('last-modified'),
-    contentLength: cl !== null ? Number.parseInt(cl, 10) || null : null,
+    contentLength,
     computedAt: new Date().toISOString(),
   };
 }

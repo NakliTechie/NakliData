@@ -324,6 +324,37 @@ describe('LineageStore — graph operations', () => {
     expect(g.edges).toEqual([]);
   });
 
+  // forward-pass M19 — deleting a cell must also sweep edges in OTHER
+  // cells that referenced it as their FROM side, or those edges dangle
+  // against a missing node and render as a stale raw id.
+  it('removeCell sweeps orphaned inbound edges in downstream cells', () => {
+    const s = new LineageStore();
+    // c1 reads a source; c2 reads c1 (a @-ref). Delete c1.
+    s.setCellInputs({
+      cellId: 'c1',
+      cellLabel: 'q1',
+      inputs: [{ kind: 'table', name: 'vendors' }],
+      confidence: 'high',
+    });
+    s.setCellInputs({
+      cellId: 'c2',
+      cellLabel: 'q2',
+      inputs: [],
+      cellRefs: [{ refCellId: 'c1', refLabel: 'q1' }],
+      confidence: 'high',
+    });
+    s.removeCell('c1');
+    const g = s.toJSON();
+    // No edge should reference the deleted c1 (neither as from nor to).
+    expect(g.edges.some((e) => e.from === 'c1' || e.to === 'c1')).toBe(false);
+    // And every remaining edge endpoint must have a matching node.
+    const nodeIds = new Set(g.nodes.map((n) => n.id));
+    for (const e of g.edges) {
+      expect(nodeIds.has(e.from)).toBe(true);
+      expect(nodeIds.has(e.to)).toBe(true);
+    }
+  });
+
   it('cellRefs add cell→cell edges for @name references', () => {
     const s = new LineageStore();
     s.setCellInputs({

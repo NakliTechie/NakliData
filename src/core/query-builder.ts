@@ -216,12 +216,15 @@ function validateSpec(spec: QueryBuilderSpec): void {
     checkIdent(spec.orderBy.table);
     checkIdent(spec.orderBy.column);
   }
-  // H7 — GROUP BY consistency. When grouping, every plain projected
-  // column must itself be grouped (or be one of the aggregated columns);
-  // otherwise the emitter silently drops it (buildSelect ignores
-  // selectColumns in aggregation mode) and a hand-run version of the
-  // query would be a GROUP BY error.
-  if (spec.groupBy.length > 0) {
+  // H7 / M17 — aggregation consistency. Whenever the query aggregates
+  // (GROUP BY present OR any aggregate), every plain projected column
+  // must itself be grouped or be an aggregated column. Otherwise
+  // buildSelect silently drops it (aggregation mode ignores
+  // selectColumns) — for GROUP BY that's a hand-run GROUP BY error
+  // (H7), and for aggregates-without-GROUP BY the selected columns
+  // vanish into a single-row scalar with no warning (M17). Either way
+  // the silent drop is surprising, so reject it.
+  if (spec.groupBy.length > 0 || spec.aggregates.length > 0) {
     const key = (t: string, c: string): string => `${t} ${c}`;
     const grouped = new Set(spec.groupBy.map((g) => key(g.table, g.column)));
     const aggregated = new Set(spec.aggregates.map((a) => key(a.table, a.column)));

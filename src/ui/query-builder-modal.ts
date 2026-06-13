@@ -226,8 +226,14 @@ function wireHandlers(
     }
     if (action === 'qb-limit') {
       const n = Number(val);
-      if (Number.isFinite(n) && n >= 1) setSpec({ ...spec, limit: Math.floor(n) });
-      return;
+      if (Number.isFinite(n) && n >= 1) {
+        setSpec({ ...spec, limit: Math.floor(n) });
+        return;
+      }
+      // Invalid (empty / NaN / < 1): re-render so the field snaps back to
+      // the current valid limit, making the rejection visible instead of
+      // silently ignored (forward-pass L3).
+      return rerender();
     }
     // ── Joins ──
     if (action === 'qb-join-table') {

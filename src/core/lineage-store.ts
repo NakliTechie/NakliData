@@ -255,23 +255,33 @@ export class LineageStore {
   }
 
   /**
-   * Remove a cell + its inbound edges + the cell-as-from-side edges
-   * it owns. Edges where this cell appears as the FROM side of an
-   * inbound edge for a downstream cell remain — they'll be cleaned up
-   * when that downstream cell re-runs (or when the user explicitly
-   * deletes that cell). This keeps incremental update O(1) per cell.
+   * Remove a cell + its inbound edges + the cell-as-from-side edges it
+   * owns, AND sweep any edges in downstream cells that referenced this
+   * cell as their FROM side — so no edge is left dangling against a
+   * missing node (forward-pass M19).
    */
   removeCell(cellId: string): void {
     this.nodes.delete(cellId);
     this.cellInbound.delete(cellId);
     this.cellOutbound.delete(cellId);
+    // Sweep edges in OTHER cells that pointed AT this now-deleted cell.
+    // Leaving them dangling produces an edge whose `from` has no matching
+    // node, and the panel then renders the raw cell id as a stale label
+    // (forward-pass M19). removeCell is rare (user deletes a cell), so the
+    // O(cells) sweep is cheap.
+    for (const [id, edges] of this.cellInbound) {
+      const kept = edges.filter((e) => e.from !== cellId);
+      if (kept.length !== edges.length) this.cellInbound.set(id, kept);
+    }
   }
 
   /**
    * Snapshot the graph as a plain JSON shape, deduplicating edges and
    * pruning nodes that aren't referenced by any edge. Source / sink
    * orphans (no edges at all) ARE pruned — they reflect mounted
-   * sources never used, or sinks never run.
+   * sources never used, or sinks never run. The round-trip is therefore
+   * intentionally lossy for orphan nodes: `loadFromJson` cannot recover
+   * a node that `toJSON` pruned (forward-pass L2).
    */
   toJSON(): LineageGraph {
     const allEdges: LineageEdge[] = [];

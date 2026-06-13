@@ -408,6 +408,29 @@ describe('emitSql — GROUP BY consistency (forward-pass H7)', () => {
     };
     expect(() => emitSql(spec)).not.toThrow();
   });
+
+  // forward-pass M17 — aggregate WITHOUT group-by + a plain select column:
+  // the column would silently vanish into a single-row scalar. Reject it.
+  it('throws when aggregating with NO group-by but a plain SELECT column is present', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      selectColumns: [{ table: 'orders', column: 'vendor' }],
+      groupBy: [],
+      aggregates: [{ fn: 'SUM', table: 'orders', column: 'total', alias: 'sum_total' }],
+    };
+    expect(() => emitSql(spec)).toThrow(/GROUP BY|aggregated/);
+  });
+
+  it('accepts a whole-table aggregate (no group-by, no plain SELECT columns)', () => {
+    const spec: QueryBuilderSpec = {
+      ...emptySpec('orders'),
+      selectColumns: [],
+      groupBy: [],
+      aggregates: [{ fn: 'SUM', table: 'orders', column: 'total', alias: 'sum_total' }],
+    };
+    expect(() => emitSql(spec)).not.toThrow();
+    expect(emitSql(spec)).toContain('SUM("orders"."total")');
+  });
 });
 
 describe('emitSql — date filter TZ offset (forward-pass M15)', () => {

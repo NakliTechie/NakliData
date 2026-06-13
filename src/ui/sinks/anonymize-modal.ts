@@ -119,9 +119,12 @@ export function openAnonymizeModal(opts: {
         if (col) col.strategy = target.value as AnonStrategy;
       }
       if (target instanceof HTMLInputElement && target.dataset.region === 'anon-salt') {
-        // User pasted / typed a custom salt. Validate hex-only.
+        // User pasted / typed a custom salt. Validate hex-only and
+        // even-length — hex encodes whole bytes in pairs, so an odd
+        // length is a malformed paste that would confuse a recipient
+        // trying to reproduce the same hash (forward-pass L5).
         const v = target.value.trim();
-        if (/^[0-9a-fA-F]+$/.test(v) && v.length >= 8) {
+        if (/^[0-9a-fA-F]+$/.test(v) && v.length >= 8 && v.length % 2 === 0) {
           salt = v;
           saltOrigin = 'pasted';
         }
