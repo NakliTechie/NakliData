@@ -1,13 +1,14 @@
-# Workplan — 2026-06-11 (post v1.4 feature build)
+# Workplan — 2026-06-13 (post v1.4.0 release + Chunk 3 backlog pass)
 
-v1.3.0 is released + deployed. The entire **v1.4 feature slate (F1–F9)**
-from the competitive analysis is built, gated, Chrome-verified, and on
-`origin/main` (19 commits `07f9eb9..f01c21d`). 798 vitest / 55 e2e /
-smoke / check all green; bundle 666.9 KB / 750 KB. Detail in
-`plan/2026-06-11-summary.md` (session 3).
+**v1.4.0 is released + tagged** (`1d45510`, Chunk 1) and the **Chunk 3
+backlog is cleared** (parked forward-pass minors + the F5/F6 deferred
+stretches, 5 commits `df54216`…`9a984a5`, Chunk 3). 819 vitest / smoke /
+check green; bundle 677.3 KB / 750 KB. Detail in `plan/2026-06-13-…`
+(this session) + DECISIONS AP–AS.
 
-What's left: cut the **v1.4.0 release**, the deferred **WebGPU slice-B
-validation**, and parked polish. No open question blocks the top chunk.
+**The ONLY thing left is Chunk 2 — WebGPU slice-B validation** — which
+needs a real WebGPU browser and can't run headless. Everything else on
+the workplan is done.
 
 ---
 
@@ -42,27 +43,29 @@ The only owed v1.3 item. Can't run headless.
 
 ---
 
-## Chunk 3 — Deferred stretches + parked audit minors (anytime, ~2–3 hours)
+## Chunk 3 — Deferred stretches + parked audit minors — ✅ DONE (2026-06-13)
 
-Batch opportunistically; none is urgent.
+Autonomous backlog pass — 5 commits `df54216`…`9a984a5`; 819 vitest ·
+check · smoke green; bundle 677.3 KB / 750 KB. DECISIONS AQ/AR/AS.
 
-- [ ] **F6 multi-step pipelines** — grow the query builder to
-      filter→summarise→re-summarise (currently single-step multi-join).
-- [ ] **F5 multi-column window partitions** — currently single-column.
-- [ ] **Parked forward-pass minors** — M9 (measures form Enter), M10
-      (`window.confirm`→modal), M11 (measures-change → schema-panel
-      refresh), M14 (runAll DAG order), M17, M19; remaining L-items
-      (L1–L5, L7, L9, L11, L12, L14, L15, L17, L18, L23, L24) + S-items
-      (S1–S3, S9–S13, S16–S18). Detail in
-      `plan/forward-pass-2026-06-10.md`. Good `/replan` candidate.
+- [x] **F6 multi-step pipelines** — derived filter→summarise→re-summarise
+      steps via `emitPipeline` (nested-subquery aliases reuse the
+      injection-safe emitter); full N-step modal UI (`9a984a5`).
+- [x] **F5 multi-column window partitions** — calc-field window mode
+      checkbox group; core was already array-capable (`3c06ba0`).
+- [x] **Parked forward-pass minors** — fixed M9, M10, M14, M17, M19 +
+      L1–L5, L12, L14, L15 + S1; S2/S11 already resolved. The remainder
+      (M11/S3, L7/L9/L11/L17/L18/L23/L24, S9/S10/S12/S16/S17/S18) are
+      logged **won't-fix with rationale** in DECISIONS AQ (audit
+      misjudgements, persistence-risk, or cosmetic-no-payoff).
 
 ---
 
 ## Pickup order (recommended)
 
-1. **Chunk 1** — cut v1.4.0 (the slate's done; lock it in).
-2. **Chunk 2** — slice-B validation when on a capable machine.
-3. **Chunk 3** — parked minors / stretches, batched.
+1. ~~**Chunk 1** — cut v1.4.0~~ ✅ done (`1d45510`).
+2. **Chunk 2** — slice-B validation when on a WebGPU-capable machine. **(only remaining item)**
+3. ~~**Chunk 3** — parked minors / stretches~~ ✅ done (`df54216`…`9a984a5`).
 
 ---
 

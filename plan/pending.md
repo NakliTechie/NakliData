@@ -720,15 +720,30 @@ S15) shipped across commits `06ae2aa`, `196ab28`, `8568530`,
 `plan/workplan.md` (Chunks 1–6, all ticked) and
 `plan/2026-06-11-summary.md`.
 
-### Parked (low priority, ship-later)
+### Parked → CLEARED (2026-06-13, Chunk 3 backlog pass; DECISIONS AQ)
 
-- **M9–M14, M17, M19, M23, M24** — minor UX + redundancy notes from
-  the audit (not addressed in the 6-chunk pass).
-- **L1–L7, L9–L12, L14, L15, L17, L18, L21, L23, L24** — remaining
-  polish items in `plan/forward-pass-2026-06-10.md` (the rest landed
-  in Chunks 2/6).
-- **S1–S3, S9–S13, S16–S18** — remaining stray cleanup (lowest
-  priority; S4–S8/S14/S15 done in Chunk 6).
+Autonomous run closed the actionable parked set across 5 commits
+(`df54216`…`9a984a5`). 819 vitest · check · smoke green.
+
+- **Fixed:** M9, M10, M14, M17, M19 · L1, L2, L3, L4, L5, L12, L14, L15 ·
+  S1. (S2 + S11 were already resolved by v1.3/v1.4 work; ticked.)
+- **Won't-fix, with rationale (DECISIONS AQ):** M11 + S3 (the "applicable
+  measures" schema-panel surface never existed + `requiredTypes` is
+  unauthored — `applicableMeasures` stays as a future seam); L24 (`?? 0`
+  required by `noUncheckedIndexedAccess`); L18 (`::` delimiter change
+  would break persisted selection keys); S12 (comment is accurate; the
+  migration is cheap insurance); S16 (`_demo.ts` is live e2e infra);
+  L7, L9, L11, L17, L23, S9, S10, S17, S18 (cosmetic / pattern-notes).
+- **(M13, M23, M24, L8, L13, L16, L19–L22 closed earlier in Chunks 2/6.)**
+
+### Deferred stretches → SHIPPED (2026-06-13)
+
+- **F5 multi-column window partitions** — calc-field window mode
+  (`3c06ba0`). Core `emitWindowExpression` was already array-capable;
+  UI exposed it via a checkbox group.
+- **F6 multi-step query-builder pipelines** — derived filter→summarise→
+  re-summarise steps (`9a984a5`). `emitPipeline` nests the base as
+  `FROM (…) AS step_N` reusing the injection-safe emitter; full N-step UI.
 
 ### Open questions
 

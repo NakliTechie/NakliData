@@ -2,6 +2,64 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-13 — Chunk 3 backlog pass (parked forward-pass minors + F5/F6 stretches)
+
+Autonomous run through `plan/workplan.md` Chunk 3. Shipped across 5
+commits (`df54216` Batch A · `85d34af` Batch B · `811d5cc` Batch C ·
+`3c06ba0` F5 · `9a984a5` F6). 819 vitest · check · smoke green; bundle
+677.3 KB / 750 KB. Chunk 2 (W3.2 slice-B validation) is NOT in this pass —
+it needs a real WebGPU browser and can't run headless (still owed).
+
+### Decision AQ — Fixed the actionable parked minors; the rest are won't-fix
+
+**Fixed** (real bugs / clear UX wins): M17 (qb aggregate-without-GROUP-BY
+silently dropping select columns), M19 (lineage-store orphan inbound edges),
+M14 (runAll now topological, not document-order), M9 (measures-panel Enter),
+M10 (window.confirm → reusable `confirmModal`), L1/L2/L3/L4/L5/L12/L14/L15,
+S1 (deleted dead chart-config validators). S2 + S11 were already resolved by
+the v1.3/v1.4 work (ticked).
+
+**Won't-fix, with rationale** (logged so they're not re-discovered):
+- **M11 + S3** — the "applicable measures" schema-panel surface the audit
+  assumed *never existed*, and the measures form doesn't author
+  `requiredTypes`, so `applicableMeasures` can't produce a meaningful
+  filter. A no-op schema re-render would be pure overhead. `applicableMeasures`
+  stays as the intentional seam for a future synergy panel (used by tests,
+  mirrors `findApplicableTemplates`). Build the panel + requiredTypes
+  authoring first, then wire the refresh.
+- **L24** — the `?? 0` the audit called "unreachable" is REQUIRED by
+  `noUncheckedIndexedAccess: true`. Audit misjudged it.
+- **L18** — `selectionKeyString`'s `::` delimiter: DuckDB result column
+  names don't contain `::`; changing the key format would break persisted
+  `.naklidata` selection keys for no real-world gain.
+- **S12** — the persistence comment is accurate documentation; the real
+  action (drop the legacy `workbook/current` migration) carries
+  un-migrated-install risk not worth a cleanup item.
+- **S16** — `_demo.ts` is live test infrastructure (the lazy-chunk e2e
+  canary), not dead code.
+- **L7, L9, L11, L17, L23, S9, S10, S17, S18** — cosmetic / pattern-notes /
+  refactor-opportunities with no behavioural payoff; not worth the churn.
+
+### Decision AR — F5 multi-column partitions: UI-only (core was already capable)
+
+`emitWindowExpression` already took a `partitionBy: string[]` (multi-column,
+unit-tested). F5 was purely exposing it: the calc-field modal's single
+partition `<select>` became a checkbox group; `currentExpr` collects all
+checked columns. No core change.
+
+### Decision AS — F6 pipelines: nested-subquery aliases reuse the safe emitter
+
+A pipeline wraps the base as `FROM (<base>) AS step_N` and layers derived
+filter/summarise steps referencing the prior output by alias. This reuses
+the EXACT injection-safe contract (`quoteIdent` + `emitValueLiteral`) rather
+than inventing a new path — the step columns are just `"step_N"."col"`.
+`emitSql` gained an `omitLimit` option so base/intermediate steps don't
+truncate before a downstream summarise; only the final step caps. A grouping
+step must aggregate (rejecting DISTINCT-by-stealth that would drop columns).
+The modal computes each step's typed input columns from the prior stage
+(`stageInputs`) to populate pickers. Full N-step UI (per the user's choice
+over a bounded single-step).
+
 ## 2026-06-13 — v1.4.0 release cut
 
 ### Decision AP — Cut v1.4.0 from the green slate; no new amendments; e2e not re-run
