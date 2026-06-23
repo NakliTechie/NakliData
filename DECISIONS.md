@@ -65,6 +65,20 @@ through `makeCluster`; `buildMergeCaseSql` is documented to accept any canonical
 (in `values` → others remap to it; a brand-new spelling → all remap to it),
 both well-defined and injection-safe.
 
+### Decision BA — Version reconciliation: prior batch = v1.4.1, Resolve M1 = v1.5.0; versioning stays git-tag-based
+
+The unreleased work since v1.4.0 (F5/F6 + local-model load/registration fixes +
+cloud-BYOK smoke) and Resolve M1 were both pencilled at v1.5.0. Resolved: the
+prior batch is **v1.4.1** (bug-fix-dominant — F5/F6 are stretches on
+already-shipped F4/F6, not new top-level surfaces), tagged at `973d416`; **Resolve
+M1 is v1.5.0** (the track's first genuinely-new surface), tagged at HEAD; M2 →
+v1.5.1, M3 → v1.5.2. **`BUILD_VERSION` stays `0.1.0`:** the handoff §13 "bump the
+visible version string" yields to repo reality (§0 / §15) — versioning here is
+git-tag-based and the in-app build stamp has stayed `0.1.0` through every tag
+since v1.0 (the workplan's "package.json stays 0.1.0" is the standing
+convention). Resolving the version therefore means cutting the two tags, not
+editing a string. Notes: `plan/v1.4.1-release-notes.md`, `plan/v1.5.0-release-notes.md`.
+
 ## 2026-06-13 — Local-model path fixes + re-validation (after DECISIONS AT)
 
 ### Decision AU — Fixed the load + registration plumbing; in-browser inference quality is a deeper, still-open issue

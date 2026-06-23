@@ -86,11 +86,11 @@ specced and pickup-ready**; M2/M3 get their spec after M1 ships. Full context:
 - **M3 · Golden-table sink → v1.5.2** — canonical-entity export with survivorship
   rules. Spec after M1.
 
-> ⚠ **Version clash with Chunk 1:** both Resolve M1 and the current unreleased
-> work want **v1.5.0**. Decide at the release cut — recommended: ship current
-> work as **v1.4.1** (bug-fix-dominant) and reserve v1.5.0 for Resolve M1;
-> alternative: current work → v1.5.0, Resolve M1→M3 → v1.6.0/.1/.2. Expanded
-> note in `plan/pending.md`.
+> ✅ **Version reconciled (2026-06-23):** the prior unreleased batch tags as
+> **v1.4.1** (`973d416`); **Resolve M1 = v1.5.0** (built + tagged + pushed);
+> **M2 → v1.5.1, M3 → v1.5.2**. Chunk 1 ("cut the next release") is now done as
+> these two tags. DECISIONS BA; notes in `plan/v1.4.1-release-notes.md` +
+> `plan/v1.5.0-release-notes.md`.
 
 ---
 

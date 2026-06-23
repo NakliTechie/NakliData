@@ -10,8 +10,9 @@ Working list of features to consider, drawn from competitive recon. Items are ta
 > constraint-clean (no new egress/server/accounts/bg-work; AI is one
 > removable sidecar job). **M1 is fully specced + pickup-ready.** Vision:
 > `plan/resolve-track-vision.md`; M1 build spec: `plan/resolve-m1-handoff.md`.
-> Section below. **⚠ version clash:** M1 wants v1.5.0, same label the current
-> unreleased work is pencilled at — reconcile at the next release cut.
+> Section below. **Update 2026-06-23:** M1 BUILT + version resolved — the prior
+> unreleased F5/F6 + local-model batch tags as **v1.4.1**; Resolve M1 is
+> **v1.5.0** (M2 → v1.5.1, M3 → v1.5.2). Both tagged + pushed (DECISIONS BA).
 >
 > **2026-06-11 (session 3) — v1.3.0 RELEASED + v1.4 feature slate (F1–F9) COMPLETE.**
 > Shipped v1.3 Phase 2 UI (cross-filter grey-out, associations panel,
@@ -139,19 +140,12 @@ reverse-ETL (no remote writes → Trellis); autonomous resolve→act loops (→ 
 Job); Splink-class probabilistic record-linkage at scale (browser-memory bound →
 a Bridge-side enhancement later).
 
-> ⚠ **Version reconciliation needed (decide at the next release cut).** The M1
-> handoff targets **v1.5.0**, but the *current unreleased* work (F5/F6 +
-> local-model load/registration fixes + cloud-BYOK smoke; workplan Chunk 1) was
-> also pencilled at v1.5.0. Two clean resolutions:
-> - **(a, recommended)** ship the current unreleased work as **v1.4.1** — it's
->   bug-fix-dominant (F5/F6 are stretches on already-shipped F4/F6) — and
->   reserve **v1.5.0** for Resolve M1. Keeps the track's v1.5.0/.1/.2 narrative
->   intact.
-> - **(b)** ship current work as **v1.5.0** (stricter semver — F5/F6 are new
->   features) and slide Resolve M1→M3 to **v1.6.0/.1/.2**.
->
-> Either way the track structure holds; only the labels move. Filed under
-> v1.5.x per the vision pending that call.
+> ✅ **Version reconciled (2026-06-23, option a).** The prior unreleased batch
+> (F5/F6 + local-model load/registration fixes + cloud-BYOK smoke) tags as
+> **v1.4.1** at `973d416` (bug-fix-dominant; notes in `plan/v1.4.1-release-notes.md`).
+> **Resolve M1 = v1.5.0** (notes in `plan/v1.5.0-release-notes.md`); **M2 → v1.5.1,
+> M3 → v1.5.2**. Versioning is git-tag-based — `BUILD_VERSION` stays `0.1.0` by
+> convention (it has since v1.0). Both tags pushed. DECISIONS BA.
 
 ---
 
