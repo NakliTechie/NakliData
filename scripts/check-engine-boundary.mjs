@@ -23,8 +23,8 @@
 // because it's available in Node.js, Workers, AND the browser — it's
 // already the engine-shape we want.
 
-import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const WATCHED_PATHS = [
   // v1.3 explicitly-named engine modules:
@@ -51,6 +51,7 @@ const WATCHED_OPTIONAL = [
   'src/core/report-layout.ts', // v1.3 M3
   'src/core/chart-shelves.ts', // v1.3 M5 — shelf-based chart authoring
   'src/core/lineage-edit.ts', // v1.3 M6 — lineage edit mode (pure ops)
+  'src/core/clustering.ts', // Resolve M1 — fuzzy-merge core (pure)
 ];
 
 const FORBIDDEN_PATTERNS = [
@@ -92,9 +93,7 @@ function checkFile(path) {
   }
   // Strip block + line comments before matching so `// fetches X`
   // in a comment doesn't trip the lint.
-  const stripped = content
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '');
+  const stripped = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   const issues = [];
   for (const { name, regex } of FORBIDDEN_PATTERNS) {
     if (regex.test(stripped)) {
@@ -112,9 +111,7 @@ for (const path of WATCHED_PATHS) {
     continue;
   }
   if (issues.length > 0) {
-    console.error(
-      `[engine-boundary] ${path} uses forbidden browser globals: ${issues.join(', ')}`,
-    );
+    console.error(`[engine-boundary] ${path} uses forbidden browser globals: ${issues.join(', ')}`);
     violations++;
   }
 }
@@ -123,9 +120,7 @@ for (const path of WATCHED_OPTIONAL) {
   const { exists, issues } = checkFile(path);
   if (!exists) continue;
   if (issues.length > 0) {
-    console.error(
-      `[engine-boundary] ${path} uses forbidden browser globals: ${issues.join(', ')}`,
-    );
+    console.error(`[engine-boundary] ${path} uses forbidden browser globals: ${issues.join(', ')}`);
     violations++;
   }
 }

@@ -324,6 +324,9 @@ function renderColumnRow(
       <button class="btn btn-ghost" data-action="show-profile" data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}" data-column="${escapeHtml(a.columnName)}" aria-pressed="${profile ? 'true' : 'false'}">
         ${iconSvg('chart', 12)} Profile
       </button>
+      <button class="btn btn-ghost" data-action="cluster-column" data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}" data-column="${escapeHtml(a.columnName)}" title="Cluster variant spellings of this column into a canonical value">
+        ${iconSvg('link', 12)} Cluster values
+      </button>
       ${isAmbiguous(a) ? renderAskSidecarButton(sourceId, tableId, a) : ''}
     </div>
     <div id="${detailsId}" class="schema-evidence" hidden>${renderEvidence(a)}</div>

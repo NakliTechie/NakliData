@@ -2,6 +2,69 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-23 — Resolve track M1: clustering / fuzzy-merge
+
+### Decision AV — Key collision is the default; nearest neighbour is opt-in
+
+Two OpenRefine-standard methods, surfaced as a toggle. **Key collision**
+(fingerprint: trim→lowercase→NFKD diacritic-fold→strip punctuation→token
+sort+dedupe) is safe and threshold-free, so it's the default and computes on
+open. **Nearest neighbour** (normalized Levenshtein) is threshold-driven and
+opt-in — it's the "find more typos" pass. Rationale: key collision never
+mis-groups on a slider value; NN can, so the user reaches for it deliberately
+and tunes the threshold (0.70–0.95, default 0.85). Both run in JS over the
+distinct-value set (a `GROUP BY 1`), never row-by-row.
+
+### Decision AW — The artifact is a CASE-rewrite SQL cell; no persisted mapping
+
+Clustering emits an **additive** `SELECT *, CASE WHEN "col" IN (…) THEN
+'<canonical>' … ELSE "col" END AS "col__merged" FROM (<upstream>) AS
+cluster_src` — the same wrap shape as the calc-field cell (F4/F5). The user
+runs it (Hard NOT #4). **M1 changes NO `.naklidata` schema:** clusters are
+ephemeral UI state and the only durable output is an ordinary SQL cell, which
+already round-trips. Zero back-compat risk; a persisted cluster-mapping is a
+future-track item, not M1. The CASE cell is the source of truth — re-opening
+the file replays it via DuckDB with no model and no network.
+
+### Decision AX — Blocking by first-fingerprint-char + an EXACT length window (not hard length-bands); NN capped at 5,000 distinct
+
+NN is O(n²) in distinct values, so block before comparing. The handoff
+suggested `(first-fingerprint-char, length-band)`; a hard length-band **splits
+a single-character-typo chain at the band boundary** (a value of length 7 vs 8
+lands in different bands — the commonest typo case). Replaced the band with a
+length-sorted window inside each first-char block: a pair is compared only when
+`len_j ≤ len_i / t` (since `sim ≥ t ⟹ |Δlen| ≤ (1-t)·maxLen`), and because the
+block is length-sorted the bound is monotonic so we `break`. This is **exact**
+within a block (no boundary miss) and still prunes hard. Residual approximation
+is first-char blocking (a leading-char typo lands elsewhere) — covered by the
+key-collision method + the AI pass. Above **5,000 distinct values** NN
+short-circuits (`tooMany`) and the UI steers the user to key collision.
+
+### Decision AY — Sidecar job #8 `propose-merge`: all-or-nothing PER PAIR, with a per-pair allowlist
+
+The removable AI adjudicates only **borderline** pairs (similarity in
+`[t-0.1, t)`) the deterministic pass didn't group, on explicit user request,
+hidden when no provider is configured. Three-layer no-prose guard like
+propose-chart. Hallucination guard is **per pair**: `a` and `b` must each be an
+input value and (when merging) `canonical` must equal `a` or `b`, else that
+pair's suggestion is dropped (others survive). **Hardened during the §17
+forward-pass:** the guard validates the pair against the **exact set of asked
+pairs** (unordered), not just the flat value set — so a model can't return a
+*recombined* pairing (`a` from one pair + `b` from another) it was never asked
+about, not merely a fabricated value. **Removability test holds:** delete the
+job and key-collision + NN still cluster end to end.
+
+### Decision AZ — Emit-then-run over auto-apply; cluster assembly sets canonical directly
+
+No surface auto-applies a merge (Hard NOT #4): the modal emits a cell the user
+runs. The forward-pass flagged a seam — `makeCluster` recomputes the canonical
+(most-frequent→longest→lexicographic), which would discard a user-edited or
+AI-chosen canonical. So the UI assembles clusters as plain `{canonical, values}`
+objects with the chosen canonical set **directly** and never re-runs them
+through `makeCluster`; `buildMergeCaseSql` is documented to accept any canonical
+(in `values` → others remap to it; a brand-new spelling → all remap to it),
+both well-defined and injection-safe.
+
 ## 2026-06-13 — Local-model path fixes + re-validation (after DECISIONS AT)
 
 ### Decision AU — Fixed the load + registration plumbing; in-browser inference quality is a deeper, still-open issue

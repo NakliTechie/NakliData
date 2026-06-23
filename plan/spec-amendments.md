@@ -1290,6 +1290,43 @@ finding C2.
 
 ---
 
+## A31 — Resolve track M1: clustering / fuzzy-merge (new surface; amends spec §3.3 + §4.3)
+
+**Amends:** §3.3 (notebook result + schema-panel affordances) and §4.3 (sidecar jobs).
+
+**New surface — value clustering / fuzzy-merge.** A "Cluster" chip on every SQL
+result and a per-column "Cluster values" action in the schema panel detect
+variant spellings of a column's values (`Sharma Trading Co` =
+`Sharma Trading Co.` = `SHARMA TRADING CO`) and emit an **additive** CASE-rewrite
+SQL cell (`<col>__merged`) the user runs. Two OpenRefine-standard methods: key
+collision (fingerprint) and nearest neighbour (Levenshtein, blocked + capped at
+5,000 distinct values). Reuses the v1.2 M5 injection-safe emitter
+(`quoteIdent` / `quoteLiteral`) — no new emitter, no string-concat path.
+
+**§4.3 — sidecar Job 8 `propose-merge`.** Adds one job to the declared sidecar
+scope ("narrow disambiguation, never prose"): given borderline value pairs it
+returns a structured merge/keep decision + a canonical drawn from the inputs —
+no narration, all-or-nothing per-pair reject on hallucination, per-pair
+allowlist, three-layer guard like propose-chart (A28). Rides the existing BYOK +
+local provider ladder; no new egress. Removable: delete the job and the
+deterministic methods still cluster fully.
+
+**Persistence:** none. M1 adds no `.naklidata` field — clusters are ephemeral UI
+state; the durable output is an ordinary SQL cell that already round-trips.
+Pre-M1 files are unaffected.
+
+**Dependency:** `fastest-levenshtein` (~2 KB, MIT) — the one new runtime dep,
+within the §7.1 750 KB shell budget (bundle 696 KB after M1).
+
+**Hard NOTs preserved (§6):** no auto-apply (emit-then-run, Hard NOT #4), no
+prose from the sidecar, no background processing, injection-safe by
+construction, no remote writes.
+
+**Status:** ratified + shipped (Resolve M1). See STATUS 2026-06-23, DECISIONS
+AV–AZ. Companion design: `plan/resolve-track-vision.md`, `plan/resolve-m1-handoff.md`.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

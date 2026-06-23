@@ -270,6 +270,38 @@ async function main() {
   );
   log('✓ chart cell rendered SVG');
 
+  // 9aa. Resolve M1 — the "Cluster" chip opens the fuzzy-merge modal, running
+  // the chip → handler → engine GROUP BY → core clustering → CASE-emitter path
+  // end-to-end in the real browser. tsc + vitest can't catch the live GROUP BY
+  // query or the modal's DOM wiring; only a real run does.
+  await page.click('.cell[data-cell-kind="sql"] [data-action="cluster-result"]');
+  await page.waitForSelector('.cluster-overlay', { timeout: 10000 });
+  const clusterModal = await page.evaluate(() => {
+    const overlay = document.querySelector('.cluster-overlay');
+    if (!overlay) return { ok: false };
+    const preview = overlay.querySelector('[data-region="cl-preview"]')?.textContent ?? '';
+    return {
+      ok: true,
+      hasColumn: !!overlay.querySelector('[data-region="cl-column"]'),
+      hasMethod: !!overlay.querySelector('[data-action="cl-method-key"]'),
+      // The emitter ran with the real result column: preview has the merged alias.
+      emitsMergedAlias: /AS\s+"[^"]+__merged"/.test(preview),
+    };
+  });
+  if (
+    !clusterModal.ok ||
+    !clusterModal.hasColumn ||
+    !clusterModal.hasMethod ||
+    !clusterModal.emitsMergedAlias
+  ) {
+    throw new Error(`cluster modal did not render correctly: ${JSON.stringify(clusterModal)}`);
+  }
+  await page.click('.cluster-overlay [data-action="cl-close"]');
+  await page.waitForFunction(() => document.querySelector('.cluster-overlay') === null, null, {
+    timeout: 5000,
+  });
+  log('✓ Cluster modal: chip → GROUP BY → core → CASE-emit path renders + closes');
+
   // 9a. M2 lineage — the template's SQL cell reads a mounted example source
   // (a CSV registered as a VIEW over read_csv_auto). Source→cell lineage must
   // be recorded. Regression guard for the empty-lineage bug: duckdb-wasm

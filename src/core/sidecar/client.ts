@@ -21,6 +21,8 @@ import {
   type NlToSqlResponse,
   type ProposeChartJob,
   type ProposeChartResponse,
+  type ProposeMergeJob,
+  type ProposeMergeResponse,
   type RecommendReportsJob,
   type RecommendReportsResponse,
   SidecarError,
@@ -232,6 +234,19 @@ export async function dispatchJob(
       raw,
       job.columns.map((c) => c.name),
     );
+  }
+  if (job.kind === 'propose-merge') {
+    const { system, user } = buildProposeMergePrompt(job);
+    const raw = await transport({
+      provider: opts.provider,
+      model: opts.model,
+      system,
+      user,
+      apiKey: key,
+      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    return parseProposeMergeResponse(raw, job.pairs);
   }
   throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
 }
@@ -967,4 +982,106 @@ export function parseProposeChartResponse(
       title: title.trim(),
     },
   };
+}
+
+// ---- propose-merge prompt + parser (Resolve M1, Job 8) --------------
+//
+// Adjudicate borderline value pairs the deterministic clustering left
+// ungrouped. Three-layer no-prose guard (same as propose-chart): (1) the
+// system prompt bans narration; (2) the parser is strict JSON-only
+// (markdown-fence-tolerant, prose-preface-rejecting); (3) the response
+// type has no observation/explanation field. Hallucination guard is
+// all-or-nothing PER PAIR: a and b must be exact input values and (when
+// merging) canonical must equal a or b — else that pair is dropped.
+
+const PROPOSE_MERGE_SYSTEM = `You are NakliData's sidecar. You decide whether pairs of column values are the SAME real-world entity spelled differently (e.g. "Sharma Trading Co" vs "SHARMA TRADING CO."). Output JSON ONLY. No prose. No commentary. No markdown fences.
+
+Output shape (verbatim):
+
+{
+  "pairs": [
+    { "a": "<the exact value a you were given>", "b": "<the exact value b>", "merge": true, "canonical": "<a or b, verbatim>" }
+  ]
+}
+
+Hard rules:
+- Output ONLY the JSON object. No markdown code fences. No commentary outside the JSON.
+- "a" and "b" MUST be copied VERBATIM from the pair you were given. Never alter, trim, reorder, or invent a value.
+- "merge" is true only when the two values denote the same entity; false when they are genuinely different.
+- "canonical" MUST be exactly one of the two input values (a or b) — the better-formed spelling. Never invent a new spelling.
+- Decide each pair independently. When unsure, prefer "merge": false.
+- NEVER narrate or explain. The output is JSON only.`;
+
+export function buildProposeMergePrompt(job: ProposeMergeJob): {
+  system: string;
+  user: string;
+} {
+  const block = job.pairs
+    .map(
+      (p, i) =>
+        `Pair ${i + 1}: a=${JSON.stringify(p.a)} (count ${p.aCount}), b=${JSON.stringify(p.b)} (count ${p.bCount})`,
+    )
+    .join('\n');
+  const user = [
+    'Decide for each candidate pair whether a and b are the SAME real-world entity spelled differently.',
+    '',
+    block || '(no pairs)',
+    '',
+    'Return the JSON object. JSON only.',
+  ].join('\n');
+  return { system: PROPOSE_MERGE_SYSTEM, user };
+}
+
+/**
+ * Parse the model's merge decisions. Strict — junk JSON or a non-object
+ * → `{pairs: []}`. Each pair is validated independently against the input
+ * allowlist; a pair that fails the guard is dropped (the others survive).
+ */
+export function parseProposeMergeResponse(
+  raw: string,
+  askedPairs: ReadonlyArray<{ a: string; b: string }>,
+): ProposeMergeResponse {
+  const trimmed = raw.trim();
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const stripped = (fenceMatch?.[1] ?? trimmed).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return { kind: 'propose-merge', pairs: [] };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { kind: 'propose-merge', pairs: [] };
+  }
+  const arr = (parsed as { pairs?: unknown }).pairs;
+  if (!Array.isArray(arr)) {
+    return { kind: 'propose-merge', pairs: [] };
+  }
+  // Per-pair allowlist: only accept decisions on pairs we actually asked
+  // about, keyed unordered (the model may return a/b in either order). Tighter
+  // than a flat value allowlist — it blocks a cross-pair recombination (a from
+  // one pair + b from another) the deterministic layer never proposed, not
+  // just fabricated values.
+  const pairKey = (x: string, y: string): string => JSON.stringify(x < y ? [x, y] : [y, x]);
+  const allowedPairs = new Set(askedPairs.map((p) => pairKey(p.a, p.b)));
+  const out: ProposeMergeResponse['pairs'] = [];
+  for (const item of arr) {
+    if (typeof item !== 'object' || item === null) continue;
+    const rec = item as { a?: unknown; b?: unknown; merge?: unknown; canonical?: unknown };
+    const a = typeof rec.a === 'string' ? rec.a : '';
+    const b = typeof rec.b === 'string' ? rec.b : '';
+    // Must be an exact pair we asked about (blocks fabricated values AND
+    // recombined pairings).
+    if (a === b || !allowedPairs.has(pairKey(a, b))) continue;
+    const merge = rec.merge === true;
+    let canonical = '';
+    if (merge) {
+      const c = typeof rec.canonical === 'string' ? rec.canonical : '';
+      // canonical must be exactly one of the two input values, else drop.
+      if (c !== a && c !== b) continue;
+      canonical = c;
+    }
+    out.push({ a, b, merge, canonical });
+  }
+  return { kind: 'propose-merge', pairs: out };
 }

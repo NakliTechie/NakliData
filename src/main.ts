@@ -1,4 +1,5 @@
 import { getAssociationsStore } from './core/associations.ts';
+import type { ValueCount } from './core/clustering.ts';
 import { setDemoMode } from './core/demo-mode.ts';
 import { getDimensionsStore } from './core/dimensions.ts';
 import { type Engine, getEngine } from './core/engine.ts';
@@ -30,6 +31,7 @@ import {
 } from './core/mount.ts';
 import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
+import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import { getSelectionsStore } from './core/selections.ts';
@@ -46,8 +48,9 @@ import {
   setActiveSession,
 } from './core/sessions.ts';
 import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
+import { loadKey } from './core/sidecar/byok.ts';
 import { dispatchJob } from './core/sidecar/client.ts';
-import { registerLocalGenerator } from './core/sidecar/local-runtime.ts';
+import { getLocalGenerator, registerLocalGenerator } from './core/sidecar/local-runtime.ts';
 import { SidecarError } from './core/sidecar/types.ts';
 import type { StatsColumnSpec } from './core/stats.ts';
 import {
@@ -64,6 +67,7 @@ import { openCalcFieldModal } from './ui/calc-field-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
 import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
+import { type AiMergeDecision, openClusterModal } from './ui/cluster-modal.ts';
 import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openEmbedModal } from './ui/embed-modal.ts';
@@ -1174,6 +1178,114 @@ function handleXRay(cellId: string): void {
   toast('X-Ray inserted — descriptive stats + correlations.');
 }
 
+// ── Resolve M1 — clustering / fuzzy-merge entry points ──────────────────
+
+/** "Cluster" chip under a SQL result — cluster a result column. */
+function handleClusterFromResult(cellId: string): void {
+  const nb = getNotebook(getEngine());
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first — clustering reads a result column.');
+    return;
+  }
+  const cols = cell.lastResult.columns;
+  if (cols.length === 0) {
+    toast('No columns to cluster.');
+    return;
+  }
+  void openClusterFor({ upstreamSql: cell.code, columns: cols, initialColumn: cols[0] ?? '' });
+}
+
+/** Schema-panel "Cluster values" — cluster a mounted column. */
+function handleClusterFromColumn(sourceId: string, tableId: string, column: string): void {
+  const wb = getWorkbook().get();
+  const table = wb.sources.find((s) => s.id === sourceId)?.tables.find((t) => t.id === tableId);
+  if (!table) {
+    toast('Table not found for that column.', 'error');
+    return;
+  }
+  const prefix = `${sourceId}::${tableId}::`;
+  const cols: string[] = [];
+  for (const [key, a] of Object.entries(wb.assignments)) {
+    if (key.startsWith(prefix)) cols.push(a.columnName);
+  }
+  void openClusterFor({
+    upstreamSql: `SELECT * FROM ${quoteIdent(table.name)}`,
+    columns: cols.length > 0 ? cols : [column],
+    initialColumn: column,
+  });
+}
+
+/** Shared opener: wires the GROUP BY fetch, the AI dispatch, and the cell insert. */
+async function openClusterFor(spec: {
+  upstreamSql: string;
+  columns: ReadonlyArray<string>;
+  initialColumn: string;
+}): Promise<void> {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const aiAvailable = await sidecarConfigured();
+  openClusterModal(
+    {
+      columns: spec.columns,
+      initialColumn: spec.initialColumn,
+      upstreamSql: spec.upstreamSql,
+      aiAvailable,
+    },
+    {
+      fetchValues: async (column) => {
+        const sql = `SELECT ${quoteIdent(column)} AS v, COUNT(*) AS n\nFROM (\n${spec.upstreamSql}\n) AS cluster_src\nGROUP BY 1`;
+        const rows = await engine.query<{ v: unknown; n: unknown }>(sql);
+        const out: ValueCount[] = [];
+        for (const r of rows) {
+          if (r.v === null || r.v === undefined) continue;
+          const value = String(r.v);
+          if (value === '') continue;
+          out.push({ value, count: Number(r.n) || 0 });
+        }
+        return out;
+      },
+      onInsert: (sql) => {
+        const newCell = nb.addCell('sql');
+        nb.patchCell(newCell.id, { code: sql });
+        toast('Cluster-merge cell inserted — review then click Run.');
+      },
+      ...(aiAvailable
+        ? {
+            onAskAi: async (
+              pairs: ReadonlyArray<{ a: string; b: string; aCount: number; bCount: number }>,
+            ): Promise<AiMergeDecision[]> => {
+              const settings = await loadSettings();
+              const res = await dispatchJob(
+                { kind: 'propose-merge', pairs: [...pairs] },
+                {
+                  provider: settings.sidecarProvider,
+                  model: settings.sidecarModel,
+                  ...(settings.sidecarProvider === 'custom' && settings.sidecarCustomEndpoint
+                    ? { customEndpoint: settings.sidecarCustomEndpoint }
+                    : {}),
+                },
+              );
+              return res.kind === 'propose-merge' ? res.pairs : [];
+            },
+          }
+        : {}),
+    },
+  );
+}
+
+/** Whether a sidecar provider is usable (key present, or local model loaded). */
+async function sidecarConfigured(): Promise<boolean> {
+  const settings = await loadSettings();
+  if (!settings.sidecarProvider) return false;
+  if (settings.sidecarProvider === 'local') return getLocalGenerator() !== null;
+  try {
+    return (await loadKey(settings.sidecarProvider)) !== null;
+  } catch {
+    return false;
+  }
+}
+
 function handleOpenQueryBuilder(engine: Engine): void {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
@@ -1571,6 +1683,18 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'calc-field': {
       const cellId = el?.dataset.cellId;
       if (cellId) handleCalcField(cellId);
+      return;
+    }
+    case 'cluster-result': {
+      const cellId = el?.dataset.cellId;
+      if (cellId) handleClusterFromResult(cellId);
+      return;
+    }
+    case 'cluster-column': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const column = el?.dataset.column;
+      if (sourceId && tableId && column) handleClusterFromColumn(sourceId, tableId, column);
       return;
     }
     case 'xray': {

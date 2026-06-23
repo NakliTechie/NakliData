@@ -41,7 +41,8 @@ export type SidecarJob =
   | RecommendReportsJob
   | SummariseResultJob
   | NlToSqlJob
-  | ProposeChartJob;
+  | ProposeChartJob
+  | ProposeMergeJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -163,7 +164,8 @@ export type SidecarResponse =
   | RecommendReportsResponse
   | SummariseResultResponse
   | NlToSqlResponse
-  | ProposeChartResponse;
+  | ProposeChartResponse
+  | ProposeMergeResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -267,6 +269,35 @@ export interface ProposeChartJob {
 export interface ProposeChartResponse {
   kind: 'propose-chart';
   proposal: import('../chart-config.ts').ChartConfig | null;
+}
+
+/**
+ * Job 8 (Resolve track M1) — adjudicate BORDERLINE value pairs that the
+ * deterministic clustering (key collision / nearest neighbour) left
+ * ungrouped. Fired ONLY on the user's explicit "Ask AI to check ambiguous
+ * pairs" — we ship just the candidate pairs + counts, never the whole
+ * column. Structured decision only, NO PROSE (same posture as
+ * propose-chart). The result is still emit-then-run: an accepted pair adds
+ * a cluster the user reviews before the CASE cell is inserted.
+ *
+ * Hallucination guard (all-or-nothing PER PAIR, in the parser): `a` and
+ * `b` must each be one of the input values, and (when merging) `canonical`
+ * must equal `a` or `b`. Any violation drops that pair's suggestion.
+ */
+export interface ProposeMergeJob {
+  kind: 'propose-merge';
+  /** Borderline candidate pairs; each side is a distinct column value + its row count. */
+  pairs: Array<{ a: string; b: string; aCount: number; bCount: number }>;
+}
+
+export interface ProposeMergeResponse {
+  kind: 'propose-merge';
+  /**
+   * Validated decisions, one per surviving pair. `merge` is the model's
+   * same-entity verdict; `canonical` is one of the input values (a|b) when
+   * `merge` is true, else ''. Pairs that fail the guard are dropped.
+   */
+  pairs: Array<{ a: string; b: string; merge: boolean; canonical: string }>;
 }
 
 export class SidecarError extends Error {
