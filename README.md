@@ -8,13 +8,15 @@
 
 A single-HTML-shell tool that reads tabular data — from your local disk (via the File System Access API), from S3-compatible cloud storage, from public URLs, from Apache Iceberg tables, or from a local Compute Bridge sidecar — and runs SQL against it using DuckDB-wasm. A versioned semantic taxonomy classifies your columns into types you recognize — GSTIN, HSN code, IFSC, ISO currency, email, vendor name, timestamp, log level, and so on. From a query result you can chart it, pivot it, map it, write CSV / Parquet to a folder you choose, push to KanZen as cards, propose a Bahi journal, or parametrize a NakliPoster collection. Notebook, schema panel, chart / pivot / map cells, action sinks — all in the browser tab.
 
+NakliData also **resolves** messy data locally — the **Resolve track**, a sovereign, file-owned take on an agentic CDP's *resolve → segment → own* loop, done without anything leaving the tab. Today that's **clustering** (fuzzy-merge variant spellings of a column into a canonical value — *Resolve M1*) and **segments** (named, reusable `SEGMENT(name)` predicates — saved audiences — *Resolve M2*); a golden-table sink (own the resolved entity table as a file) is next.
+
 Supported file formats today (15): CSV · TSV · JSONL · Parquet · Arrow IPC (`.arrow` / `.feather`) · SQLite · DuckDB (`.duckdb`) · Excel `.xlsx` · SPSS (`.sav` / `.zsav` / `.por`) · Stata `.dta` · SAS (`.sas7bdat` / `.xpt`) · GeoJSON (`.geojson` / `.geo.json`) · KML. The statistical formats, SQLite, Excel, and spatial formats mount via DuckDB extensions on first use.
 
 ## What it isn't
 
 - **Not a hosted SaaS.** No server, no accounts, no login, no telemetry. NakliData is a static page; you can self-host it on a USB stick.
 - **Not an ingestion pipeline.** The data stays on your disk. Even with cloud-storage sources (v1.1), bytes go from the bucket directly to your browser — no third party in the middle.
-- **Not an "AI insights" generator.** The optional BYOK sidecar does six narrow jobs (see below). It never writes prose narration of your results and never auto-executes SQL.
+- **Not an "AI insights" generator.** The optional BYOK sidecar does eight narrow jobs (see below). It never writes prose narration of your results and never auto-executes SQL.
 - **Not multi-user.** The `.naklidata` save file (or a `?lens=` share link, which carries no data) is the sharing primitive — send the file, not a login.
 
 ## Browser support
@@ -121,7 +123,7 @@ The taxonomy is what makes NakliData feel different — it knows what your colum
 
 ## AI sidecar (BYOK, optional)
 
-Off by default. Open the gear icon → AI sidecar to enter a key. Six narrow jobs:
+Off by default. Open the gear icon → AI sidecar to enter a key. Eight narrow jobs:
 
 1. **Explain query error.** When a SQL cell errors, an inline affordance asks the sidecar what went wrong; the response is plain prose with an optional "Copy SQL" suggested-fix block (you decide whether to run it — never auto-executed).
 2. **Disambiguate type.** Shown on schema-panel columns where two or more taxonomy candidates remain plausible (confidence ∈ [0.5, 0.9) and origin = detector). One-token answer matched against the candidate list; applied via the standard override path.
@@ -129,6 +131,8 @@ Off by default. Open the gear icon → AI sidecar to enter a key. Six narrow job
 4. **Recommend reports.** In the Reports panel, "Ask sidecar to rank" scores up to N candidate report templates against your current schema + column-type summary and returns a ranked list with confidence scores. Hallucination guard lives in the parser, not just the prompt — any `template_id` the sidecar emits that isn't in the candidate set is dropped, so it can't invent reports that don't exist. You decide which of the ranked reports to run.
 5. **NL → SQL** *(W5.1, Genie / Cortex / Magic pattern).* "Ask in plain English" button on the notebook toolbar — type a question, get a DuckDB `SELECT` against your mounted tables. Five parser safety guards (defence in depth alongside the prompt, formalised in spec amendment [A23](./plan/spec-amendments.md)): (1) statement must start with `SELECT` / `WITH`; (2) every write/DDL/session-mutating keyword rejected (INSERT / UPDATE / DELETE / CREATE / DROP / ALTER / TRUNCATE / MERGE / CALL / ATTACH / COPY / EXPORT / VACUUM / PRAGMA / INSTALL / LOAD / SET / RESET / USE); (3) multi-statement responses rejected (string-literal-aware `;` scan); (4) DuckDB's replacement-scan via single-quoted FROM (`FROM 'https://attacker/x.csv'`) rejected; (5) every FROM/JOIN identifier must be in the table allowlist, including the SQL-89 comma-join form (`FROM a, b, c`) — LATERAL / UNNEST / TABLE / VALUES / PIVOT correctly treated as keywords. The generated SQL lands as a new cell — **never auto-executed**; you click Run. Only table + column names are shipped to the sidecar; no row data.
 6. **Summarise result** *(W5.2, Hex Magic pattern).* On a successfully-run SQL/cohort/assertion cell, a "Summarise" button asks the sidecar for a one-line observation about the result (top value / distribution / range). Hallucination guard: any column reference must be wrapped in backticks AND match a real result column — otherwise the entire observation is dropped. 200-char cap with ellipsis truncation. Only the columns + first 5 sample rows are shipped (privacy posture).
+7. **Propose a chart** *(v1.2 M4).* A "Suggest chart" chip on a SQL result asks the sidecar for a strict JSON chart configuration (one of 8 chart types + x / y / group columns drawn from the result + a short title), materialised as a chart cell. **No prose** — the parser drops any proposal that references a column not in the result (all-or-nothing hallucination guard). Only column names + 10 sample rows are shipped.
+8. **Propose a merge** *(Resolve M1).* The optional "Ask AI to check ambiguous pairs" affordance in the Cluster-values modal sends *only* the borderline value pairs the deterministic clustering didn't group and gets back structured merge / keep decisions, each canonical drawn from the inputs. **No prose**; a per-pair allowlist guard blocks both fabricated values and recombined pairings; **fully removable** — delete the job and key-collision + nearest-neighbour clustering still work end to end.
 
 **BYOK posture** (spec amendment [A2](./plan/spec-amendments.md)):
 - Keys live in `sessionStorage` by default (cleared on tab close).
