@@ -10,10 +10,11 @@ Working list of features to consider, drawn from competitive recon. Items are ta
 > constraint-clean (no new egress/server/accounts/bg-work; AI is one
 > removable sidecar job). **M1 is fully specced + pickup-ready.** Vision:
 > `plan/resolve-track-vision.md`; M1 build spec: `plan/resolve-m1-handoff.md`.
-> Section below. **Update 2026-06-23:** M1 + M2 BUILT, tagged + pushed.
-> **v1.4.1** (prior F5/F6 + local-model batch) · **v1.5.0** (M1 clustering /
-> fuzzy-merge) · **v1.5.1** (M2 segment primitive, `SEGMENT(name)`). **M3**
-> (golden-table sink → v1.5.2) is next. DECISIONS AV–BC; amendments A31–A32.
+> Section below. **Update 2026-06-23 — the Resolve track is COMPLETE (M1 → M2 →
+> M3), all tagged + pushed.** **v1.4.1** (prior F5/F6 + local-model batch) ·
+> **v1.5.0** (M1 clustering / fuzzy-merge) · **v1.5.1** (M2 segment primitive,
+> `SEGMENT(name)`) · **v1.5.2** (M3 golden-table sink — *resolve → segment →
+> own*). DECISIONS AV–BD; amendments A31–A33; notes in `plan/v1.5.{0,1,2}-release-notes.md`.
 >
 > **2026-06-11 (session 3) — v1.3.0 RELEASED + v1.4 feature slate (F1–F9) COMPLETE.**
 > Shipped v1.3 Phase 2 UI (cross-filter grey-out, associations panel,

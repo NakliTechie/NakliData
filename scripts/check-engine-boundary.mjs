@@ -53,6 +53,7 @@ const WATCHED_OPTIONAL = [
   'src/core/lineage-edit.ts', // v1.3 M6 — lineage edit mode (pure ops)
   'src/core/clustering.ts', // Resolve M1 — fuzzy-merge core (pure)
   'src/core/segments.ts', // Resolve M2 — segment primitive (pure)
+  'src/core/golden.ts', // Resolve M3 — golden-table survivorship (pure)
 ];
 
 const FORBIDDEN_PATTERNS = [

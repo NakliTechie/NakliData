@@ -16,12 +16,14 @@ import {
   quoteIdent,
 } from '../../core/anonymize.ts';
 import type { Engine } from '../../core/engine.ts';
+import { buildGoldenSql } from '../../core/golden.ts';
 import { getTaxonomyClient } from '../../taxonomy/client.ts';
 import type { TypeSensitivity } from '../../taxonomy/types.ts';
 import type { SqlResult } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { openAnonymizeModal } from './anonymize-modal.ts';
 import type { GatedSink } from './gating.ts';
+import { openGoldenModal } from './golden-modal.ts';
 
 export type { GatedSink, Requirement } from './gating.ts';
 export { blockReasonFor, evaluateRequirements } from './gating.ts';
@@ -222,6 +224,36 @@ export const ANONYMIZE_SINK: SinkDescriptor = {
   },
 };
 
+export const GOLDEN_SINK: SinkDescriptor = {
+  id: 'golden',
+  name: 'Export golden table',
+  description:
+    'Collapse to one row per canonical entity with survivorship rules (keep-first / max / min / latest); write CSV or Parquet to a folder you keep.',
+  async execute({ engine, cellId, cellName, result }) {
+    const viewName = `cell_${cellId}`;
+    const spec = await openGoldenModal({ columns: result.columns, sourceLabel: viewName });
+    if (!spec) throw new SinkError('Golden-table export cancelled.');
+    const sql = buildGoldenSql(spec, viewName);
+    const ext = spec.format === 'parquet' ? '.parquet' : '.csv';
+    const copyOpts = spec.format === 'parquet' ? '(FORMAT PARQUET)' : "(HEADER, DELIMITER ',')";
+    // rawName / sqlName kept distinct (forward-pass L7) — DuckDB writes under
+    // rawName; sqlName only quotes inside the SQL string literal.
+    const rawName = `tmp_golden_${cellId}${ext}`;
+    const sqlName = rawName.replace(/'/g, "''");
+    await engine.exec(`COPY (${sql}) TO '${sqlName}' ${copyOpts}`);
+    const bytes = await readDuckDbFile(engine, rawName);
+    const suggested = `${cellName ?? `cell-${cellId}`}-golden-${stamp()}${ext}`;
+    const mime = spec.format === 'parquet' ? 'application/octet-stream' : 'text/csv';
+    const file = await pickSaveFile(suggested, ext, mime);
+    if (!file) throw new SinkError('Save cancelled.');
+    await writeBytes(file, bytes);
+    return {
+      message: `Wrote a golden table (one row per "${spec.entityColumn}") — ${bytes.byteLength.toLocaleString()} bytes to ${file.name}.`,
+      bytesWritten: bytes.byteLength,
+    };
+  },
+};
+
 export const NAKLIPOSTER_SINK: SinkDescriptor = {
   id: 'nakliposter',
   name: 'Push to NakliPoster collection',
@@ -254,6 +286,7 @@ export const SINKS: SinkDescriptor[] = [
   CSV_SINK,
   PARQUET_SINK,
   ANONYMIZE_SINK,
+  GOLDEN_SINK,
   KANZEN_SINK,
   BAHI_SINK,
   NAKLIPOSTER_SINK,

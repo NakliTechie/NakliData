@@ -325,6 +325,37 @@ async function main() {
   });
   log('✓ Semantic panel renders the Segments section (SEGMENT macro) + add-form');
 
+  // 9ac. Resolve M3 — the golden-table sink collapses to one row per canonical
+  // entity with survivorship rules. Verify the sink is registered on the result
+  // and its modal (entity picker + live survivorship SQL preview) opens.
+  const goldenOpened = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"] button'));
+    const btn = btns.find((b) => b.textContent?.trim() === 'Export golden table');
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  if (!goldenOpened) throw new Error('golden-table sink button not found on the SQL result');
+  await page.waitForSelector('.golden-overlay', { timeout: 10000 });
+  const goldenModal = await page.evaluate(() => {
+    const overlay = document.querySelector('.golden-overlay');
+    if (!overlay) return { ok: false };
+    const preview = overlay.querySelector('[data-region="g-preview"]')?.textContent ?? '';
+    return {
+      ok: true,
+      hasEntity: !!overlay.querySelector('[data-region="g-entity"]'),
+      emitsGroupBy: /GROUP BY/.test(preview),
+    };
+  });
+  if (!goldenModal.ok || !goldenModal.hasEntity || !goldenModal.emitsGroupBy) {
+    throw new Error(`golden modal did not render correctly: ${JSON.stringify(goldenModal)}`);
+  }
+  await page.click('.golden-overlay [data-action="g-cancel"]');
+  await page.waitForFunction(() => document.querySelector('.golden-overlay') === null, null, {
+    timeout: 5000,
+  });
+  log('✓ Golden-table sink: modal opens (entity picker + survivorship SQL preview with GROUP BY)');
+
   // 9a. M2 lineage — the template's SQL cell reads a mounted example source
   // (a CSV registered as a VIEW over read_csv_auto). Source→cell lineage must
   // be recorded. Regression guard for the empty-lineage bug: duckdb-wasm

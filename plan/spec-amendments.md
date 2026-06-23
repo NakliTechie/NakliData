@@ -1354,6 +1354,31 @@ description, never the data.
 
 ---
 
+## A33 — Resolve track M3: golden-table sink (amends spec §3.4)
+
+**Amends:** §3.4 (action sinks).
+
+**New sink — Export golden table.** A seventh sink (alongside CSV / Parquet /
+Export-anonymized / KanZen / Bahi / NakliPoster) that collapses a result to ONE
+row per canonical entity (typically M1's `<col>__merged` column) and writes the
+deduped table to a user-chosen folder as CSV or Parquet. Each non-entity column
+collapses via a survivorship rule — keep-first / max / min / latest — mapped to
+a fixed DuckDB aggregate (`first` / `max` / `min` / `arg_max(col, orderCol)`); a
+'latest' rule needs an order column. Injection-safe: every identifier through
+`quoteIdent`, the aggregate fn from an allowlist. Customer 360, inverted to
+ownership — a file you hold, no profile-as-a-service.
+
+**Persistence:** none — a new sink, no `.naklidata` change.
+
+**Hard NOTs preserved (§6):** writes only to the folder the user explicitly
+chose via the file picker; nothing leaves the tab except into the user's own
+disk; no remote writes.
+
+**Status:** ratified + shipped (Resolve M3, tag `v1.5.2`) — completing the
+Resolve track (M1 → M2 → M3). See STATUS 2026-06-23, DECISIONS BD.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

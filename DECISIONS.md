@@ -2,6 +2,25 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-23 — Resolve track M3: golden-table sink
+
+### Decision BD — A sink (write-a-file), not an emit-a-cell; survivorship via allowlisted DuckDB aggregates; entity is the GROUP BY key
+
+M3 is the "own" verb, so it's a **sink** (like Export-anonymized) — it writes
+the resolved table to a folder the user picks — not an emit-then-run cell like
+M1/M2. The dedup is a `GROUP BY` on the canonical-entity column; each other
+column collapses via a survivorship rule mapped to a fixed DuckDB aggregate:
+keep-first → `first()`, max → `max()`, min → `min()`, latest →
+`arg_max(col, orderCol)` (the value at the row with the MAX of a chosen order
+column). The aggregate function is chosen from an allowlist — never templated
+from user input — and every identifier flows through `quoteIdent`, so the
+survivorship SQL is injection-safe by construction. The entity column is the
+GROUP BY key and is excluded from the aggregate list. No `.naklidata` change (a
+new sink); Hard NOTs preserved — nothing leaves the tab except into the user's
+own disk (the file picker they chose). `first()` is input-order-dependent
+(documented); `latest` is the deterministic recency option. This completes the
+Resolve track (M1 clustering → M2 segments → M3 golden sink).
+
 ## 2026-06-23 — Resolve track M2: segment primitive
 
 ### Decision BB — SEGMENT(name) is a third macro on the single expansion point, not a new expander or dialect
