@@ -302,6 +302,29 @@ async function main() {
   });
   log('✓ Cluster modal: chip → GROUP BY → core → CASE-emit path renders + closes');
 
+  // 9ab. Resolve M2 — the Semantic panel now manages Segments (SEGMENT(name))
+  // alongside measures + dimensions. Verify the section + add-form render.
+  await page.click('[data-action="open-measures"]');
+  await page.waitForSelector('.measures-overlay', { timeout: 10000 });
+  const semanticPanel = await page.evaluate(() => {
+    const overlay = document.querySelector('.measures-overlay');
+    if (!overlay) return { ok: false };
+    const text = overlay.textContent ?? '';
+    return {
+      ok: true,
+      hasSegments: text.includes('SEGMENT(name)'),
+      hasSegForm: !!overlay.querySelector('[data-region="s-name"]'),
+    };
+  });
+  if (!semanticPanel.ok || !semanticPanel.hasSegments || !semanticPanel.hasSegForm) {
+    throw new Error(`Semantic panel missing the Segments section: ${JSON.stringify(semanticPanel)}`);
+  }
+  await page.click('.measures-overlay [data-action="measures-close"]');
+  await page.waitForFunction(() => document.querySelector('.measures-overlay') === null, null, {
+    timeout: 5000,
+  });
+  log('✓ Semantic panel renders the Segments section (SEGMENT macro) + add-form');
+
   // 9a. M2 lineage — the template's SQL cell reads a mounted example source
   // (a CSV registered as a VIEW over read_csv_auto). Source→cell lineage must
   // be recorded. Regression guard for the empty-lineage bug: duckdb-wasm

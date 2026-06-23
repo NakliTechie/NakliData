@@ -52,6 +52,7 @@ const WATCHED_OPTIONAL = [
   'src/core/chart-shelves.ts', // v1.3 M5 — shelf-based chart authoring
   'src/core/lineage-edit.ts', // v1.3 M6 — lineage edit mode (pure ops)
   'src/core/clustering.ts', // Resolve M1 — fuzzy-merge core (pure)
+  'src/core/segments.ts', // Resolve M2 — segment primitive (pure)
 ];
 
 const FORBIDDEN_PATTERNS = [

@@ -1327,6 +1327,33 @@ AV–AZ. Companion design: `plan/resolve-track-vision.md`, `plan/resolve-m1-hand
 
 ---
 
+## A32 — Resolve track M2: segment primitive (`SEGMENT(name)`) (amends spec §3.3 + §3.8)
+
+**Amends:** §3.3 / §3.8 (the semantic layer + the macro-expansion surface).
+
+**New surface — segments.** A named, reusable boolean predicate over a table,
+referenced via the **`SEGMENT(name)`** macro and managed in the Semantic layer
+panel alongside measures (`MEASURE(name)`, A-prior) and dimensions
+(`DIM(name)`, F1). `SELECT * FROM t WHERE SEGMENT(high_value_lapsed)` expands —
+at the SAME single audited point as the other two macros (`expandMeasures`) — to
+`WHERE (total_amount > 100000 AND last_seen < '2026-01-01')`. Pure client-side
+macro expansion; no new SQL dialect. An unknown segment substitutes `FALSE` and
+is surfaced as `Unknown SEGMENT(x)` before the cell runs. Validation reuses the
+measure keyword/semicolon guard.
+
+**Persistence:** a new optional `segments` field on `.naklidata` (mirrors how
+`dimensions` shipped in v1.4). Pre-M2 files round-trip cleanly; no format-version
+bump.
+
+**Hard NOTs preserved (§6):** pure macro expansion; no server; emits a cell the
+user runs (Hard NOT #4), never auto-runs; the definition lives in the workbook
+description, never the data.
+
+**Status:** ratified + shipped (Resolve M2, tag `v1.5.1`). See STATUS
+2026-06-23, DECISIONS BB–BC. Companion design: `plan/resolve-track-vision.md`.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

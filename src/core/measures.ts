@@ -228,12 +228,17 @@ export interface MeasureExpansionResult {
   unknownMeasures: string[];
   /** `DIM(name)` references whose name wasn't in the dimensions map (F1). */
   unknownDimensions: string[];
+  /** `SEGMENT(name)` references whose name wasn't in the segments map (M2). */
+  unknownSegments: string[];
 }
 
 const MEASURE_CALL_RE = /\bMEASURE\(([a-z_][a-z0-9_]*)\)/g;
 // v1.4 F1 — the dimension macro, expanded in the SAME pass as MEASURE so
 // a measure body can reference a DIM and vice-versa (depth-capped).
 const DIM_CALL_RE = /\bDIM\(([a-z_][a-z0-9_]*)\)/g;
+// Resolve M2 — the segment macro (a named WHERE predicate), expanded in the
+// SAME pass so a segment can reference a DIM/MEASURE and vice-versa.
+const SEGMENT_CALL_RE = /\bSEGMENT\(([a-z_][a-z0-9_]*)\)/g;
 const MAX_DEPTH = 10;
 
 /**
@@ -251,11 +256,14 @@ export function expandMeasures(
   sql: string,
   measures: ReadonlyMap<string, MeasureDefinition>,
   dimensions?: ReadonlyMap<string, { name: string; expression: string }>,
+  segments?: ReadonlyMap<string, { name: string; expression: string }>,
 ): MeasureExpansionResult {
   const dims = dimensions ?? new Map<string, { name: string; expression: string }>();
+  const segs = segments ?? new Map<string, { name: string; expression: string }>();
   const expansions: Array<{ name: string; expression: string }> = [];
   const unknownMeasures: string[] = [];
   const unknownDimensions: string[] = [];
+  const unknownSegments: string[] = [];
   let current = sql;
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
     // Fresh, non-global regexes for the presence check — a global
@@ -265,8 +273,9 @@ export function expandMeasures(
     // must, to replace all occurrences). Defence-in-depth per L15.
     const hasMeasure = new RegExp(MEASURE_CALL_RE.source).test(current);
     const hasDim = new RegExp(DIM_CALL_RE.source).test(current);
-    if (!hasMeasure && !hasDim) {
-      return { sql: current, expansions, unknownMeasures, unknownDimensions };
+    const hasSegment = new RegExp(SEGMENT_CALL_RE.source).test(current);
+    if (!hasMeasure && !hasDim && !hasSegment) {
+      return { sql: current, expansions, unknownMeasures, unknownDimensions, unknownSegments };
     }
     if (hasMeasure) {
       current = current.replace(MEASURE_CALL_RE, (_match, name: string) => {
@@ -287,6 +296,20 @@ export function expandMeasures(
         if (!def) {
           if (!unknownDimensions.includes(name)) unknownDimensions.push(name);
           return 'NULL';
+        }
+        expansions.push({ name, expression: def.expression });
+        return `(${def.expression})`;
+      });
+    }
+    if (hasSegment) {
+      current = current.replace(SEGMENT_CALL_RE, (_match, name: string) => {
+        const def = segs.get(name);
+        if (!def) {
+          if (!unknownSegments.includes(name)) unknownSegments.push(name);
+          // FALSE keeps a WHERE predicate slot well-formed (SEGMENT sits in a
+          // boolean position); the unknown-segments list is the diagnostic the
+          // caller surfaces before running anything.
+          return 'FALSE';
         }
         expansions.push({ name, expression: def.expression });
         return `(${def.expression})`;

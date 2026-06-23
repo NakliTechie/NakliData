@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-06-23 — Resolve track M2: segment primitive
+
+### Decision BB — SEGMENT(name) is a third macro on the single expansion point, not a new expander or dialect
+
+A segment is a named WHERE predicate. Rather than a parallel `expandSegments`,
+`SEGMENT(name)` joins `MEASURE(name)` + `DIM(name)` in the SAME audited
+`expandMeasures` pass (now 4-aware), so a segment can reference a DIM/MEASURE and
+vice-versa, depth-capped, with one place where a macro becomes its definition —
+the "no second SQL dialect" measures principle. Expansion wraps the body in
+parens like the others. **Unknown segment → `FALSE`** (not `NULL` like
+MEASURE/DIM): SEGMENT sits in a boolean predicate slot, so `FALSE` keeps a
+`WHERE` well-formed; the substituted value never actually runs because the
+notebook surfaces `Unknown SEGMENT(x)` and refuses to execute first. Validation
+reuses the measure guard (no semicolons, no DDL/DML) — a predicate is the same
+"fragment in a query slot" shape.
+
+### Decision BC — Segments persist as an optional `.naklidata` field; pre-M2 files round-trip clean
+
+`segments?: SegmentsFile` is added to the persisted file exactly as `dimensions`
+was in v1.4 (optional, spread only when present). Pre-M2 files have no `segments`
+key and load cleanly; saving a workbook with no segments writes no key. No
+breaking change, no format-version bump. The segment definition lives in the
+workbook description (the optional field), never the data; the cell the user
+runs is the artifact (Hard NOT #4).
+
 ## 2026-06-23 — Resolve track M1: clustering / fuzzy-merge
 
 ### Decision AV — Key collision is the default; nearest neighbour is opt-in

@@ -16,6 +16,7 @@ import type { DimensionsFile } from './dimensions.ts';
 import type { LineageGraph } from './lineage-store.ts';
 import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
+import type { SegmentsFile } from './segments.ts';
 import type { SelectionsFile } from './selections.ts';
 import type { OverrideRule, UserType } from './workbook.ts';
 
@@ -68,6 +69,11 @@ export interface NakliDataFile {
    * via `DIM(name)`). Optional — pre-F1 files round-trip cleanly.
    */
   dimensions?: DimensionsFile;
+  /**
+   * Segments (Resolve M2 — named WHERE predicates referenced via
+   * `SEGMENT(name)`). Optional — pre-M2 files round-trip cleanly.
+   */
+  segments?: SegmentsFile;
   settings: { auto_accept_threshold: number };
 }
 
@@ -146,6 +152,8 @@ export interface SerializeInput {
   associations?: AssociationsFile;
   /** v1.4 F1 — dimensions snapshot. Optional. */
   dimensions?: DimensionsFile;
+  /** Resolve M2 — segments snapshot. Optional. */
+  segments?: SegmentsFile;
 }
 
 export function serialize(input: SerializeInput): NakliDataFile {
@@ -248,6 +256,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
     ...(input.selections ? { selections: input.selections } : {}),
     ...(input.associations ? { associations: input.associations } : {}),
     ...(input.dimensions ? { dimensions: input.dimensions } : {}),
+    ...(input.segments ? { segments: input.segments } : {}),
     settings: { auto_accept_threshold: input.autoAcceptThreshold },
   };
 }

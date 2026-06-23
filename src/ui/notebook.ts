@@ -21,6 +21,7 @@ import {
 import { getMeasuresStore } from '../core/measures-store.ts';
 import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
+import { getSegmentsStore } from '../core/segments.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
@@ -312,10 +313,12 @@ LIMIT 100`,
       // @cells still resolves those references in the second pass.
       const measuresMap = getMeasuresStore().asMap();
       const dimensionsMap = getDimensionsStore().asMap();
-      const measureExpanded = expandMeasures(code, measuresMap, dimensionsMap);
+      const segmentsMap = getSegmentsStore().asMap();
+      const measureExpanded = expandMeasures(code, measuresMap, dimensionsMap, segmentsMap);
       const unknownMacros = [
         ...measureExpanded.unknownMeasures.map((m) => `MEASURE(${m})`),
         ...measureExpanded.unknownDimensions.map((d) => `DIM(${d})`),
+        ...measureExpanded.unknownSegments.map((s) => `SEGMENT(${s})`),
       ];
       if (unknownMacros.length > 0) {
         this.patchCell(id, {

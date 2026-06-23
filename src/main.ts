@@ -34,6 +34,7 @@ import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
+import { getSegmentsStore } from './core/segments.ts';
 import { getSelectionsStore } from './core/selections.ts';
 import {
   type SessionMeta,
@@ -1383,6 +1384,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       selections: getSelectionsStore().toFile(),
       associations: getAssociationsStore().toFile(),
       dimensions: getDimensionsStore().toFile(),
+      segments: getSegmentsStore().toFile(),
     });
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
@@ -2412,6 +2414,8 @@ async function doApplyLoadedFile(
   getAssociationsStore().loadFromFile(file.associations);
   // v1.4 F1 — restore dimensions (optional).
   getDimensionsStore().loadFromFile(file.dimensions);
+  // Resolve M2 — restore segments (optional; pre-M2 files have no segments).
+  getSegmentsStore().loadFromFile(file.segments);
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {

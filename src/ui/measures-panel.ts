@@ -26,6 +26,14 @@ import {
   validateMeasureName,
   validateMeasuresFile,
 } from '../core/measures.ts';
+import {
+  type SegmentDefinition,
+  findReferencedSegments,
+  getSegmentsStore,
+  validateSegmentExpression,
+  validateSegmentName,
+  validateSegmentsFile,
+} from '../core/segments.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { confirmModal } from './confirm-modal.ts';
 import { restoreModalFocus } from './modal-focus.ts';
@@ -102,16 +110,20 @@ function renderModal(desc: MeasuresPanelDescriptor): HTMLElement {
 
   const measures = getMeasuresStore().list();
   const dimensions = getDimensionsStore().list();
+  const segments = getSegmentsStore().list();
   const measureUsage = usageMap(desc, findReferencedMeasures);
   const dimUsage = usageMap(desc, findReferencedDimensions);
+  const segUsage = usageMap(desc, findReferencedSegments);
 
   const body = _codeMode
-    ? renderCodeView(measures, dimensions)
+    ? renderCodeView(measures, dimensions, segments)
     : `
       ${renderSection('Measures', 'MEASURE(name)', measures.length === 0 ? renderEmpty('measure') : measures.map((m) => renderMeasureRow(m, measureUsage.get(m.name) ?? 0)).join(''))}
       ${renderNewMeasureForm()}
       ${renderSection('Dimensions', 'DIM(name)', dimensions.length === 0 ? renderEmpty('dimension') : dimensions.map((d) => renderDimRow(d, dimUsage.get(d.name) ?? 0)).join(''))}
       ${renderNewDimForm()}
+      ${renderSection('Segments', 'SEGMENT(name)', segments.length === 0 ? renderEmpty('segment') : segments.map((s) => renderSegRow(s, segUsage.get(s.name) ?? 0)).join(''))}
+      ${renderNewSegForm()}
     `;
 
   overlay.innerHTML = `
@@ -229,11 +241,43 @@ function renderNewDimForm(): string {
   `;
 }
 
+function renderSegRow(s: SegmentDefinition, count: number): string {
+  return `
+    <li class="measures-row" data-name="${escapeAttr(s.name)}" style="border:1px solid var(--border);border-radius:6px;padding:var(--space-2) var(--space-3);margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:var(--space-2);">
+        <strong>${escapeHtml(s.name)}</strong>
+        ${usageNote(count)}
+        <span style="flex:1;"></span>
+        <button class="btn btn-ghost" data-action="seg-delete" data-name="${escapeAttr(s.name)}" title="Delete segment">${iconSvg('x', 12)}</button>
+      </div>
+      ${s.description ? `<p style="margin:4px 0;font-size:12px;color:var(--text);">${escapeHtml(s.description)}</p>` : ''}
+      <code style="display:block;background:var(--surface-alt);padding:4px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;">${escapeHtml(s.expression)}</code>
+    </li>
+  `;
+}
+
+function renderNewSegForm(): string {
+  return `
+    <div class="measures-new" style="padding:var(--space-3);background:var(--surface-alt);border-radius:6px;">
+      <h4 style="margin:0 0 var(--space-2) 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Define a segment</h4>
+      <label style="font-size:12px;">Name (snake_case)
+        <input type="text" data-region="s-name" placeholder="high_value_lapsed" style="width:100%;display:block;margin-top:2px;" /></label>
+      <label style="font-size:12px;display:block;margin-top:var(--space-2);">Predicate (boolean, for a WHERE slot)
+        <textarea data-region="s-expression" rows="2" placeholder="total_amount > 100000 AND last_seen < '2026-01-01'" style="width:100%;display:block;margin-top:2px;font-family:var(--font-mono);font-size:11px;"></textarea></label>
+      <label style="font-size:12px;display:block;margin-top:var(--space-2);">Description (optional)
+        <input type="text" data-region="s-description" placeholder="High-spend customers who lapsed this year" style="width:100%;display:block;margin-top:2px;" /></label>
+      <div data-region="s-error" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+      <button class="btn btn-primary" data-action="seg-add" style="margin-top:var(--space-2);">Add segment</button>
+    </div>
+  `;
+}
+
 function renderCodeView(
   measures: ReadonlyArray<MeasureDefinition>,
   dimensions: ReadonlyArray<DimensionDefinition>,
+  segments: ReadonlyArray<SegmentDefinition>,
 ): string {
-  const json = JSON.stringify({ measures, dimensions }, null, 2);
+  const json = JSON.stringify({ measures, dimensions, segments }, null, 2);
   return `
     <p style="color:var(--text-muted);font-size:12px;margin:0 0 var(--space-2) 0;">
       The semantic layer as a code-reviewable JSON artifact — copy it into version control, or paste an edited block and Apply to replace the layer. Validated before it loads.
@@ -263,12 +307,20 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
       void handleDelete(target, desc, 'dimension');
       return;
     }
+    if (action === 'seg-delete') {
+      void handleDelete(target, desc, 'segment');
+      return;
+    }
     if (action === 'measure-add') {
       handleAddMeasure(overlay, desc);
       return;
     }
     if (action === 'dim-add') {
       handleAddDimension(overlay, desc);
+      return;
+    }
+    if (action === 'seg-add') {
+      handleAddSegment(overlay, desc);
       return;
     }
     if (action === 'code-apply') {
@@ -290,6 +342,9 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
     } else if (region.startsWith('d-')) {
       ev.preventDefault();
       handleAddDimension(overlay, desc);
+    } else if (region.startsWith('s-')) {
+      ev.preventDefault();
+      handleAddSegment(overlay, desc);
     }
   });
   _onKey = (ev: KeyboardEvent) => {
@@ -301,11 +356,16 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
 async function handleDelete(
   target: HTMLElement,
   desc: MeasuresPanelDescriptor,
-  kind: 'measure' | 'dimension',
+  kind: 'measure' | 'dimension' | 'segment',
 ): Promise<void> {
   const name = target.closest<HTMLElement>('[data-name]')?.dataset.name;
   if (!name) return;
-  const refsOf = kind === 'measure' ? findReferencedMeasures : findReferencedDimensions;
+  const refsOf =
+    kind === 'measure'
+      ? findReferencedMeasures
+      : kind === 'dimension'
+        ? findReferencedDimensions
+        : findReferencedSegments;
   const usageCount = desc.cellSqls.filter((c) => refsOf(c.sql).includes(name)).length;
   // Prompt via the on-brand confirm modal rather than window.confirm —
   // a native confirm inside this panel is jarring and can be suppressed
@@ -318,7 +378,8 @@ async function handleDelete(
     ));
   if (!proceed) return;
   if (kind === 'measure') getMeasuresStore().remove(name);
-  else getDimensionsStore().remove(name);
+  else if (kind === 'dimension') getDimensionsStore().remove(name);
+  else getSegmentsStore().remove(name);
   rerender(desc);
 }
 
@@ -364,6 +425,26 @@ function handleAddDimension(overlay: HTMLElement, desc: MeasuresPanelDescriptor)
   rerender(desc);
 }
 
+function handleAddSegment(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void {
+  const err = overlay.querySelector<HTMLElement>('[data-region="s-error"]');
+  const val = (sel: string) => overlay.querySelector<HTMLInputElement>(sel)?.value.trim() ?? '';
+  const name = val('[data-region="s-name"]');
+  const expression =
+    overlay.querySelector<HTMLTextAreaElement>('[data-region="s-expression"]')?.value.trim() ?? '';
+  const description = val('[data-region="s-description"]');
+  const e = validateSegmentName(name) ?? validateSegmentExpression(expression);
+  if (e) {
+    showErr(err, e);
+    return;
+  }
+  if (getSegmentsStore().get(name)) {
+    showErr(err, `Segment "${name}" already exists. Delete it first to redefine.`);
+    return;
+  }
+  getSegmentsStore().set({ name, expression, description, version: 1 });
+  rerender(desc);
+}
+
 function handleCodeApply(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void {
   const err = overlay.querySelector<HTMLElement>('[data-region="code-error"]');
   const raw = overlay.querySelector<HTMLTextAreaElement>('[data-region="code"]')?.value ?? '';
@@ -374,7 +455,11 @@ function handleCodeApply(overlay: HTMLElement, desc: MeasuresPanelDescriptor): v
     showErr(err, `JSON parse error: ${e instanceof Error ? e.message : String(e)}`);
     return;
   }
-  const obj = (parsed ?? {}) as { measures?: unknown[]; dimensions?: unknown[] };
+  const obj = (parsed ?? {}) as {
+    measures?: unknown[];
+    dimensions?: unknown[];
+    segments?: unknown[];
+  };
   // Normalise into the file shapes (default format/description/version),
   // then validate before loading anything.
   const measures: MeasureDefinition[] = (Array.isArray(obj.measures) ? obj.measures : []).map(
@@ -400,9 +485,21 @@ function handleCodeApply(overlay: HTMLElement, desc: MeasuresPanelDescriptor): v
       version: 1,
     };
   });
+  const segments: SegmentDefinition[] = (Array.isArray(obj.segments) ? obj.segments : []).map(
+    (s) => {
+      const r = (s ?? {}) as Partial<SegmentDefinition>;
+      return {
+        name: String(r.name ?? ''),
+        expression: String(r.expression ?? ''),
+        description: String(r.description ?? ''),
+        version: 1,
+      };
+    },
+  );
   const errors = [
     ...validateMeasuresFile({ version: 1, measures }),
     ...validateDimensionsFile({ version: 1, dimensions }),
+    ...validateSegmentsFile({ version: 1, segments }),
   ];
   if (errors.length > 0) {
     showErr(err, `Not applied — fix these first:\n• ${errors.join('\n• ')}`);
@@ -410,6 +507,7 @@ function handleCodeApply(overlay: HTMLElement, desc: MeasuresPanelDescriptor): v
   }
   getMeasuresStore().loadFromFile({ version: 1, measures });
   getDimensionsStore().loadFromFile({ version: 1, dimensions });
+  getSegmentsStore().loadFromFile({ version: 1, segments });
   _codeMode = false;
   rerender(desc);
 }
