@@ -2,6 +2,17 @@
 
 Working list of features to consider, drawn from competitive recon. Items are tagged by status:
 
+> **2026-06-23 — Resolve track filed (owner-supplied vision + M1 spec).**
+> Rolled a new **Resolve track** into the pipeline: the sovereign mirror of
+> an agentic CDP's resolve→audience→activate loop, done locally —
+> **resolve → segment → own.** Three additive milestones (M1 clustering /
+> fuzzy-merge → M2 segment primitive → M3 golden-table sink), all
+> constraint-clean (no new egress/server/accounts/bg-work; AI is one
+> removable sidecar job). **M1 is fully specced + pickup-ready.** Vision:
+> `plan/resolve-track-vision.md`; M1 build spec: `plan/resolve-m1-handoff.md`.
+> Section below. **⚠ version clash:** M1 wants v1.5.0, same label the current
+> unreleased work is pencilled at — reconcile at the next release cut.
+>
 > **2026-06-11 (session 3) — v1.3.0 RELEASED + v1.4 feature slate (F1–F9) COMPLETE.**
 > Shipped v1.3 Phase 2 UI (cross-filter grey-out, associations panel,
 > shelf authoring, lineage edit), tagged **v1.3.0**, then built ALL 9
@@ -59,6 +70,88 @@ Workspace state persists across tabs (IndexedDB + FSA where the user has granted
 - [data-platform-comparison.md](./data-platform-comparison.md) — how NakliData stacks up against Databricks / Snowflake / Microsoft Fabric / BigQuery + Looker / Hex / Mode. Where we deliberately don't compete (RBAC, schedules, fabric) and what's worth borrowing (AI SQL, sensitivity labels, assertion cells). Proposes Wave 5 + Wave 6.
 - [competitive-analysis-warehouses-bi-cdp.md](./competitive-analysis-warehouses-bi-cdp.md) — **(2026-06-11, post-v1.3.0)** NakliData vs Snowflake / BigQuery (warehouses), Power BI / Tableau / Metabase (BI), Segment / RudderStack (CDP). Current 2025/26 pricing + data-gravity per platform, cited. Category map + 8-col matrix + win / non-competitor-by-design / ranked gaps. Extends the two docs above (which had no CDP coverage). Surprising find: RudderStack's warehouse-native "you own the data" pitch is our closest *philosophical* ally despite being orthogonal; MotherDuck's DuckDB-local-first marketing is worth watching.
 - [spec-amendments.md](./spec-amendments.md) — every ratified divergence from the original `02-SPEC.md`.
+- [resolve-track-vision.md](./resolve-track-vision.md) — **(2026-06-23, NEW)** the Resolve track vision + roadmap (M1→M2→M3), doctrine-fit checks, the CustomerLake framing, and where the track deliberately stops (routes to Trellis / One Job / Compute Bridge).
+- [resolve-m1-handoff.md](./resolve-m1-handoff.md) — **(2026-06-23, NEW)** the M1 (clustering / fuzzy-merge) build spec: two detection methods, the CASE-cell artifact, sidecar job #8 `propose-merge`, gate artifacts, and Hard NOTs. Autonomous-to-the-gate.
+
+---
+
+## Resolve track (v1.5.x) — 🆕 NEW 2026-06-23 · M1 specced + pickup-ready
+
+The sovereign mirror of an agentic CDP's *resolve → audience → activate* loop,
+done locally and owned as files: **resolve → segment → own.** Prompted by
+Databricks CustomerLake (2026-06-16, agentic CDP in the lakehouse); NakliData
+is the anti-centralization posture — the bytes never leave the tab. Full
+rationale + doctrine-fit checks: [resolve-track-vision.md](./resolve-track-vision.md).
+M1 build spec: [resolve-m1-handoff.md](./resolve-m1-handoff.md).
+
+**Doctrine-clean** (checked before filing): every surface works with the AI
+removed (deterministic key-collision + Levenshtein clustering; the sidecar only
+*proposes* on borderline pairs, user disposes); each emits an editable artifact
+in the tool's own language — a SQL cell / a `.naklidata` field / a file — that
+replays with no model; no new egress, no server, no accounts, no background
+work. The **autonomous resolve→act loop is explicitly OUT** (routed to One Job,
+consistent with [declined.md](./declined.md)'s "no agent loops"); enterprise
+identity-resolution + activation is **Trellis's** lane — NakliData stays a
+non-competitor by design.
+
+- **M1 · Clustering / fuzzy-merge** 🆕 (value high · fit high · effort M) → **v1.5.0** · *specced*
+  Detect variant spellings of a column's values (`Sharma Trading Co` =
+  `Sharma Trading Co.` = `SHARMA TRADING CO`) via two OpenRefine-standard
+  methods — **key collision** (fingerprint; default, no threshold) + **nearest
+  neighbour** (Levenshtein; opt-in, blocked + capped at 5k distinct values).
+  User accepts/edits the canonical value per cluster; NakliData emits an
+  **additive CASE-expression SQL cell** (`<col>__merged`) via the *existing*
+  injection-safe emitter (`quoteIdent`/`quoteLiteral`); user runs it (Hard NOT
+  #4). New pure `src/core/clustering.ts` (engine-boundary-clean) + reuse of the
+  calc-field cell-emit path. **No `.naklidata` schema change** (clusters are
+  ephemeral; the SQL cell is the durable, model-free artifact). One new dep:
+  `fastest-levenshtein` (~2 KB, MIT). Removable **sidecar job #8 `propose-merge`**
+  — borderline pairs only, structured, all-or-nothing hallucination guard,
+  mirrors `propose-chart`'s three-layer no-prose guard, rides the existing BYOK
+  + local-runtime ladder. Mirrors *Agentic Identity Resolution*.
+- **M2 · Segment primitive** 🆕 (value med-high · fit high · effort M) → v1.5.1 (additive)
+  A named, reusable predicate over a table (`high_value_lapsed = total_amount >
+  100000 AND last_seen < '2026-01-01'`) referenceable as `SEGMENT(name)`,
+  exactly as `MEASURE()` / `DIM()` already work (`expandMeasures` /
+  `src/core/dimensions.ts`). Managed in the **Semantic layer** panel; persisted
+  as an optional `segments` field on `.naklidata` (pre-M2 files round-trip
+  clean — mirrors how `dimensions` shipped in v1.4). Independent of M1, but far
+  more useful on M1's canonical entities. Mirrors the *audience workspace*. Spec
+  after M1.
+- **M3 · Golden-table sink** 🆕 (value med · fit high · effort M) → v1.5.2 (additive)
+  A new export sink (alongside CSV / Parquet / KanZen / Bahi / NakliPoster /
+  Export-anonymized) that writes the resolved/deduped canonical-entity table to
+  a user-chosen folder as CSV/Parquet — optionally one row per canonical entity
+  with survivorship rules (keep-first / max / latest per column). Customer 360,
+  **inverted to ownership** — a file you hold, nothing pushed to a plane.
+  Consumes M1's resolved column; most useful after M2. New sink, no schema
+  change. Spec after M1.
+
+**Agent-face hook (cross-track):** each surface ships a `window.naklidata` verb
+— `cluster(col, opts)`, `defineSegment(name, predicate)`, `exportGolden(opts)`
+— dev-setting-gated, off by default; part of the agent-face extension (#5),
+noted for whenever that track moves.
+
+**Routed OUT of the track (non-goals):** persistent cross-session entity graph /
+identity store (needs server + accounts → Compute Bridge / Trellis); golden
+profile-as-a-service + enrichment (out of category → Trellis); activation /
+reverse-ETL (no remote writes → Trellis); autonomous resolve→act loops (→ One
+Job); Splink-class probabilistic record-linkage at scale (browser-memory bound →
+a Bridge-side enhancement later).
+
+> ⚠ **Version reconciliation needed (decide at the next release cut).** The M1
+> handoff targets **v1.5.0**, but the *current unreleased* work (F5/F6 +
+> local-model load/registration fixes + cloud-BYOK smoke; workplan Chunk 1) was
+> also pencilled at v1.5.0. Two clean resolutions:
+> - **(a, recommended)** ship the current unreleased work as **v1.4.1** — it's
+>   bug-fix-dominant (F5/F6 are stretches on already-shipped F4/F6) — and
+>   reserve **v1.5.0** for Resolve M1. Keeps the track's v1.5.0/.1/.2 narrative
+>   intact.
+> - **(b)** ship current work as **v1.5.0** (stricter semver — F5/F6 are new
+>   features) and slide Resolve M1→M3 to **v1.6.0/.1/.2**.
+>
+> Either way the track structure holds; only the labels move. Filed under
+> v1.5.x per the vision pending that call.
 
 ---
 

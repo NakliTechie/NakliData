@@ -8,6 +8,8 @@ CI-green, deployed. Detail: `plan/2026-06-13-summary.md`; DECISIONS AP–AU.
 
 **What's left:** cut the next release (today's work is unreleased since
 v1.4.0), the deferred Layer-3 local-inference R&D, and optional polish.
+**Plus (filed 2026-06-23):** a new **Resolve track** — 3 additive milestones,
+**M1 specced + pickup-ready** (`plan/resolve-m1-handoff.md`). Section below.
 
 ---
 
@@ -61,11 +63,45 @@ later." Grounded plan: **`plan/w32-local-inference-rnd.md`**.
 
 ---
 
+## Next feature track — Resolve (filed 2026-06-23) → v1.5.x
+
+New track rolled into the pipeline (owner-supplied vision + M1 build spec).
+The sovereign mirror of an agentic CDP's resolve→audience→activate, done
+locally: **resolve → segment → own.** Three additive milestones; **M1 is fully
+specced and pickup-ready**; M2/M3 get their spec after M1 ships. Full context:
+`plan/resolve-track-vision.md` + the Resolve-track section in `plan/pending.md`.
+
+- **M1 · Clustering / fuzzy-merge → v1.5.0** — key-collision + nearest-neighbour
+  variant detection → an additive `<col>__merged` CASE cell built with the
+  *existing* injection-safe emitter; new pure `src/core/clustering.ts`; one new
+  dep `fastest-levenshtein` (~2 KB, MIT); removable sidecar job #8
+  `propose-merge`. **No `.naklidata` schema change.** Build autonomously to the
+  gate per **`plan/resolve-m1-handoff.md`** — §16 lists the gate artifacts
+  (STATUS, DECISIONS, spec amendment **A31**, README + help, version bump,
+  tests); §17 says run `/forward-pass` after the core + emitter land (before
+  the modal) and `/walkthrough` near the end. The injection-safe emitter is
+  never a deferred fix. Bundle is tight (~677/750 KB) — do not lazy-split it.
+- **M2 · Segment primitive → v1.5.1** — `SEGMENT(name)` macro on the same path
+  as `MEASURE()`/`DIM()`; optional `segments` field. Spec after M1.
+- **M3 · Golden-table sink → v1.5.2** — canonical-entity export with survivorship
+  rules. Spec after M1.
+
+> ⚠ **Version clash with Chunk 1:** both Resolve M1 and the current unreleased
+> work want **v1.5.0**. Decide at the release cut — recommended: ship current
+> work as **v1.4.1** (bug-fix-dominant) and reserve v1.5.0 for Resolve M1;
+> alternative: current work → v1.5.0, Resolve M1→M3 → v1.6.0/.1/.2. Expanded
+> note in `plan/pending.md`.
+
+---
+
 ## Pickup order (recommended)
 
 1. **Chunk 1** — cut the next release (lock in today's shipped work).
 2. **Chunk 2** — Layer-3 R&D when on a WebGPU box with time to dig.
 3. **Chunk 3** — polish, opportunistically.
+4. **Resolve M1 (→ v1.5.0)** — the next feature track; pickup-ready per
+   `plan/resolve-m1-handoff.md`. Sequence after Chunk 1 (resolve the version
+   clash there); independent of Chunks 2–3.
 
 ---
 
