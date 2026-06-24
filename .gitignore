@@ -24,3 +24,10 @@ eval/.cache/
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# plan/ working notes (gitignored 2026-06-23 — /replan-nt). NOTE: a few plan/
+# files are canonical project records, not working notes — spec-amendments.md
+# (the ratified A1–A33 log, referenced by CLAUDE.md) and the v*-release-notes.md.
+# See plan/pending.md "Open questions": consider moving those out of plan/ to
+# keep them tracked.
+plan/
