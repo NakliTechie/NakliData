@@ -2,7 +2,7 @@
 
 Browser-native semantic data workbench. Read `02-SPEC.md` (uploaded with
 the handoff) for the canonical product spec — but check
-`plan/spec-amendments.md` for divergences we've ratified since. Read
+`docs/spec-amendments.md` for divergences we've ratified since. Read
 `STATUS.md` for current build state, `DECISIONS.md` for the running
 decision log, and `plan/pending.md` for what's queued next.
 
@@ -102,7 +102,7 @@ that conflicts with a Hard NOT.
   pattern, exhaustive snapshots. Files already on disk stay as
   historical record; do not create new ones (the summary pattern
   replaces them).
-- **`plan/v<N>.<M>.0-release-notes.md`** — canonical changelog per
+- **`docs/release-notes/v<N>.<M>.0-release-notes.md`** — canonical changelog per
   tag. Written as part of the release gate; do not retcon after the
   tag ships.
 
@@ -118,4 +118,4 @@ This project must honor them. The big one:
   must be retrofitted; projects that can't be must be deprecated.
 - Persistence: workspace state in IDB; BYOK keys session-default with
   opt-in plaintext persistence (option A) and v1.2 passphrase-encrypted
-  variant (option B). See `plan/spec-amendments.md`.
+  variant (option B). See `docs/spec-amendments.md`.
