@@ -510,6 +510,26 @@ async function main() {
   const errText = await page.textContent('.cell.errored .cell-output-error');
   log(`✓ syntax error surfaced inline: "${errText?.slice(0, 60)}…"`);
 
+  // 10b. Facet Embedding cell — add via the toolbar, verify the button wires
+  // through addCell → renderEmbeddingCell and the column-picker chrome renders.
+  // (The deck.gl scatter itself needs WebGL, not asserted headlessly.)
+  await page.click('[data-nb-action="add-embedding"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="embedding"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  const embedOk = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="embedding"]');
+    return (
+      !!cell &&
+      cell.querySelector('[data-action="embed-input"]') !== null &&
+      (cell.textContent ?? '').includes('EMBED')
+    );
+  });
+  if (!embedOk) throw new Error('embedding cell did not render its picker chrome');
+  log('✓ Facet Embedding cell: add-embedding → cell + input picker rendered');
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.

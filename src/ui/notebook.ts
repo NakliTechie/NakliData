@@ -27,6 +27,7 @@ import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderDashboardCell } from './cells/dashboard-cell.ts';
+import { renderEmbeddingCell } from './cells/embedding-cell.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
@@ -41,6 +42,7 @@ import type {
   ChartCellState,
   CohortCellState,
   DashboardCellState,
+  EmbeddingCellState,
   InputCellState,
   MapCellState,
   MarkdownCellState,
@@ -140,6 +142,18 @@ export class Notebook {
         geometryCol: null,
         colorBy: null,
       } satisfies MapCellState;
+    } else if (kind === 'embedding') {
+      cell = {
+        id: genCellId(),
+        kind: 'embedding',
+        order,
+        name: null,
+        inputCell: null,
+        xCol: null,
+        yCol: null,
+        colorBy: null,
+        labelCol: null,
+      } satisfies EmbeddingCellState;
     } else if (kind === 'cohort') {
       cell = {
         id: genCellId(),
@@ -576,6 +590,7 @@ export function renderNotebook(
     else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
     else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'embedding') root.append(renderEmbeddingCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
@@ -592,6 +607,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-chart">${iconSvg('plus', 12)} Chart</button>
     <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
+    <button class="btn" data-nb-action="add-embedding" title="Semantic map — scatter precomputed x / y (e.g. an embedding projection) with colour + hover labels.">${iconSvg('plus', 12)} Embedding</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
@@ -615,6 +631,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-map"]')
     ?.addEventListener('click', () => notebook.addCell('map'));
+  addRow
+    .querySelector('[data-nb-action="add-embedding"]')
+    ?.addEventListener('click', () => notebook.addCell('embedding'));
   addRow
     .querySelector('[data-nb-action="add-cohort"]')
     ?.addEventListener('click', () => notebook.addCell('cohort'));

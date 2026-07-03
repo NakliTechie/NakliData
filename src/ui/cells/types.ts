@@ -80,6 +80,30 @@ export interface MapCellState {
 }
 
 /**
+ * Embedding / semantic-map cell (Facet track). Renders an upstream SQL cell's
+ * precomputed (x, y) coordinate columns as a deck.gl scatter on an abstract
+ * plane — the "x, y (precomputed) → embedding map" view type. No geography, no
+ * force layout; the coordinates are already 2-D (e.g. a UMAP/t-SNE projection of
+ * an embedding column materialised into the result).
+ */
+export interface EmbeddingCellState {
+  id: string;
+  kind: 'embedding';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose lastResult provides the rows. */
+  inputCell: string | null;
+  /** Numeric column for the x coordinate. */
+  xCol: string | null;
+  /** Numeric column for the y coordinate. */
+  yCol: string | null;
+  /** Optional categorical column driving point color. */
+  colorBy: string | null;
+  /** Optional column shown on hover. */
+  labelCol: string | null;
+}
+
+/**
  * Cohort cell — Wave 4 W4.4. Structurally a SQL cell whose result is
  * a single `user_id` column. Downstream cells reference the cohort
  * via `@<cohort_name>` using the same machinery that resolves any
@@ -245,6 +269,7 @@ export type CellState =
   | ChartCellState
   | PivotCellState
   | MapCellState
+  | EmbeddingCellState
   | CohortCellState
   | AssertionCellState
   | InputCellState

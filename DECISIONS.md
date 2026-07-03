@@ -2,6 +2,41 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet: Embedding view SHIPPED as a NakliData cell (first productionised view)
+
+### Decision BO — new `embedding` cell kind + `deckgl-embedding` lazy chunk; the first real Facet view in the product
+
+Productionised the Embedding/semantic-map view (spike BN) as a real NakliData
+view cell — the first Facet view-type-track surface in `src/`.
+
+- **`src/lazy/deckgl-embedding.ts`** — a standalone deck.gl `Deck`
+  (`OrthographicView`) scatter for precomputed (x, y), categorical palette
+  (mirrors deckgl-points), hover labels. A lazy chunk (deck.gl never touches the
+  shell); registered in `lazy-loader.ts`.
+- **`src/ui/cells/embedding-cell.ts`** + `EmbeddingCellState` — mirrors
+  `map-cell.ts`: pick an upstream SQL cell + x / y / color / label columns →
+  renders the scatter. Pure config state → **persists in `.naklidata` with no
+  schema change** (the `return c` fall-through in `cellWithoutResults`; old files
+  round-trip).
+- **Wiring** — `notebook.ts` add-`embedding` button, `addCell` case, render
+  dispatch. Follows every existing cell exactly.
+
+**Verified end-to-end, not just typechecked:** smoke asserts the button →
+`addCell` → picker-chrome path; and a **live Chrome check drove the real chunk**
+and rendered a crisp 4-cluster coloured scatter. The live look **caught a real
+bug** headless smoke can't: deck.gl v9 leaves an explicit canvas at the HTML
+default 300×150 and CSS-stretches it (blurry) — fixed by sizing `canvas.width/
+height` to the container (same fix as the Network spike). This is exactly why the
+important-surface manual look is in the stop-checklist.
+
+**Bundle:** +4.2 KB main (the cell UI; 712.1 / 750 KB) — deck.gl stays in the
+614 KB lazy chunk, off the single-file budget. 901 vitest · smoke (+embedding
+assertion) · check green. **No layout dependency** (precomputed x, y), so this
+ships free of the @antv/layout scale/COOP-COEP risk (BM). **Next:** the
+embedSearch "find similar" interaction on the cell; then the Network view (once
+the accel-layout path is validated). 2D reduction (embedding → x,y) is an
+offline/worker concern the cell renders the output of.
+
 ## 2026-07-03 — Facet Chunk 2: Embedding-map view validated end-to-end
 
 ### Decision BN — the Embedding view works + is the cleanest first real view (no layout dependency); embeddings are sound
