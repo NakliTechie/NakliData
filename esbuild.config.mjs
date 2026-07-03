@@ -4,6 +4,7 @@ import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http';
 import { resolve as absResolve, extname, join } from 'node:path';
 import { build, context } from 'esbuild';
+import { stageGuide } from './scripts/stage-guide.mjs';
 
 const DEV = process.argv.includes('--dev');
 const OUT_DIR = 'dist';
@@ -278,5 +279,11 @@ if (DEV) {
   await serve();
 } else {
   await buildShell();
+  // Stage the illustrated field guide into dist/guide/ as part of the build so
+  // it deploys wherever the app does. The deploy pipeline (Cloudflare Workers
+  // Builds) runs this build, not `npm run deploy`, so staging must ride along
+  // with the build — a predeploy hook alone never fires in that pipeline.
+  // Idempotent + no-ops if guide/ hasn't been generated. (No-op in --dev.)
+  await stageGuide();
   console.log(`built → ${OUT_DIR}/index.html`);
 }

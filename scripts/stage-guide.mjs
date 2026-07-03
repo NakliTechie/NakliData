@@ -24,7 +24,10 @@ async function exists(p) {
   }
 }
 
-async function main() {
+// Exported so the build (esbuild.config.mjs) can stage the guide inline — the
+// deploy pipeline (Cloudflare Workers Builds) runs the build, not `npm run
+// deploy`, so staging must ride along with the build to reach production.
+export async function stageGuide() {
   if (!(await exists(join(GUIDE, 'index.html')))) {
     console.warn(
       '[stage-guide] guide/index.html not found — run ./guide/regenerate.sh first. Skipping.',
@@ -39,7 +42,10 @@ async function main() {
   console.log('[stage-guide] staged guide → dist/guide/');
 }
 
-main().catch((err) => {
-  console.error('[stage-guide] failed:', err);
-  process.exit(1);
-});
+// Run directly (predeploy hook / regenerate.sh / manual) → stage now.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  stageGuide().catch((err) => {
+    console.error('[stage-guide] failed:', err);
+    process.exit(1);
+  });
+}

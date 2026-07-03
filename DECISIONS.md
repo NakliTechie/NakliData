@@ -25,10 +25,18 @@ Both link the illustrated field guide shipped earlier (`guide/index.html`).
   which scopes to BYOK keys.
 - **Guide link = relative `guide/index.html`.** The guide is a separate build
   artifact (7.8 MB of screenshots), so it can't live in the single-file bundle.
-  Instead `scripts/stage-guide.mjs` mirrors `guide/` → `dist/guide/`, wired into
-  `guide/regenerate.sh` and a **`predeploy`** npm hook so `wrangler deploy` ships
-  it alongside `index.html`. The link resolves both locally (served from `dist/`)
-  and on the Cloudflare deploy. One constant (`GUIDE_URL`) if hosting ever moves.
+  Instead `scripts/stage-guide.mjs` mirrors `guide/` → `dist/guide/`. The link
+  resolves both locally (served from `dist/`) and on the Cloudflare deploy. One
+  constant (`GUIDE_URL`) if hosting ever moves.
+  - **Correction (same day):** staging must run **inside the build**
+    (`esbuild.config.mjs` prod branch), NOT (only) via a `predeploy` npm hook.
+    The deploy is **Cloudflare Workers Builds** (git-integration on push to
+    `main`), which builds `dist/` fresh and runs the *build command*, never
+    `npm run deploy` — so the predeploy hook never fired and the first live
+    deploy 404'd on `/guide/`. `stageGuide()` is now exported and called at the
+    end of `buildShell()`, so the guide ships wherever the build runs (`npm run
+    build`, `node esbuild.config.mjs`, or the CF pipeline). The predeploy hook +
+    `regenerate.sh` call stay as belt-and-suspenders for the local path.
 - **Why a relative link, not an absolute URL** — no hosting URL to hardcode, and
   the guide naturally sits next to the app on the same origin. Opening in a new
   tab (`target=_blank`) is plain navigation — unaffected by the app CSP (no
