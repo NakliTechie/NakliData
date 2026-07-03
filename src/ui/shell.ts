@@ -75,6 +75,9 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
         ${iconSvg('info', 14)} <span>Settings</span>
       </button>
+      <button class="btn btn-ghost" data-action="open-help" title="Help &amp; orientation — key surfaces, keyboard shortcuts, and the full illustrated guide">
+        ${iconSvg('question', 14)} <span>Help</span>
+      </button>
       <button class="btn btn-primary present-exit" data-action="exit-presentation" title="Exit presentation mode and return to the workbench">
         ${iconSvg('x', 14)} <span>Exit presentation</span>
       </button>

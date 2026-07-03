@@ -127,6 +127,41 @@ async function main() {
   if (!heading?.includes('What do you have?')) fail(`empty-state heading: ${heading}`);
   log('✓ empty state visible');
 
+  // 3w. First-run welcome splash. A fresh browser context has no
+  // `naklidata.welcomed` flag, so the splash auto-opens at the end of boot()
+  // and overlays the empty state — it MUST be dismissed before the mount
+  // buttons underneath are clickable. Assert it appeared and links the guide,
+  // then dismiss it (which persists the seen-flag for the rest of the run).
+  await page.waitForSelector('.help-overlay', { timeout: 15000 });
+  const splashGuideHref = await page.getAttribute(
+    '.help-overlay a[href*="guide/index.html"]',
+    'href',
+  );
+  if (!splashGuideHref?.includes('guide/index.html')) {
+    fail(`welcome splash is missing the guide link (got: ${splashGuideHref})`);
+  }
+  await page.click('.help-overlay [data-close]');
+  await page.waitForFunction(() => document.querySelector('.help-overlay') === null, null, {
+    timeout: 5000,
+  });
+  log('✓ first-run welcome splash: appears, links the guide, dismisses cleanly');
+
+  // 3h. Header Help button → help modal, which also links the full guide.
+  await page.click('[data-action="open-help"]');
+  await page.waitForSelector('.help-overlay', { timeout: 5000 });
+  const helpGuideHref = await page.getAttribute(
+    '.help-overlay a[href*="guide/index.html"]',
+    'href',
+  );
+  if (!helpGuideHref?.includes('guide/index.html')) {
+    fail(`help modal is missing the guide link (got: ${helpGuideHref})`);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('.help-overlay') === null, null, {
+    timeout: 5000,
+  });
+  log('✓ Help button → help modal links the guide + Escape-closes');
+
   // 3a. Remote-source mount buttons open + close cleanly without
   // console errors. Spec gates for Wave 2/3 modal hygiene — each modal
   // should mount, accept Escape, tear down cleanly.
@@ -317,7 +352,9 @@ async function main() {
     };
   });
   if (!semanticPanel.ok || !semanticPanel.hasSegments || !semanticPanel.hasSegForm) {
-    throw new Error(`Semantic panel missing the Segments section: ${JSON.stringify(semanticPanel)}`);
+    throw new Error(
+      `Semantic panel missing the Segments section: ${JSON.stringify(semanticPanel)}`,
+    );
   }
   await page.click('.measures-overlay [data-action="measures-close"]');
   await page.waitForFunction(() => document.querySelector('.measures-overlay') === null, null, {
@@ -381,11 +418,14 @@ async function main() {
     });
     if (!lineage.empty && lineage.hasSource) break;
     await page.click('[data-action="close-lineage"]').catch(() => {});
-    await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
+    await page
+      .waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 })
+      .catch(() => {});
     await page.waitForTimeout(500);
   }
   if (lineage.empty) fail('lineage panel is empty after running a source-reading SQL cell');
-  if (!lineage.hasSource) fail('lineage panel recorded no mounted-source node (source→cell edge missing)');
+  if (!lineage.hasSource)
+    fail('lineage panel recorded no mounted-source node (source→cell edge missing)');
   log('✓ source→cell lineage recorded (panel shows a mounted-source node)');
   // Close the panel so it doesn't overlay later steps.
   await page.click('[data-action="close-lineage"]').catch(() => {});

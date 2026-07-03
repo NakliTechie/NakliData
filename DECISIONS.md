@@ -2,6 +2,46 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — In-app Help modal + first-run welcome splash, both linking the field guide
+
+### Decision BP — a `help-modal` module (header Help button + first-run splash) links the illustrated guide; the guide is staged into `dist/` so a relative link resolves on deploy
+
+Added an onboarding surface for the intern (and any new user): a **Help modal**
+(header button, anytime) and a **first-run welcome splash** (once per browser).
+Both link the illustrated field guide shipped earlier (`guide/index.html`).
+
+- **`src/ui/help-modal.ts`** — one module, two entry points:
+  `openHelpModal()` (orientation: the six key surfaces + keyboard shortcuts +
+  guide CTA) and `maybeOpenWelcomeSplash({ onBrowseExamples })` (warm 3-step
+  welcome + "Browse example data" CTA + guide link). Reuses the shared
+  `.schema-graph-overlay` / `.schema-graph-modal` surface + `.btn` (like
+  confirm-modal); token-based inline styles only (no hardcoded hex); Escape /
+  backdrop / `[data-close]` to close; focus stashed + restored via
+  `restoreModalFocus`.
+- **First-run gating** — the splash shows only on a genuine first visit
+  (`!restoredFromSnapshot && !lensParam && !present`) and only once, gated on a
+  `localStorage['naklidata.welcomed']` flag. That flag is a benign UI preference
+  (not data, not a credential) → outside the "no persistent storage" Hard NOT,
+  which scopes to BYOK keys.
+- **Guide link = relative `guide/index.html`.** The guide is a separate build
+  artifact (7.8 MB of screenshots), so it can't live in the single-file bundle.
+  Instead `scripts/stage-guide.mjs` mirrors `guide/` → `dist/guide/`, wired into
+  `guide/regenerate.sh` and a **`predeploy`** npm hook so `wrangler deploy` ships
+  it alongside `index.html`. The link resolves both locally (served from `dist/`)
+  and on the Cloudflare deploy. One constant (`GUIDE_URL`) if hosting ever moves.
+- **Why a relative link, not an absolute URL** — no hosting URL to hardcode, and
+  the guide naturally sits next to the app on the same origin. Opening in a new
+  tab (`target=_blank`) is plain navigation — unaffected by the app CSP (no
+  `navigate-to` directive), and the guide's own inline styles/scripts run as its
+  own document.
+
+**Verified end-to-end:** the CSP inline-script SHA auto-recomputes at build (the
+new module bundles into it) — `npm run smoke` passes with two new assertions
+(splash appears + links guide + dismisses; Help button → modal links guide +
+Escape-closes), and a live Chrome check confirmed both surfaces render on-brand
+and the relative guide link resolves (HTTP 200, "NakliData — Field Guide"). Bundle
+**719.2 KB / 750 KB** (+7.1 KB for the modal; 30.8 KB headroom). 901 vitest green.
+
 ## 2026-07-03 — Facet: Embedding view SHIPPED as a NakliData cell (first productionised view)
 
 ### Decision BO — new `embedding` cell kind + `deckgl-embedding` lazy chunk; the first real Facet view in the product

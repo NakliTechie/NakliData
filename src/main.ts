@@ -73,6 +73,7 @@ import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openEmbedModal } from './ui/embed-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
+import { maybeOpenWelcomeSplash, openHelpModal } from './ui/help-modal.ts';
 import {
   type LensConfirmCell,
   type LensConfirmDescriptor,
@@ -439,6 +440,15 @@ async function boot(): Promise<void> {
   // multi-GB download. Matches the BYOK posture: keys auto-load
   // from session/IDB (already-committed state), not from nowhere.
   void autoLoadLocalIfCached(engine);
+
+  // First-run welcome splash — only for a genuine first visit (nothing was
+  // restored from a previous session) and only once (localStorage-gated inside
+  // the modal). The "browse example data" CTA runs the same handler the
+  // empty-state button does. A lens/present boot skips it (they're not the
+  // first-time-user path).
+  if (!restoredFromSnapshot && !lensParam && bootParams.get('present') !== '1') {
+    maybeOpenWelcomeSplash({ onBrowseExamples: () => void handleAction('browse-examples', null) });
+  }
 }
 
 /**
@@ -1733,6 +1743,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-settings': {
       void openSettingsModal();
+      return;
+    }
+    case 'open-help': {
+      openHelpModal();
       return;
     }
     case 'explain-error': {

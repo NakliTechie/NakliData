@@ -18,6 +18,7 @@
     "gen-examples": "node scripts/gen-examples.mjs",
     "test:watch": "vitest",
     "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs",
+    "predeploy": "node scripts/stage-guide.mjs",
     "deploy": "wrangler deploy",
     "preview": "wrangler dev"
   },
