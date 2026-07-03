@@ -1,0 +1,146 @@
+[
+  {
+    "section": "getting-started",
+    "slug": "01-empty-state",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "getting-started",
+    "slug": "02-mount-url",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "getting-started",
+    "slug": "03-mount-s3",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "data-and-schema",
+    "slug": "01-sources-mounted",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "data-and-schema",
+    "slug": "02-schema-panel",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "data-and-schema",
+    "slug": "03-type-override",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "notebook",
+    "slug": "01-templates",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "notebook",
+    "slug": "02-sql-cell-result",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "notebook",
+    "slug": "03-chart-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "notebook",
+    "slug": "04-add-cell-row",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "resolve",
+    "slug": "01-cluster-modal",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "resolve",
+    "slug": "02-semantic-panel",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "resolve",
+    "slug": "03-golden-table",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "lineage",
+    "slug": "01-lineage-panel",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "facet",
+    "slug": "01-embedding-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "ai-sidecar",
+    "slug": "01-settings-byok",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "ai-sidecar",
+    "slug": "02-result-ai-chips",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "ai-sidecar",
+    "slug": "03-nl-to-sql",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "01-input-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "02-dashboard-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "03-stats-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "04-report-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "05-assertion-cell",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "more-cells",
+    "slug": "06-cohort-cell",
+    "status": "ok",
+    "errors": 0
+  }
+]
