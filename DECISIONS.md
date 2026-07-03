@@ -2,6 +2,54 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet merged in as a NakliData view-type track (sovereign tier only)
+
+### Decision BE — "Facet" (browser-native graph + embedding explorer) folds into NakliData as a new view-type track; its commercial backend stays a separate repo/co.
+
+Facet was scoped as a separate project — a browser-native explorer for large
+graphs and embedding maps ("one data shape, many views": network / knowledge
+graph / semantic map / temporal / distribution / hierarchy / geo, over an
+in-browser DuckDB core, linked by crossfilter, with a removable BYOK AI
+sidecar). On examination its architecture and posture are **NakliData's**, and
+its entire v1.0 dependency list is **already installed here**: `@duckdb/duckdb-wasm`
+(DB+SQL+VSS), `@huggingface/transformers` (local WebGPU embeddings / L2 LLM),
+`cytoscape` (force graph), `@deck.gl/*` + `maplibre-gl` (geo), `@observablehq/plot`
+(distribution), `@codemirror/lang-sql`, plus an existing `src/core/sidecar` +
+`src/core/secrets` (BYOK, session-only). Facet is not a different app — it is a
+**view-type renderer layer over the substrate we already ship**.
+
+**Merge (sovereign/free tier only).** Facet's own vision splits along a "bright
+line": the free/sovereign tier (local + BYOK, data on disk, zero server, zero
+telemetry) — which is NakliData feature-for-feature — and a **commercial tier**
+(team rooms, relay-served AI, cloud sync/share, SSO/admin, a real backend) that
+Facet already designates "parallel, separate co." The commercial tier collides
+head-on with NakliData Hard NOTs (no login/accounts/sharing-via-link/server), so
+it **does not enter this repo** — it stays a separate future repo/company. We
+lose nothing: the split was always in Facet's design.
+
+**Identity: a track, not a second brand.** Facet becomes the **"Facet track"**
+inside NakliData (the same pattern as the Resolve track M1→M2→M3), not a distinct
+product name over a shared engine. One brand, one repo, one substrate.
+
+**M0 folds into the owed Layer-3 item.** Facet's M0 riskiest-assumption gate —
+"prove free-tier local (L1/L2) AI is useful AND safe: schema-grounded, loud-
+failing NL→SQL + useful low-latency local embedding search" — is *the same open
+problem* as NakliData's parked Layer-3 local-inference-quality R&D item (same
+WebGPU / Transformers.js quality question, same needs-a-WebGPU-box constraint).
+One eval-harness pass answers both. Facet's "no product shell before M0" rule is
+moot here — NakliData IS the shell — so the M0 eval runs against our existing
+sidecar (`nl2sql` ≈ the existing NL→SQL job; `embedSearch` is the new module),
+NOT as a throwaway `facet-m0` repo.
+
+**Open (pinned before scaffolding views):** the GPU graph engine choice — Facet's
+docs name it only in a v1.0 handoff we don't have and forbid naming the "source
+tool"; we already ship `cytoscape`, but a heavier GPU engine (regl/Cosmograph-
+class) changes the bundle math and the single-file budget (see A34). Pin the
+engine before building the Network view.
+
+**Companion docs (working notes, `plan/`):** `facet-track-vision.md`,
+`facet-m0-handoff.md`, `facet-ux-preview.html`. Spec amendment **A34**.
+
 ## 2026-06-23 — Resolve track M3: golden-table sink
 
 ### Decision BD — A sink (write-a-file), not an emit-a-cell; survivorship via allowlisted DuckDB aggregates; entity is the GROUP BY key

@@ -1379,6 +1379,68 @@ Resolve track (M1 → M2 → M3). See STATUS 2026-06-23, DECISIONS BD.
 
 ---
 
+## A34 — Facet view-type track: a lazy-loaded, budget-exempt view-renderer layer (new surface; amends spec §3.1 + §3.3 + §7.1)
+
+**Amends:** §3.1 (cell/view kinds), §3.3 (surfaces), §7.1 (shell bundle budget).
+
+**New surface — the view-type layer (the "Facet track").** NakliData absorbs
+Facet's sovereign tier (DECISIONS BE) as a new family of **view renderers over
+the existing DuckDB substrate** — "one data shape (points + links + attributes),
+many views." The columns present in a result decide the view it unlocks:
+
+| Column(s) present | View |
+|---|---|
+| links (source, target) | Network (force) |
+| + node/link type | Knowledge graph (typed filter + legend) |
+| x, y (precomputed) | Embedding / semantic map |
+| a time column | Temporal (scrubber, animate) |
+| numeric on nodes/links | Weighted / attributed (color·size·width) |
+| numeric column | Distribution (histogram, crossfiltered) |
+| categorical column | Categorical (bars) |
+| parent col / DAG edges | Hierarchy / tree |
+| lat, lon | Geospatial (basemap + points) |
+
+Views are **new renderers over the same result shape**, bound by a crossfilter
+coordinator — not new apps. Each rides the same removable BYOK sidecar as every
+other surface: every AI action lands as an **editable, staged** artifact in the
+tool's own language (DuckDB SQL / view config), run through the deterministic
+core so a wrong generation fails **loud** (empty result / engine error), never a
+silently-applied plausible-but-wrong result. Nothing runs until accepted
+(preserves Hard NOT #4: no auto-execution of LLM-generated SQL).
+
+**Budget carve-out.** The GPU graph engine + view renderers will not fit the
+§7.1 single-file core budget (750 KB, A30). The view-type layer therefore loads
+**on demand** (via the existing `src/lazy/` split) and is **exempt from the
+single-file core budget** — the core shell stays ≤ 750 KB; each view chunk is
+gated by its own separate budget once the engine is pinned. This is the first
+sanctioned exception to "one file"; it is a deliberate, bounded escalation
+(a lazy chunk fetched only when a view opens), not a move off the sovereign
+posture — data still never leaves the tab, no server, no telemetry on the free
+tier.
+
+**Commercial tier explicitly out of scope (Hard NOTs preserved, §6).** Team
+rooms / relay-served AI / cloud sync / share-via-link / SSO / any server-side
+backend are **not** part of this amendment or this repo — they remain a separate
+future company (DECISIONS BE). The free tier never touches our infra.
+
+**Gate before any view ships — M0.** The view shell is not built until the M0
+free-AI gate passes: schema-grounded, loud-failing, safe NL→SQL + useful
+low-latency local embedding search on a free rung (L1 Ollama-bridge / L2 WebGPU),
+not only BYOK. This is folded into the owed Layer-3 local-inference item; the
+eval runs against the existing sidecar. If free-tier AI clears only on BYOK, the
+pitch restructures (free-AI → BYOK-AI) before shell work — a named escalation.
+
+**Persistence:** TBD at scaffold time — a graph/embedding result is a cell like
+any other; whether it persists as a new `.naklidata` cell kind or a view-pref
+projection over an existing SQL cell is an M0-exit decision. No `.naklidata`
+change yet.
+
+**Status:** ratified (merge decision). **Not yet built** — M0 eval-gate is the
+next actionable step (WebGPU-gated; see `plan/workplan.md`). Companion design:
+`plan/facet-track-vision.md` + `plan/facet-m0-handoff.md`. See DECISIONS BE.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.
