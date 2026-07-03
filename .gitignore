@@ -19,6 +19,12 @@ test-results/
 # also covered by the .cache/ rule above, listed here for clarity).
 eval/report.html
 eval/.cache/
+# Facet M0 harness: raw fetch (8 MB, regenerable via fetch_openalex.py) + run
+# outputs. The wrangled Parquet fixture in eval/m0/data/*.parquet IS committed
+# (it's the stable ground truth the reference SQL is validated against).
+eval/m0/data/raw_works.jsonl
+eval/m0/results.json
+eval/m0/report.md
 
 # wrangler files
 .wrangler

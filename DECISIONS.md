@@ -2,6 +2,51 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet M0 eval harness built (buildable-now slice)
+
+### Decision BH — real OpenAlex citation graph + 85 labeled tasks + Python-DuckDB scoring; the model run is the only owed piece
+
+Built the Facet M0 free-AI gate harness (Chunk 1) — everything that does
+NOT need WebGPU or a BYOK key. Lives in tracked `eval/m0/` (not product
+code; not bundled). Choices:
+
+- **Dataset — a real, messy OpenAlex Deep-Learning citation slice**
+  (2015-2023): 2,600 papers · 10,638 intra-set citation edges · 9,880
+  authors, wrangled to Parquet. Real over synthetic because the semantic
+  gate (G4) needs genuine text (title+abstract) with real topical structure;
+  Lorem-ipsum would make embedding relevance meaningless. Deep-learning is a
+  citation-dense subfield with clear subtopic clusters (ResNet cited by 699
+  in-set), so both the graph-flavored NL→SQL and the semantic clusters have
+  real ground truth. Fetched once; the Parquet is committed (OpenAlex counts
+  drift daily, so the fixture must be frozen for reproducibility). 8 MB raw
+  fetch is gitignored + regenerable.
+- **Deliberately ugly schema** (`data/SCHEMA.md`) to stress the one thing G1
+  proves — grounding in the *actual* schema, not a clean imagined one:
+  cryptic names (pid/ttl/abs/n_cite/src/dst); a citation **direction** trap
+  (`src` cites `dst`; reversing = the canonical silent-wrong); a **two-senses
+  "most cited"** trap (global `n_cite` vs intra-set in-degree); a **mixed-type
+  `score`** VARCHAR (numbers + 'N/A'/'pending'/NULL — naive AVG errors, needs
+  TRY_CAST); plus OpenAlex's natural nulls.
+- **85 labeled tasks** — 48 NL→SQL (+6 safety, `must_reject`) + 31
+  semantic-search. NL→SQL reference SQLs are **self-validated against the
+  fixture** (`validate_refs.py`) and made **deterministic** (found + fixed 3
+  flaky top-N-with-ties refs — a real eval-soundness bug). Semantic relevance
+  labels = topical subtopic clusters (keyword-defined + eyeball-excluded
+  false positives), generated reproducibly.
+- **Scoring in Python + native DuckDB** (`score.py`, self-tested via
+  `--selftest`). Native DuckDB (pip, dev-only — **not** a project/bundle dep)
+  is the same engine as the wasm build, so reference-SQL semantics match. All
+  gate math (result-set match, precision@k, safety scan, two-judge
+  divergence) is model-free and verified now.
+- **The one owed piece** is the thin **browser-side runner** that drives the
+  sidecar on L1/L2/C1 + local embedding on L2 and emits `results.json`
+  (contract pinned in `RESULTS_SCHEMA.md`). Needs a WebGPU box + a BYOK key —
+  can't run headless. Named escalation unchanged: G1 clearing only on C1
+  (BYOK) → stop, restructure the pitch.
+
+No product code touched; `npm run check/test/smoke` unaffected. Advances
+`plan/workplan.md` Chunk 1. See STATUS 2026-07-03.
+
 ## 2026-07-03 — Brave File System Access handling (field reports FR-1 / FR-2)
 
 ### Decision BG — synchronous Brave detection + prefer `<input type=file>` on Brave; folder mount stays unsupported there
