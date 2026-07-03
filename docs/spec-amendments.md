@@ -1408,15 +1408,23 @@ core so a wrong generation fails **loud** (empty result / engine error), never a
 silently-applied plausible-but-wrong result. Nothing runs until accepted
 (preserves Hard NOT #4: no auto-execution of LLM-generated SQL).
 
-**Budget carve-out.** The GPU graph engine + view renderers will not fit the
-§7.1 single-file core budget (750 KB, A30). The view-type layer therefore loads
-**on demand** (via the existing `src/lazy/` split) and is **exempt from the
-single-file core budget** — the core shell stays ≤ 750 KB; each view chunk is
-gated by its own separate budget once the engine is pinned. This is the first
-sanctioned exception to "one file"; it is a deliberate, bounded escalation
-(a lazy chunk fetched only when a view opens), not a move off the sovereign
-posture — data still never leaves the tab, no server, no telemetry on the free
-tier.
+**Engine (pinned — DECISIONS BF).** Renderer: **deck.gl** (`@deck.gl/*`, MIT,
+already installed) for ALL views (Network, Embedding, Geo) — GPU, 1M+ primitives.
+Force layout: **`@antv/layout`** (standalone MIT, WASM/WebGPU-accelerated
+ForceAtlas2). Chosen best-renderer-per-view (single-substrate is engineering
+convenience, not a moat; the unification is the DuckDB + crossfilter data layer).
+G6-the-framework rejected (render ceiling at 1M); Cosmos rejected (CC-BY-NC).
+Graph interactions (combos/legends/box-select) are ours to build on deck.gl.
+
+**Budget carve-out.** The `@antv/layout` layout engine + graph view renderers
+will not fit the §7.1 single-file core budget (750 KB, A30). The view-type layer
+therefore loads **on demand** (via the existing `src/lazy/` split) and is
+**exempt from the single-file core budget** — the core shell stays ≤ 750 KB; each
+view chunk gets its own separate budget (deck.gl is already bundled, so its cost
+is largely borne; `@antv/layout` is the main new weight, lazy-loaded). This is the
+first sanctioned exception to "one file"; a deliberate, bounded escalation (a lazy
+chunk fetched only when a view opens), not a move off the sovereign posture — data
+still never leaves the tab, no server, no telemetry on the free tier.
 
 **Commercial tier explicitly out of scope (Hard NOTs preserved, §6).** Team
 rooms / relay-served AI / cloud sync / share-via-link / SSO / any server-side

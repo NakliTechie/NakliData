@@ -2,6 +2,56 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet track: graph engine pinned (deck.gl render + @antv/layout force)
+
+### Decision BF — deck.gl renders all views; @antv/layout (GPU/WASM force) does layout; G6 framework and Cosmos both rejected
+
+Resolves the A34 / DECISIONS-BE open question (the GPU graph engine). Chirag's
+inputs: target scale **100k–1M+ nodes**, and true-1M **force** graphs are a
+**routine** case (not an occasional ceiling). Pinned:
+
+- **Renderer — deck.gl** (`@deck.gl/*`, **MIT, already installed**), for ALL
+  view types: Network, Embedding scatter, Geospatial. GPU-renders 1M+ primitives;
+  ScatterplotLayer (nodes/points) + LineLayer/PathLayer (edges). Zero new
+  dependency, clean license, one render path.
+- **Force layout — `@antv/layout`** (standalone MIT; WASM + WebGPU-accelerated
+  ForceAtlas2, usable *without* the G6 framework). We don't hand-roll the
+  million-node GPU layout — AntV already did. deck.gl consumes its output
+  positions.
+- **Escalation ladder for layout:** `@antv/layout` GPU/WASM path (primary) →
+  our own WebGPU compute-shader force sim if it underperforms at 1M (we already
+  run WebGPU in-browser via Transformers.js) → `graphology-forceatlas2` (MIT) in
+  a worker as the light/degraded fallback for small graphs.
+
+**Rejected — G6 v5 (AntV framework).** MIT and feature-rich (combos, legends,
+layouts, interactions), but it's a *framework* with its own @antv/g renderer that
+**strains at true 1M** (Canvas default / WebGL — not deck.gl-at-1M class), and it
+would own the graph surface as a second render stack. Given the routine-1M
+requirement, its render ceiling disqualifies it. We take its **layout** package,
+not the framework. **Accepted cost:** graph interactions/features (combos,
+legends, box-select, hulls) are ours to build on deck.gl — the price of the
+1M-scale priority over batteries-included features.
+
+**Rejected — Cosmograph / `@cosmograph/cosmos`.** Turnkey GPU force+render at 1M,
+but **CC-BY-NC-4.0** (non-commercial) — bars the commercial track outright and
+clouds even the free tier of a portfolio product; requires a paid commercial
+license to ship. This is almost certainly the unnamed "source tool" Facet's docs
+told us to embrace-and-extend, but its doc mis-described it as "permissively
+licensed" — it is not. Off the table.
+
+**Framing correction (Chirag's call):** "single substrate / one renderer" is
+**not a moat** — it's internal engineering convenience, invisible to competitors.
+Demoted. The unification that matters is the **data layer** — one DuckDB core, one
+point/link/attribute schema, one crossfilter coordinator operating on DuckDB
+selections *above* the renderers — which holds regardless of renderer count. So
+the engine is chosen **best-renderer-per-view**, not one-renderer-by-dogma; two
+renderers were already inevitable the moment the Geo view (deck.gl-only) exists.
+
+**Validate at scaffold time (Chunk 2, not M0):** `@antv/layout`'s standalone
+separability from G6 + that its WebGPU ForceAtlas2 genuinely holds 1M in our
+setup; deck.gl graph-render perf at 1M edges; the `OES_texture_float` WebGL
+extension browser-floor (Facet note). None block M0. Updates A34.
+
 ## 2026-07-03 — Facet merged in as a NakliData view-type track (sovereign tier only)
 
 ### Decision BE — "Facet" (browser-native graph + embedding explorer) folds into NakliData as a new view-type track; its commercial backend stays a separate repo/co.
