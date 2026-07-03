@@ -2,6 +2,38 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Brave File System Access handling (field reports FR-1 / FR-2)
+
+### Decision BG — synchronous Brave detection + prefer `<input type=file>` on Brave; folder mount stays unsupported there
+
+An intern testing on Fedora + Brave hit two mount failures (`plan/pending.md`
+Field reports). Root cause: Brave ships Chromium but gates the **File System
+Access API** behind Shields — `showDirectoryPicker` is absent (FR-1) and an FSA
+file-handle read throws `NotReadableError` *after* a successful pick (FR-2). Brave
+is outside the stated browser floor (spec §1.3: Chrome / Edge / Opera 122+), but
+the single-file path is cheaply salvageable, so:
+
+- **Detect Brave synchronously** via the Brave-only `navigator.brave` API
+  (`isBrave()` = `typeof navigator.brave?.isBrave === 'function'`). **Sync on
+  purpose:** the pickers require transient user activation, and `await`-ing
+  Brave's async `isBrave()` before `showOpenFilePicker` / `input.click()` would
+  drop the activation and break the picker. A presence check needs no await.
+- **FR-1 (folder):** no fallback exists or is possible — Brave has no
+  `showDirectoryPicker`. Keep it unsupported, but replace the generic
+  "needs Chrome/Edge/Opera" toast with a Brave-specific one that names Shields
+  and steers to **"Add file"** (which does work).
+- **FR-2 (single file):** on Brave, skip `showOpenFilePicker` and go straight to
+  the existing classic `<input type=file>` path — a plain input read is not
+  Shields-gated the way an FSA handle read is.
+
+**Non-regressive:** `isBrave()` is false on every non-Brave browser, so all
+existing paths (incl. the headless-Chromium smoke) are behavior-identical.
+**Not unit-tested** — these are DOM/FSA glue in `main.ts` (the codebase convention
+is pure logic → `src/core` + vitest, DOM glue → smoke/Chrome-verify); and the real
+failure mode (Brave Shields) can't be reproduced headless. **Verification owed:**
+the intern confirms against the live deploy on his Brave. Gates green (887 vitest ·
+smoke · check · bundle 707.9/750 KB). No spec amendment (behavior within §1.3).
+
 ## 2026-07-03 — Facet track: graph engine pinned (deck.gl render + @antv/layout force)
 
 ### Decision BF — deck.gl renders all views; @antv/layout (GPU/WASM force) does layout; G6 framework and Cosmos both rejected

@@ -2776,11 +2776,32 @@ function bulkAccept(threshold: number): void {
   toast(`Accepted ${touched} column${touched === 1 ? '' : 's'} ≥ ${threshold.toFixed(2)}.`);
 }
 
+/**
+ * Brave ships Chromium but gates the File System Access API behind its
+ * Shields (fingerprinting defense): `showDirectoryPicker` is absent
+ * (folder mount can't work — FR-1) and an FSA file-handle read throws
+ * `NotReadableError` after a successful pick (single-file mount — FR-2).
+ * Detected synchronously via the Brave-only `navigator.brave` API so we
+ * never `await` before a picker call — awaiting would drop the transient
+ * user activation the picker requires.
+ */
+function isBrave(): boolean {
+  const nav = navigator as unknown as { brave?: { isBrave?: () => Promise<boolean> } };
+  return typeof nav.brave?.isBrave === 'function';
+}
+
 async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
   type Picker = (opts?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
   const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
   if (typeof picker !== 'function') {
-    toast('Folder mount needs Chrome / Edge / Opera 122+.', 'error');
+    // FR-1: Brave has no showDirectoryPicker. Point the user at "Add file",
+    // which does work there (see pickSingleFile), instead of the generic hint.
+    toast(
+      isBrave()
+        ? 'Brave blocks folder access via Shields. Disable Shields for this site, or use "Add file" to load a single file.'
+        : 'Folder mount needs Chrome / Edge / Opera 122+.',
+      'error',
+    );
     return null;
   }
   try {
@@ -2799,7 +2820,11 @@ async function pickSingleFile(): Promise<File | null> {
     }) => Promise<FileSystemFileHandle[]>;
   };
   const w = window as WindowWithPicker;
-  if (typeof w.showOpenFilePicker === 'function') {
+  // FR-2: Brave's Shields block the FSA handle read (NotReadableError *after*
+  // a successful pick), so skip showOpenFilePicker there and go straight to the
+  // classic <input type=file> below — its read isn't Shields-gated. The `isBrave`
+  // check is synchronous, so `input.click()` still runs inside the user gesture.
+  if (!isBrave() && typeof w.showOpenFilePicker === 'function') {
     try {
       const [handle] = await w.showOpenFilePicker({
         multiple: false,
