@@ -17,7 +17,11 @@ import { embedSearchInMemory } from '../../../src/core/embed-search.ts';
 import { Engine } from '../../../src/core/engine.ts';
 import { mountFile } from '../../../src/core/mount.ts';
 import { saveKey } from '../../../src/core/sidecar/byok.ts';
-import { type SidecarDispatchOpts, dispatchJob } from '../../../src/core/sidecar/client.ts';
+import {
+  type SidecarDispatchOpts,
+  type SidecarTransport,
+  dispatchJob,
+} from '../../../src/core/sidecar/client.ts';
 import { registerLocalGenerator } from '../../../src/core/sidecar/local-runtime.ts';
 import type {
   NlToSqlJob,
@@ -37,10 +41,15 @@ type Rung = 'L1' | 'L2' | 'C1';
 interface M0Config {
   rungs: Rung[]; // which rungs to run, e.g. ['L2','C1']
   l1?: { url: string; model: string }; // Ollama OpenAI-compatible endpoint
-  c1?: { provider: SidecarProvider; model: string; key: string };
+  // C1 ceiling: either a real provider (key from the page field) OR a
+  // same-origin OpenAI-compatible proxy that injects the key server-side
+  // (endpoint set → key never enters the browser).
+  c1?: { provider: SidecarProvider; model: string; key?: string; endpoint?: string };
   localModel?: string;
   embedModel?: string;
   k?: number;
+  nlLimit?: number; // cap NL->SQL tasks (fast probe on the slow WebGPU rung)
+  skipSemantic?: boolean; // skip the corpus-embed + semantic tasks
 }
 
 interface NlTask {
@@ -62,9 +71,12 @@ const FIXTURE_TABLES = ['papers', 'citations', 'authors', 'authorship'];
 declare global {
   interface Window {
     __M0_CONFIG__?: M0Config;
-    __M0_RESULTS__?: ResultRow[];
-    __M0_ERROR__?: string;
+    __M0_RESULTS__?: ResultRow[] | undefined;
+    __M0_ERROR__?: string | undefined;
     __M0_LOG__?: string[];
+    __M0_START?: (cfg?: M0Config) => Promise<void>;
+    __M0_PROBE?: (question?: string) => void;
+    __M0_PROBE_RESULT__?: { raw?: string; ms?: number; error?: string } | undefined;
   }
 }
 
@@ -106,13 +118,54 @@ async function deriveSchema(engine: Engine): Promise<NlToSqlJob['tables']> {
   return tables;
 }
 
+// L1 transport: NakliData's custom provider hard-requires https:// (CSP-tied),
+// so we can't point it at a local http Ollama proxy. Inject a transport that
+// POSTs to the OpenAI-compatible Ollama endpoint directly. This still runs the
+// REAL prompt-building (dispatchJob → buildNlToSqlPrompt) and REAL parsing
+// (parseNlToSqlResponse) — only the HTTP leg is swapped. A faithful model test.
+const openaiCompatTransport: SidecarTransport = async (req) => {
+  const base = (req.endpointUrl ?? '').replace(/\/$/, '');
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: req.model,
+      messages: [
+        { role: 'system', content: req.system },
+        { role: 'user', content: req.user },
+      ],
+      temperature: 0.3,
+      stream: false,
+    }),
+    ...(req.signal ? { signal: req.signal } : {}),
+  });
+  if (!res.ok) throw new Error(`ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return data.choices?.[0]?.message?.content ?? '';
+};
+
 function rungConfig(rung: Rung, cfg: M0Config): SidecarDispatchOpts {
   if (rung === 'L2') return { provider: 'local', model: cfg.localModel ?? DEFAULT_LOCAL_MODEL_ID };
   if (rung === 'L1') {
     if (!cfg.l1) throw new Error('L1 requested but no cfg.l1');
-    return { provider: 'custom', model: cfg.l1.model, customEndpoint: cfg.l1.url };
+    return {
+      provider: 'custom',
+      model: cfg.l1.model,
+      customEndpoint: cfg.l1.url,
+      transport: openaiCompatTransport,
+    };
   }
   if (!cfg.c1) throw new Error('C1 requested but no cfg.c1');
+  // Proxied OpenAI-compatible endpoint (e.g. DeepSeek via the dev-server proxy
+  // that injects the key): reuse the OpenAI-compatible transport, key-free here.
+  if (cfg.c1.endpoint) {
+    return {
+      provider: 'custom',
+      model: cfg.c1.model,
+      customEndpoint: cfg.c1.endpoint,
+      transport: openaiCompatTransport,
+    };
+  }
   return { provider: cfg.c1.provider, model: cfg.c1.model };
 }
 
@@ -125,7 +178,8 @@ async function runNlToSql(
   out: ResultRow[],
 ): Promise<void> {
   const opts = rungConfig(rung, cfg);
-  for (const task of tasks) {
+  const limited = cfg.nlLimit ? tasks.slice(0, cfg.nlLimit) : tasks;
+  for (const task of limited) {
     const job: NlToSqlJob = { kind: 'nl-to-sql', question: task.intent, tables, dialect: 'duckdb' };
     const t0 = performance.now();
     let sql = '';
@@ -159,7 +213,7 @@ async function runNlToSql(
       latency_ms: latency,
     });
   }
-  log(`nl2sql ${rung}: ${tasks.length} tasks done`);
+  log(`nl2sql ${rung}: ${limited.length} tasks done`);
 }
 
 async function buildCorpus(
@@ -242,18 +296,28 @@ async function main(): Promise<void> {
     registerLocalGenerator(gen); // main-bundle registration (split-singleton, DECISIONS AJ/AU)
     log('local generator registered');
   }
-  if (cfg.rungs.includes('L1') && cfg.l1) {
-    await saveKey('custom', 'ollama-no-key-needed', false); // dispatch requires a non-empty key
+  // Any 'custom'-provider proxy path (L1 Ollama, or a proxied C1) needs a
+  // non-empty key to pass dispatch's gate — the proxy/Ollama injects/ignores
+  // the real one, so a placeholder is fine.
+  const usesCustomProxy =
+    (cfg.rungs.includes('L1') && cfg.l1) || (cfg.rungs.includes('C1') && cfg.c1?.endpoint);
+  if (usesCustomProxy) {
+    await saveKey('custom', 'proxy-injects-or-ignores-key', false);
   }
-  if (cfg.rungs.includes('C1') && cfg.c1) {
-    await saveKey(cfg.c1.provider, cfg.c1.key, false);
+  if (cfg.rungs.includes('C1') && cfg.c1 && !cfg.c1.endpoint) {
+    // Real provider (Anthropic/OpenAI): key comes from the page's BYOK field so
+    // the user types it into their own browser and the driver never reads it.
+    const field = document.getElementById('m0-byok-key') as HTMLInputElement | null;
+    const key = cfg.c1.key || field?.value || '';
+    if (!key) throw new Error('C1 requested but no BYOK key (fill the field on the page)');
+    await saveKey(cfg.c1.provider, key, false);
   }
 
   for (const rung of cfg.rungs) {
     await runNlToSql(engine, tables, nlTasks, rung, cfg, out);
   }
   // semantic runs on L2 only (local WebGPU embeddings — the free-tier gate)
-  if (cfg.rungs.includes('L2')) {
+  if (cfg.rungs.includes('L2') && !cfg.skipSemantic) {
     await runSemantic(engine, semTasks, cfg, out);
   }
 
@@ -261,8 +325,39 @@ async function main(): Promise<void> {
   log(`DONE — ${out.length} result rows`);
 }
 
-main().catch((e) => {
-  window.__M0_ERROR__ = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
-  // eslint-disable-next-line no-console
-  console.error('[m0] fatal', e);
-});
+// Drivable both ways: the Playwright run.mjs pre-injects window.__M0_CONFIG__
+// (auto-runs below); an interactive driver calls window.__M0_START(cfg).
+window.__M0_START = (cfg?: M0Config) => {
+  if (cfg) window.__M0_CONFIG__ = cfg;
+  window.__M0_LOG__ = [];
+  window.__M0_RESULTS__ = undefined;
+  window.__M0_ERROR__ = undefined;
+  return main().catch((e) => {
+    window.__M0_ERROR__ = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
+    console.error('[m0] fatal', e);
+  });
+};
+// Direct single-inference probe — bypasses the full loop to answer, fast, the
+// one question that matters on L2: coherent SQL vs the slice-B garbage, + the
+// real per-generation latency. Result lands on window.__M0_PROBE_RESULT__.
+window.__M0_PROBE = (question?: string) => {
+  window.__M0_PROBE_RESULT__ = undefined;
+  const model = window.__M0_CONFIG__?.localModel ?? DEFAULT_LOCAL_MODEL_ID;
+  const q =
+    question ??
+    'Given DuckDB table papers(pid VARCHAR, ttl VARCHAR, yr BIGINT, n_cite BIGINT), how many papers were published in 2020?';
+  (async () => {
+    const gen = await loadModel(model);
+    registerLocalGenerator(gen);
+    const t0 = performance.now();
+    const raw = await gen({
+      system: 'You translate the question into a single DuckDB SQL query. Output only the SQL.',
+      user: q,
+      model,
+    });
+    window.__M0_PROBE_RESULT__ = { raw, ms: Math.round(performance.now() - t0) };
+  })().catch((e) => {
+    window.__M0_PROBE_RESULT__ = { error: e instanceof Error ? e.message : String(e) };
+  });
+};
+if (window.__M0_CONFIG__) window.__M0_START();

@@ -6,7 +6,9 @@
       "node_modules",
       "public/duckdb-fallback",
       "eval/.cache",
-      "eval/m0/runner/harness.js"
+      "eval/m0/runner/harness.js",
+      "eval/m0/results.json",
+      "eval/m0/results-*.json"
     ]
   },
   "organizeImports": { "enabled": true },

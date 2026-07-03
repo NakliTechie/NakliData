@@ -1,18 +1,29 @@
 <!doctype html>
 <meta charset="utf-8" />
 <title>Facet M0 runner</title>
-<!-- Dev eval page, not the product shell: permissive so DuckDB-wasm (CDN),
-     WebGPU, and BYOK/Ollama fetches all work. Never shipped. -->
-<body>
-  <pre id="log">Facet M0 runner — see window.__M0_RESULTS__ / window.__M0_LOG__</pre>
+<body style="font-family:system-ui;max-width:900px;margin:20px auto;padding:0 16px">
+  <h2>Facet M0 runner</h2>
+  <p>Driven by the agent for L1 (Ollama) + L2 (WebGPU). For the C1 (BYOK) ceiling,
+     paste your key below and the harness reads it directly — the driver never sees it.</p>
+  <label>C1 provider:
+    <select id="m0-byok-provider"><option value="anthropic">anthropic</option><option value="openai">openai</option></select>
+  </label>
+  &nbsp;<input type="password" id="m0-byok-key" placeholder="paste BYOK key here for C1" size="42" />
+  <button id="m0-run-c1">Run C1 with this key</button>
+  <hr />
+  <pre id="log" style="white-space:pre-wrap;background:#f5f5f5;padding:12px;border-radius:6px">idle — waiting for the driver…</pre>
   <script type="module" src="./harness.js"></script>
   <script type="module">
     const el = document.getElementById('log');
-    const t = setInterval(() => {
+    setInterval(() => {
       el.textContent = (window.__M0_LOG__ || []).join('\n') +
         (window.__M0_ERROR__ ? '\n\nERROR:\n' + window.__M0_ERROR__ : '') +
         (window.__M0_RESULTS__ ? '\n\nDONE: ' + window.__M0_RESULTS__.length + ' rows' : '');
-      if (window.__M0_RESULTS__ || window.__M0_ERROR__) clearInterval(t);
     }, 500);
+    document.getElementById('m0-run-c1').addEventListener('click', () => {
+      const provider = document.getElementById('m0-byok-provider').value;
+      // key is read inside the harness from the field — not passed here
+      window.__M0_START?.({ rungs: ['C1'], c1: { provider, model: provider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'gpt-4o-mini', key: '' } });
+    });
   </script>
 </body>

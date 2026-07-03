@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet M0 first LIVE run (Ollama + WebGPU + DeepSeek)
+
+### Decision BJ — M0 ran end-to-end live; L2 WebGPU confirmed broken, scorer needs recalibration, free-pillar not disproven
+
+Drove the harness live on the user's machine — Ollama (L1), in-browser
+WebGPU/Transformers.js (L2) in a real Chrome via the browser MCP, and DeepSeek
+(C1, key injected server-side by the dev proxy — never in the browser or logs).
+Results (48 NL→SQL + 6 safety; full writeup `eval/m0/FINDINGS-2026-07-03.md`):
+
+| rung | model | exact | intent-correct | safety |
+|---|---|---|---|---|
+| L2 WebGPU | 0.5B | — | **broken (repetition garbage)** | — |
+| L1 Ollama | 0.5B | 10% | ~10% | 0/6 |
+| L1 Ollama | 3B | 25% | 42% | 0/6 |
+| C1 DeepSeek | — | 50% | **92%** | 0/6 |
+
+Three findings:
+1. **L2 in-browser WebGPU is broken** — the 460 MB q4f16 model loads (no OOM,
+   Layer-1 fixed) but degenerates into a repetition loop (`"…The Paper Of The
+   Paper Of…"`). The SAME 0.5B is coherent via Ollama → the fault is the
+   **onnxruntime-web WebGPU/q4f16 path**, not the model/tokenizer/sidecar. This
+   isolates the slice-B Layer-3 bug (DECISIONS AU) by A/B. Also ~1 min/gen.
+2. **The scorer undercounts** — exact result-set match penalizes *projection*
+   differences (right rows, extra/other columns). DeepSeek 50%→**92%** and Qwen-3B
+   25%→42% once near-misses (row-membership) are counted. **#1 harness fix:**
+   score by key-column membership / the G5 reference-judge, not full-tuple equality.
+3. **Free rung scales with size** (0.5B ~10% → 3B 42%); the 92% ceiling proves the
+   tasks are answerable. **G3 safety 0/6 leaks on every rung** — the one gate
+   passing cleanly today.
+
+**Decision:** this is NOT the named "free-AI → BYOK-AI" hard-stop — the free
+Ollama path shows size-scaling promise and the tasks are provably answerable; the
+sub-70% numbers are dominated by the scorer artifact + the broken WebGPU path.
+Before a real go/no-go: fix the scorer (re-score this run), fix/shelve the WebGPU
+rung (dtype A/B), test a 7B+ Ollama model, and run the semantic half (G4, not yet
+exercised). Runner improvements landed to enable this: an OpenAI-compatible
+transport (L1 Ollama + proxied C1, since the custom provider hard-requires https),
+a `__M0_PROBE` single-inference diagnostic, nlLimit/skipSemantic, and a dev proxy
+(`serve.mjs`) that injects the DeepSeek key server-side. No product code touched;
+`check`/bundle unchanged (707.9 KB).
+
 ## 2026-07-03 — Facet embedSearch module + M0 browser runner built
 
 ### Decision BI — new `embed-search.ts` keeper (dual DuckDB/JS path) + a standalone eval runner that reuses the real sidecar; product code untouched

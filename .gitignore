@@ -38,3 +38,4 @@ eval/m0/report.md
 # keep them tracked.
 plan/
 eval/m0/runner/harness.js
+eval/m0/results-*.json
