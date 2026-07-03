@@ -41,3 +41,4 @@ eval/m0/runner/harness.js
 eval/m0/results-*.json
 eval/spikes/network-spike.js
 eval/spikes/network-data.json
+__pycache__/
