@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { detectFormat, sanitizeTableName } from '../src/core/mount.ts';
+import { describeReadFailure, detectFormat, sanitizeTableName } from '../src/core/mount.ts';
 
 describe('detectFormat', () => {
   it.each([
@@ -14,6 +14,7 @@ describe('detectFormat', () => {
     ['data.feather', 'arrow'],
     ['data.duckdb', 'duckdb'],
     ['data.db', 'sqlite'],
+    ['data.db3', 'sqlite'],
     ['data.sqlite', 'sqlite'],
     ['data.sqlite3', 'sqlite'],
     ['data.xlsx', 'xlsx'],
@@ -36,6 +37,32 @@ describe('detectFormat', () => {
       expect(detectFormat(filename)).toBeNull();
     },
   );
+});
+
+describe('describeReadFailure', () => {
+  it('gives a live-SQLite hint for a NotReadableError', () => {
+    const err = new DOMException(
+      'The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.',
+      'NotReadableError',
+    );
+    const msg = describeReadFailure(err, 'khata.db');
+    expect(msg).toContain('khata.db');
+    expect(msg).toMatch(/SQLite|open or being written|copy the file/i);
+  });
+
+  it('matches on the message text even without the DOMException name', () => {
+    const err = new Error('The requested file could not be read');
+    expect(describeReadFailure(err, 'x.db')).toContain('could not be read');
+  });
+
+  it('handles NotFoundError (file removed after pick)', () => {
+    const err = new DOMException('gone', 'NotFoundError');
+    expect(describeReadFailure(err, 'x.db')).toMatch(/moved or deleted/i);
+  });
+
+  it('returns null for an unrelated error (caller falls back to raw)', () => {
+    expect(describeReadFailure(new Error('boom'), 'x.db')).toBeNull();
+  });
 });
 
 describe('sanitizeTableName', () => {

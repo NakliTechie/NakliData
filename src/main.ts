@@ -2856,6 +2856,7 @@ async function pickSingleFile(): Promise<File | null> {
                 '.feather',
                 '.duckdb',
                 '.db',
+                '.db3',
                 '.sqlite',
                 '.sqlite3',
                 '.sav',
@@ -2882,7 +2883,7 @@ async function pickSingleFile(): Promise<File | null> {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept =
-      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt,.geojson,.kml';
+      '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.db3,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt,.geojson,.kml';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.click();
   });

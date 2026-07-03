@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — SQLite mount field reports (FR-3): honest folder errors + read-failure guidance + `.db3`
+
+### Decision BQ — a folder of SQLite files failing to mount is a *read* failure, not "unsupported"; surface it honestly
+
+Intern (Chrome) hit two mount errors on SQLite data: single-file → *"The requested
+file could not be read… permission problems that have occurred after a reference
+to a file was acquired"*; folder "dbmir" → *"No supported files found in 'dbmir'."*
+
+**Diagnosis:** both are the **same read failure**. The first is Chrome's verbatim
+`NotReadableError`, which fires when a picked file **changes or locks between pick
+and read** — the textbook case being a **live SQLite database** (its file mutates
+as it's read). The folder scan caught the same failure per-file, `console.warn`'d
+it, and skipped it — so an all-failed folder reported the misleading "No supported
+files found," hiding the real cause. `detectFormat` already recognised SQLite, so
+support was never the issue.
+
+**Fix (`src/core/mount.ts`, `src/main.ts`):**
+- `describeReadFailure()` (exported, tested) maps `NotReadableError` /
+  `NotFoundError` / `NotAllowedError` to actionable text — the SQLite case says
+  *"likely open or being written by another program… copy the file and mount the
+  copy."* `mountFile` wraps its register call to use it.
+- `mountFolder` now tracks **detected-but-failed** files and **skipped
+  subfolders**, and on an empty result reports which it was: "found N file(s) but
+  none could be loaded: <reason>" vs "no supported files (looked for …)" + a
+  **no-recursion hint** naming the skipped subfolders (the scan is intentionally
+  flat — another real cause of the empty result). `getFile()` moved inside the
+  per-file try (it too can throw `NotFoundError`).
+- Added **`.db3`** (common SQLite extension) to `detectFormat` + both file-picker
+  accept lists.
+
+**Not fixed (can't be, in-browser):** a genuinely live/locked DB still can't be
+read — the FSA read of a mutating file fails at the OS level. The remedy is the
+one the new message gives the user: mount a static **copy**. Verified: 906 vitest
+(+5), smoke green, bundle 719.2/750. Deferred: content-sniff the SQLite magic
+header to accept extensionless DBs (bigger change; noted for later).
+
 ## 2026-07-03 — In-app Help modal + first-run welcome splash, both linking the field guide
 
 ### Decision BP — a `help-modal` module (header Help button + first-run splash) links the illustrated guide; the guide is staged into `dist/` so a relative link resolves on deploy

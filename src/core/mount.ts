@@ -188,7 +188,12 @@ export function detectFormat(filename: string): FileFormat | null {
   if (lower.endsWith('.parquet') || lower.endsWith('.pq')) return 'parquet';
   if (lower.endsWith('.arrow') || lower.endsWith('.feather')) return 'arrow';
   if (lower.endsWith('.duckdb')) return 'duckdb';
-  if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3'))
+  if (
+    lower.endsWith('.db') ||
+    lower.endsWith('.db3') ||
+    lower.endsWith('.sqlite') ||
+    lower.endsWith('.sqlite3')
+  )
     return 'sqlite';
   if (lower.endsWith('.xlsx')) return 'xlsx';
   if (lower.endsWith('.sav') || lower.endsWith('.zsav') || lower.endsWith('.por')) return 'sav';
@@ -261,6 +266,36 @@ export class MountError extends Error {
     super(message);
     this.name = 'MountError';
   }
+}
+
+/**
+ * Turn a raw File System Access read failure into a message that says what to
+ * do about it. Chrome's `NotReadableError` ("…permission problems that have
+ * occurred after a reference to a file was acquired") fires when the file
+ * changed or got locked between being picked and being read — the classic
+ * case is a live SQLite database that keeps mutating as it's read. Returns null
+ * for errors we don't have a better message for (caller falls back to raw).
+ */
+export function describeReadFailure(err: unknown, filename: string): string | null {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : '';
+  const msg = err instanceof Error ? err.message : String(err);
+  if (name === 'NotReadableError' || /could not be read/i.test(msg)) {
+    return `"${filename}" could not be read — it's likely open or being written by another program (common with a live SQLite database, whose file changes as it's read). Close any app using it, or copy the file and mount the copy.`;
+  }
+  if (name === 'NotFoundError') {
+    return `"${filename}" was moved or deleted after it was picked — re-select it.`;
+  }
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return `Permission to read "${filename}" was denied — re-pick it and allow access.`;
+  }
+  return null;
+}
+
+/** Wrap a read/registration failure in a MountError with actionable text. */
+function enrichMountError(err: unknown, filename: string): MountError {
+  if (err instanceof MountError) return err;
+  const friendly = describeReadFailure(err, filename);
+  return new MountError(friendly ?? (err instanceof Error ? err.message : String(err)));
 }
 
 /**
@@ -379,6 +414,11 @@ export async function mountFolder(
   // can't hang the mount indefinitely (forward-pass M16).
   const MAX_FOLDER_ENTRIES = 5000;
   let walked = 0;
+  // Diagnostics so an empty result gives an honest reason, not a blanket
+  // "no supported files" (which hides read failures + the no-recursion limit).
+  let subdirCount = 0; // subfolders skipped (the scan is intentionally flat)
+  let detectedButFailed = 0; // files we recognised but couldn't load (e.g. read errors)
+  let firstFailure: string | null = null; // the first such failure, for the message
   for await (const [name, entry] of (
     dirHandle as unknown as { entries(): AsyncIterableIterator<[string, FileSystemHandle]> }
   ).entries()) {
@@ -388,13 +428,18 @@ export async function mountFolder(
       );
       break;
     }
-    if (entry.kind !== 'file') continue;
+    if (entry.kind !== 'file') {
+      if (entry.kind === 'directory') subdirCount += 1;
+      continue;
+    }
     const format = detectFormat(name);
     if (!format) continue;
     const fileHandle = entry as FileSystemFileHandle;
-    const file = await fileHandle.getFile();
     const tableLabel = sanitizeTableName(name);
     try {
+      // getFile() is inside the try — it can throw NotFoundError if the file
+      // vanished after the folder was picked.
+      const file = await fileHandle.getFile();
       const registered = await registerFileByFormat(engine, format, {
         tableName: tableLabel,
         file,
@@ -412,11 +457,32 @@ export async function mountFolder(
         });
       }
     } catch (err) {
+      detectedButFailed += 1;
+      if (!firstFailure) {
+        firstFailure =
+          describeReadFailure(err, name) ?? (err instanceof Error ? err.message : String(err));
+      }
       console.warn(`[mount] could not register ${name}:`, err);
     }
   }
   if (source.tables.length === 0) {
-    throw new MountError(`No supported files found in "${dirHandle.name}".`);
+    // Recognised files but every one failed to load → surface the real reason
+    // (this is what "SQLite files in a folder that won't mount" actually is —
+    // a read failure, not an unsupported format).
+    if (detectedButFailed > 0) {
+      throw new MountError(
+        `Found ${detectedButFailed} supported file(s) in "${dirHandle.name}" but none could be loaded. ${firstFailure}`,
+      );
+    }
+    // Nothing recognised at all. Name the formats we look for, and flag the
+    // no-recursion limit if there were subfolders (a common miss).
+    const subHint =
+      subdirCount > 0
+        ? ` Folder mount doesn't look inside subfolders — ${subdirCount} were skipped; mount the subfolder directly.`
+        : '';
+    throw new MountError(
+      `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, and stats formats).${subHint}`,
+    );
   }
   return source;
 }
@@ -454,10 +520,15 @@ export async function mountFile(
     throw new MountError(`Unsupported file extension: ${file.name}`);
   }
   const tableLabel = opts.tableName ?? sanitizeTableName(file.name);
-  const registered = await registerFileByFormat(engine, format, {
-    tableName: tableLabel,
-    file,
-  });
+  let registered: string[];
+  try {
+    registered = await registerFileByFormat(engine, format, {
+      tableName: tableLabel,
+      file,
+    });
+  } catch (err) {
+    throw enrichMountError(err, file.name);
+  }
   const sourceId = genId('src');
   const tables: MountedTable[] = [];
   for (const tableName of registered) {
