@@ -38,12 +38,20 @@ data, not gospel.
 - **Scoring + 5-gate report** — `scripts/score.py`, self-tested
   (`--selftest`). Result-set match (optimization judge), precision@k, the
   safety scan, and the two-judge divergence all compute with no model.
+- **`embedSearch` keeper module** — `src/core/embed-search.ts` (VSS SQL +
+  cosine + ranking; unit-tested, VSS SQL validated in real DuckDB) + a
+  `loadEmbedder` feature-extraction pipeline in the transformers chunk.
+- **The runner** — `runner/` drives the real sidecar + embedder over every
+  task and emits `results.json`. **Built + compiles**; it just can't be RUN
+  here (no WebGPU/key). None of this touches product code (bundle unchanged).
 
 ## What's owed (the WebGPU session)
 
-- The **browser-side runner** that drives the sidecar's NL→SQL on L1/L2/C1
-  and local embedding on L2, emitting `results.json` (contract in
-  `RESULTS_SCHEMA.md`). Needs a WebGPU browser (L2) + a BYOK key (C1).
+- **Run the runner** — `runner/README.md`. Needs a WebGPU browser (L2) +
+  optionally a BYOK key (C1) / local Ollama (L1). Then `score.py`.
+- Confirm the wasm engine exposes `array_cosine_similarity` before wiring the
+  product Embedding view to `embedSearch`'s DuckDB path (the runner uses the
+  JS path, so this doesn't gate the M0 run).
 - The **G5 reference-judge** labels (a second, independent judgment on a
   held-out slice) to make G5 informative.
 

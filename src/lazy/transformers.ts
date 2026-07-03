@@ -39,7 +39,12 @@
 // (chunk 5); spec amendment + DECISIONS update + tag v1.3.0 (chunks
 // 6-7).
 
-import { type TextGenerationPipeline, env, pipeline } from '@huggingface/transformers';
+import {
+  type FeatureExtractionPipeline,
+  type TextGenerationPipeline,
+  env,
+  pipeline,
+} from '@huggingface/transformers';
 import {
   hasModelFile,
   isOpfsAvailable,
@@ -407,4 +412,82 @@ export async function loadModel(
 ): Promise<LocalGenerator> {
   await loadPipeline(modelId, onProgress);
   return (req) => generate(req);
+}
+
+// --- Local embeddings (Facet embedSearch / L2 WebGPU rung) ------------------
+//
+// A SEPARATE feature-extraction pipeline from the text-generation one above —
+// different task, different (much smaller) model. Powers the semantic-map /
+// embedSearch surface: embed text -> unit vector -> cosine VSS. The 384-dim
+// MiniLM is ~23 MB (q8), fits wasm as well as WebGPU. Mirrors loadModel's
+// "return the fn, don't register" contract (split-singleton avoidance, DECISIONS
+// AJ/AU) — the caller in the main/runner bundle owns the embedder reference.
+
+/** all-MiniLM-L6-v2: 384-dim sentence embeddings, feature-extraction. */
+export const DEFAULT_EMBED_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+export const DEFAULT_EMBED_DIM = 384;
+
+/** Embeds a batch of texts into unit-normalised vectors (cosine = dot). */
+export type Embedder = (texts: string[]) => Promise<Float32Array[]>;
+
+let _activeEmbedder: FeatureExtractionPipeline | null = null;
+let _activeEmbedModelId: string | null = null;
+let _pendingEmbedderPromise: Promise<FeatureExtractionPipeline> | null = null;
+
+async function loadEmbedderPipeline(
+  modelId: string,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<FeatureExtractionPipeline> {
+  if (!(await isOpfsAvailable())) {
+    throw new Error(
+      'OPFS is not available in this browser — local embeddings require Origin Private File System support.',
+    );
+  }
+  if (_activeEmbedder && _activeEmbedModelId === modelId) return _activeEmbedder;
+  if (_pendingEmbedderPromise) {
+    try {
+      await _pendingEmbedderPromise;
+    } catch {
+      /* ignore — prior caller surfaces its own error */
+    }
+    if (_activeEmbedder && _activeEmbedModelId === modelId) return _activeEmbedder;
+  }
+  configureEnv();
+  const device = await pickLocalDevice();
+  const promise = pipeline('feature-extraction', modelId, {
+    // fp32 keeps the tiny model exact — quantisation noise would perturb
+    // cosine ranking, and the model is small enough that size isn't the
+    // constraint (unlike the 0.5-2B generators above).
+    dtype: 'fp32',
+    device,
+    ...(onProgress ? { progress_callback: onProgress } : {}),
+  }) as Promise<FeatureExtractionPipeline>;
+  _pendingEmbedderPromise = promise;
+  try {
+    const pipe = await promise;
+    _activeEmbedder = pipe;
+    _activeEmbedModelId = modelId;
+    return pipe;
+  } finally {
+    if (_pendingEmbedderPromise === promise) _pendingEmbedderPromise = null;
+  }
+}
+
+/**
+ * Load the embedding model and return an {@link Embedder}. Output vectors
+ * are mean-pooled + L2-normalised, so similarity is a plain dot product.
+ */
+export async function loadEmbedder(
+  modelId: string = DEFAULT_EMBED_MODEL_ID,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<Embedder> {
+  const pipe = await loadEmbedderPipeline(modelId, onProgress);
+  return async (texts: string[]) => {
+    if (texts.length === 0) return [];
+    // biome-ignore lint/suspicious/noExplicitAny: pipeline options are loosely typed
+    const out = (await pipe(texts, { pooling: 'mean', normalize: true } as any)) as {
+      tolist: () => number[][];
+    };
+    return out.tolist().map((v) => Float32Array.from(v));
+  };
 }

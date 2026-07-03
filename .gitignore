@@ -37,3 +37,4 @@ eval/m0/report.md
 # See plan/pending.md "Open questions": consider moving those out of plan/ to
 # keep them tracked.
 plan/
+eval/m0/runner/harness.js

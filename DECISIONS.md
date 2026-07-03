@@ -2,6 +2,46 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet embedSearch module + M0 browser runner built
+
+### Decision BI — new `embed-search.ts` keeper (dual DuckDB/JS path) + a standalone eval runner that reuses the real sidecar; product code untouched
+
+Built the two remaining M0 code pieces — everything except actually running
+them (WebGPU + key gated).
+
+- **`src/core/embed-search.ts`** (keeper — the `window.facet.embedSearch` verb /
+  Embedding-view backend). Engine-boundary clean (zero imports; pure logic +
+  SQL emission). Two paths: **DuckDB VSS** (`buildVssSql` →
+  `array_cosine_similarity` over a precomputed FLOAT[dim] column — the
+  product-scale path) and **JS** (`cosineSimilarity` / `rankBySimilarity` /
+  `embedSearchInMemory` — used by the M0 runner, no into-DuckDB plumbing).
+  Injection-safe SQL (quoted idents, finite-number-validated vector literal,
+  positive-int k). **14 unit tests**; the emitted VSS SQL was validated against
+  real DuckDB (ranks correctly, excludes NULL emb). Added to the
+  engine-boundary watch list (10th optional module).
+- **Embedding pipeline** in `src/lazy/transformers.ts` — `loadEmbedder`
+  (`feature-extraction`, all-MiniLM-L6-v2, 384-dim, mean-pooled + normalised).
+  Mirrors `loadModel`'s return-the-fn split-singleton pattern (DECISIONS AJ/AU).
+  A SEPARATE pipeline from the text-generation one.
+- **`eval/m0/runner/`** — a **standalone** harness (`harness.ts` + `.html` +
+  `build.mjs` + `run.mjs`), NOT wired into `main.ts`. It imports the real
+  Engine, `mountFile`, `dispatchJob`, the transformers chunk, and
+  `embed-search`, boots DuckDB (CDN), mounts the fixture, and drives NL→SQL on
+  L1/L2/C1 + local embedding on L2 → `results.json` (contract:
+  `RESULTS_SCHEMA.md`). Rung→provider: L2=`local`, L1=`custom`+Ollama endpoint,
+  C1=`anthropic`/`openai`+BYOK key. **Chosen standalone (not a `window.facet`
+  hook in main)** so the runner reuses proven modules while product code stays
+  untouched — non-regressive by construction; matches the handoff's "a thin
+  WebGPU page, not the product shell."
+
+**Verified now:** the runner **esbuild-compiles** (1.6 MB — bundles
+duckdb-wasm + transformers) and tsc-type-checks; embed-search unit tests +
+DuckDB VSS validation pass. **Bundle UNCHANGED (707.9 KB)** — neither
+embed-search nor loadEmbedder is imported by `main`, so the product bundle and
+smoke are byte-identical. 901 vitest (+14) · check · smoke green. **Owed:**
+running it at a WebGPU box (see STATUS). No spec amendment (implements A34's
+gate; no new surface).
+
 ## 2026-07-03 — Facet M0 eval harness built (buildable-now slice)
 
 ### Decision BH — real OpenAlex citation graph + 85 labeled tasks + Python-DuckDB scoring; the model run is the only owed piece

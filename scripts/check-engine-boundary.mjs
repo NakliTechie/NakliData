@@ -54,6 +54,7 @@ const WATCHED_OPTIONAL = [
   'src/core/clustering.ts', // Resolve M1 — fuzzy-merge core (pure)
   'src/core/segments.ts', // Resolve M2 — segment primitive (pure)
   'src/core/golden.ts', // Resolve M3 — golden-table survivorship (pure)
+  'src/core/embed-search.ts', // Facet — embedSearch VSS + ranking (pure)
 ];
 
 const FORBIDDEN_PATTERNS = [

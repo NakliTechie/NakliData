@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Facet M0 runner</title>
+<!-- Dev eval page, not the product shell: permissive so DuckDB-wasm (CDN),
+     WebGPU, and BYOK/Ollama fetches all work. Never shipped. -->
+<body>
+  <pre id="log">Facet M0 runner — see window.__M0_RESULTS__ / window.__M0_LOG__</pre>
+  <script type="module" src="./harness.js"></script>
+  <script type="module">
+    const el = document.getElementById('log');
+    const t = setInterval(() => {
+      el.textContent = (window.__M0_LOG__ || []).join('\n') +
+        (window.__M0_ERROR__ ? '\n\nERROR:\n' + window.__M0_ERROR__ : '') +
+        (window.__M0_RESULTS__ ? '\n\nDONE: ' + window.__M0_RESULTS__.length + ' rows' : '');
+      if (window.__M0_RESULTS__ || window.__M0_ERROR__) clearInterval(t);
+    }, 500);
+  </script>
+</body>
