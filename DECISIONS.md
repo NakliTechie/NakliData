@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet AI positioning: BYOK-primary (M0 named-escalation resolved)
+
+### Decision BL — the Facet AI path is BYOK-primary; local (Ollama/WebGPU) is a "when it scales" opt-in, not a launch pillar
+
+M0's named escalation (facet-m0-handoff.md; "if correctness clears only on BYOK,
+'in-browser AI free' is really 'BYOK free' — stop and restructure the pitch")
+**fired**, and Chirag made the call: **position AI as BYOK-primary.** Grounds
+(DECISIONS BJ/BK, the live run):
+
+- **BYOK is useful + safe today** — DeepSeek 77% intent-correct, 0/6 safety leaks;
+  a stronger cloud model would be higher. This is the sanctioned AI path.
+- **Free local is not there yet** — the zero-setup in-browser WebGPU path is
+  numerically broken (onnxruntime q4f16 degeneration), and the user-managed
+  Ollama path scales with model size but a small model (0.5B/3B) is well below
+  par (10%/31%). Local becomes an **opt-in that improves as it scales** (bigger
+  Ollama models; a fixed WebGPU backend), NOT a thing the launch pitch depends on.
+
+**What this changes:**
+- **The M0 gate's blocking purpose is served.** Its job was to decide the free-AI
+  question before building the shell; that's now decided (BYOK-primary). So M0 no
+  longer blocks the Facet view-type track (Chunk 2) — the AI sidecar rides on
+  BYOK, exactly as NakliData already ships it (the local provider is already
+  labeled experimental/opt-in). **Removability holds regardless** — pull the AI
+  out and the DuckDB + crossfilter + manual-SQL core still stands (the sidecar
+  doctrine, spec §4.3).
+- **Moat framing adjusts** (Facet vision): the pitch is **sovereign data +
+  removable BYOK-wired-to-SQL sidecar + the free/paid fork on DATA/COLLAB**, not
+  "free in-browser AI." Sovereignty is about the *data on disk*, not about the AI
+  being free. (To ratify into `docs/spec-amendments.md` A34 + `plan/facet-track-
+  vision.md` — small follow-up; recorded here first as the working decision.)
+- **Hard NOTs unaffected** — BYOK stays session-default, no key persisted beyond
+  the user's opt-in; keys go only to the user's own provider.
+
+**Still owed on local (parked, not blocking):** the onnxruntime WebGPU dtype A/B
+(q8/fp16) and a 7B+ Ollama pass — revisit when local-AI-quality is worth a push.
+
 ## 2026-07-03 — Facet M0 scorer fixed (projection-aware equivalence) + re-scored
 
 ### Decision BK — `score.py` G1 uses symmetric projection-aware row-membership, not exact tuple match
