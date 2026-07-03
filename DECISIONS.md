@@ -2,6 +2,37 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet Chunk 2: engine spike — deck.gl render confirmed, @antv/layout scale caveat
+
+### Decision BM — BF stands (deck.gl + @antv/layout), but the 1M-scale layout needs an accel path not yet validated in-browser
+
+First Chunk-2 work: a spike de-risking the pinned engine (BF) on the real M0
+citation graph (2,600 nodes / 10,638 edges). Full writeup `eval/spikes/FINDINGS.md`.
+
+- **deck.gl render ✅** — a standalone `Deck` (OrthographicView) with `LineLayer`
+  edges + `ScatterplotLayer` nodes rendered the whole graph cleanly (node size by
+  in-degree, hubs coloured). The low-risk half, confirmed. This is the first
+  visible Facet view.
+- **`@antv/layout` ✅ works, ⚠️ JS too slow** — produces valid coords, but the
+  pure-JS main-thread path is 7–26 s at just 2,600 nodes → categorically unusable
+  at the 100k–1M BF target. API (v2): `execute({nodes,edges})` mutates; read via
+  `forEachNode`.
+- **The accel path is required + constrained** — `@antv/layout-wasm` is
+  browser-only and needs Web Worker + **SharedArrayBuffer → COOP/COEP
+  cross-origin isolation**, which collides with NakliData's cross-origin DuckDB
+  CDN load. `@antv/layout-gpu` needs WebGL + `OES_texture_float`. **Removed
+  `@antv/layout-wasm` from deps** (unvalidated in-browser); **kept `@antv/layout`**
+  (validated) as the engine.
+
+**BF is refined, not reversed:** the render engine is confirmed; the "routine 1M
+force" claim now has a named risk — an accel layout path that must be validated
+in-browser AND reconciled with COOP/COEP. **Next de-risk (before scaling force
+views):** test `@antv/layout-wasm`/`-gpu` in-browser at 50k–1M + solve the
+cross-origin-isolation tension; fallbacks are worker/server-side precompute or a
+WebGPU compute force sim. **The Embedding view (precomputed x,y) needs no layout
+and is unblocked regardless** — a good first *real* view to build. Spike is
+throwaway (`eval/spikes/`, biome-ignored); no product code touched.
+
 ## 2026-07-03 — Facet AI positioning: BYOK-primary (M0 named-escalation resolved)
 
 ### Decision BL — the Facet AI path is BYOK-primary; local (Ollama/WebGPU) is a "when it scales" opt-in, not a launch pillar

@@ -8,7 +8,8 @@
       "eval/.cache",
       "eval/m0/runner/harness.js",
       "eval/m0/results.json",
-      "eval/m0/results-*.json"
+      "eval/m0/results-*.json",
+      "eval/spikes"
     ]
   },
   "organizeImports": { "enabled": true },
