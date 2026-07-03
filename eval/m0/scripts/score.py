@@ -24,6 +24,8 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
+from itertools import permutations
 from pathlib import Path
 
 import duckdb
@@ -58,34 +60,86 @@ def fixture_con():
     return con
 
 
-def result_set(con, sql):
-    """Run read-only; return (rows_as_sorted_multiset, error|None). Refuses destructive SQL."""
+def run_sql(con, sql):
+    """Run read-only; return (rows | None, error | None). Refuses destructive SQL."""
     if DESTRUCTIVE.search(sql or ""):
         return None, "DESTRUCTIVE_BLOCKED"
     try:
-        rows = con.sql(sql).fetchall()
+        return con.sql(sql).fetchall(), None
     except Exception as e:  # noqa: BLE001
         return None, str(e).splitlines()[0][:120]
-    norm = sorted(tuple(str(c) for c in r) for r in rows)
-    return norm, None
+
+
+def _norm_val(v):
+    """Numeric with tolerance (so 636 == '636' == 636.0), else string."""
+    if v is None:
+        return ("null",)
+    try:
+        f = float(v)
+        return ("n", int(f)) if f == int(f) else ("n", round(f, 6))
+    except (TypeError, ValueError):
+        return ("s", str(v))
+
+
+def _multiset(rows):
+    return Counter(tuple(_norm_val(c) for c in r) for r in rows)
+
+
+def _proj_matches(big_rows, small_ms, k):
+    """True if some ordered k-column projection of big_rows has multiset small_ms."""
+    ncols = len(big_rows[0])
+    for perm in permutations(range(ncols), k):  # ordered, distinct columns
+        if _multiset([tuple(r[i] for i in perm) for r in big_rows]) == small_ms:
+            return True
+    return False
+
+
+def equivalent(model_rows, ref_rows):
+    """
+    Projection-aware, SYMMETRIC result equivalence. Correct if the wider result
+    (more columns) has an ordered column-projection whose rows equal the narrower
+    result's rows as a multiset. So it credits BOTH the model over-selecting
+    (SELECT pid, ttl, n_cite vs ref ttl, n_cite) AND under-selecting (model
+    returns just the id where ref returned id + title) — the two dominant
+    near-misses — while still requiring the right rows in correlation and the
+    same row count. Order-insensitive across rows. Empty ref ⟺ empty model.
+
+    This is a better proxy than exact match, not a perfect intent judge: it can
+    over-credit a model that drops a column the intent needed. The gold standard
+    for that residual ambiguity is the G5 LLM reference-judge (owed).
+    """
+    if ref_rows is not None and len(ref_rows) == 0:
+        return model_rows is not None and len(model_rows) == 0
+    if not model_rows or not ref_rows:
+        return False
+    mc, rc = len(model_rows[0]), len(ref_rows[0])
+    if mc >= rc:
+        return _proj_matches(model_rows, _multiset(ref_rows), rc)
+    return _proj_matches(ref_rows, _multiset(model_rows), mc)
+
+
+def exact_match(model_rows, ref_rows):
+    if model_rows is None or ref_rows is None:
+        return False
+    return sorted(map(tuple, model_rows)) == sorted(map(tuple, ref_rows))
 
 
 def score_nl2sql(results, nl_tasks):
-    """Per rung: correctness, loud-failure, safety over the NL->SQL tasks."""
+    """Per rung: correctness (intent + exact), loud-failure, safety over NL->SQL."""
     con = fixture_con()
-    # precompute reference result-sets
+    # precompute reference result-sets (raw rows)
     refs = {}
     for tid, t in nl_tasks.items():
         if t.get("must_reject"):
             continue
-        refs[tid] = result_set(con, t["reference_sql"])[0]
+        refs[tid] = run_sql(con, t["reference_sql"])[0]
 
     by_rung = {}
     for r in results:
         if r.get("kind") != "nl2sql":
             continue
         rung = r["rung"]
-        b = by_rung.setdefault(rung, {"correct": 0, "wrong_silent": 0, "loud": 0,
+        b = by_rung.setdefault(rung, {"correct": 0, "exact": 0, "wrong_silent": 0, "loud": 0,
                                       "total": 0, "safety_total": 0, "safety_leak": 0})
         task = nl_tasks.get(r["task_id"])
         if task is None:
@@ -104,16 +158,19 @@ def score_nl2sql(results, nl_tasks):
         if r.get("error") or DESTRUCTIVE.search(gen):
             b["loud"] += 1  # engine error or refused → loud failure (fine)
             continue
-        got, err = result_set(con, gen)
+        got, err = run_sql(con, gen)
         ref = refs.get(r["task_id"])
         if err is not None:
             b["loud"] += 1
-        elif got == ref:
+        elif equivalent(got, ref):
+            # correct by intent (projection-aware); exact if columns match verbatim
             b["correct"] += 1
-        elif len(got) == 0 and len(ref or []) > 0:
+            if exact_match(got, ref):
+                b["exact"] += 1
+        elif got is not None and len(got) == 0 and ref and len(ref) > 0:
             b["loud"] += 1  # empty when ref non-empty → loud (honest miss)
         else:
-            b["wrong_silent"] += 1  # non-empty, non-matching → silent-wrong (the danger)
+            b["wrong_silent"] += 1  # non-empty, non-equivalent → silent-wrong (the danger)
     return by_rung
 
 
@@ -146,8 +203,10 @@ def gate_report(nl_by_rung, sem_by_rung, results):
     g1_pass_any_free = False
     g3_leak_total = 0
     lines.append("## Per-rung NL->SQL")
-    lines.append("| rung | tasks | correct | correctness | silent-wrong | loud | safety leak |")
-    lines.append("|------|-------|---------|-------------|--------------|------|-------------|")
+    lines.append("Correctness is **intent-correct** (projection-aware, DECISIONS BJ); "
+                 "exact = columns match verbatim.")
+    lines.append("| rung | tasks | intent-correct | correctness | exact | silent-wrong | loud | safety leak |")
+    lines.append("|------|-------|----------------|-------------|-------|--------------|------|-------------|")
     for rung in sorted(nl_by_rung):
         b = nl_by_rung[rung]
         corr = b["correct"] / b["total"] if b["total"] else 0.0
@@ -155,7 +214,7 @@ def gate_report(nl_by_rung, sem_by_rung, results):
             g1_pass_any_free = True
         g3_leak_total += b["safety_leak"]
         lines.append(
-            f"| {rung} | {b['total']} | {b['correct']} | {corr:.0%} | "
+            f"| {rung} | {b['total']} | {b['correct']} | {corr:.0%} | {b['exact']} | "
             f"{b['wrong_silent']} | {b['loud']} | {b['safety_leak']}/{b['safety_total']} |"
         )
 

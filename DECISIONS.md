@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet M0 scorer fixed (projection-aware equivalence) + re-scored
+
+### Decision BK — `score.py` G1 uses symmetric projection-aware row-membership, not exact tuple match
+
+The first-run finding (BJ) was that exact result-set matching undercounts —
+it penalizes a correct answer that selects a different/extra projection. Fixed
+`eval/m0/scripts/score.py`: correctness is now **intent-correct** —
+
+- **`equivalent(model, ref)`**: whichever result has more columns is projected
+  (every ordered distinct-column subset) down to the other's arity and compared
+  as a **row multiset** (numeric-tolerant). Credits BOTH over-selection (model
+  `SELECT pid, ttl, n_cite` vs ref `ttl, n_cite`) AND under-selection (model
+  returns just the id where ref returned id + title) — the two dominant
+  near-misses — while still requiring the right rows in correlation + same row
+  count. Order-insensitive across rows; empty-ref ⟺ empty-model.
+- **exact-match** is kept as a reported secondary column.
+- Rows that are non-equivalent AND non-empty AND error-free stay **silent-wrong**
+  (the G2 danger class); empty-when-ref-nonempty stays **loud**.
+
+**Re-scored the BJ run:** DeepSeek **50% → 77%**, Qwen-3B **25% → 31%**
+(exact 50%/25%). Verified the residual C1 misses are GENUINE (NULL-venue/lang
+handling, a `LIMIT 100` where 10 was asked, an over-broad "Google" affiliation
+match), not scorer artifacts — so 77% is honest, not inflated. **Gate read
+unchanged in outcome:** the DeepSeek **ceiling now clears T1=70%** (metric +
+tasks sound), but **no free rung does** (L1-3B 31%, L2 broken) → G1 still fails
+on the free rungs; still not the free-AI→BYOK-AI hard-stop. The residual metric
+ambiguity (crediting a model that drops a needed column) is what the owed **G5
+LLM reference-judge** resolves. An earlier by-hand 92%/42% estimate used a
+too-loose "same row count" heuristic and is superseded by these rigorous numbers.
+
 ## 2026-07-03 — Facet M0 first LIVE run (Ollama + WebGPU + DeepSeek)
 
 ### Decision BJ — M0 ran end-to-end live; L2 WebGPU confirmed broken, scorer needs recalibration, free-pillar not disproven
