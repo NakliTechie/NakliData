@@ -2,6 +2,34 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-03 — Facet Chunk 2: Embedding-map view validated end-to-end
+
+### Decision BN — the Embedding view works + is the cleanest first real view (no layout dependency); embeddings are sound
+
+Built the Facet Embedding/semantic-map spike on the real corpus (writeup
+`eval/spikes/FINDINGS.md`): embedded **1,964** citation papers (title+abstract)
+with all-MiniLM-L6-v2 → UMAP-2D → deck.gl `ScatterplotLayer` coloured by topic.
+
+- **Embeddings work** — `@huggingface/transformers` feature-extraction runs
+  cleanly (Node: 1,964 papers in 10 s; cosine sanity holds). Same model as the
+  in-browser path, and a **single encoder forward pass** — not the autoregressive
+  q4f16 decode that broke local *generation* (BJ) — so the sovereign embedding
+  path is sound (in-browser WebGPU-embed confirm is low-risk-owed).
+- **The semantic map shows real structure** — every tagged topic (covid, face,
+  brain-tumor, skin, super-res, hyperspectral, …) forms a tight, well-separated
+  cluster; same-topic papers sit together. Visual proof the embedding pipeline is
+  correct.
+- **No force layout needed** — precomputed x,y → deck.gl renders directly. The
+  Embedding view therefore **sidesteps the @antv/layout scale/COOP-COEP risk
+  (BM)** entirely and is the **cleanest first *real* view to integrate into
+  NakliData** — and it's the foundation `embedSearch` already sits on.
+
+**Direction:** make the Embedding view the first productionised Facet view (before
+Network). Next real step: wire it into NakliData as a view cell (deck.gl
+scatter over a result's x,y columns + embedSearch "find similar"). 2D reduction
+(UMAP) is an offline/worker concern; the view renders precomputed coords.
+Spike is throwaway (`eval/spikes/`, biome-ignored); no product code touched.
+
 ## 2026-07-03 — Facet Chunk 2: engine spike — deck.gl render confirmed, @antv/layout scale caveat
 
 ### Decision BM — BF stands (deck.gl + @antv/layout), but the 1M-scale layout needs an accel path not yet validated in-browser

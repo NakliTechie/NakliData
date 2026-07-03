@@ -42,3 +42,5 @@ eval/m0/results-*.json
 eval/spikes/network-spike.js
 eval/spikes/network-data.json
 __pycache__/
+eval/spikes/embedding-spike.js
+eval/spikes/embedding-map-data.json

@@ -59,3 +59,28 @@ Before committing views to 1M-scale force layout, the next de-risk is:
 `antv-layout-test.mjs` (JS-layout benchmark) · `compute-layout.mjs` (precompute →
 `network-data.json`) · `network-spike.mjs` + `.html` (deck.gl render) ·
 `build.mjs`. Build artifacts (`network-spike.js`, `network-data.json`) gitignored.
+
+---
+
+## Embedding view — ✅ works end-to-end (the cleaner first view)
+
+Built the Facet Embedding/semantic-map view on the real corpus: embedded 1,964
+citation papers (title+abstract) with all-MiniLM-L6-v2 → UMAP to 2D → deck.gl
+`ScatterplotLayer`, coloured by topic.
+
+- **Embeddings work** — `@huggingface/transformers` feature-extraction runs
+  cleanly (validated in Node: 1,964 papers in 10 s; cosine sanity holds —
+  resnet~retinopathy > resnet~gan). It's the **same model** as the in-browser
+  path and a **single encoder forward pass** (not the autoregressive q4f16 decode
+  that broke local *generation*, DECISIONS BJ), so the sovereign embedding path is
+  sound. (In-browser WebGPU-embed confirmation is low-risk-owed.)
+- **The map shows real structure** — each tagged topic (covid, face, brain-tumor,
+  skin, super-res, hyperspectral, …) forms a tight, well-separated cluster;
+  same-topic papers sit together. Visual proof the pipeline is correct.
+- **No force layout needed** — precomputed x,y → deck.gl renders directly. So the
+  Embedding view sidesteps the @antv/layout scale/COOP-COEP risk entirely and is
+  the **cleanest first real view to integrate into NakliData** (+ it's the
+  foundation embedSearch already sits on).
+
+Files: `embed-corpus.mjs` (Node embed), `embedding-spike.mjs/.html` (deck.gl).
+2D-reduction (UMAP) is offline python. Artifacts gitignored.
