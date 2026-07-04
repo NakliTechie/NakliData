@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — Three more Facet views: attributed edges (KG+weighted), Temporal, Distribution
+
+### Decision BV — the next four roadmap view-types ship as three increments; new SVG cells lazy-load; crossfilter propagation deferred
+
+Built the next batch of Facet views (after the Network view + BU dedup), each a
+committed + gated increment:
+
+- **Attributed edges — Knowledge-graph + Weighted, as options on the Network
+  cell, not new cell kinds.** An `edgeColorCol` colours edges categorically +
+  renders a click-to-filter legend (the typed / KG view); an `edgeWidthCol`
+  scales line width (the Weighted / attributed view). Both are per-edge column
+  mappings, so they extend the existing cell rather than duplicating it. The
+  categorical palette moved to **`core/categorical-palette.ts`** (single source)
+  so the cell's legend swatches match the deck chunk's colours exactly (both map
+  over the same value sequence).
+- **Temporal (new `temporal` cell).** A brushable time histogram:
+  `core/temporal.ts` (coerceTime + bucketTime + countInWindow, tested) → an SVG
+  bar timeline; drag brushes a window, the readout reports the range +
+  in-window count.
+- **Distribution / Categorical (new `distribution` cell).**
+  `core/distribution.ts` auto-classifies a column (numeric → histogram, else
+  top-N category bars, tested); clicking a bar selects it + reports its row share.
+
+**Two standing scope decisions:**
+
+1. **Crossfilter propagation is deferred.** The Temporal window + Distribution
+   bar selection are *visual + readout* only in v1; wiring them to filter
+   downstream cells needs the selection-store value-state machinery
+   (`core/selections.ts`) and is a shared follow-up, not part of each view's v1.
+   This keeps the views shippable without dragging in the crossfilter refactor.
+2. **The chart-style SVG cells lazy-load (`src/lazy/facet-charts.ts`).** Temporal
+   + Distribution are pure DOM/SVG (no heavy dep), but eager they pushed the
+   single-file bundle to 747/750 (3 KB headroom). Their render bodies moved to a
+   lazy chunk (cell chrome stays in main, loadChunk on first use) → 740.1/750.
+   Rule reaffirmed: a new view-cell's *rendering* rides a lazy chunk; only its
+   picker chrome + the pure core logic are eager.
+
+Gates across the batch: **951 vitest** (+23: palette 5, temporal 9, distribution 9)
+· smoke +3 legs (attributed-edge legend+filter · temporal brush→count ·
+distribution bars→select) · check clean · bundle **740.1/750**.
+
 ## 2026-07-04 — deck.gl deduped into ONE shared chunk (BT's owed follow-up closed)
 
 ### Decision BU — the three deck.gl view renderers collapse into ONE self-contained `deckgl.ts` lazy chunk (multiple exports), NOT esbuild code-splitting across separate `deckgl-*` entries
