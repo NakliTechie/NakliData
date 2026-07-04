@@ -161,6 +161,24 @@ export interface TemporalCellState {
 }
 
 /**
+ * Distribution cell (Facet track). Summarizes one column of an upstream SQL
+ * cell: numeric → an equal-width histogram, categorical → value-count bars
+ * (top-N). Clicking a bar selects that bin/value (highlights it + reports the
+ * count). The summary + selection are derived (recomputed on render); only the
+ * config persists.
+ */
+export interface DistributionCellState {
+  id: string;
+  kind: 'distribution';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose rows carry the column. */
+  inputCell: string | null;
+  /** The column to summarize (numeric → histogram, else category bars). */
+  column: string | null;
+}
+
+/**
  * Cohort cell — Wave 4 W4.4. Structurally a SQL cell whose result is
  * a single `user_id` column. Downstream cells reference the cohort
  * via `@<cohort_name>` using the same machinery that resolves any
@@ -329,6 +347,7 @@ export type CellState =
   | EmbeddingCellState
   | NetworkCellState
   | TemporalCellState
+  | DistributionCellState
   | CohortCellState
   | AssertionCellState
   | InputCellState

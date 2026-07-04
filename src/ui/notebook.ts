@@ -27,6 +27,7 @@ import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderDashboardCell } from './cells/dashboard-cell.ts';
+import { renderDistributionCell } from './cells/distribution-cell.ts';
 import { renderEmbeddingCell } from './cells/embedding-cell.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
@@ -44,6 +45,7 @@ import type {
   ChartCellState,
   CohortCellState,
   DashboardCellState,
+  DistributionCellState,
   EmbeddingCellState,
   InputCellState,
   MapCellState,
@@ -180,6 +182,15 @@ export class Notebook {
         inputCell: null,
         timeCol: null,
       } satisfies TemporalCellState;
+    } else if (kind === 'distribution') {
+      cell = {
+        id: genCellId(),
+        kind: 'distribution',
+        order,
+        name: null,
+        inputCell: null,
+        column: null,
+      } satisfies DistributionCellState;
     } else if (kind === 'cohort') {
       cell = {
         id: genCellId(),
@@ -619,6 +630,8 @@ export function renderNotebook(
     else if (cell.kind === 'embedding') root.append(renderEmbeddingCell(cell, sqlCells, handlers));
     else if (cell.kind === 'network') root.append(renderNetworkCell(cell, sqlCells, handlers));
     else if (cell.kind === 'temporal') root.append(renderTemporalCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'distribution')
+      root.append(renderDistributionCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
@@ -638,6 +651,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-embedding" title="Semantic map — scatter precomputed x / y (e.g. an embedding projection) with colour + hover labels.">${iconSvg('plus', 12)} Embedding</button>
     <button class="btn" data-nb-action="add-network" title="Force graph — an edge list (source-id + target-id columns) laid out on the GPU; nodes sized by degree, click to highlight neighbours.">${iconSvg('plus', 12)} Network</button>
     <button class="btn" data-nb-action="add-temporal" title="Timeline — bucket a date / timestamp column into a histogram over time; drag to brush a window and count rows inside it.">${iconSvg('plus', 12)} Temporal</button>
+    <button class="btn" data-nb-action="add-distribution" title="Distribution — summarize one column: numeric → histogram, categorical → top-value bars; click a bar to select it.">${iconSvg('plus', 12)} Distribution</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
@@ -670,6 +684,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-temporal"]')
     ?.addEventListener('click', () => notebook.addCell('temporal'));
+  addRow
+    .querySelector('[data-nb-action="add-distribution"]')
+    ?.addEventListener('click', () => notebook.addCell('distribution'));
   addRow
     .querySelector('[data-nb-action="add-cohort"]')
     ?.addEventListener('click', () => notebook.addCell('cohort'));

@@ -1001,6 +1001,68 @@ async function main() {
   }
   log(`✓ Facet Temporal cell: timeline (${temporal.bars} bars) → brush window → ${temporal.count}/120 rows in range`);
 
+  // 10h. Facet Distribution cell — reuse the same timestamp SQL cell; summarize
+  // the numeric `n` column into a histogram, then click a bar via the seam and
+  // assert the readout reports that bar's row share.
+  await page.click('[data-nb-action="add-distribution"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="distribution"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="distribution"]');
+    const sqlCells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+    // The timestamp SQL cell (has numeric `n`) is the second-to-last SQL cell
+    // (the last is the edge-list one); find one whose result has an `n` column.
+    const src = sqlCells.find((c) => c.querySelector('.result-table thead th'));
+    const sel = cell?.querySelector('[data-action="dist-input"]');
+    if (sel && src) {
+      sel.value = src.dataset.cellId ?? '';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  // Point it at the numeric `n` column from the timestamp SQL cell.
+  await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="distribution"]');
+    const col = cell?.querySelector('[data-action="dist-column"]');
+    if (col) {
+      const hasN = Array.from(col.options).some((o) => o.value === 'n');
+      col.value = hasN ? 'n' : (col.options[1]?.value ?? '');
+      col.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.waitForFunction(
+    () =>
+      (document
+        .querySelector('.cell[data-cell-kind="distribution"]')
+        ?.querySelectorAll('[data-region="dist-svg"] [data-bar]').length ?? 0) > 1,
+    null,
+    { timeout: 8000 },
+  );
+  const dist = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="distribution"]');
+    const mountEl = cell?.querySelector('[data-region="dist-canvas"]');
+    const bars = mountEl?.querySelectorAll('[data-region="dist-svg"] [data-bar]').length ?? 0;
+    const seam = mountEl?.__distributionSelect;
+    if (!seam) return { bars, selected: false };
+    seam.selectBar(0);
+    const readout = cell?.querySelector('[data-region="dist-readout"]');
+    return {
+      bars,
+      selected: true,
+      count: readout?.dataset.selectedCount ? Number(readout.dataset.selectedCount) : null,
+      text: readout?.textContent ?? '',
+    };
+  });
+  if (dist.bars < 2) {
+    throw new Error(`distribution: expected bars, got ${dist.bars}`);
+  }
+  if (!dist.selected || !dist.count || dist.count <= 0) {
+    throw new Error(`distribution: selecting a bar did not report a count (${dist.count})`);
+  }
+  log(`✓ Facet Distribution cell: ${dist.bars} bars → select bar → ${dist.count} rows ("${dist.text.slice(0, 40)}…")`);
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.
