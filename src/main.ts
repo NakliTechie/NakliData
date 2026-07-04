@@ -683,17 +683,39 @@ async function rankReports(
  * profile cache changes but workbook didn't). Extracted so both call
  * sites stay in sync.
  */
+// Guards the schema-panel bundle self-heal (below) so repeated workbook
+// re-renders before the taxonomy bundle loads don't stack ensureReady callbacks.
+let _schemaBundleRehealing = false;
+
 function renderSchemaPanelWithCurrentState(
   root: HTMLElement,
   wb: ReturnType<ReturnType<typeof getWorkbook>['get']>,
   engine: Engine,
 ): void {
+  const bundle = getTaxonomyClient().getBundle();
+  // On a RESTORED workspace (reload with persisted sources) the workbook
+  // subscription re-renders this panel synchronously, which can beat the
+  // taxonomy worker's bundle load. With a null bundle the type display falls
+  // back to raw ids ("vendor_name" not "Vendor name") AND the override menu
+  // can't populate (its closure captures the null bundle) — the keystone
+  // surface silently dies for returning users. Self-heal: load the bundle and
+  // re-render once it's ready. The guard stops the (possibly repeated) workbook
+  // renders from stacking ensureReady callbacks.
+  if (!bundle && !_schemaBundleRehealing) {
+    _schemaBundleRehealing = true;
+    void getTaxonomyClient()
+      .ensureReady()
+      .finally(() => {
+        _schemaBundleRehealing = false;
+        renderSchemaPanelWithCurrentState(root, getWorkbook().get(), engine);
+      });
+  }
   renderSchemaPanel(
     root,
     {
       sources: wb.sources,
       assignments: wb.assignments,
-      bundle: getTaxonomyClient().getBundle(),
+      bundle,
       autoAcceptThreshold: wb.autoAcceptThreshold,
       userTypes: wb.userTypes,
       profiles: Object.fromEntries(_columnProfiles),

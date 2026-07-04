@@ -247,7 +247,11 @@ export class Engine {
       // Forward-pass L1 (2026-06-02): try/finally + outer-catch cleanup
       // so a failed instantiate doesn't leak the blob URL or the Worker.
       // Pre-fix, retries on flaky networks compounded the leaks.
-      const logger = new duckdb.ConsoleLogger();
+      // VoidLogger, not ConsoleLogger: DuckDB's ConsoleLogger logs every query
+      // event to the browser console (hundreds of `[object Object]` entries on a
+      // normal session) — devtools noise + query internals leaking into the log,
+      // against the sovereign/quiet posture. Nothing reads DuckDB's own logs.
+      const logger = new duckdb.VoidLogger();
       const db = new duckdb.AsyncDuckDB(logger, worker);
       try {
         await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
