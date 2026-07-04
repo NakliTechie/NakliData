@@ -14,6 +14,29 @@ import { readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
+import initSqlJs from 'sql.js';
+
+/**
+ * Build a tiny in-memory SQLite database (2 tables) and return its bytes as
+ * base64 — used to exercise the sql.js-backed SQLite mount path headlessly
+ * (real-data test fixes #1 + #2). Generated at runtime so no binary fixture
+ * is committed.
+ */
+async function makeSqliteFixtureBase64() {
+  const SQL = await initSqlJs({
+    locateFile: () => resolve('node_modules/sql.js/dist/sql-wasm.wasm'),
+  });
+  const db = new SQL.Database();
+  db.run(`
+    CREATE TABLE regions (region TEXT, target REAL);
+    INSERT INTO regions VALUES ('West', 1000.5), ('East', 2000.0), ('North', 1500.25);
+    CREATE TABLE reps (rep TEXT, region TEXT, sales REAL);
+    INSERT INTO reps VALUES ('Ana', 'West', 500.0), ('Ben', 'East', 750.5);
+  `);
+  const bytes = db.export();
+  db.close();
+  return Buffer.from(bytes).toString('base64');
+}
 
 const ROOT = resolve('dist');
 const CHROME = process.env.PLAYWRIGHT_CHROMIUM_PATH;
@@ -1200,6 +1223,85 @@ async function main() {
   if (!(presOk.sources && presOk.schema && presOk.addRow))
     fail(`presentation-mode CSS did not engage: ${JSON.stringify(presOk)}`);
   log('✓ presentation-mode CSS engages (sources / schema / cell-add hidden)');
+
+  // 12e. SQLite mount via the "+ Add source" modal (real-data test fixes
+  //      #1 + #2). DuckDB-wasm's sqlite_scanner can't open a registered
+  //      file, so the mount goes through the sql.js reader chunk → NDJSON →
+  //      read_json_auto. This exercises: (a) the add-source modal opens with
+  //      mount options, (b) picking "Add file" runs the mount, (c) each
+  //      SQLite table lands as a classified NakliData view.
+  const sqliteB64 = await makeSqliteFixtureBase64();
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'demo.sqlite', { type: 'application/x-sqlite3' });
+    // Stub the FSA picker so clicking "Add file" resolves to our fixture
+    // (a real picker needs a user gesture that headless can't supply).
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  }, sqliteB64);
+
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  const addSourceOptionCount = await page.evaluate(
+    () => document.querySelectorAll('.add-source-overlay [data-action^="mount-"]').length,
+  );
+  if (addSourceOptionCount < 2) {
+    fail(`add-source modal rendered only ${addSourceOptionCount} mount option(s)`);
+  }
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  // Modal should close, then the two SQLite tables land as views.
+  await page.waitForFunction(
+    () => {
+      const rail = document.querySelector('aside[aria-label="Sources"]');
+      const t = rail?.textContent ?? '';
+      return /demo__regions/.test(t) && /demo__reps/.test(t);
+    },
+    null,
+    { timeout: 20000 },
+  );
+  const sqliteRowCounts = await page.evaluate(() => {
+    const t = document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '';
+    const regions = t.match(/demo__regions\s+([\d,]+)\s+rows/);
+    const reps = t.match(/demo__reps\s+([\d,]+)\s+rows/);
+    return { regions: regions?.[1] ?? null, reps: reps?.[1] ?? null };
+  });
+  if (sqliteRowCounts.regions !== '3' || sqliteRowCounts.reps !== '2') {
+    fail(`SQLite mount row counts wrong: ${JSON.stringify(sqliteRowCounts)} (expected 3 / 2)`);
+  }
+  log(
+    `✓ SQLite mount via Add-source modal: demo__regions (3) + demo__reps (2) mounted through sql.js`,
+  );
+
+  // 12f. Introspection statements run directly instead of being wrapped in
+  //      `CREATE VIEW AS …` (real-data test fix #4). `SHOW TABLES` used to
+  //      surface a baffling "syntax error at or near SHOW".
+  const sqlBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+    sqlBefore,
+    { timeout: 5000 },
+  );
+  const showCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await showCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.insertText('SHOW TABLES');
+  await showCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+      const last = cells[cells.length - 1];
+      if (!last || last.classList.contains('errored')) return false;
+      const out = last.querySelector('.cell-output');
+      // SHOW TABLES returns a `name` column; our mounted views appear in it.
+      return !!out && /demo__regions/.test(out.textContent ?? '');
+    },
+    null,
+    { timeout: 8000 },
+  );
+  log('✓ SHOW TABLES runs directly (not view-wrapped) and returns the table list');
 
   // 13. Sanity: no uncaught errors in the console.
   if (consoleErrors.length > 0) {

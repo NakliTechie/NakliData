@@ -48,3 +48,6 @@ eval/spikes/gpu-layout-spike.js
 
 # Claude Code local (personal permissions); launch.json IS tracked — preview config
 .claude/settings.local.json
+
+# sql.js wasm — vendored by scripts/vendor-sql-wasm.mjs (postinstall)
+public/sqlite-wasm/sql-wasm.wasm

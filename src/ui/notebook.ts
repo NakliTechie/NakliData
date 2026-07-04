@@ -63,6 +63,40 @@ import { notebookCss } from './notebook.css.ts';
 let _idSeq = 1;
 const genCellId = () => `c_${Date.now().toString(36)}_${_idSeq++}`;
 
+// Statements that return a result set but CANNOT be wrapped in
+// `CREATE VIEW AS …` — they must be executed directly. Read-only
+// introspection only; DDL/side-effecting statements stay on the
+// view-wrap path (where they fail loudly, as intended). Real-data
+// test finding #4: `SHOW TABLES` / `DESCRIBE` / `PRAGMA` otherwise
+// surfaced a baffling "syntax error at or near SHOW".
+const DIRECT_RUN_KEYWORDS = new Set(['SHOW', 'DESCRIBE', 'DESC', 'PRAGMA', 'EXPLAIN', 'SUMMARIZE']);
+
+/** Leading SQL keyword, uppercased, after stripping leading comments/space. */
+function leadingKeyword(sql: string): string {
+  let s = sql.trimStart();
+  // Peel any run of leading line (`--`) / block (`/* */`) comments.
+  for (;;) {
+    if (s.startsWith('--')) {
+      const nl = s.indexOf('\n');
+      s = nl === -1 ? '' : s.slice(nl + 1).trimStart();
+      continue;
+    }
+    if (s.startsWith('/*')) {
+      const end = s.indexOf('*/');
+      s = end === -1 ? '' : s.slice(end + 2).trimStart();
+      continue;
+    }
+    break;
+  }
+  const m = s.match(/^[a-zA-Z_]+/);
+  return m ? m[0].toUpperCase() : '';
+}
+
+/** True when the statement must run directly rather than via a `cell_<id>` view. */
+function isDirectRunStatement(sql: string): boolean {
+  return DIRECT_RUN_KEYWORDS.has(leadingKeyword(sql));
+}
+
 export interface NotebookState {
   cells: CellState[];
 }
@@ -380,27 +414,41 @@ LIMIT 100`,
         return;
       }
       const rewritten = this.rewriteReferences(measureExpanded.sql);
-      const viewName = `cell_${id}`;
-      await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`);
-      const rows = await this.engine.query(`SELECT * FROM "${viewName}"`, { signal: ac.signal });
+      // Read-only introspection statements (SHOW / DESCRIBE / PRAGMA /
+      // EXPLAIN / SUMMARIZE) can't be wrapped in `CREATE VIEW AS …` — that
+      // wrap gave a confusing "syntax error at or near SHOW" (real-data
+      // test finding #4). Run those directly and return their rows; skip
+      // the view + lineage (nothing references an introspection cell).
+      let rows: Array<Record<string, unknown>>;
+      if (isDirectRunStatement(rewritten)) {
+        rows = (await this.engine.query(rewritten, { signal: ac.signal })) as Array<
+          Record<string, unknown>
+        >;
+      } else {
+        const viewName = `cell_${id}`;
+        await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`);
+        rows = (await this.engine.query(`SELECT * FROM "${viewName}"`, {
+          signal: ac.signal,
+        })) as Array<Record<string, unknown>>;
+        // M2 — Cell Lineage Tracker. Fire-and-forget after the result
+        // ships; lineage failures must NOT regress the cell to error.
+        // Scan the MEASURE-expanded SQL (not the raw code) for @refs so a
+        // measure whose body references @cells contributes those edges too
+        // (forward-pass M5). Only meaningful for view-materialised cells.
+        void this.recordLineageForCell(id, measureExpanded.sql, rewritten).catch(() => {
+          /* lineage extraction is best-effort */
+        });
+      }
       const elapsed = performance.now() - t0;
       const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
       this.patchCell(id, {
         status: 'success',
         lastResult: {
           columns,
-          rows: rows as Array<Record<string, unknown>>,
+          rows,
           rowCount: rows.length,
           elapsedMs: elapsed,
         },
-      });
-      // M2 — Cell Lineage Tracker. Fire-and-forget after the result
-      // ships; lineage failures must NOT regress the cell to error.
-      // Scan the MEASURE-expanded SQL (not the raw code) for @refs so a
-      // measure whose body references @cells contributes those edges too
-      // (forward-pass M5).
-      void this.recordLineageForCell(id, measureExpanded.sql, rewritten).catch(() => {
-        /* lineage extraction is best-effort */
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

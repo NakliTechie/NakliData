@@ -34,6 +34,13 @@ export interface LazyChunkRegistry {
   'facet-charts': typeof import('../lazy/facet-charts.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
+  /**
+   * SQLite mounts — sql.js reads the DB file's bytes and extracts each table
+   * as NDJSON; the engine loads them via read_json_auto. Bypasses DuckDB-wasm's
+   * sqlite_scanner, whose VFS can't open a browser-registered file (any version
+   * / protocol). See src/lazy/sqlite-reader.ts + DECISIONS 2026-07-04.
+   */
+  'sqlite-reader': typeof import('../lazy/sqlite-reader.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel

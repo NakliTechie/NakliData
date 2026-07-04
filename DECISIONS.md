@@ -2,6 +2,81 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — Real-data test fixes: SQLite via sql.js, "+ Add source", resilient CSV, introspection passthrough
+
+### Decision BW — SQLite mounts through sql.js (not DuckDB ATTACH); + three smaller mount/UX fixes
+
+An end-to-end real-data test (junior-analyst persona: mount public CSV / XLSX /
+SQLite management datasets and build reports) surfaced four issues. Root-caused
+and fixed all four; the SQLite one is the load-bearing decision.
+
+**#1 — SQLite single-file mount was fully broken → now reads via sql.js.**
+`registerSqlite` ATTACHed the file through DuckDB's `sqlite_scanner`. That
+extension's embedded SQLite VFS **is not wired to DuckDB-wasm's WebFileSystem**,
+so `ATTACH '<registered-file>' (TYPE sqlite)` reports success but the first read
+throws `unable to open database file`. Proven **exhaustively** via a live REPL
+against the real engine (Chrome MCP, `?debug` hook, since removed):
+
+- Fails identically for **every** registration protocol — `registerFileBuffer`
+  (BUFFER), `registerFileHandle` BROWSER_FILEREADER (directIO off *and* on), and
+  BROWSER_FSACCESS (an OPFS sync-access handle). So it is **not** a seekability
+  problem — a `read_blob()` on the very same registered file returns all
+  1,007,616 bytes fine; DuckDB's own FS opens it, the sqlite VFS does not.
+- Fails identically across **DuckDB cores v1.1.1 (our pin) AND v1.3.2** (loaded
+  standalone from jsDelivr to test) — an **architectural limitation of
+  duckdb-wasm, not a version bug**. A core bump would not fix it. `sqlite_scanner`
+  is also statically linked into the wasm, so vendored-vs-CDN extension bytes are
+  irrelevant (both hit the same built-in).
+
+  **Fix:** bypass DuckDB's SQLite path entirely. New lazy chunk
+  `src/lazy/sqlite-reader.ts` opens the file with **sql.js** (SQLite compiled to
+  wasm), enumerates user tables, streams each to NDJSON (BLOB cells → null), and
+  `registerSqlite` loads them via DuckDB's native `read_json_auto` — which infers
+  per-column types (SQLite date-text even round-trips to TIMESTAMP). Same shape as
+  the SheetJS xlsx path. **New runtime dep `sql.js`** (Apache-2), lazy + vendored
+  same-origin (`public/sqlite-wasm/sql-wasm.wasm`, ~640 KB, postinstall
+  `scripts/vendor-sql-wasm.mjs`) — sovereign, no CDN reach, and consistent with
+  the SheetJS/deck.gl lazy-chunk precedent (the "no runtime third-party scripts"
+  rule is about CDN loads; this is vendored + bundled). Its emscripten glue's dead
+  Node `require`s are stubbed by a small esbuild `node-builtin-stub` plugin scoped
+  to the lazy build. The 640 KB wasm is under Cloudflare's 25 MB/file limit so it
+  ships same-origin (unlike duckdb-fallback). Live-verified in Chrome: chinook's
+  11 tables mount in ~210 ms; 4-table joins + revenue reports run correctly.
+
+  This supersedes the read-failure theory in BQ/FR-3 for **static** SQLite files
+  (BQ's `NotReadableError` guidance still stands for genuinely live/locked DBs).
+
+**#2 — "+ Add source" was an unwired stub → now opens a mount-options modal.**
+Once a source is mounted the first-run empty-state panel is gone, so the
+sources-rail "+" was the only "add more" affordance — and it just toasted "not
+wired yet." Now it opens an "Add a data source" modal reusing the empty-state
+mount options (extracted to `shell.ts:mountOptionsHtml()` so the two never
+drift); each option dispatches its existing mount action. Multi-dataset analysts
+are unblocked.
+
+**#3 — messy CSVs hard-failed → now resilient + honest.** `read_csv_auto` with
+`sample_size=2048` inferred types from the first 2048 rows then aborted the whole
+mount on a later violating row (a 10,800-row file died on line 9996). Now
+`createDelimitedView` infers across the whole file (`sample_size=-1` → permissive
+schema → far fewer false rejects) with `ignore_errors=true, null_padding=true`,
+and surfaces a **non-fatal** "Loaded N; skipped M" notice (best-effort reject
+tally via `store_rejects` + `reject_errors`, bounded to files < 64 MiB so large
+mounts don't pay for a second scan). Resilient, never a silent cap.
+
+**#4 — `SHOW`/`DESCRIBE`/`PRAGMA` gave a baffling parser error → run directly.**
+Every SQL cell was wrapped in `CREATE OR REPLACE VIEW cell_<id> AS <sql>`, which
+can't wrap a non-SELECT statement ("syntax error at or near SHOW"). `runCell` now
+detects read-only introspection statements (`SHOW / DESCRIBE / DESC / PRAGMA /
+EXPLAIN / SUMMARIZE`, leading-keyword after stripping comments) and executes them
+directly, returning their rows; DDL/side-effecting statements stay on the
+view-wrap path (fail-loud, as intended).
+
+**Verification:** live in Chrome (all four) + `npm run smoke` gains two legs
+(SQLite mount through the Add-source modal → 2 tables classified; `SHOW TABLES`
+runs direct) + **951 vitest** green + `npm run check` clean, bundle **743.8/750 KB**
+(sql.js glue is a lazy chunk, off-budget; the ~1 KB shell growth is the
+registerSqlite/modal wiring).
+
 ## 2026-07-04 — Three more Facet views: attributed edges (KG+weighted), Temporal, Distribution
 
 ### Decision BV — the next four roadmap view-types ship as three increments; new SVG cells lazy-load; crossfilter propagation deferred

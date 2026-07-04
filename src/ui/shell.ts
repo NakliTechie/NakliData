@@ -208,13 +208,14 @@ function renderCenterInner(el: HTMLElement, hasMounts: boolean): void {
   }
 }
 
-function renderEmptyState(): HTMLElement {
-  const el = document.createElement('div');
-  el.className = 'empty-state';
-  el.innerHTML = `
-    <span aria-hidden="true" style="color: var(--accent);">${iconSvg('search', 36)}</span>
-    <h1>What do you have?</h1>
-    <p>Point NakliData at a folder, a file, or paste a public data URL. Your data never leaves the tab.</p>
+/**
+ * The mount-options grid (folder / file / URL / bucket / Iceberg / bridge)
+ * plus the "browse example data" link. Shared by the first-run empty state
+ * AND the "+ Add source" modal (main.ts `openAddSourceModal`) so the two
+ * offer an identical set of mount choices and never drift.
+ */
+export function mountOptionsHtml(): string {
+  return `
     <div class="options">
       <button class="opt" data-action="mount-folder">
         ${iconSvg('folder', 28)}
@@ -260,6 +261,17 @@ function renderEmptyState(): HTMLElement {
     <div class="examples-link">
       Or <button data-action="browse-examples">browse example data</button>.
     </div>
+  `;
+}
+
+function renderEmptyState(): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'empty-state';
+  el.innerHTML = `
+    <span aria-hidden="true" style="color: var(--accent);">${iconSvg('search', 36)}</span>
+    <h1>What do you have?</h1>
+    <p>Point NakliData at a folder, a file, or paste a public data URL. Your data never leaves the tab.</p>
+    ${mountOptionsHtml()}
   `;
   return el;
 }

@@ -17,7 +17,7 @@
     "eval": "node eval/run.mjs",
     "gen-examples": "node scripts/gen-examples.mjs",
     "test:watch": "vitest",
-    "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs",
+    "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs && node scripts/vendor-sql-wasm.mjs",
     "predeploy": "node scripts/stage-guide.mjs",
     "deploy": "wrangler deploy",
     "preview": "wrangler dev"
@@ -38,6 +38,7 @@
     "cytoscape": "^3.33.3",
     "fastest-levenshtein": "^1.0.16",
     "maplibre-gl": "^5.24.0",
+    "sql.js": "^1.12.0",
     "xlsx": "0.18.5"
   },
   "devDependencies": {
@@ -45,6 +46,7 @@
     "@playwright/test": "^1.60.0",
     "@types/cytoscape": "^3.21.9",
     "@types/node": "^22.5.0",
+    "@types/sql.js": "^1.4.11",
     "esbuild": "^0.24.0",
     "playwright": "^1.60.0",
     "typescript": "^5.6.0",

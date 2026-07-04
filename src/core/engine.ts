@@ -334,26 +334,119 @@ export class Engine {
     await this.db.registerFileBuffer(name, buf);
   }
 
+  /**
+   * Register a file as a random-access HANDLE (BROWSER_FILEREADER) rather
+   * than an in-memory buffer. Used by the native-DuckDB ATTACH path
+   * (`registerDuckdb`), which reads database pages at arbitrary offsets
+   * through DuckDB's own FileSystem — that path DOES go through DuckDB's
+   * WebFileSystem, so a handle gives it real random-access reads.
+   *
+   * NOTE: the SQLite mount path does NOT use this — DuckDB's sqlite_scanner
+   * VFS can't open a registered file at all (see `registerSqlite`); SQLite
+   * is read via sql.js instead.
+   */
+  private async registerFileHandle(name: string, file: File): Promise<void> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    await this.db.registerFileHandle(
+      name,
+      file,
+      duckdb.DuckDBDataProtocol.BROWSER_FILEREADER,
+      false,
+    );
+  }
+
   /** Register a CSV file as a table via `read_csv_auto`. */
   async registerCsv({ tableName, file }: RegisterFileOptions): Promise<void> {
     const fname = sanitizeFileName(file.name);
     await this.registerFile(fname, file);
-    const safeTable = sanitizeIdent(tableName);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS
-       SELECT * FROM read_csv_auto('${escapeLiteral(fname)}', header=true, sample_size=2048)`,
-    );
+    await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size);
   }
 
   /** Register a TSV (tab-delimited) file. */
   async registerTsv({ tableName, file }: RegisterFileOptions): Promise<void> {
     const fname = sanitizeFileName(file.name);
     await this.registerFile(fname, file);
-    const safeTable = sanitizeIdent(tableName);
+    await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size, '\t');
+  }
+
+  /**
+   * Create a view over a registered CSV/TSV, resilient to malformed rows.
+   *
+   * The old path — `read_csv_auto(header=true, sample_size=2048)` — inferred
+   * column types from only the first 2048 rows, then HARD-FAILED the entire
+   * mount when a later row violated that guess (real-data test finding #3: a
+   * 10,800-row file aborted with a raw "CSV Error on Line: 9996"). For a
+   * junior-analyst persona that's a dead end, not an error they can act on.
+   *
+   * Now we infer types across the whole file (`sample_size=-1` → correct,
+   * permissive schema → far fewer false rejects) and `ignore_errors=true` +
+   * `null_padding=true` so a handful of genuinely-broken rows are skipped
+   * rather than sinking the load. When any rows are skipped we surface a
+   * non-fatal "loaded N; skipped M" notice — resilient AND honest, never a
+   * silent cap (the reject tally is best-effort and bounded to smaller files
+   * to keep large-file mounts from paying for a second scan).
+   */
+  private async createDelimitedView(
+    fname: string,
+    table: string,
+    displayName: string,
+    fileSize: number,
+    delim?: string,
+  ): Promise<void> {
+    const lit = escapeLiteral(fname);
+    const view = quoteIdent(table);
+    const delimClause = delim ? `, delim='${delim === '\t' ? '\\t' : escapeLiteral(delim)}'` : '';
+    const readOpts = `header=true, sample_size=-1, ignore_errors=true, null_padding=true${delimClause}`;
     await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS
-       SELECT * FROM read_csv_auto('${escapeLiteral(fname)}', delim='\t', header=true, sample_size=2048)`,
+      `CREATE OR REPLACE VIEW ${view} AS SELECT * FROM read_csv_auto('${lit}', ${readOpts})`,
     );
+
+    // Best-effort reject tally so a skip is never silent. Bounded to files
+    // under 64 MiB — above that, the extra scan isn't worth it (the lenient
+    // view still loaded what it could; we just don't quantify the skips).
+    const REJECT_PROBE_LIMIT = 64 * 1024 * 1024;
+    if (fileSize > REJECT_PROBE_LIMIT) return;
+    try {
+      await this.exec('DROP TABLE IF EXISTS reject_errors');
+      await this.exec('DROP TABLE IF EXISTS reject_scans');
+      const loadedRows = await this.query<{ n: number | bigint }>(
+        `SELECT count(*) AS n FROM read_csv_auto('${lit}', ${readOpts.replace(
+          'ignore_errors=true',
+          'store_rejects=true',
+        )})`,
+      );
+      const rejects = await this.query<{ n: number | bigint }>(
+        'SELECT count(DISTINCT (scan_id, line)) AS n FROM reject_errors',
+      );
+      const skipped = Number(rejects[0]?.n ?? 0);
+      if (skipped > 0) {
+        const loaded = Number(loadedRows[0]?.n ?? 0);
+        this.warnUser(
+          `Loaded ${loaded.toLocaleString()} row(s) from "${displayName}". ` +
+            `${skipped.toLocaleString()} malformed row(s) were skipped.`,
+        );
+      }
+      await this.exec('DROP TABLE IF EXISTS reject_errors');
+      await this.exec('DROP TABLE IF EXISTS reject_scans');
+    } catch (err) {
+      // The tally is diagnostics-only; a failure here must never break the
+      // mount (reject-table schema shifts across DuckDB versions, etc.).
+      console.warn('[engine] CSV reject tally failed (mount is unaffected)', err);
+    }
+  }
+
+  /**
+   * Surface a non-fatal notice to the user. main.ts listens for the
+   * `naklidata:toast` window event (the same channel cells use for
+   * shelf-compile warnings). Guarded so a non-DOM host (tests) no-ops.
+   */
+  private warnUser(message: string): void {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(
+        new CustomEvent('naklidata:toast', { detail: { message, kind: 'info' } }),
+      );
+    }
+    console.warn('[engine]', message);
   }
 
   /** Register a JSONL (NDJSON) file. */
@@ -573,22 +666,63 @@ export class Engine {
   }
 
   /**
-   * Mount a SQLite database file. ATTACHes the file as a virtual
-   * database, then exposes each user table as its own NakliData view
-   * named `<sourceLabel>__<tableName>`. Returns the list of view names
-   * created — mount.ts iterates them to populate MountedSource.tables.
+   * Mount a SQLite database file. Each user table becomes its own
+   * NakliData view named `<sourceLabel>` (single table) or
+   * `<sourceLabel>__<tableName>` (multi-table). Returns the list of view
+   * names created — mount.ts iterates them to populate MountedSource.tables.
+   *
+   * NOT via DuckDB's `sqlite_scanner` ATTACH: that extension's embedded
+   * SQLite VFS cannot open a browser-*registered* file (buffer or handle),
+   * so ATTACH "succeeds" but the first read fails with "unable to open
+   * database file" — reproduced across every registration protocol and
+   * across DuckDB cores v1.1.1 + v1.3.2 (real-data test, 2026-07-04;
+   * DECISIONS 2026-07-04). Instead we read the file with sql.js (a lazy,
+   * vendored chunk), extract each table to NDJSON, and load it through
+   * DuckDB's native `read_json_auto` — which infers per-column types
+   * (SQLite date-text even round-trips to TIMESTAMP). Same shape as the
+   * SheetJS xlsx path.
    */
   async registerSqlite({ tableName, file }: RegisterFileOptions): Promise<string[]> {
-    await this.ensureExtension('sqlite');
-    const fname = sanitizeFileName(file.name);
-    await this.registerFile(fname, file);
-    return await this.attachDatabase(fname, tableName, 'sqlite');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { readSqliteTables } = await loadChunk('sqlite-reader');
+    const tables = await readSqliteTables(bytes);
+    if (tables.length === 0) {
+      throw new Error(`No tables found in "${file.name}" — the SQLite database is empty.`);
+    }
+    if (!this.db) throw new EngineError('Engine not booted');
+    const created: string[] = [];
+    for (const t of tables) {
+      const view = sanitizeIdent(tables.length === 1 ? tableName : `${tableName}__${t.name}`);
+      if (t.rowCount > 0) {
+        // Register the table's NDJSON and expose it via a view over
+        // read_json_auto — mirrors registerCsv's view-over-reader shape.
+        const fname = sanitizeFileName(`${file.name}__${t.name}.ndjson`);
+        await this.db.registerFileBuffer(fname, t.ndjson);
+        await this.exec(
+          `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
+           SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
+        );
+      } else {
+        // Empty table — no rows to infer from, so build a 0-row shell
+        // with the SQLite column names typed as VARCHAR (best-effort;
+        // a mounted-but-empty table still shows its schema).
+        const colDefs = t.columns.length
+          ? t.columns.map((c) => `${quoteIdent(c)} VARCHAR`).join(', ')
+          : '_empty VARCHAR';
+        await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(view)}`);
+        await this.exec(`CREATE TABLE ${quoteIdent(view)} (${colDefs})`);
+      }
+      created.push(view);
+    }
+    return created;
   }
 
   /** Mount a native DuckDB database file via ATTACH. Multi-table. */
   async registerDuckdb({ tableName, file }: RegisterFileOptions): Promise<string[]> {
     const fname = sanitizeFileName(file.name);
-    await this.registerFile(fname, file);
+    // Same random-access requirement as SQLite — a native DuckDB file ATTACHed
+    // read-only reads pages at arbitrary offsets.
+    await this.registerFileHandle(fname, file);
     return await this.attachDatabase(fname, tableName, 'duckdb');
   }
 

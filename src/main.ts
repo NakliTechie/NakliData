@@ -81,6 +81,7 @@ import {
 } from './ui/lens-confirm-modal.ts';
 import { openLineagePanel } from './ui/lineage-panel.ts';
 import { openMeasuresPanel } from './ui/measures-panel.ts';
+import { restoreModalFocus } from './ui/modal-focus.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
 import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
@@ -97,6 +98,7 @@ import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/sc
 import { openSettingsModal } from './ui/settings-modal.ts';
 import {
   type ShellState,
+  mountOptionsHtml,
   mountShell,
   renderSelectionsBar,
   renderSessionSwitcher,
@@ -2099,6 +2101,16 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       return;
     }
     case 'add-source':
+      // The sources-rail "+ Add source" affordance. Once a source is
+      // mounted the first-run empty-state panel is gone, so this is the
+      // only way to add a 2nd source. Re-present the same mount options
+      // (file / folder / URL / bucket / …) in a modal; each option
+      // dispatches its existing mount action. (Real-data test finding #2.)
+      openAddSourceModal();
+      return;
+    case 'close-add-source':
+      closeAddSourceModal();
+      return;
     case 'spotlight':
       console.info(`[naklidata] action requested: ${action} (not yet wired)`);
       toast(`${action} is not wired yet.`);
@@ -2846,6 +2858,73 @@ async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
     if ((err as DOMException)?.name === 'AbortError') return null;
     throw err;
   }
+}
+
+// "+ Add source" modal (real-data test finding #2). Reuses the empty-state
+// mount options so adding a 2nd source offers the same choices as the first.
+// Appended to <body> (outside the #app click-delegation root), so it wires
+// its own click handler that dispatches the chosen mount action.
+let _addSourceModal: HTMLElement | null = null;
+let _addSourcePrevFocus: HTMLElement | null = null;
+let _addSourceOnKey: ((ev: KeyboardEvent) => void) | null = null;
+
+function openAddSourceModal(): void {
+  if (_addSourceModal && document.body.contains(_addSourceModal)) return;
+  if (getEngine().getStatus() !== 'ready') {
+    toast('Engine still booting — try again in a moment.');
+    return;
+  }
+  _addSourcePrevFocus = (document.activeElement as HTMLElement) ?? null;
+  const overlay = document.createElement('div');
+  overlay.className = 'schema-graph-overlay add-source-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Add a data source');
+  overlay.innerHTML = `
+    <div class="schema-graph-modal add-source-modal" data-region="add-source-modal">
+      <div class="schema-graph-header">
+        <strong>Add a data source</strong>
+        <button class="btn btn-ghost schema-graph-close" data-action="close-add-source" aria-label="Close">✕</button>
+      </div>
+      <div class="empty-state add-source-body">${mountOptionsHtml()}</div>
+    </div>
+  `;
+  // Backdrop click closes.
+  overlay.addEventListener('click', (ev) => {
+    if (ev.target === overlay) closeAddSourceModal();
+  });
+  // Option / close clicks: dispatch the chosen mount action. The mount
+  // flow opens its own picker/modal, so close this menu first.
+  overlay.querySelector('[data-region="add-source-modal"]')?.addEventListener('click', (ev) => {
+    const el = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-action]');
+    const action = el?.dataset.action;
+    if (!action) return;
+    closeAddSourceModal();
+    if (action !== 'close-add-source') void handleAction(action, el);
+  });
+  _addSourceOnKey = (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      closeAddSourceModal();
+    }
+  };
+  document.addEventListener('keydown', _addSourceOnKey);
+  document.body.append(overlay);
+  _addSourceModal = overlay;
+  overlay.querySelector<HTMLElement>('[data-action="mount-file"]')?.focus();
+}
+
+function closeAddSourceModal(): void {
+  if (_addSourceModal?.parentElement) {
+    _addSourceModal.parentElement.removeChild(_addSourceModal);
+  }
+  _addSourceModal = null;
+  if (_addSourceOnKey) {
+    document.removeEventListener('keydown', _addSourceOnKey);
+    _addSourceOnKey = null;
+  }
+  restoreModalFocus(_addSourcePrevFocus);
+  _addSourcePrevFocus = null;
 }
 
 async function pickSingleFile(): Promise<File | null> {

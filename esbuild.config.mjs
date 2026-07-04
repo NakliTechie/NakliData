@@ -26,6 +26,29 @@ const COMMON = {
 };
 
 /**
+ * Stub Node core modules (`fs`/`path`/`crypto`) with an empty module.
+ * sql.js's emscripten glue (used by the `sqlite-reader` lazy chunk)
+ * `require()`s these inside runtime-guarded `typeof process === 'object'`
+ * branches that NEVER execute in the browser — but esbuild still tries to
+ * resolve them at bundle time and errors under `platform: 'browser'`. An
+ * empty stub is safe because the branches are dead in-browser (we hand
+ * sql.js the file bytes directly; it never touches the Node fs path).
+ */
+const nodeStubPlugin = {
+  name: 'node-builtin-stub',
+  setup(build) {
+    build.onResolve({ filter: /^(fs|path|crypto)$/ }, (args) => ({
+      path: args.path,
+      namespace: 'node-stub',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'node-stub' }, () => ({
+      contents: 'module.exports = {};',
+      loader: 'js',
+    }));
+  },
+};
+
+/**
  * Build each `src/lazy/<name>.ts` into `dist/chunks/<name>.js` as a
  * standalone ESM module. The main bundle uses `loadChunk(name)` from
  * `src/core/lazy-loader.ts` to dynamically import these at runtime —
@@ -41,6 +64,7 @@ async function buildLazyChunks() {
   await mkdir(CHUNKS_OUT, { recursive: true });
   await build({
     ...COMMON,
+    plugins: [nodeStubPlugin],
     entryPoints: files.map((f) => `${LAZY_DIR}/${f}`),
     outdir: CHUNKS_OUT,
     // Each entry is its own self-contained chunk — no esbuild code-splitting.
