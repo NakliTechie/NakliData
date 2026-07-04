@@ -1,6 +1,12 @@
 [
   {
     "section": "getting-started",
+    "slug": "00-welcome",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "getting-started",
     "slug": "01-empty-state",
     "status": "ok",
     "errors": 0
@@ -85,7 +91,49 @@
   },
   {
     "section": "facet",
-    "slug": "01-embedding-cell",
+    "slug": "01-embedding-map",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "facet",
+    "slug": "02-network-graph",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "facet",
+    "slug": "03-knowledge-graph",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "facet",
+    "slug": "04-temporal-timeline",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "facet",
+    "slug": "05-distribution",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "reports",
+    "slug": "01-superstore-region-margin",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "reports",
+    "slug": "02-financial-segment-margin",
+    "status": "ok",
+    "errors": 0
+  },
+  {
+    "section": "reports",
+    "slug": "03-chinook-revenue-country",
     "status": "ok",
     "errors": 0
   },

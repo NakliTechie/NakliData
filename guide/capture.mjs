@@ -142,6 +142,27 @@ async function main() {
 
   // ── Section: getting-started ─────────────────────────────────────────────
   log('section: getting-started');
+  // The first-run welcome splash overlays the empty state on a fresh visit.
+  // Capture it as its own shot, then dismiss it so the rest of the walkthrough
+  // can click through (an open modal intercepts every pointer event).
+  const splashPresent = await page
+    .waitForSelector('.help-overlay [data-welcome-examples]', { timeout: 4000 })
+    .then(() => true)
+    .catch(() => false);
+  if (splashPresent) {
+    await shoot('getting-started', '00-welcome');
+    await page.evaluate(() => {
+      const ov = document.querySelector('.schema-graph-overlay');
+      const close = ov?.querySelector('[data-close]');
+      if (close instanceof HTMLElement) close.click();
+      else ov?.remove();
+    });
+    await page
+      .waitForFunction(() => document.querySelector('.schema-graph-overlay') === null, null, {
+        timeout: 3000,
+      })
+      .catch(() => {});
+  }
   await shoot('getting-started', '01-empty-state');
 
   // A remote-source mount modal (URL) — the "bring your own data" entry point.
@@ -369,19 +390,357 @@ async function main() {
   await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
 
   // ── Section: facet ───────────────────────────────────────────────────────
+  // We drive real data into each Facet view so the guide shows populated
+  // visualizations, not empty pickers. SQL is typed through the real keyboard
+  // pipeline (CodeMirror ignores programmatic value swaps). The SVG views
+  // (Temporal, Distribution) screenshot fully here.
+  //
+  // ⚠️ The deck.gl views (Embedding, Network, Knowledge-graph) MOUNT correctly
+  // headless (the canvas is sized + the render seam is live — the smoke's GPU
+  // picking proves it), but Playwright's page.screenshot does not composite the
+  // WebGL framebuffer, so those three come out blank here. They are backfilled
+  // from a real GPU browser (the preview MCP) — see guide/CAPTURE-LOG.md. The
+  // capture still drives them (a mount smoke-check); forceDeckPaint nudges a
+  // redraw for any environment where Playwright *can* paint WebGL.
   log('section: facet');
+
+  // Add a fresh SQL cell, type + run a query, return its cell id.
+  async function freshSql(sql) {
+    const before = await page.evaluate(
+      () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+    );
+    await page.click('[data-nb-action="add-sql"]');
+    await page.waitForFunction(
+      (b) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > b,
+      before,
+      { timeout: 5000 },
+    );
+    const cell = page.locator('.cell[data-cell-kind="sql"]').last();
+    await cell.locator('.cm-content, textarea').first().click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.insertText(sql);
+    await cell.locator('[data-action="cell-run"]').click();
+    await page.waitForFunction(
+      () => {
+        const cells = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')];
+        const last = cells[cells.length - 1];
+        return !!last && !last.classList.contains('errored') && last.querySelector('table') !== null;
+      },
+      null,
+      { timeout: 15000 },
+    );
+    return page.evaluate(() => {
+      const cells = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')];
+      return cells[cells.length - 1].dataset.cellId;
+    });
+  }
+  // Set a <select> on the LAST cell of `kind` (input picker re-renders the cell,
+  // so callers set input first, await the column picker, then set columns).
+  const setPick = (kind, action, value) =>
+    page.evaluate(
+      ({ kind, action, value }) => {
+        const cell = [...document.querySelectorAll(`.cell[data-cell-kind="${kind}"]`)].pop();
+        const sel = cell?.querySelector(`[data-action="${action}"]`);
+        if (sel) {
+          sel.value = value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      },
+      { kind, action, value },
+    );
+  const waitPick = (kind, action) =>
+    page.waitForFunction(
+      ({ kind, action }) =>
+        [...document.querySelectorAll(`.cell[data-cell-kind="${kind}"]`)]
+          .pop()
+          ?.querySelector(`[data-action="${action}"]`) !== null,
+      { kind, action },
+      { timeout: 6000 },
+    );
+  const scrollLast = (kind) =>
+    page.evaluate((kind) => {
+      [...document.querySelectorAll(`.cell[data-cell-kind="${kind}"]`)]
+        .pop()
+        ?.scrollIntoView({ block: 'center' });
+    }, kind);
+  // deck.gl renders on its own rAF loop, which doesn't reliably PAINT the
+  // visible canvas in an automated browser (picking uses a separate buffer, so
+  // the render is "there" but the framebuffer stays blank in a screenshot). A
+  // no-op setHighlight goes through deck.setProps → a forced redraw; then we
+  // await two real animation frames so the paint lands before the shot.
+  const forceDeckPaint = async (kind, region, seamProp) => {
+    await page.evaluate(
+      ({ kind, region, seamProp }) => {
+        const mount = [...document.querySelectorAll(`.cell[data-cell-kind="${kind}"]`)]
+          .pop()
+          ?.querySelector(`[data-region="${region}"]`);
+        mount?.[seamProp]?.setHighlight?.(null, []);
+      },
+      { kind, region, seamProp },
+    );
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    );
+    await delay(400);
+  };
+
+  // 1. Embedding map — a FLOAT[] embedding column auto-projected to 2-D (PCA),
+  //    coloured by a categorical group.
+  const embSqlId = await freshSql(
+    "SELECT i::VARCHAR AS label, " +
+      "CASE WHEN i % 4 = 0 THEN 'cluster A' WHEN i % 4 = 1 THEN 'cluster B' " +
+      "WHEN i % 4 = 2 THEN 'cluster C' ELSE 'cluster D' END AS grp, " +
+      '[cos(i*0.5) + (i%4), sin(i*0.5) + (i%4), (i % 7)::DOUBLE, ((i*3) % 5)::DOUBLE] AS emb ' +
+      'FROM range(160) t(i)',
+  );
   await page.click('[data-nb-action="add-embedding"]');
   await page.waitForFunction(
     () => document.querySelector('.cell[data-cell-kind="embedding"]') !== null,
     null,
     { timeout: 5000 },
   );
-  await page.evaluate(() => {
-    document
-      .querySelector('.cell[data-cell-kind="embedding"]')
-      ?.scrollIntoView({ block: 'center' });
+  await setPick('embedding', 'embed-input', embSqlId);
+  await waitPick('embedding', 'embed-emb');
+  await setPick('embedding', 'embed-emb', 'emb');
+  await setPick('embedding', 'embed-color', 'grp');
+  await page
+    .waitForFunction(
+      () =>
+        [...document.querySelectorAll('.cell[data-cell-kind="embedding"]')]
+          .pop()
+          ?.querySelector('[data-region="embed-canvas"] canvas') !== null,
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {});
+  await scrollLast('embedding');
+  await forceDeckPaint('embedding', 'embed-canvas', '__embedScatter');
+  await shoot('facet', '01-embedding-map');
+
+  // 2 + 3. Network force-graph, then the same graph coloured by edge type
+  //        (Knowledge-graph view) with a legend + weighted edges.
+  await freshSql(
+    'WITH n AS (SELECT i, (i // 20) AS c FROM range(80) t(i)), ' +
+      'e AS (SELECT a.i AS s, b.i AS d FROM n a JOIN n b ON a.c = b.c AND a.i < b.i ' +
+      'AND (a.i * 7 + b.i * 13) % 4 < 2 UNION ALL SELECT (i*11) % 80, (i*23) % 80 FROM range(30) t(i)) ' +
+      "SELECT s::VARCHAR AS src, d::VARCHAR AS tgt, " +
+      "CASE WHEN (s + d) % 3 = 0 THEN 'cites' WHEN (s + d) % 3 = 1 THEN 'authored' ELSE 'funded' END AS rel, " +
+      '(1 + (s * 7 + d) % 9) AS weight FROM e WHERE s <> d',
+  );
+  const netSqlId = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')];
+    return cells[cells.length - 1].dataset.cellId;
   });
-  await shoot('facet', '01-embedding-cell');
+  await page.click('[data-nb-action="add-network"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="network"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await setPick('network', 'net-input', netSqlId);
+  await waitPick('network', 'net-source');
+  await setPick('network', 'net-source', 'src');
+  await setPick('network', 'net-target', 'tgt');
+  await page
+    .waitForFunction(
+      () =>
+        [...document.querySelectorAll('.cell[data-cell-kind="network"]')]
+          .pop()
+          ?.querySelector('[data-region="net-canvas"] canvas') !== null,
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {});
+  await scrollLast('network');
+  await forceDeckPaint('network', 'net-canvas', '__networkGraph');
+  await shoot('facet', '02-network-graph');
+
+  // Colour by edge type + width by weight → the Knowledge-graph / Weighted view.
+  await setPick('network', 'net-edge-color', 'rel');
+  await setPick('network', 'net-edge-width', 'weight');
+  await page
+    .waitForFunction(
+      () =>
+        ([...document.querySelectorAll('.cell[data-cell-kind="network"]')]
+          .pop()
+          ?.querySelectorAll('[data-region="net-legend"] [data-legend-value]').length ?? 0) > 0,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  await scrollLast('network');
+  await forceDeckPaint('network', 'net-canvas', '__networkGraph');
+  await shoot('facet', '03-knowledge-graph');
+
+  // 4. Temporal — a timestamp column bucketed into a brushable timeline.
+  const tempSqlId = await freshSql(
+    "SELECT TIMESTAMP '2023-01-01' + INTERVAL ((i * i) % 365) DAY AS ts, i AS n FROM range(400) t(i)",
+  );
+  await page.click('[data-nb-action="add-temporal"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="temporal"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await setPick('temporal', 'temporal-input', tempSqlId);
+  await waitPick('temporal', 'temporal-time');
+  await setPick('temporal', 'temporal-time', 'ts');
+  await page
+    .waitForFunction(
+      () =>
+        ([...document.querySelectorAll('.cell[data-cell-kind="temporal"]')]
+          .pop()
+          ?.querySelectorAll('[data-region="temporal-svg"] rect').length ?? 0) > 2,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  await scrollLast('temporal');
+  await delay(500);
+  await shoot('facet', '04-temporal-timeline');
+
+  // 5. Distribution — a categorical column summarized as value-count bars.
+  const distSqlId = await freshSql(
+    "SELECT CASE WHEN i % 6 = 0 THEN 'Purchase' WHEN i % 6 = 1 THEN 'Refund' " +
+      "WHEN i % 6 = 2 THEN 'Transfer' WHEN i % 6 = 3 THEN 'Fee' " +
+      "WHEN i % 6 = 4 THEN 'Chargeback' ELSE 'Adjustment' END AS txn_type " +
+      'FROM range(240) t(i)',
+  );
+  await page.click('[data-nb-action="add-distribution"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="distribution"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await setPick('distribution', 'dist-input', distSqlId);
+  await waitPick('distribution', 'dist-column');
+  await setPick('distribution', 'dist-column', 'txn_type');
+  await page
+    .waitForFunction(
+      () =>
+        ([...document.querySelectorAll('.cell[data-cell-kind="distribution"]')]
+          .pop()
+          ?.querySelectorAll('[data-region="dist-svg"] [data-bar]').length ?? 0) > 1,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  await scrollLast('distribution');
+  await delay(500);
+  await shoot('facet', '05-distribution');
+
+  // ── Section: reports ───────────────────────────────────────────────────────
+  // Real management datasets → board-ready cuts. We mount three public files
+  // exactly as a junior analyst would — through the "+ Add source" flow — then
+  // run a representative report in a SQL cell and clip the shot to that cell
+  // (query + result), so the guide shows realistic output, not toy data.
+  //   • Superstore (CSV)          — profit & margin by region
+  //   • MS Financial Sample (XLSX) — profit & margin by segment
+  //   • Chinook (SQLite)          — revenue by country
+  // Data lives in guide/sample-data/ (read here as bytes; the FSA picker is
+  // stubbed so "Add file" resolves to the fixture — headless can't drive a real
+  // picker). The SQLite mount exercises the sql.js path (DECISIONS BW).
+  log('section: reports');
+  const SAMPLE_DIR = join(HERE, 'sample-data');
+  const sampleB64 = async (f) => (await readFile(join(SAMPLE_DIR, f))).toString('base64');
+
+  async function mountFileFixture(fileName, mimeType, base64, railHint) {
+    await page.evaluate(
+      ({ fileName, mimeType, b64 }) => {
+        const bin = atob(b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+        const file = new File([arr], fileName, { type: mimeType });
+        // Stub the FSA picker so clicking "Add file" resolves to this fixture.
+        window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+      },
+      { fileName, mimeType, b64: base64 },
+    );
+    await page.click('[data-action="add-source"]');
+    await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+    await page.click('.add-source-overlay [data-action="mount-file"]');
+    await page.waitForFunction(
+      (hint) =>
+        new RegExp(hint).test(
+          document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '',
+        ),
+      railHint,
+      { timeout: 30000 },
+    );
+  }
+
+  // Clip the shot to the last SQL cell (query + result table) — a clean
+  // "here's the report" frame rather than the whole crowded workbench.
+  // Mounting a multi-table source (chinook = 11 tables) fires classification
+  // churn that re-renders the notebook CONTINUOUSLY, so an element-screenshot
+  // never sees a "stable" element and detaches. Instead we read the cell's
+  // bounding box synchronously and page.screenshot a viewport clip at those
+  // coords — a region capture that doesn't wait on element stability.
+  async function shootReport(slug) {
+    await mkdir(join(SHOTS_DIR, 'reports'), { recursive: true });
+    await delay(4000); // let post-mount classification stop re-rendering
+    await page.evaluate(() => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+      cells[cells.length - 1]?.scrollIntoView({ block: 'center' });
+    });
+    await delay(600);
+    const box = await page.evaluate(() => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+      const el = cells[cells.length - 1];
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+    const path = join(SHOTS_DIR, 'reports', `${slug}.png`);
+    if (box && box.width > 4 && box.height > 4) {
+      const x = Math.max(0, Math.floor(box.x));
+      const y = Math.max(0, Math.floor(box.y));
+      const clip = {
+        x,
+        y,
+        width: Math.min(Math.ceil(box.width), 1400 - x),
+        height: Math.min(Math.ceil(box.height), 900 - y),
+      };
+      await page.screenshot({ path, clip });
+    } else {
+      await page.screenshot({ path });
+    }
+    results.push({ section: 'reports', slug, status: 'ok', errors: 0 });
+    log(`  ✓ reports/${slug}`);
+  }
+
+  await mountFileFixture('superstore.csv', 'text/csv', await sampleB64('superstore.csv'), 'superstore');
+  await freshSql(
+    'SELECT "Region", ROUND(SUM("Sales"),0) AS sales, ROUND(SUM("Profit"),0) AS profit, ' +
+      'ROUND(100*SUM("Profit")/NULLIF(SUM("Sales"),0),1) AS margin_pct ' +
+      'FROM superstore GROUP BY "Region" ORDER BY profit DESC',
+  );
+  await shootReport('01-superstore-region-margin');
+
+  await mountFileFixture(
+    'financial_sample.xlsx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    await sampleB64('financial_sample.xlsx'),
+    'financial_sample',
+  );
+  await freshSql(
+    'SELECT "Segment", ROUND(SUM("Sales"),0) AS sales, ROUND(SUM("Profit"),0) AS profit, ' +
+      'ROUND(100*SUM("Profit")/NULLIF(SUM("Sales"),0),1) AS margin_pct ' +
+      'FROM financial_sample GROUP BY "Segment" ORDER BY profit DESC',
+  );
+  await shootReport('02-financial-segment-margin');
+
+  await mountFileFixture(
+    'chinook.sqlite',
+    'application/x-sqlite3',
+    await sampleB64('chinook.sqlite'),
+    'chinook__Invoice',
+  );
+  await freshSql(
+    'SELECT "BillingCountry" AS country, ROUND(SUM("Total"),2) AS revenue, COUNT(*) AS invoices ' +
+      'FROM chinook__Invoice GROUP BY country ORDER BY revenue DESC LIMIT 8',
+  );
+  await shootReport('03-chinook-revenue-country');
 
   // ── Section: ai-sidecar ──────────────────────────────────────────────────
   log('section: ai-sidecar');

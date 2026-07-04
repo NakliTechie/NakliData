@@ -53,7 +53,7 @@
 
   .cards { display: grid; grid-template-columns: 1fr; gap: 28px; }
   .card { margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-  .card .shot { display: block; background: var(--surface-alt); border-bottom: 1px solid var(--border); }
+  .card .shot { display: block; background: var(--surface-alt); border-bottom: 1px solid var(--border); cursor: zoom-in; }
   .card img { display: block; width: 100%; height: auto; }
   /* Narrow rail clips: show near native size, centred on the backdrop. */
   .card.narrow .shot { padding: 28px 16px; text-align: center; }
@@ -71,6 +71,26 @@
   footer.foot a { color: var(--accent); }
 
   @media (min-width: 720px) { .card { display: grid; grid-template-columns: 1fr; } }
+
+  /* ── Lightbox ────────────────────────────────────────────────────────── */
+  .lightbox { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(20,18,15,0.90); }
+  .lightbox.open { display: flex; flex-direction: column; }
+  .lb-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 56px 68px 8px; overflow: auto; }
+  .lb-stage img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 44px rgba(0,0,0,0.5); background: var(--surface); }
+  .lb-cap { padding: 12px 24px 22px; text-align: center; max-width: 82ch; margin: 0 auto; }
+  .lb-cap h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #f4efe6; }
+  .lb-cap p { margin: 0; font-size: 13px; color: #cbc3b4; }
+  .lb-btn { position: fixed; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); font-size: 26px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .lb-btn:hover { background: rgba(255,255,255,0.24); }
+  .lb-prev { left: 16px; } .lb-next { right: 16px; }
+  .lb-close { position: fixed; top: 16px; right: 18px; width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); font-size: 18px; cursor: pointer; }
+  .lb-close:hover { background: rgba(255,255,255,0.24); }
+  .lb-counter { position: fixed; top: 22px; left: 22px; color: #cbc3b4; font-family: var(--mono); font-size: 12px; }
+  .lb-hint { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #9a927f; font-size: 11px; }
+  @media (max-width: 640px) { .lb-stage { padding: 52px 12px 8px; } .lb-btn { width: 40px; height: 40px; font-size: 22px; } }
 </style>
 </head>
 <body>
@@ -81,7 +101,7 @@
       <span class="brand-mark"><span class="accent">Nakli</span>Data</span>
       <span class="brand-tag">field guide</span>
     </div>
-    <p class="lede">A screen-by-screen tour of the browser-native semantic data workbench — how to bring data in, read the schema, drive the notebook, resolve entities, and use the AI sidecar. Every shot is captured from the running app. Use the search box to jump to any feature.</p>
+    <p class="lede">A screen-by-screen tour of the browser-native semantic data workbench — how to bring data in, read the schema, drive the notebook, resolve entities, and use the AI sidecar. Every shot is captured from the running app. Search to jump to any feature; click any screenshot to zoom, then step through with <kbd>←</kbd>/<kbd>→</kbd> (or <kbd>↑</kbd>/<kbd>↓</kbd>).</p>
   </div>
 </header>
 
@@ -95,7 +115,7 @@
 <div class="wrap">
   <nav class="toc">
     <h2>Contents</h2>
-    <ul><li><a href="#getting-started">Getting started — bring your data in</a></li><li><a href="#data-and-schema">Your data &amp; the schema panel</a></li><li><a href="#notebook">The notebook — query, chart, build</a></li><li><a href="#resolve">Resolve — clean &amp; unify entities</a></li><li><a href="#lineage">Lineage &amp; provenance</a></li><li><a href="#facet">Facet — visual exploration</a></li><li><a href="#ai-sidecar">AI sidecar (bring your own key)</a></li><li><a href="#more-cells">The full cell palette</a></li></ul>
+    <ul><li><a href="#getting-started">Getting started — bring your data in</a></li><li><a href="#data-and-schema">Your data &amp; the schema panel</a></li><li><a href="#notebook">The notebook — query, chart, build</a></li><li><a href="#reports">Reports from real datasets</a></li><li><a href="#resolve">Resolve — clean &amp; unify entities</a></li><li><a href="#lineage">Lineage &amp; provenance</a></li><li><a href="#facet">Facet — visual exploration</a></li><li><a href="#ai-sidecar">AI sidecar (bring your own key)</a></li><li><a href="#more-cells">The full cell palette</a></li></ul>
   </nav>
 
   
@@ -103,6 +123,15 @@
         <h2>Getting started — bring your data in</h2>
         <p class="section-intro">NakliData is a browser-native data workbench: everything runs in this tab, and your data never leaves it (there is no server, no upload, no account). You start by pointing it at data — a local folder or file, a public URL, or a remote store. If you just want to look around, use “browse example data”, which is what every screenshot in this guide is built on.</p>
         <div class="cards">
+        <figure class="card" data-search="getting started — bring your data in first-run welcome a one-time splash on your first visit — the three steps (bring data in, read the schema, query &amp; build), a jump straight to the example data, and a link to this guide. it never appears again once dismissed. getting-started/00-welcome">
+          <a class="shot" href="screenshots/getting-started/00-welcome.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/getting-started/00-welcome.png" alt="First-run welcome">
+          </a>
+          <figcaption>
+            <h3>First-run welcome</h3>
+            <p>A one-time splash on your first visit — the three steps (bring data in, read the schema, query &amp; build), a jump straight to the example data, and a link to this guide. It never appears again once dismissed.</p>
+          </figcaption>
+        </figure>
         <figure class="card" data-search="getting started — bring your data in the arrival screen — “what do you have?” the first thing a new user sees. eight ways in: a local folder or file, a pasted public url, an s3 bucket, iceberg table/catalog, or a compute bridge. “browse example data” loads the demo dataset used throughout this guide. getting-started/01-empty-state">
           <a class="shot" href="screenshots/getting-started/01-empty-state.png" target="_blank" rel="noopener">
             <img width="2800" height="1800" src="screenshots/getting-started/01-empty-state.png" alt="The arrival screen — “What do you have?”">
@@ -204,6 +233,38 @@
           </figcaption>
         </figure></div>
       </section>
+      <section id="reports" class="guide-section">
+        <h2>Reports from real datasets</h2>
+        <p class="section-intro">The workbench earns its keep on real management data. Below are three board-ready cuts a junior analyst can produce in seconds — each mounted the way you would (“+ Add source” → Add file) from a different format: a Superstore orders CSV, Microsoft’s Financial Sample workbook (XLSX), and the Chinook business database (SQLite). Mount → the schema panel types the columns → one GROUP BY → a result you can chart, export, or drop into a report cell. SQLite is read in-browser via sql.js, so a whole .sqlite file becomes queryable tables with no server.</p>
+        <div class="cards">
+        <figure class="card" data-search="reports from real datasets superstore (csv) — profit &amp; margin by region a superstore orders csv mounted as one table, then aggregated: sales, profit, and profit-margin % per region, worst margin last. the classic exec cut — revenue is not profit — straight out of a raw csv. reports/01-superstore-region-margin">
+          <a class="shot" href="screenshots/reports/01-superstore-region-margin.png" target="_blank" rel="noopener">
+            <img width="1712" height="618" src="screenshots/reports/01-superstore-region-margin.png" alt="Superstore (CSV) — profit &amp; margin by region">
+          </a>
+          <figcaption>
+            <h3>Superstore (CSV) — profit &amp; margin by region</h3>
+            <p>A Superstore orders CSV mounted as one table, then aggregated: sales, profit, and profit-margin % per region, worst margin last. The classic exec cut — revenue is not profit — straight out of a raw CSV.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="reports from real datasets financial sample (xlsx) — profit &amp; margin by segment microsoft’s financial sample workbook, parsed in-tab (sheetjs → the csv path). the same report shape over a spreadsheet: profit and margin by business segment, so a loss-making segment jumps out at a glance. reports/02-financial-segment-margin">
+          <a class="shot" href="screenshots/reports/02-financial-segment-margin.png" target="_blank" rel="noopener">
+            <img width="1712" height="672" src="screenshots/reports/02-financial-segment-margin.png" alt="Financial Sample (XLSX) — profit &amp; margin by segment">
+          </a>
+          <figcaption>
+            <h3>Financial Sample (XLSX) — profit &amp; margin by segment</h3>
+            <p>Microsoft’s Financial Sample workbook, parsed in-tab (SheetJS → the CSV path). The same report shape over a spreadsheet: profit and margin by business segment, so a loss-making segment jumps out at a glance.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="reports from real datasets chinook (sqlite) — revenue by country the canonical chinook sqlite database, read in-browser via sql.js (duckdb-wasm can’t open a registered sqlite file), then a revenue-by-country ranking over its invoice table. a whole .sqlite file becomes queryable tables — no server, no conversion. reports/03-chinook-revenue-country">
+          <a class="shot" href="screenshots/reports/03-chinook-revenue-country.png" target="_blank" rel="noopener">
+            <img width="1712" height="834" src="screenshots/reports/03-chinook-revenue-country.png" alt="Chinook (SQLite) — revenue by country">
+          </a>
+          <figcaption>
+            <h3>Chinook (SQLite) — revenue by country</h3>
+            <p>The canonical Chinook SQLite database, read in-browser via sql.js (DuckDB-wasm can’t open a registered SQLite file), then a revenue-by-country ranking over its Invoice table. A whole .sqlite file becomes queryable tables — no server, no conversion.</p>
+          </figcaption>
+        </figure></div>
+      </section>
       <section id="resolve" class="guide-section">
         <h2>Resolve — clean &amp; unify entities</h2>
         <p class="section-intro">Resolve is NakliData’s entity-resolution toolkit for messy real-world data: cluster near-duplicate values (fuzzy merge), define reusable measures / dimensions / segments in the Semantic layer, and export a golden table that collapses to one row per canonical entity with survivorship rules. None of these mutate your source — they emit SQL you can read before running.</p>
@@ -252,15 +313,51 @@
       </section>
       <section id="facet" class="guide-section">
         <h2>Facet — visual exploration</h2>
-        <p class="section-intro">Facet adds visual view-types to the workbench. The Embedding cell plots rows as a 2-D scatter from precomputed x / y coordinate columns (the first shipped Facet view). The live scatter is rendered with deck.gl and needs a GPU browser; the screenshot here shows the cell’s picker — point it at a SQL cell that has x / y columns to render the map.</p>
+        <p class="section-intro">Facet turns a query result into a visual view — pick a cell kind, point it at a SQL cell, choose the columns, and the view renders in-tab. One data shape, many views: an embedding column becomes a semantic map, an edge list becomes a force graph, a date column becomes a timeline. The Temporal and Distribution views (SVG) are shown fully rendered below. The Embedding and Network views draw with deck.gl (WebGL) and render live in your browser — the shots below show each one configured (input + columns picked), with the live scatter / graph painting into the canvas beneath the controls.</p>
         <div class="cards">
-        <figure class="card" data-search="facet — visual exploration the embedding cell (facet) plots rows as a 2-d scatter from precomputed x / y columns. shown here in its picker state — choose a sql cell that exposes coordinate columns and the deck.gl scatter renders (a gpu browser is required for the live map). facet/01-embedding-cell">
-          <a class="shot" href="screenshots/facet/01-embedding-cell.png" target="_blank" rel="noopener">
-            <img width="2800" height="1800" src="screenshots/facet/01-embedding-cell.png" alt="The Embedding cell (Facet)">
+        <figure class="card" data-search="facet — visual exploration embedding map — semantic scatter the embedding cell configured against a sql result with an embedding (float[]) column — it projects the vectors to 2-d with in-browser pca, colouring points by a category, and the deck.gl scatter paints into the canvas below the picker. click a point in the live view to find its nearest neighbours; precomputed x / y columns are used directly when present. facet/01-embedding-map">
+          <a class="shot" href="screenshots/facet/01-embedding-map.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/facet/01-embedding-map.png" alt="Embedding map — semantic scatter">
           </a>
           <figcaption>
-            <h3>The Embedding cell (Facet)</h3>
-            <p>Plots rows as a 2-D scatter from precomputed x / y columns. Shown here in its picker state — choose a SQL cell that exposes coordinate columns and the deck.gl scatter renders (a GPU browser is required for the live map).</p>
+            <h3>Embedding map — semantic scatter</h3>
+            <p>The Embedding cell configured against a SQL result with an embedding (FLOAT[]) column — it projects the vectors to 2-D with in-browser PCA, colouring points by a category, and the deck.gl scatter paints into the canvas below the picker. Click a point in the live view to find its nearest neighbours; precomputed x / y columns are used directly when present.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="facet — visual exploration network — force-directed graph the network cell configured from an edge list (a source-id and target-id column): distinct ids become nodes sized by degree, laid out by an in-browser force simulation and drawn with deck.gl in the canvas below. click a node in the live view to highlight its immediate neighbourhood. facet/02-network-graph">
+          <a class="shot" href="screenshots/facet/02-network-graph.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/facet/02-network-graph.png" alt="Network — force-directed graph">
+          </a>
+          <figcaption>
+            <h3>Network — force-directed graph</h3>
+            <p>The Network cell configured from an edge list (a source-id and target-id column): distinct ids become nodes sized by degree, laid out by an in-browser force simulation and drawn with deck.gl in the canvas below. Click a node in the live view to highlight its immediate neighbourhood.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="facet — visual exploration knowledge graph — typed &amp; weighted edges the same network cell with an edge-type column set to colour edges by relationship (with a legend — click a swatch to filter to that type) and a weight column to scale edge width — a typed, weighted knowledge graph. facet/03-knowledge-graph">
+          <a class="shot" href="screenshots/facet/03-knowledge-graph.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/facet/03-knowledge-graph.png" alt="Knowledge graph — typed &amp; weighted edges">
+          </a>
+          <figcaption>
+            <h3>Knowledge graph — typed &amp; weighted edges</h3>
+            <p>The same Network cell with an edge-type column set to colour edges by relationship (with a legend — click a swatch to filter to that type) and a weight column to scale edge width — a typed, weighted knowledge graph.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="facet — visual exploration temporal — brushable timeline a date / timestamp column bucketed into a histogram over time. drag across the timeline to brush a window; the readout reports the selected range and the number of rows inside it. facet/04-temporal-timeline">
+          <a class="shot" href="screenshots/facet/04-temporal-timeline.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/facet/04-temporal-timeline.png" alt="Temporal — brushable timeline">
+          </a>
+          <figcaption>
+            <h3>Temporal — brushable timeline</h3>
+            <p>A date / timestamp column bucketed into a histogram over time. Drag across the timeline to brush a window; the readout reports the selected range and the number of rows inside it.</p>
+          </figcaption>
+        </figure>
+        <figure class="card" data-search="facet — visual exploration distribution — histogram &amp; category bars summarize one column: numeric columns become an equal-width histogram, categorical columns become top-value bars. click a bar to select it and read its share of rows. facet/05-distribution">
+          <a class="shot" href="screenshots/facet/05-distribution.png" target="_blank" rel="noopener">
+            <img width="2800" height="1800" src="screenshots/facet/05-distribution.png" alt="Distribution — histogram &amp; category bars">
+          </a>
+          <figcaption>
+            <h3>Distribution — histogram &amp; category bars</h3>
+            <p>Summarize one column: numeric columns become an equal-width histogram, categorical columns become top-value bars. Click a bar to select it and read its share of rows.</p>
           </figcaption>
         </figure></div>
       </section>
@@ -358,8 +455,18 @@
 
   <p id="nomatch">No features match that search.</p>
 
+  <div class="lightbox" id="lightbox" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
+    <span class="lb-counter" id="lb-counter"></span>
+    <button class="lb-close" id="lb-close" type="button" aria-label="Close (Esc)">✕</button>
+    <button class="lb-btn lb-prev" id="lb-prev" type="button" aria-label="Previous (Left arrow)">‹</button>
+    <div class="lb-stage" id="lb-stage"><img id="lb-img" src="" alt=""></div>
+    <button class="lb-btn lb-next" id="lb-next" type="button" aria-label="Next (Right arrow)">›</button>
+    <div class="lb-cap"><h3 id="lb-title"></h3><p id="lb-desc"></p></div>
+    <div class="lb-hint">← → or ↑ ↓ to move · Esc to close</div>
+  </div>
+
   <footer class="foot">
-    24 screens · generated from <code>guide/capture.mjs</code> + <code>guide/build.mjs</code> · this is a build artifact — edit the generator and re-run, don’t hand-edit this file.
+    32 screens · generated from <code>guide/capture.mjs</code> + <code>guide/build.mjs</code> · this is a build artifact — edit the generator and re-run, don’t hand-edit this file.
   </footer>
 </div>
 
@@ -387,9 +494,75 @@
 
   q.addEventListener('input', apply);
   document.addEventListener('keydown', function (e) {
+    if (LB.isOpen()) return; // lightbox owns the keyboard while open
     if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
     else if (e.key === 'Escape' && document.activeElement === q) { q.value = ''; apply(); q.blur(); }
   });
+})();
+
+// ── Lightbox: click a shot to zoom; arrow keys step through visible shots. ──
+var LB = (function () {
+  var lb = document.getElementById('lightbox');
+  var img = document.getElementById('lb-img');
+  var titleEl = document.getElementById('lb-title');
+  var descEl = document.getElementById('lb-desc');
+  var counter = document.getElementById('lb-counter');
+  var stage = document.getElementById('lb-stage');
+  var current = -1;
+
+  function visibleCards() {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('.card'))
+      .filter(function (c) { return !c.classList.contains('hidden'); });
+  }
+  function render(idx) {
+    var cards = visibleCards();
+    if (!cards.length) return;
+    idx = (idx + cards.length) % cards.length; // wrap both ends
+    current = idx;
+    var card = cards[idx];
+    var cImg = card.querySelector('.shot img');
+    var h3 = card.querySelector('figcaption h3');
+    var p = card.querySelector('figcaption p');
+    img.setAttribute('src', cImg ? cImg.getAttribute('src') : '');
+    img.setAttribute('alt', h3 ? h3.textContent : '');
+    titleEl.textContent = h3 ? h3.textContent : '';
+    descEl.textContent = p ? p.textContent : '';
+    counter.textContent = (idx + 1) + ' / ' + cards.length;
+    stage.scrollTop = 0;
+  }
+  function open(card) {
+    var cards = visibleCards();
+    var idx = cards.indexOf(card);
+    render(idx === -1 ? 0 : idx);
+    lb.classList.add('open');
+    lb.setAttribute('aria-hidden', 'false');
+  }
+  function close() {
+    lb.classList.remove('open');
+    lb.setAttribute('aria-hidden', 'true');
+    current = -1;
+  }
+  function step(delta) { if (current !== -1) render(current + delta); }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.card .shot'), function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); open(a.closest('.card')); });
+  });
+  document.getElementById('lb-close').addEventListener('click', close);
+  document.getElementById('lb-prev').addEventListener('click', function () { step(-1); });
+  document.getElementById('lb-next').addEventListener('click', function () { step(1); });
+  lb.addEventListener('click', function (e) {
+    // Backdrop / empty stage click closes; clicking the image or a button does not.
+    if (e.target === lb || e.target === stage) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+  });
+
+  return { isOpen: function () { return lb.classList.contains('open'); } };
 })();
 </script>
 </body>

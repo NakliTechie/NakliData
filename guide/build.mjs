@@ -46,6 +46,7 @@ const SECTIONS = [
     intro:
       'NakliData is a browser-native data workbench: everything runs in this tab, and your data never leaves it (there is no server, no upload, no account). You start by pointing it at data — a local folder or file, a public URL, or a remote store. If you just want to look around, use “browse example data”, which is what every screenshot in this guide is built on.',
     items: [
+      'getting-started/00-welcome',
       'getting-started/01-empty-state',
       'getting-started/02-mount-url',
       'getting-started/03-mount-s3',
@@ -75,6 +76,17 @@ const SECTIONS = [
     ],
   },
   {
+    id: 'reports',
+    title: 'Reports from real datasets',
+    intro:
+      'The workbench earns its keep on real management data. Below are three board-ready cuts a junior analyst can produce in seconds — each mounted the way you would (“+ Add source” → Add file) from a different format: a Superstore orders CSV, Microsoft’s Financial Sample workbook (XLSX), and the Chinook business database (SQLite). Mount → the schema panel types the columns → one GROUP BY → a result you can chart, export, or drop into a report cell. SQLite is read in-browser via sql.js, so a whole .sqlite file becomes queryable tables with no server.',
+    items: [
+      'reports/01-superstore-region-margin',
+      'reports/02-financial-segment-margin',
+      'reports/03-chinook-revenue-country',
+    ],
+  },
+  {
     id: 'resolve',
     title: 'Resolve — clean & unify entities',
     intro:
@@ -92,8 +104,14 @@ const SECTIONS = [
     id: 'facet',
     title: 'Facet — visual exploration',
     intro:
-      'Facet adds visual view-types to the workbench. The Embedding cell plots rows as a 2-D scatter from precomputed x / y coordinate columns (the first shipped Facet view). The live scatter is rendered with deck.gl and needs a GPU browser; the screenshot here shows the cell’s picker — point it at a SQL cell that has x / y columns to render the map.',
-    items: ['facet/01-embedding-cell'],
+      'Facet turns a query result into a visual view — pick a cell kind, point it at a SQL cell, choose the columns, and the view renders in-tab. One data shape, many views: an embedding column becomes a semantic map, an edge list becomes a force graph, a date column becomes a timeline. The Temporal and Distribution views (SVG) are shown fully rendered below. The Embedding and Network views draw with deck.gl (WebGL) and render live in your browser — the shots below show each one configured (input + columns picked), with the live scatter / graph painting into the canvas beneath the controls.',
+    items: [
+      'facet/01-embedding-map',
+      'facet/02-network-graph',
+      'facet/03-knowledge-graph',
+      'facet/04-temporal-timeline',
+      'facet/05-distribution',
+    ],
   },
   {
     id: 'ai-sidecar',
@@ -124,6 +142,10 @@ const SECTIONS = [
 
 // ── CAPTIONS: slug → { title, desc }. One honest line per screen. ───────────
 const CAPTIONS = {
+  'getting-started/00-welcome': {
+    title: 'First-run welcome',
+    desc: 'A one-time splash on your first visit — the three steps (bring data in, read the schema, query & build), a jump straight to the example data, and a link to this guide. It never appears again once dismissed.',
+  },
   'getting-started/01-empty-state': {
     title: 'The arrival screen — “What do you have?”',
     desc: 'The first thing a new user sees. Eight ways in: a local folder or file, a pasted public URL, an S3 bucket, Iceberg table/catalog, or a Compute Bridge. “Browse example data” loads the demo dataset used throughout this guide.',
@@ -164,6 +186,18 @@ const CAPTIONS = {
     title: 'The add-cell palette',
     desc: 'Every cell kind at a glance: SQL, Markdown, Chart, Pivot, Map, Embedding, Cohort, Assertion, Input, Dashboard, Stats, and Report.',
   },
+  'reports/01-superstore-region-margin': {
+    title: 'Superstore (CSV) — profit & margin by region',
+    desc: 'A Superstore orders CSV mounted as one table, then aggregated: sales, profit, and profit-margin % per region, worst margin last. The classic exec cut — revenue is not profit — straight out of a raw CSV.',
+  },
+  'reports/02-financial-segment-margin': {
+    title: 'Financial Sample (XLSX) — profit & margin by segment',
+    desc: 'Microsoft’s Financial Sample workbook, parsed in-tab (SheetJS → the CSV path). The same report shape over a spreadsheet: profit and margin by business segment, so a loss-making segment jumps out at a glance.',
+  },
+  'reports/03-chinook-revenue-country': {
+    title: 'Chinook (SQLite) — revenue by country',
+    desc: 'The canonical Chinook SQLite database, read in-browser via sql.js (DuckDB-wasm can’t open a registered SQLite file), then a revenue-by-country ranking over its Invoice table. A whole .sqlite file becomes queryable tables — no server, no conversion.',
+  },
   'resolve/01-cluster-modal': {
     title: 'Cluster (fuzzy merge)',
     desc: 'From any SQL result, “Cluster” groups near-duplicate values (e.g. vendor-name spelling variants) and emits a CASE expression aliased …__merged. You choose the column and the match method; the SQL preview updates live and is never auto-run.',
@@ -180,9 +214,25 @@ const CAPTIONS = {
     title: 'The Lineage panel',
     desc: 'The provenance graph for the notebook: it shows which mounted sources (invoices, vendors, …) feed which cells, so any result is traceable back to its inputs.',
   },
-  'facet/01-embedding-cell': {
-    title: 'The Embedding cell (Facet)',
-    desc: 'Plots rows as a 2-D scatter from precomputed x / y columns. Shown here in its picker state — choose a SQL cell that exposes coordinate columns and the deck.gl scatter renders (a GPU browser is required for the live map).',
+  'facet/01-embedding-map': {
+    title: 'Embedding map — semantic scatter',
+    desc: 'The Embedding cell configured against a SQL result with an embedding (FLOAT[]) column — it projects the vectors to 2-D with in-browser PCA, colouring points by a category, and the deck.gl scatter paints into the canvas below the picker. Click a point in the live view to find its nearest neighbours; precomputed x / y columns are used directly when present.',
+  },
+  'facet/02-network-graph': {
+    title: 'Network — force-directed graph',
+    desc: 'The Network cell configured from an edge list (a source-id and target-id column): distinct ids become nodes sized by degree, laid out by an in-browser force simulation and drawn with deck.gl in the canvas below. Click a node in the live view to highlight its immediate neighbourhood.',
+  },
+  'facet/03-knowledge-graph': {
+    title: 'Knowledge graph — typed & weighted edges',
+    desc: 'The same Network cell with an edge-type column set to colour edges by relationship (with a legend — click a swatch to filter to that type) and a weight column to scale edge width — a typed, weighted knowledge graph.',
+  },
+  'facet/04-temporal-timeline': {
+    title: 'Temporal — brushable timeline',
+    desc: 'A date / timestamp column bucketed into a histogram over time. Drag across the timeline to brush a window; the readout reports the selected range and the number of rows inside it.',
+  },
+  'facet/05-distribution': {
+    title: 'Distribution — histogram & category bars',
+    desc: 'Summarize one column: numeric columns become an equal-width histogram, categorical columns become top-value bars. Click a bar to select it and read its share of rows.',
   },
   'ai-sidecar/01-settings-byok': {
     title: 'Settings — enable the sidecar (BYOK)',
@@ -348,7 +398,7 @@ async function main() {
 
   .cards { display: grid; grid-template-columns: 1fr; gap: 28px; }
   .card { margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-  .card .shot { display: block; background: var(--surface-alt); border-bottom: 1px solid var(--border); }
+  .card .shot { display: block; background: var(--surface-alt); border-bottom: 1px solid var(--border); cursor: zoom-in; }
   .card img { display: block; width: 100%; height: auto; }
   /* Narrow rail clips: show near native size, centred on the backdrop. */
   .card.narrow .shot { padding: 28px 16px; text-align: center; }
@@ -366,6 +416,26 @@ async function main() {
   footer.foot a { color: var(--accent); }
 
   @media (min-width: 720px) { .card { display: grid; grid-template-columns: 1fr; } }
+
+  /* ── Lightbox ────────────────────────────────────────────────────────── */
+  .lightbox { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(20,18,15,0.90); }
+  .lightbox.open { display: flex; flex-direction: column; }
+  .lb-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 56px 68px 8px; overflow: auto; }
+  .lb-stage img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 44px rgba(0,0,0,0.5); background: var(--surface); }
+  .lb-cap { padding: 12px 24px 22px; text-align: center; max-width: 82ch; margin: 0 auto; }
+  .lb-cap h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #f4efe6; }
+  .lb-cap p { margin: 0; font-size: 13px; color: #cbc3b4; }
+  .lb-btn { position: fixed; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); font-size: 26px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .lb-btn:hover { background: rgba(255,255,255,0.24); }
+  .lb-prev { left: 16px; } .lb-next { right: 16px; }
+  .lb-close { position: fixed; top: 16px; right: 18px; width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); font-size: 18px; cursor: pointer; }
+  .lb-close:hover { background: rgba(255,255,255,0.24); }
+  .lb-counter { position: fixed; top: 22px; left: 22px; color: #cbc3b4; font-family: var(--mono); font-size: 12px; }
+  .lb-hint { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #9a927f; font-size: 11px; }
+  @media (max-width: 640px) { .lb-stage { padding: 52px 12px 8px; } .lb-btn { width: 40px; height: 40px; font-size: 22px; } }
 </style>
 </head>
 <body>
@@ -376,7 +446,7 @@ async function main() {
       <span class="brand-mark"><span class="accent">Nakli</span>Data</span>
       <span class="brand-tag">field guide</span>
     </div>
-    <p class="lede">A screen-by-screen tour of the browser-native semantic data workbench — how to bring data in, read the schema, drive the notebook, resolve entities, and use the AI sidecar. Every shot is captured from the running app. Use the search box to jump to any feature.</p>
+    <p class="lede">A screen-by-screen tour of the browser-native semantic data workbench — how to bring data in, read the schema, drive the notebook, resolve entities, and use the AI sidecar. Every shot is captured from the running app. Search to jump to any feature; click any screenshot to zoom, then step through with <kbd>←</kbd>/<kbd>→</kbd> (or <kbd>↑</kbd>/<kbd>↓</kbd>).</p>
   </div>
 </header>
 
@@ -396,6 +466,16 @@ async function main() {
   ${sectionsHtml.join('')}
 
   <p id="nomatch">No features match that search.</p>
+
+  <div class="lightbox" id="lightbox" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
+    <span class="lb-counter" id="lb-counter"></span>
+    <button class="lb-close" id="lb-close" type="button" aria-label="Close (Esc)">✕</button>
+    <button class="lb-btn lb-prev" id="lb-prev" type="button" aria-label="Previous (Left arrow)">‹</button>
+    <div class="lb-stage" id="lb-stage"><img id="lb-img" src="" alt=""></div>
+    <button class="lb-btn lb-next" id="lb-next" type="button" aria-label="Next (Right arrow)">›</button>
+    <div class="lb-cap"><h3 id="lb-title"></h3><p id="lb-desc"></p></div>
+    <div class="lb-hint">← → or ↑ ↓ to move · Esc to close</div>
+  </div>
 
   <footer class="foot">
     ${cardCount} screens · generated from <code>guide/capture.mjs</code> + <code>guide/build.mjs</code> · this is a build artifact — edit the generator and re-run, don’t hand-edit this file.
@@ -426,9 +506,75 @@ async function main() {
 
   q.addEventListener('input', apply);
   document.addEventListener('keydown', function (e) {
+    if (LB.isOpen()) return; // lightbox owns the keyboard while open
     if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
     else if (e.key === 'Escape' && document.activeElement === q) { q.value = ''; apply(); q.blur(); }
   });
+})();
+
+// ── Lightbox: click a shot to zoom; arrow keys step through visible shots. ──
+var LB = (function () {
+  var lb = document.getElementById('lightbox');
+  var img = document.getElementById('lb-img');
+  var titleEl = document.getElementById('lb-title');
+  var descEl = document.getElementById('lb-desc');
+  var counter = document.getElementById('lb-counter');
+  var stage = document.getElementById('lb-stage');
+  var current = -1;
+
+  function visibleCards() {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('.card'))
+      .filter(function (c) { return !c.classList.contains('hidden'); });
+  }
+  function render(idx) {
+    var cards = visibleCards();
+    if (!cards.length) return;
+    idx = (idx + cards.length) % cards.length; // wrap both ends
+    current = idx;
+    var card = cards[idx];
+    var cImg = card.querySelector('.shot img');
+    var h3 = card.querySelector('figcaption h3');
+    var p = card.querySelector('figcaption p');
+    img.setAttribute('src', cImg ? cImg.getAttribute('src') : '');
+    img.setAttribute('alt', h3 ? h3.textContent : '');
+    titleEl.textContent = h3 ? h3.textContent : '';
+    descEl.textContent = p ? p.textContent : '';
+    counter.textContent = (idx + 1) + ' / ' + cards.length;
+    stage.scrollTop = 0;
+  }
+  function open(card) {
+    var cards = visibleCards();
+    var idx = cards.indexOf(card);
+    render(idx === -1 ? 0 : idx);
+    lb.classList.add('open');
+    lb.setAttribute('aria-hidden', 'false');
+  }
+  function close() {
+    lb.classList.remove('open');
+    lb.setAttribute('aria-hidden', 'true');
+    current = -1;
+  }
+  function step(delta) { if (current !== -1) render(current + delta); }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.card .shot'), function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); open(a.closest('.card')); });
+  });
+  document.getElementById('lb-close').addEventListener('click', close);
+  document.getElementById('lb-prev').addEventListener('click', function () { step(-1); });
+  document.getElementById('lb-next').addEventListener('click', function () { step(1); });
+  lb.addEventListener('click', function (e) {
+    // Backdrop / empty stage click closes; clicking the image or a button does not.
+    if (e.target === lb || e.target === stage) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+  });
+
+  return { isOpen: function () { return lb.classList.contains('open'); } };
 })();
 </script>
 </body>
