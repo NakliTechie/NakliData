@@ -13,6 +13,7 @@
 // deck.gl lives in the shared `deckgl` lazy chunk; nothing loads until a
 // Network cell actually renders. Mirrors embedding-cell.ts.
 
+import { rgbCss } from '../../core/categorical-palette.ts';
 import {
   type LayoutPositions,
   NETWORK_LAYOUT_MAX,
@@ -22,6 +23,12 @@ import {
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, NetworkCellState, SqlCellState } from './types.ts';
+
+/** Structural subset of the deck.gl network handle the legend needs. */
+interface LegendHandle {
+  edgeLegend: () => Array<{ value: string; rgb: [number, number, number] }>;
+  setEdgeTypeFilter: (type: string | null) => void;
+}
 
 /** Neighbours highlighted per node click (immediate adjacency, capped). */
 const NEIGHBOUR_CAP = 200;
@@ -74,6 +81,7 @@ export function renderNetworkCell(
     <div class="cell-output cell-output-map" data-region="net-canvas">
       ${input?.lastResult ? '' : '<div class="cell-output-empty">Pick a SQL cell whose rows are edges (a source-id and target-id column).</div>'}
     </div>
+    <div data-region="net-legend" style="display:flex;flex-wrap:wrap;gap:8px;padding:2px 4px;"></div>
     <div data-region="net-tip" style="font-size:11px;color:var(--text-muted);padding:2px 4px;min-height:15px;"></div>
   `;
 
@@ -94,6 +102,12 @@ export function renderNetworkCell(
           break;
         case 'net-target':
           patch.targetCol = sel.value || null;
+          break;
+        case 'net-edge-color':
+          patch.edgeColorCol = sel.value || null;
+          break;
+        case 'net-edge-width':
+          patch.edgeWidthCol = sel.value || null;
           break;
       }
       handlers.onChange(cell.id, patch);
@@ -133,7 +147,10 @@ function renderPickers(cell: NetworkCellState, cols: string[]): string {
       </select>
     </label>`;
   return (
-    pick('source', 'net-source', cell.sourceCol) + pick('target', 'net-target', cell.targetCol)
+    pick('source', 'net-source', cell.sourceCol) +
+    pick('target', 'net-target', cell.targetCol) +
+    pick('edge color', 'net-edge-color', cell.edgeColorCol ?? null) +
+    pick('edge width', 'net-edge-width', cell.edgeWidthCol ?? null)
   );
 }
 
@@ -144,6 +161,10 @@ interface GraphNode {
 interface GraphEdge {
   source: string;
   target: string;
+  /** Categorical edge type (from edgeColorCol), or null. */
+  colorValue: string | null;
+  /** Numeric edge weight (from edgeWidthCol), or null. */
+  weight: number | null;
 }
 
 /** Build the node set (distinct ids + degree) and edge list from result rows. */
@@ -151,6 +172,8 @@ function buildGraph(
   rows: Array<Record<string, unknown>>,
   sourceCol: string,
   targetCol: string,
+  edgeColorCol: string | null,
+  edgeWidthCol: string | null,
 ): { nodes: GraphNode[]; edges: GraphEdge[]; adjacency: Map<string, Set<string>> } {
   const degree = new Map<string, number>();
   const adjacency = new Map<string, Set<string>>();
@@ -171,7 +194,14 @@ function buildGraph(
     const source = String(s);
     const target = String(t);
     if (source === target) continue; // skip self-loops
-    edges.push({ source, target });
+    const colorValue = edgeColorCol
+      ? row[edgeColorCol] == null
+        ? null
+        : String(row[edgeColorCol])
+      : null;
+    const rawW = edgeWidthCol ? Number(row[edgeWidthCol]) : Number.NaN;
+    const weight = Number.isFinite(rawW) ? rawW : null;
+    edges.push({ source, target, colorValue, weight });
     bump(source);
     bump(target);
     link(source, target);
@@ -190,7 +220,15 @@ async function renderGraph(
   if (!result || !cell.sourceCol || !cell.targetCol) return;
   mount.innerHTML = '<div class="cell-output-empty">Building graph…</div>';
 
-  const { nodes, edges, adjacency } = buildGraph(result.rows, cell.sourceCol, cell.targetCol);
+  const edgeColorCol = cell.edgeColorCol ?? null;
+  const edgeWidthCol = cell.edgeWidthCol ?? null;
+  const { nodes, edges, adjacency } = buildGraph(
+    result.rows,
+    cell.sourceCol,
+    cell.targetCol,
+    edgeColorCol,
+    edgeWidthCol,
+  );
   if (nodes.length === 0) {
     mount.innerHTML = `<div class="cell-output-empty">No edges in "${escapeHtml(cell.sourceCol)}" → "${escapeHtml(cell.targetCol)}" (both columns non-null?).</div>`;
     return;
@@ -203,7 +241,8 @@ async function renderGraph(
   }
 
   // Layout FIRST (core module, no chunk needed), then the render chunk — so a
-  // too-large or failed layout never fetches the heavy deck.gl bundle.
+  // too-large or failed layout never fetches the heavy deck.gl bundle. Edge
+  // colour/width don't affect POSITIONS, so they're absent from the layout sig.
   const sig = `${cell.inputCell}|${cell.sourceCol}|${cell.targetCol}|${result.rows.length}|${nodes.length}`;
   let positions =
     _layoutCache.get(cell.id)?.sig === sig ? _layoutCache.get(cell.id)?.positions : null;
@@ -245,7 +284,9 @@ async function renderGraph(
   const renderEdges = edges.flatMap((e) => {
     const s = positions.get(e.source);
     const t = positions.get(e.target);
-    return s && t ? [{ sourcePosition: s, targetPosition: t }] : [];
+    return s && t
+      ? [{ sourcePosition: s, targetPosition: t, colorValue: e.colorValue, weight: e.weight }]
+      : [];
   });
 
   try {
@@ -283,8 +324,41 @@ async function renderGraph(
       },
     });
     (mount as HTMLElement & { __networkGraph?: unknown }).__networkGraph = handle;
+    // Legend for the categorical edge-type colouring (Knowledge-graph view).
+    // Lives in the cell's [data-region="net-legend"] sibling of the canvas.
+    const legendEl = mount.parentElement?.querySelector<HTMLElement>('[data-region="net-legend"]');
+    if (legendEl) renderLegend(legendEl, handle);
   } catch (err) {
     mount.innerHTML = `<div class="cell-output-empty">Couldn't render the graph: ${escapeHtml(errMsg(err))}</div>`;
+  }
+}
+
+/**
+ * Render the edge-type legend + wire click-to-filter. Swatch colours come from
+ * `handle.edgeLegend()`, so they match the drawn edges exactly. Clicking a
+ * swatch filters the graph to that type (others dim); clicking the active
+ * swatch again clears. Empty when no edge-type column is set.
+ */
+function renderLegend(legendEl: HTMLElement, handle: LegendHandle): void {
+  const legend = handle.edgeLegend();
+  legendEl.innerHTML = '';
+  if (legend.length === 0) return;
+  let active: string | null = null;
+  for (const { value, rgb } of legend) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.legendValue = value;
+    btn.style.cssText =
+      'display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;cursor:pointer;font-size:11px;color:var(--text-muted);padding:1px 2px;opacity:1;';
+    btn.innerHTML = `<span style="width:10px;height:10px;border-radius:2px;background:${rgbCss(rgb)};display:inline-block;"></span>${escapeHtml(value)}`;
+    btn.addEventListener('click', () => {
+      active = active === value ? null : value;
+      handle.setEdgeTypeFilter(active);
+      for (const other of legendEl.querySelectorAll<HTMLElement>('[data-legend-value]')) {
+        other.style.opacity = active === null || other.dataset.legendValue === active ? '1' : '0.4';
+      }
+    });
+    legendEl.appendChild(btn);
   }
 }
 

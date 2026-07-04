@@ -131,6 +131,16 @@ export interface NetworkCellState {
   sourceCol: string | null;
   /** Edge target node-id column. */
   targetCol: string | null;
+  /**
+   * Optional categorical edge-type column → colours edges + renders a legend
+   * (the Knowledge-graph view). Older files lack the key; read with `?? null`.
+   */
+  edgeColorCol: string | null;
+  /**
+   * Optional numeric edge-weight column → scales line width (the Weighted /
+   * attributed view). Older files lack the key; read with `?? null`.
+   */
+  edgeWidthCol: string | null;
 }
 
 /**

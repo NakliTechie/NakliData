@@ -29,27 +29,12 @@
 import { Deck, OrthographicView } from '@deck.gl/core';
 import { LineLayer, ScatterplotLayer } from '@deck.gl/layers';
 import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ACCENT_RGB, CATEGORICAL_RGB, assignCategoryColors } from '../core/categorical-palette.ts';
 
-// Categorical color palette shared across every deck.gl surface (mirrors the
-// maplibre-map.ts native-circle palette so visual identity is preserved when a
-// map cell flips from native circles to a deck.gl overlay, and across the
-// embedding / network views). ACCENT_RGB is the single-accent / hub color;
-// PALETTE_RGB cycles for distinct categorical values.
-const ACCENT_RGB: [number, number, number] = [0xb5, 0x37, 0x1c];
-const PALETTE_RGB: Array<[number, number, number]> = [
-  [0xb5, 0x37, 0x1c],
-  [0x6f, 0x7e, 0x76],
-  [0xd6, 0xa2, 0x4e],
-  [0x3c, 0x5a, 0x6b],
-  [0x8c, 0x6f, 0x4a],
-  [0x4f, 0x7b, 0x6e],
-  [0xa5, 0x6a, 0x8c],
-  [0x9c, 0x52, 0x30],
-  [0x5b, 0x7f, 0x9b],
-  [0x7b, 0x6f, 0xb1],
-  [0x50, 0x66, 0x50],
-  [0xa7, 0x7e, 0x5f],
-];
+// Categorical palette is shared from core/categorical-palette.ts (single source
+// so a cell's legend swatches match what the chunk draws). ACCENT_RGB is the
+// single-accent / hub color; CATEGORICAL_RGB cycles for distinct values.
+const PALETTE_RGB = CATEGORICAL_RGB;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Embedding scatter — standalone Deck on an OrthographicView (abstract 2-D
@@ -228,7 +213,6 @@ export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScat
 const HUB_RGB: [number, number, number] = ACCENT_RGB;
 const MID_RGB: [number, number, number] = [0xd6, 0xa2, 0x4e];
 const LEAF_RGB: [number, number, number] = [0x3c, 0x5a, 0x6b];
-const EDGE_RGBA: [number, number, number, number] = [0x6f, 0x7e, 0x76, 60];
 
 export interface NetworkRenderNode {
   id: string;
@@ -238,6 +222,16 @@ export interface NetworkRenderNode {
 export interface NetworkRenderEdge {
   sourcePosition: [number, number];
   targetPosition: [number, number];
+  /** Optional categorical edge type (Knowledge-graph view — drives colour). */
+  colorValue?: string | null;
+  /** Optional numeric edge weight (Weighted view — drives line width). */
+  weight?: number | null;
+}
+
+/** One legend row for a categorical edge type. */
+export interface EdgeLegendEntry {
+  value: string;
+  rgb: [number, number, number];
 }
 
 export interface NetworkGraphOpts {
@@ -253,6 +247,10 @@ export interface NetworkGraphOpts {
 export interface NetworkGraphHandle {
   /** Highlight a node + its neighbours (dim the rest). Pass (null, []) to clear. */
   setHighlight: (selected: number | null, neighbors: readonly number[]) => void;
+  /** Filter to one edge type (others dim). Pass null to clear the filter. */
+  setEdgeTypeFilter: (type: string | null) => void;
+  /** Distinct edge types + their colours, for the cell to render a legend. */
+  edgeLegend: () => EdgeLegendEntry[];
   /** Automation seam — real GPU pick at canvas (x, y); fires onClick. */
   simulateClick: (x: number, y: number, radius?: number) => number | null;
   destroy: () => void;
@@ -295,7 +293,32 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
 
   let selected: number | null = null;
   let neighborSet: ReadonlySet<number> = new Set();
+  let edgeTypeFilter: string | null = null;
   let version = 0;
+
+  // Categorical edge colours (Knowledge-graph view) — assigned over the edge
+  // sequence so a legend built from the same sequence matches exactly.
+  const edgeColorMap = assignCategoryColors(edges.map((e) => e.colorValue ?? null));
+  const hasEdgeColor = edgeColorMap.size > 0;
+  // Edge width scaling (Weighted view) — normalize finite weights to [1, 6] px.
+  const weights = edges.map((e) => e.weight).filter((w): w is number => Number.isFinite(w));
+  const wMin = weights.length ? Math.min(...weights) : 0;
+  const wMax = weights.length ? Math.max(...weights) : 0;
+  const hasEdgeWidth = weights.length > 0 && wMax > wMin;
+  const edgeWidthFor = (w: number | null | undefined): number => {
+    if (!hasEdgeWidth || !Number.isFinite(w)) return 1;
+    return 1 + (((w as number) - wMin) / (wMax - wMin)) * 5;
+  };
+  const edgeColorFor = (e: NetworkRenderEdge): [number, number, number, number] => {
+    const base: [number, number, number] =
+      hasEdgeColor && e.colorValue
+        ? (edgeColorMap.get(e.colorValue) ?? ACCENT_RGB)
+        : [0x6f, 0x7e, 0x76];
+    // Dim edges that don't match the active type filter.
+    const alpha =
+      edgeTypeFilter !== null && e.colorValue !== edgeTypeFilter ? 12 : hasEdgeColor ? 170 : 60;
+    return [base[0], base[1], base[2], alpha];
+  };
 
   const nodeLayer = () =>
     new ScatterplotLayer<NetworkRenderNode>({
@@ -349,8 +372,10 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
       data: edges,
       getSourcePosition: (e) => [e.sourcePosition[0], e.sourcePosition[1], 0],
       getTargetPosition: (e) => [e.targetPosition[0], e.targetPosition[1], 0],
-      getColor: EDGE_RGBA,
-      getWidth: 1,
+      getColor: (e) => edgeColorFor(e),
+      getWidth: (e) => edgeWidthFor(e.weight),
+      widthUnits: 'pixels',
+      updateTriggers: { getColor: version, getWidth: version },
     });
 
   const deck = new Deck({
@@ -373,6 +398,14 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
       neighborSet = new Set(neighbors);
       version++;
       deck.setProps({ layers: [edgeLayer(), nodeLayer()] });
+    },
+    setEdgeTypeFilter(type) {
+      edgeTypeFilter = type;
+      version++;
+      deck.setProps({ layers: [edgeLayer(), nodeLayer()] });
+    },
+    edgeLegend() {
+      return [...edgeColorMap.entries()].map(([value, rgb]) => ({ value, rgb }));
     },
     simulateClick(x, y, radius = 6) {
       const info = deck.pickObject({ x, y, radius, layerIds: ['network-nodes'] });

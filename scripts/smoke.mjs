@@ -736,11 +736,16 @@ async function main() {
   const netSqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
   await netSqlCell.locator('.cm-content, textarea').first().click();
   await page.keyboard.press('ControlOrMeta+a');
+  // Edge rows carry a categorical relation type (`rel` → edge colour + legend,
+  // the Knowledge-graph view) and a numeric weight (`w` → edge width, the
+  // Weighted view) so this leg exercises the attributed-edge path too.
   await page.keyboard.insertText(
     'WITH n AS (SELECT i, (i // 30) AS c FROM range(60) t(i)), ' +
       'e AS (SELECT a.i AS s, b.i AS d FROM n a JOIN n b ON a.c = b.c AND a.i < b.i ' +
       'AND (a.i * 7 + b.i * 13) % 5 < 2 UNION ALL SELECT 0, 30) ' +
-      'SELECT s::VARCHAR AS src, d::VARCHAR AS tgt FROM e',
+      "SELECT s::VARCHAR AS src, d::VARCHAR AS tgt, " +
+      "CASE WHEN (s + d) % 3 = 0 THEN 'cites' WHEN (s + d) % 3 = 1 THEN 'authored' ELSE 'funded' END AS rel, " +
+      '(1 + (s * 7 + d) % 9) AS w FROM e',
   );
   await netSqlCell.locator('[data-action="cell-run"]').click();
   await page.waitForFunction(
@@ -791,6 +796,23 @@ async function main() {
     if (t) {
       t.value = 'tgt';
       t.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  // Attributed edges: colour by `rel` (→ legend) + width by `w`.
+  await page.evaluate(() => {
+    const net = document.querySelector('.cell[data-cell-kind="network"]');
+    const c = net?.querySelector('[data-action="net-edge-color"]');
+    if (c) {
+      c.value = 'rel';
+      c.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.evaluate(() => {
+    const net = document.querySelector('.cell[data-cell-kind="network"]');
+    const w = net?.querySelector('[data-action="net-edge-width"]');
+    if (w) {
+      w.value = 'w';
+      w.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
   // Success = deck.gl canvas mounted (layout ran under CSP + rendered), or the
@@ -856,6 +878,32 @@ async function main() {
       throw new Error('network find-neighbours: background click did not clear');
     }
     log(`✓ Facet Network cell: edge list → force layout → canvas → find-neighbours ("${netState.pinnedTip.slice(0, 50)}…") → cleared`);
+
+    // 10f. Attributed edges (Knowledge-graph + Weighted): the `rel` column
+    // drives a categorical legend (cites / authored / funded), clicking a
+    // swatch applies an edge-type filter (dims the others).
+    const legend = await page.evaluate(() => {
+      const net = document.querySelector('.cell[data-cell-kind="network"]');
+      const legendEl = net?.querySelector('[data-region="net-legend"]');
+      const swatches = Array.from(legendEl?.querySelectorAll('[data-legend-value]') ?? []);
+      const values = swatches.map((s) => s.dataset.legendValue);
+      // Click the first swatch → filter engages (others dim to 0.4 opacity).
+      let dimmedAfterClick = null;
+      if (swatches[0]) {
+        swatches[0].click();
+        dimmedAfterClick = swatches
+          .slice(1)
+          .every((s) => Math.abs(Number.parseFloat(s.style.opacity) - 0.4) < 0.01);
+      }
+      return { count: swatches.length, values, dimmedAfterClick };
+    });
+    if (legend.count < 2) {
+      throw new Error(`attributed edges: expected an edge-type legend, got ${legend.count} swatches`);
+    }
+    if (!legend.dimmedAfterClick) {
+      throw new Error('attributed edges: clicking a legend swatch did not filter (dim others)');
+    }
+    log(`✓ Facet attributed edges: legend [${legend.values.join(', ')}] → swatch click filters`);
   } else {
     log('~ Facet Network cell rendered (no WebGL canvas in this environment)');
   }

@@ -166,6 +166,8 @@ export class Notebook {
         inputCell: null,
         sourceCol: null,
         targetCol: null,
+        edgeColorCol: null,
+        edgeWidthCol: null,
       } satisfies NetworkCellState;
     } else if (kind === 'cohort') {
       cell = {
