@@ -20,9 +20,28 @@ export interface EmbeddingScatterOpts {
   points: EmbeddingPoint[];
   /** Called on hover with the point's label, or null when leaving a point. */
   onHover?: (label: string | null) => void;
+  /**
+   * Called on click with the point's index into `points`, or null when the
+   * click hit empty background (the cell uses null to clear a selection).
+   */
+  onClick?: (index: number | null) => void;
 }
 
 export interface EmbeddingScatterHandle {
+  /**
+   * Highlight a selected point + its neighbours: selection gets an accent
+   * ring-read (larger radius), neighbours keep full colour, everything else
+   * dims. Pass (null, []) to clear.
+   */
+  setHighlight: (selected: number | null, neighbors: readonly number[]) => void;
+  /**
+   * Automation seam (smoke test + future agent verbs): pick at canvas pixel
+   * (x, y) with deck's real GPU picking and fire the same onClick callback a
+   * pointer click would. Returns the picked point index, or null for
+   * background. A synthetic PointerEvent can't drive deck's input manager
+   * (untrusted events are ignored), so tests aim through here instead.
+   */
+  simulateClick: (x: number, y: number, radius?: number) => number | null;
   destroy: () => void;
 }
 
@@ -51,7 +70,7 @@ const PALETTE_RGB: Array<[number, number, number]> = [
  * `destroy()` finalizes the Deck and removes the canvas.
  */
 export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScatterHandle {
-  const { container, points, onHover } = opts;
+  const { container, points, onHover, onClick } = opts;
 
   // Categorical color map over the distinct colorValues (cap at the palette
   // length so we never wrap into visual ambiguity for the legend-worthy set).
@@ -81,6 +100,51 @@ export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScat
   canvas.style.cssText = 'width:100%;height:100%;display:block';
   container.appendChild(canvas);
 
+  // Highlight state lives in the closure; setHighlight swaps the layer.
+  // A `version` counter drives updateTriggers so deck.gl re-evaluates the
+  // colour/radius accessors instead of reusing cached attribute buffers.
+  let selected: number | null = null;
+  let neighborSet: ReadonlySet<number> = new Set();
+  let version = 0;
+
+  const makeLayer = () =>
+    new ScatterplotLayer<EmbeddingPoint>({
+      id: 'embedding-points',
+      data: points,
+      getPosition: (p) => [p.position[0], p.position[1], 0],
+      getFillColor: (p, { index }) => {
+        const [r, g, b] = colorFor(p.colorValue);
+        if (selected === null) return [r, g, b, 255];
+        if (index === selected || neighborSet.has(index)) return [r, g, b, 255];
+        return [r, g, b, 40]; // dim the non-neighbours while a selection is active
+      },
+      getRadius: (_p, { index }) => (index === selected ? 6 : neighborSet.has(index) ? 4.5 : 3),
+      radiusUnits: 'pixels',
+      // Selection reads as a dark outline ring on the picked point.
+      stroked: true,
+      getLineColor: (_p, { index }) =>
+        index === selected ? [0x1a, 0x1a, 0x1a, 255] : [0, 0, 0, 0],
+      getLineWidth: (_p, { index }) => (index === selected ? 1.5 : 0),
+      lineWidthUnits: 'pixels',
+      updateTriggers: {
+        getFillColor: version,
+        getRadius: version,
+        getLineColor: version,
+        getLineWidth: version,
+      },
+      pickable: Boolean(onHover || onClick),
+      ...(onHover
+        ? { onHover: (info: { object?: EmbeddingPoint }) => onHover(info.object?.label ?? null) }
+        : {}),
+      ...(onClick
+        ? {
+            onClick: (info: { object?: EmbeddingPoint; index: number }) => {
+              onClick(info.object ? info.index : null);
+            },
+          }
+        : {}),
+    });
+
   const deck = new Deck({
     canvas,
     width,
@@ -88,23 +152,27 @@ export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScat
     views: new OrthographicView({}),
     initialViewState: { target: [cx, cy, 0], zoom },
     controller: true,
-    layers: [
-      new ScatterplotLayer<EmbeddingPoint>({
-        id: 'embedding-points',
-        data: points,
-        getPosition: (p) => [p.position[0], p.position[1], 0],
-        getFillColor: (p) => colorFor(p.colorValue),
-        getRadius: 3,
-        radiusUnits: 'pixels',
-        pickable: Boolean(onHover),
-        ...(onHover
-          ? { onHover: (info: { object?: EmbeddingPoint }) => onHover(info.object?.label ?? null) }
-          : {}),
-      }),
-    ],
+    layers: [makeLayer()],
+    // Background clicks don't hit the layer's onClick — catch them at the
+    // deck level so the cell can clear its selection.
+    ...(onClick
+      ? { onClick: (info: { index: number }) => (info.index < 0 ? onClick(null) : undefined) }
+      : {}),
   });
 
   return {
+    simulateClick(x, y, radius = 6) {
+      const info = deck.pickObject({ x, y, radius });
+      const idx = info && info.index >= 0 ? info.index : null;
+      onClick?.(idx);
+      return idx;
+    },
+    setHighlight(sel, neighbors) {
+      selected = sel;
+      neighborSet = new Set(neighbors);
+      version++;
+      deck.setProps({ layers: [makeLayer()] });
+    },
     destroy() {
       try {
         deck.finalize();

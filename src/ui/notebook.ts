@@ -153,6 +153,7 @@ export class Notebook {
         yCol: null,
         colorBy: null,
         labelCol: null,
+        embCol: null,
       } satisfies EmbeddingCellState;
     } else if (kind === 'cohort') {
       cell = {

@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — Facet: Embedding view made interactive (find-similar + in-browser PCA)
+
+### Decision BR — find-similar reuses precomputed vectors in-memory; PCA (not UMAP) for the no-x/y projection; no third worker
+
+The Embedding cell gained the two interactions that make it the real Facet
+surface (workplan Chunk 1):
+
+- **Find similar** — a new `emb` picker (`embCol` on `EmbeddingCellState`; old
+  files round-trip, the key is read `?? null`). Clicking a point ranks the
+  result's own vectors with `rankBySimilarity` (core/embed-search.ts JS path):
+  **no model download, no engine round-trip** — the corpus is already in
+  `lastResult.rows`. Top-10 highlight (selection ringed + enlarged, neighbours
+  full colour, rest dimmed); background click clears. Embedding the clicked
+  point's *text* (loadEmbedder) was rejected for v1: it drags in the 23 MB
+  transformers chunk for something the precomputed vector already answers.
+- **2-D projection** — `core/project2d.ts`: `coerceVector()` (Arrow list values
+  arrive as typed arrays / JS arrays / vector-likes / JSON strings — all
+  handled) + `pcaProject2D()` power iteration with deflation, deterministic
+  init + sign convention, Float64 accumulation. **PCA over UMAP**: zero new
+  deps (bundle 724.4/750), deterministic, and the job is "see structure
+  without offline precompute", not manifold fidelity. **No third worker**
+  (convention): yields to the event loop only after ~32 ms of compute —
+  *yield-per-iteration via setTimeout(0) was tried and rolled back*: hidden
+  tabs throttle timers to ≥1 s/tick, turning a 40-vector projection into a
+  multi-minute hang (caught live in the preview tab; headless smoke can't see
+  throttling).
+- **Automation seam** — synthetic PointerEvents can't reach deck.gl's input
+  manager, so the scatter handle exposes `simulateClick(x, y)` (real
+  `deck.pickObject` GPU picking → the same onClick callback), stashed on the
+  mount as `__embedScatter`. The smoke's find-similar assertion drives it;
+  future agent verbs can too.
+
+Gates: 921 vitest (+15) · smoke +2 legs (PCA path on a real DuckDB `DOUBLE[]`
+column → canvas; find-similar pick → tip pins → background clears) · bundle
+724.4/750 · live-verified in Chrome at 1440px (highlight/dim/ring state).
+
 ## 2026-07-03 — SQLite mount field reports (FR-3): honest folder errors + read-failure guidance + `.db3`
 
 ### Decision BQ — a folder of SQLite files failing to mount is a *read* failure, not "unsupported"; surface it honestly

@@ -1,14 +1,24 @@
 // Embedding / semantic-map cell (Facet track). Renders an upstream SQL cell's
-// precomputed (x, y) coordinate columns as a deck.gl scatter on an abstract
-// plane — the "x, y (precomputed) → embedding map" view type. Colour by an
-// optional categorical column; hover shows an optional label column.
+// rows as a deck.gl scatter on an abstract plane. Two position sources:
+//   * precomputed (x, y) coordinate columns, or
+//   * an embedding column (FLOAT[dim]) auto-projected to 2-D with PCA
+//     (core/project2d.ts) — no offline precompute needed.
+// With an embedding column set, clicking a point finds its nearest
+// neighbours by cosine over the in-memory vectors (core/embed-search.ts's
+// rankBySimilarity — no model download, no engine round-trip) and
+// highlights them; clicking the background clears.
 //
 // deck.gl lives in the `deckgl-embedding` lazy chunk; nothing loads until an
 // embedding cell actually renders. Mirrors map-cell.ts's shape.
 
+import { rankBySimilarity } from '../../core/embed-search.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { coerceVector, pcaProject2D } from '../../core/project2d.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, EmbeddingCellState, SqlCellState } from './types.ts';
+
+/** Neighbours highlighted per find-similar click (excluding the clicked point). */
+const SIMILAR_K = 10;
 
 export function renderEmbeddingCell(
   cell: EmbeddingCellState,
@@ -76,6 +86,9 @@ export function renderEmbeddingCell(
         case 'embed-label':
           patch.labelCol = sel.value || null;
           break;
+        case 'embed-emb':
+          patch.embCol = sel.value || null;
+          break;
       }
       handlers.onChange(cell.id, patch);
     });
@@ -88,11 +101,14 @@ export function renderEmbeddingCell(
   const mount = el.querySelector<HTMLElement>('[data-region="embed-canvas"]');
   const tip = el.querySelector<HTMLElement>('[data-region="embed-tip"]');
   if (mount) {
-    if (input?.lastResult && cell.xCol && cell.yCol) {
+    const hasXY = Boolean(cell.xCol && cell.yCol);
+    const hasEmb = Boolean(cell.embCol ?? null); // older files lack the key
+    if (input?.lastResult && (hasXY || hasEmb)) {
       // Defer to next microtask so layout settles + the canvas gets non-zero size.
       queueMicrotask(() => renderScatter(mount, tip, cell, input.lastResult ?? null));
     } else if (input?.lastResult) {
-      mount.innerHTML = '<div class="cell-output-empty">Pick x and y columns.</div>';
+      mount.innerHTML =
+        '<div class="cell-output-empty">Pick x and y columns — or an embedding column (emb) to auto-project.</div>';
     }
   }
 
@@ -117,7 +133,8 @@ function renderPickers(cell: EmbeddingCellState, cols: string[]): string {
     pick('x', 'embed-x', cell.xCol) +
     pick('y', 'embed-y', cell.yCol) +
     pick('color', 'embed-color', cell.colorBy) +
-    pick('label', 'embed-label', cell.labelCol)
+    pick('label', 'embed-label', cell.labelCol) +
+    pick('emb', 'embed-emb', cell.embCol ?? null)
   );
 }
 
@@ -127,38 +144,142 @@ async function renderScatter(
   cell: EmbeddingCellState,
   result: { rows: Array<Record<string, unknown>>; columns: string[] } | null,
 ): Promise<void> {
-  if (!result || !cell.xCol || !cell.yCol) return;
+  const embCol = cell.embCol ?? null;
+  const hasXY = Boolean(cell.xCol && cell.yCol);
+  if (!result || (!hasXY && !embCol)) return;
   mount.innerHTML = '<div class="cell-output-empty">Loading map…</div>';
 
   const points: Array<{ position: [number, number]; colorValue: string | null; label: string }> =
     [];
-  for (const row of result.rows) {
-    const x = Number(row[cell.xCol]);
-    const y = Number(row[cell.yCol]);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    points.push({
-      position: [x, y],
-      colorValue: cell.colorBy ? String(row[cell.colorBy] ?? '') : null,
-      label: cell.labelCol ? String(row[cell.labelCol] ?? '') : '',
-    });
+  // Vector per point (same index as `points`); null where the row has no
+  // usable embedding. Only populated when an embedding column is set.
+  const vectors: Array<Float32Array | null> = [];
+
+  if (hasXY) {
+    // Precomputed coordinates; embeddings (if any) ride along for find-similar.
+    const xCol = cell.xCol as string;
+    const yCol = cell.yCol as string;
+    for (const row of result.rows) {
+      const x = Number(row[xCol]);
+      const y = Number(row[yCol]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      points.push({
+        position: [x, y],
+        colorValue: cell.colorBy ? String(row[cell.colorBy] ?? '') : null,
+        label: cell.labelCol ? String(row[cell.labelCol] ?? '') : '',
+      });
+      vectors.push(embCol ? coerceVector(row[embCol]) : null);
+    }
+    if (points.length === 0) {
+      mount.innerHTML = `<div class="cell-output-empty">No finite (x, y) points in "${escapeHtml(xCol)}" / "${escapeHtml(yCol)}".</div>`;
+      return;
+    }
+  } else if (embCol) {
+    // PCA path: project the embedding column to 2-D in-browser.
+    const kept: Array<{ vec: Float32Array; colorValue: string | null; label: string }> = [];
+    let dim: number | null = null;
+    for (const row of result.rows) {
+      const vec = coerceVector(row[embCol]);
+      if (!vec || vec.length === 0) continue;
+      if (dim === null) dim = vec.length;
+      if (vec.length !== dim) continue; // ignore stray mixed-dim rows
+      kept.push({
+        vec,
+        colorValue: cell.colorBy ? String(row[cell.colorBy] ?? '') : null,
+        label: cell.labelCol ? String(row[cell.labelCol] ?? '') : '',
+      });
+    }
+    if (kept.length === 0) {
+      mount.innerHTML = `<div class="cell-output-empty">No embedding vectors in "${escapeHtml(embCol)}" — expected a FLOAT[dim] array column.</div>`;
+      return;
+    }
+    mount.innerHTML = `<div class="cell-output-empty">Projecting ${kept.length.toLocaleString()} vectors to 2-D (PCA)…</div>`;
+    let projected: Array<[number, number]>;
+    try {
+      // Yield to the event loop only after ~32ms of uninterrupted compute —
+      // large projections stay responsive, small ones never yield at all.
+      // (Yielding every iteration via setTimeout(0) hangs in a backgrounded
+      // tab, where browsers throttle timers to ≥1s per tick.)
+      let lastYield = performance.now();
+      projected = await pcaProject2D(
+        kept.map((k) => k.vec),
+        {
+          onIteration: () => {
+            if (performance.now() - lastYield < 32) return Promise.resolve();
+            lastYield = performance.now();
+            return new Promise((r) => setTimeout(r, 0));
+          },
+        },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      mount.innerHTML = `<div class="cell-output-empty">Couldn't project "${escapeHtml(embCol)}": ${escapeHtml(msg)}</div>`;
+      return;
+    }
+    for (let i = 0; i < kept.length; i++) {
+      const k = kept[i] as (typeof kept)[number];
+      points.push({
+        position: projected[i] as [number, number],
+        colorValue: k.colorValue,
+        label: k.label,
+      });
+      vectors.push(k.vec);
+    }
   }
 
-  if (points.length === 0) {
-    mount.innerHTML = `<div class="cell-output-empty">No finite (x, y) points in "${escapeHtml(cell.xCol)}" / "${escapeHtml(cell.yCol)}".</div>`;
-    return;
-  }
+  const similarEnabled = embCol !== null && vectors.some((v) => v !== null);
+  const corpus = similarEnabled
+    ? vectors.flatMap((v, i) => (v ? [{ id: String(i), vec: v }] : []))
+    : [];
 
   mount.innerHTML = '';
   mount.style.height = '420px';
   try {
     const mod = await loadChunk('deckgl-embedding');
-    mod.mountEmbeddingScatter({
+    type MountWithSeam = HTMLElement & { __embedScatter?: unknown };
+    const handle = mod.mountEmbeddingScatter({
       container: mount,
       points,
       onHover: (label) => {
-        if (tip) tip.textContent = label ?? '';
+        if (tip && !tip.dataset.pinned) tip.textContent = label ?? '';
       },
+      ...(similarEnabled
+        ? {
+            onClick: (index: number | null) => {
+              if (index === null || !vectors[index]) {
+                handle.setHighlight(null, []);
+                if (tip) {
+                  delete tip.dataset.pinned;
+                  tip.textContent = '';
+                }
+                return;
+              }
+              const queryVec = vectors[index] as Float32Array;
+              // +1 then drop self — the clicked point always ranks first.
+              const neighbors = rankBySimilarity(queryVec, corpus, SIMILAR_K + 1)
+                .map((n) => Number(n.id))
+                .filter((i) => i !== index)
+                .slice(0, SIMILAR_K);
+              handle.setHighlight(index, neighbors);
+              if (tip) {
+                const label = points[index]?.label;
+                const named = neighbors
+                  .map((i) => points[i]?.label)
+                  .filter((l): l is string => Boolean(l))
+                  .slice(0, 3);
+                tip.dataset.pinned = '1';
+                const subject = label ? `“${label}”` : 'selection';
+                const list = named.length > 0 ? `: ${named.join(' · ')}…` : '';
+                tip.textContent = `${neighbors.length} similar to ${subject}${list} — click background to clear`;
+              }
+            },
+          }
+        : {}),
     });
+    // Automation seam — the smoke test (and future agent verbs) drive
+    // find-similar through handle.simulateClick, since synthetic pointer
+    // events can't reach deck.gl's input manager.
+    (mount as MountWithSeam).__embedScatter = handle;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     mount.innerHTML = `<div class="cell-output-empty">Couldn't render embedding map: ${escapeHtml(msg)}</div>`;

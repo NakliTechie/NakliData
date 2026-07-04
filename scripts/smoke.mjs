@@ -570,6 +570,156 @@ async function main() {
   if (!embedOk) throw new Error('embedding cell did not render its picker chrome');
   log('✓ Facet Embedding cell: add-embedding → cell + input picker rendered');
 
+  // 10c. Embedding PCA path end-to-end: a real SQL cell emits a DOUBLE[]
+  // embedding column; picking it as `emb` (no x/y) must coerce the Arrow
+  // list values and PCA-project them. This is the integration seam unit
+  // tests can't cover — what DuckDB-wasm actually returns for list columns.
+  const embSqlBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+    embSqlBefore,
+    { timeout: 5000 },
+  );
+  // Type through the real input pipeline (CM6 ignores textContent swaps —
+  // the step-10 injection trick garbles a doc that has to PARSE correctly).
+  const embSqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await embSqlCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    "SELECT i::VARCHAR AS label, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END AS grp, " +
+      '[cos(i*0.3), sin(i*0.3), (i % 5)::DOUBLE, ((i*7) % 11)::DOUBLE] AS emb FROM range(40) t(i)',
+  );
+  await embSqlCell.locator('[data-action="cell-run"]').click();
+  try {
+    await page.waitForFunction(
+      () => {
+        const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+        const last = cells[cells.length - 1];
+        return (
+          !!last && !last.classList.contains('errored') && last.querySelector('table') !== null
+        );
+      },
+      null,
+      { timeout: 15000 },
+    );
+  } catch (e) {
+    const dbg = await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+      const last = cells[cells.length - 1];
+      return {
+        cls: last?.className,
+        text: (last?.textContent ?? '').slice(0, 300),
+      };
+    });
+    log(`DEBUG emb sql cell: ${JSON.stringify(dbg)}`);
+    throw e;
+  }
+  // Wire the embedding cell: input = the emb SQL cell, then emb = the array col.
+  await page.evaluate(() => {
+    const embed = document.querySelector('.cell[data-cell-kind="embedding"]');
+    const sqlCells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+    const src = sqlCells[sqlCells.length - 1];
+    const sel = embed?.querySelector('[data-action="embed-input"]');
+    if (!sel || !src) return;
+    sel.value = src.dataset.cellId ?? '';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.cell[data-cell-kind="embedding"]')
+        ?.querySelector('[data-action="embed-emb"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const embed = document.querySelector('.cell[data-cell-kind="embedding"]');
+    const sel = embed?.querySelector('[data-action="embed-emb"]');
+    if (!sel) return;
+    sel.value = 'emb';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  // Success = the PCA path ran on real Arrow list values: either a deck.gl
+  // canvas mounted (WebGL available) or the render-stage error appeared.
+  // Coercion/projection failures ("No embedding vectors…", a stuck
+  // "Projecting…", "Couldn't project…") are the regressions this catches.
+  await page.waitForFunction(
+    () => {
+      const mountEl = document
+        .querySelector('.cell[data-cell-kind="embedding"]')
+        ?.querySelector('[data-region="embed-canvas"]');
+      if (!mountEl) return false;
+      if (mountEl.querySelector('canvas')) return true;
+      const text = mountEl.textContent ?? '';
+      if (text.includes('No embedding vectors') || text.includes("Couldn't project")) {
+        throw new Error(`embedding PCA path failed: ${text.slice(0, 120)}`);
+      }
+      return text.includes("Couldn't render embedding map");
+    },
+    null,
+    { timeout: 15000 },
+  );
+  const embPcaState = await page.evaluate(() => {
+    const mountEl = document
+      .querySelector('.cell[data-cell-kind="embedding"]')
+      ?.querySelector('[data-region="embed-canvas"]');
+    return mountEl?.querySelector('canvas') ? 'canvas' : (mountEl?.textContent ?? '').slice(0, 80);
+  });
+  log(`✓ Facet Embedding PCA path: DOUBLE[] column → coerce → project → ${embPcaState}`);
+
+  // 10d. Find-similar via the automation seam: real GPU picking through
+  // handle.simulateClick (synthetic pointer events can't reach deck.gl's
+  // input manager). Grid-scan for a point, assert the tip pins with the
+  // neighbour summary, then a background click clears it.
+  if (embPcaState === 'canvas') {
+    const similar = await page.evaluate(() => {
+      const embed = document.querySelector('.cell[data-cell-kind="embedding"]');
+      const mountEl = embed?.querySelector('[data-region="embed-canvas"]');
+      const tip = embed?.querySelector('[data-region="embed-tip"]');
+      const handle = mountEl?.__embedScatter;
+      if (!handle) return { err: 'no __embedScatter seam on the mount' };
+      const canvas = mountEl.querySelector('canvas');
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      let hit = null;
+      outer: for (let gy = 1; gy < 10; gy++) {
+        for (let gx = 1; gx < 10; gx++) {
+          const idx = handle.simulateClick((w * gx) / 10, (h * gy) / 10, 12);
+          if (idx !== null) {
+            hit = idx;
+            break outer;
+          }
+        }
+      }
+      if (hit === null) return { err: 'grid scan picked no point' };
+      const pinnedTip = tip?.textContent ?? '';
+      const pinned = tip?.dataset.pinned === '1';
+      handle.simulateClick(1, 1, 0); // corner, radius 0 → background → clear
+      return {
+        hit,
+        pinned,
+        pinnedTip,
+        clearedTip: tip?.textContent ?? '',
+        cleared: tip?.dataset.pinned !== '1',
+      };
+    });
+    if (similar.err) throw new Error(`embedding find-similar failed: ${similar.err}`);
+    if (!similar.pinned || !/similar to/.test(similar.pinnedTip)) {
+      throw new Error(
+        `embedding find-similar: tip did not pin with neighbours ("${similar.pinnedTip}")`,
+      );
+    }
+    if (!similar.cleared || similar.clearedTip !== '') {
+      throw new Error('embedding find-similar: background click did not clear the selection');
+    }
+    log(`✓ Facet find-similar: picked #${similar.hit} → "${similar.pinnedTip.slice(0, 60)}…" → cleared`);
+  } else {
+    log('~ Facet find-similar skipped (no WebGL canvas in this environment)');
+  }
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.

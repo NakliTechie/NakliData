@@ -101,6 +101,13 @@ export interface EmbeddingCellState {
   colorBy: string | null;
   /** Optional column shown on hover. */
   labelCol: string | null;
+  /**
+   * Optional embedding-vector column (FLOAT[dim]). Enables click-to-find-
+   * similar (in-memory cosine over the result's vectors) and — when x/y are
+   * unset — an automatic PCA 2-D projection, so no offline precompute is
+   * needed. Older files lack the key; read with `?? null`.
+   */
+  embCol: string | null;
 }
 
 /**
