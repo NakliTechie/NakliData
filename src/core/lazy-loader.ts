@@ -21,12 +21,15 @@ export interface LazyChunkRegistry {
   'observable-plot': typeof import('../lazy/observable-plot.ts');
   'cytoscape-graph': typeof import('../lazy/cytoscape-graph.ts');
   'maplibre-map': typeof import('../lazy/maplibre-map.ts');
-  /** Wave 2 W2.6 — deck.gl scatter overlay (loaded above point-count threshold). */
-  'deckgl-points': typeof import('../lazy/deckgl-points.ts');
-  /** Facet track — standalone deck.gl scatter for the embedding / semantic-map cell. */
-  'deckgl-embedding': typeof import('../lazy/deckgl-embedding.ts');
-  /** Facet track — GPU force layout + deck.gl force-graph for the Network cell. */
-  'deckgl-network': typeof import('../lazy/deckgl-network.ts');
+  /**
+   * The single deck.gl chunk — hosts all three Facet renderers behind separate
+   * exports (mountEmbeddingScatter / mountNetworkGraph / mountDeckGlPoints) so
+   * deck.gl + luma.gl are bundled ONCE across the embedding cell, the network
+   * cell, and the map cell's above-threshold scatter overlay (DECISIONS BT
+   * follow-up — replaces the earlier deckgl-embedding / -network / -points
+   * chunks, which each duplicated deck.gl and double-inited luma).
+   */
+  deckgl: typeof import('../lazy/deckgl.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */

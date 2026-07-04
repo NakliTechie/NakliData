@@ -186,7 +186,7 @@ async function renderMap(
       // the overlay attaches before the map has a canvas to interleave
       // with, and the scatter doesn't appear.
       handle.map.on('load', () => {
-        void loadChunk('deckgl-points')
+        void loadChunk('deckgl')
           .then((deck) => {
             deck.mountDeckGlPoints({
               map: handle.map as unknown as {

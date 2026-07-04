@@ -10,7 +10,7 @@
 // input signature so an unrelated re-render doesn't re-run the sim, and NOT
 // persisted (only the config on NetworkCellState is).
 //
-// deck.gl lives in the `deckgl-network` lazy chunk; nothing loads until a
+// deck.gl lives in the shared `deckgl` lazy chunk; nothing loads until a
 // Network cell actually renders. Mirrors embedding-cell.ts.
 
 import {
@@ -226,9 +226,9 @@ async function renderGraph(
   mount.innerHTML = '';
   mount.style.height = '440px';
 
-  let mod: Awaited<ReturnType<typeof loadChunk<'deckgl-network'>>>;
+  let mod: Awaited<ReturnType<typeof loadChunk<'deckgl'>>>;
   try {
-    mod = await loadChunk('deckgl-network');
+    mod = await loadChunk('deckgl');
   } catch (err) {
     mount.innerHTML = `<div class="cell-output-empty">Couldn't load the graph renderer: ${escapeHtml(errMsg(err))}</div>`;
     return;

@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — deck.gl deduped into ONE shared chunk (BT's owed follow-up closed)
+
+### Decision BU — the three deck.gl view renderers collapse into ONE self-contained `deckgl.ts` lazy chunk (multiple exports), NOT esbuild code-splitting across separate `deckgl-*` entries
+
+**Context.** BT (below) left an owed follow-up: the `deckgl-embedding`, `deckgl-network`, and `deckgl-points` lazy chunks each bundled their own full copy of deck.gl + luma.gl (~600 KB/chunk duplicated on disk), and when two of them loaded in one session luma.gl logged a benign "This version of luma.gl has already been initialized" — two module copies each running their global init.
+
+**Two routes weighed.** (a) A shared `src/lazy/deckgl-core.ts` re-exporting the deck.gl surface + palette, imported by the three view chunks, with esbuild `splitting:true` scoped to the deck family so deck.gl hoists into one shared chunk. (b) Collapse all three renderers into one self-contained `deckgl.ts` chunk with three exports (`mountEmbeddingScatter`/`mountNetworkGraph`/`mountDeckGlPoints`), splitting off.
+
+**Built (a) first — it corrupted GPU picking.** On disk (a) looked perfect: deck.gl in one shared chunk, a single luma-init string, view chunks shrunk to 0.2–9.7 KB. But the smoke's find-similar / find-neighbours legs failed **non-deterministically** — one run the embedding pick returned nothing ("grid scan picked no point"), the next run the network `pickObject({layerIds:['network-nodes']})` threw `deck.gl: assertion failed`. Root cause: esbuild code-splitting reordered deck.gl + luma.gl's **circular** module graph across the two shared chunks, leaving the GPU picking machinery in a bad init state. The original un-deduped code passed the same legs cleanly (verified by reverting) — proving the split introduced the regression, not the environment.
+
+**Resolution — (b).** One self-contained `src/lazy/deckgl.ts` hosts all three renderers behind separate exports plus the shared palette. deck.gl is bundled once **inside a single entry** (no cross-chunk split → init order identical to a normal single-entry bundle → picking intact), and because every cell imports the same `./chunks/deckgl.js` URL, the browser caches one module instance → luma inits exactly once → the warning is gone. `esbuild.config.mjs` stays `splitting:false`. The old `deckgl-embedding` / `deckgl-network` / `deckgl-points` chunks + their `lazy-loader.ts` registry entries are replaced by the single `deckgl` entry; the three cells (`embedding-cell` / `network-cell` / `map-cell`) now `loadChunk('deckgl')`.
+
+**Consequences.** deck.gl bundled once (a 641 KB chunk) instead of ~3× ~600 KB; no luma double-init warning (smoke confirms 0 occurrences across 2 runs). Lazy chunks stay budget-exempt (A34), so this was never a gated-size win — it's the on-disk duplication + the console warning. A map cell over the point-count threshold now loads the full deck chunk (incl. the embedding/network render fns + the `@deck.gl/mapbox` adapter) rather than a points-only chunk, but the map cell already paid a full deck.gl copy, so there's no meaningful regression; the real win is a session with two deck views now sharing one chunk. **Lesson:** esbuild code-splitting across a library's internal circular module graph (deck.gl/luma.gl) can silently reorder init and corrupt runtime state — a single self-contained chunk is the safe dedup unit here, not shared chunks.
+
+**Verified.** 928 vitest · `npm run smoke` green ×2 (both facet legs — find-similar + find-neighbours — pass; **luma "already initialized" warning gone**, 0 occurrences) · `npm run check` clean · bundle 732.0/750 (shell unchanged; deckgl is a budget-exempt lazy chunk).
+
 ## 2026-07-04 — Facet Network view SHIPPED: in-house synchronous force layout (BS superseded by build reality)
 
 ### Decision BT — the Network view uses an in-house synchronous Fruchterman (`core/force-layout.ts`), NOT `@antv/layout-gpu` (CSP) nor `@antv/layout` v2 (rAF-throttled)

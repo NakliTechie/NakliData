@@ -8,7 +8,7 @@
 // rankBySimilarity — no model download, no engine round-trip) and
 // highlights them; clicking the background clears.
 //
-// deck.gl lives in the `deckgl-embedding` lazy chunk; nothing loads until an
+// deck.gl lives in the shared `deckgl` lazy chunk; nothing loads until an
 // embedding cell actually renders. Mirrors map-cell.ts's shape.
 
 import { rankBySimilarity } from '../../core/embed-search.ts';
@@ -235,7 +235,7 @@ async function renderScatter(
   mount.innerHTML = '';
   mount.style.height = '420px';
   try {
-    const mod = await loadChunk('deckgl-embedding');
+    const mod = await loadChunk('deckgl');
     type MountWithSeam = HTMLElement & { __embedScatter?: unknown };
     const handle = mod.mountEmbeddingScatter({
       container: mount,

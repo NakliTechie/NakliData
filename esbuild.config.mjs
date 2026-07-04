@@ -43,7 +43,15 @@ async function buildLazyChunks() {
     ...COMMON,
     entryPoints: files.map((f) => `${LAZY_DIR}/${f}`),
     outdir: CHUNKS_OUT,
-    splitting: false, // each entry is its own self-contained chunk
+    // Each entry is its own self-contained chunk — no esbuild code-splitting.
+    // deck.gl's "bundle once" now lives inside ONE entry (`deckgl.ts` hosts all
+    // three Facet renderers behind separate exports) instead of shared chunks
+    // across entries. Splitting deck.gl + luma.gl's circular module graph into
+    // shared chunks reordered their init and corrupted the GPU picking path
+    // (find-similar / find-neighbours picked nothing or asserted) — DECISIONS BT
+    // follow-up. So splitting stays off; the single deckgl.ts entry does the
+    // dedup, keeping init order identical to a normal single-entry bundle.
+    splitting: false,
   });
 }
 
