@@ -2,7 +2,62 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
-## 2026-07-04 — Facet Network view: GPU force layout, resolving the COOP/COEP blocker by avoidance
+## 2026-07-04 — Facet Network view SHIPPED: in-house synchronous force layout (BS superseded by build reality)
+
+### Decision BT — the Network view uses an in-house synchronous Fruchterman (`core/force-layout.ts`), NOT `@antv/layout-gpu` (CSP) nor `@antv/layout` v2 (rAF-throttled)
+
+**Context — BS was optimistic; live-verify corrected it twice.** BS (below)
+picked `@antv/layout-gpu` after a spike showed it fast + WebGL-only. Building
+the real cell surfaced two blockers the spike couldn't (it ran on a CSP-less
+page, in Node):
+
+1. **`@antv/layout-gpu` trips the CSP.** Its GPGPU backend compiles kernels
+   with `new Function`; the app's `script-src` has `wasm-unsafe-eval` but NOT
+   `unsafe-eval`, so layout throws *"Evaluating a string as JavaScript
+   violates… CSP"* at run time. Adding `unsafe-eval` is off the table — it guts
+   the primary XSS defence (CLAUDE.md: script-src stays tight). The spike page
+   had no CSP, so it never hit this.
+2. **`@antv/layout` v2 pure-JS force is `requestAnimationFrame`-driven**
+   (d3-timer under the hood). In a backgrounded tab rAF is throttled to ~1 fps,
+   so a 600-node layout that should take ~1 s stalls indefinitely — the same
+   background-throttle footgun that forced project2d.ts's PCA off
+   setTimeout-per-iteration (BR). Caught live (the cell hung on "Laying out…").
+
+Other doors were closed too: `-wasm` needs SharedArrayBuffer/COOP-COEP (fights
+the DuckDB CDN load, and `crossOriginIsolated` is `false` today — probed);
+`d3-force` scales well but **"No D3" is a Hard NOT** (handoff §10).
+
+**Decision.** Own the layout, like we own PCA (project2d.ts): **`core/force-
+layout.ts`** — a synchronous Fruchterman–Reingold, ~110 lines, deterministic
+(seeded golden-angle init), CSP-clean (no eval), no dep, no rAF (a tight loop
+with elapsed-time cooperative yields so the tab stays responsive without
+throttling). Engine-boundary clean + unit-tested (8 tests incl. community
+separation). The `deckgl-network` lazy chunk is now **render-only** (deck.gl
+LineLayer edges + ScatterplotLayer nodes, degree-sized, click-to-highlight-
+neighbours via the `simulateClick` pick seam); layout is computed in core
+before the chunk even loads.
+
+**Scale ceiling (honest).** O(n²) repulsion, synchronous → **`NETWORK_LAYOUT_MAX
+= 3000`**: instant to ~600, a few seconds to 3k, then the cell shows a
+"filter down / precompute x,y and use an Embedding cell" message rather than
+freezing. Refines BF/BS again — the in-browser interactive ceiling is ~1–3k
+nodes, not 100k. The WebGPU-compute force sim (BS fallback) remains the future
+scale path (WGSL shaders compile on the GPU, no JS eval — CSP-safe).
+
+**Verified.** 928 vitest (+7 force-layout) · smoke +1 leg (real SQL edge list
+→ layout under the real CSP → deck.gl canvas → find-neighbours pins → clears;
+this leg *is* the CSP-regression guard) · check clean · bundle 732.0/750 ·
+live-verified in Chrome (community-structured graph renders, click highlights a
+node's neighbourhood, background clears).
+
+**Consequences.** `@antv/layout-gpu` removed from deps (added then removed this
+session). `@antv/layout` stays a dep but the Network view no longer uses it.
+Known follow-up: the embedding + network lazy chunks each bundle their own
+deck.gl (luma.gl logs a benign "already initialized" when both load) — dedupe
+into a shared deck chunk later. GForce cluster-quality (BS's owed check) is
+moot — different engine now; the in-house layout's separation is unit-tested.
+
+### Decision BS — [SUPERSEDED by BT] the Network view uses `@antv/layout-gpu` (WebGL/GPGPU), not `-wasm`; the SharedArrayBuffer/COOP-COEP tension is sidestepped, not solved
 
 ### Decision BS — the Network view uses `@antv/layout-gpu` (WebGL/GPGPU), not `-wasm`; the SharedArrayBuffer/COOP-COEP tension is sidestepped, not solved
 

@@ -141,3 +141,17 @@ trusted as the default.
 Files: `gpu-layout-spike.mjs` + `.html` (needs `npm i --no-save
 @antv/layout-gpu@1.1.7`; build artifact `.js` gitignored). Bench on Apple M4 Pro
 — re-measure on target hardware before pinning scale claims.
+
+### ⚠️ Correction (2026-07-04, from building the real cell) — the GPU path is CSP-incompatible
+
+The GPU verdict above held in the SPIKE but **not in the product**, and the gap
+is instructive: the spike ran on a bare HTML page with **no CSP**. Under the
+app's real (tight) CSP, **`@antv/layout-gpu` throws** — its GPGPU backend
+compiles kernels with `new Function`, and `script-src` allows `wasm-unsafe-eval`
+but NOT `unsafe-eval`. We won't add `unsafe-eval` (primary XSS defence). The
+pure-JS `@antv/layout` v2 fallback is `requestAnimationFrame`-driven → stalls in
+a backgrounded tab. So the Network view ships on an **in-house synchronous
+Fruchterman** (`src/core/force-layout.ts`) instead — CSP-clean, no dep, no rAF,
+≤3k-node ceiling. Full rationale: DECISIONS **BT** (supersedes BS). Lesson: a
+layout/perf spike must run under the real CSP + as a background tab, or it
+validates the wrong layer.

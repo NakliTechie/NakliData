@@ -111,6 +111,29 @@ export interface EmbeddingCellState {
 }
 
 /**
+ * Network / force-graph cell (Facet track). Renders an upstream SQL cell whose
+ * rows are EDGES (a source-id column + a target-id column) as a force-directed
+ * graph: nodes are the distinct ids, laid out by a GPU force sim
+ * (`@antv/layout-gpu` — WebGL GPGPU, no COOP/COEP; DECISIONS BS) and drawn with
+ * deck.gl (LineLayer edges + ScatterplotLayer nodes sized by degree). The
+ * computed layout is derived data — recomputed on render, cached in-memory by
+ * input signature — so it is NOT persisted (like stats descriptives). Only the
+ * config below round-trips in `.naklidata`.
+ */
+export interface NetworkCellState {
+  id: string;
+  kind: 'network';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose rows are edges. */
+  inputCell: string | null;
+  /** Edge source node-id column. */
+  sourceCol: string | null;
+  /** Edge target node-id column. */
+  targetCol: string | null;
+}
+
+/**
  * Cohort cell — Wave 4 W4.4. Structurally a SQL cell whose result is
  * a single `user_id` column. Downstream cells reference the cohort
  * via `@<cohort_name>` using the same machinery that resolves any
@@ -277,6 +300,7 @@ export type CellState =
   | PivotCellState
   | MapCellState
   | EmbeddingCellState
+  | NetworkCellState
   | CohortCellState
   | AssertionCellState
   | InputCellState

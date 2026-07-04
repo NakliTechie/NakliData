@@ -31,6 +31,7 @@ import { renderEmbeddingCell } from './cells/embedding-cell.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
+import { renderNetworkCell } from './cells/network-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
 import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
@@ -46,6 +47,7 @@ import type {
   InputCellState,
   MapCellState,
   MarkdownCellState,
+  NetworkCellState,
   PivotCellState,
   ReportCellState,
   SqlCellState,
@@ -155,6 +157,16 @@ export class Notebook {
         labelCol: null,
         embCol: null,
       } satisfies EmbeddingCellState;
+    } else if (kind === 'network') {
+      cell = {
+        id: genCellId(),
+        kind: 'network',
+        order,
+        name: null,
+        inputCell: null,
+        sourceCol: null,
+        targetCol: null,
+      } satisfies NetworkCellState;
     } else if (kind === 'cohort') {
       cell = {
         id: genCellId(),
@@ -592,6 +604,7 @@ export function renderNotebook(
     else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
     else if (cell.kind === 'embedding') root.append(renderEmbeddingCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'network') root.append(renderNetworkCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
@@ -609,6 +622,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-pivot">${iconSvg('plus', 12)} Pivot</button>
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
     <button class="btn" data-nb-action="add-embedding" title="Semantic map — scatter precomputed x / y (e.g. an embedding projection) with colour + hover labels.">${iconSvg('plus', 12)} Embedding</button>
+    <button class="btn" data-nb-action="add-network" title="Force graph — an edge list (source-id + target-id columns) laid out on the GPU; nodes sized by degree, click to highlight neighbours.">${iconSvg('plus', 12)} Network</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
@@ -635,6 +649,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-embedding"]')
     ?.addEventListener('click', () => notebook.addCell('embedding'));
+  addRow
+    .querySelector('[data-nb-action="add-network"]')
+    ?.addEventListener('click', () => notebook.addCell('network'));
   addRow
     .querySelector('[data-nb-action="add-cohort"]')
     ?.addEventListener('click', () => notebook.addCell('cohort'));

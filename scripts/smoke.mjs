@@ -720,6 +720,146 @@ async function main() {
     log('~ Facet find-similar skipped (no WebGL canvas in this environment)');
   }
 
+  // 10e. Facet Network cell — a real SQL edge list → in-house synchronous force
+  // layout (core/force-layout: CSP-clean, no rAF stall) → deck.gl force-graph.
+  // The layout runs under the app's real CSP, which the GPU-layout path can't
+  // (new Function). Two 30-node communities so the layout is instant.
+  const netSqlBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+    netSqlBefore,
+    { timeout: 5000 },
+  );
+  const netSqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await netSqlCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    'WITH n AS (SELECT i, (i // 30) AS c FROM range(60) t(i)), ' +
+      'e AS (SELECT a.i AS s, b.i AS d FROM n a JOIN n b ON a.c = b.c AND a.i < b.i ' +
+      'AND (a.i * 7 + b.i * 13) % 5 < 2 UNION ALL SELECT 0, 30) ' +
+      'SELECT s::VARCHAR AS src, d::VARCHAR AS tgt FROM e',
+  );
+  await netSqlCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+      const last = cells[cells.length - 1];
+      return !!last && !last.classList.contains('errored') && last.querySelector('table') !== null;
+    },
+    null,
+    { timeout: 15000 },
+  );
+  // Add the Network cell + wire input / source / target.
+  await page.click('[data-nb-action="add-network"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="network"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const net = document.querySelector('.cell[data-cell-kind="network"]');
+    const sqlCells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+    const src = sqlCells[sqlCells.length - 1];
+    const sel = net?.querySelector('[data-action="net-input"]');
+    if (sel && src) {
+      sel.value = src.dataset.cellId ?? '';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.cell[data-cell-kind="network"]')
+        ?.querySelector('[data-action="net-source"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const net = document.querySelector('.cell[data-cell-kind="network"]');
+    const s = net?.querySelector('[data-action="net-source"]');
+    if (s) {
+      s.value = 'src';
+      s.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.evaluate(() => {
+    const net = document.querySelector('.cell[data-cell-kind="network"]');
+    const t = net?.querySelector('[data-action="net-target"]');
+    if (t) {
+      t.value = 'tgt';
+      t.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  // Success = deck.gl canvas mounted (layout ran under CSP + rendered), or the
+  // graceful render-stage error. A stuck "Laying out…" or a CSP eval failure
+  // (the GPU-path regression this guards) fails the wait.
+  await page.waitForFunction(
+    () => {
+      const mountEl = document
+        .querySelector('.cell[data-cell-kind="network"]')
+        ?.querySelector('[data-region="net-canvas"]');
+      if (!mountEl) return false;
+      if (mountEl.querySelector('canvas')) return true;
+      const text = mountEl.textContent ?? '';
+      if (text.includes('Force layout failed') || text.includes('violates')) {
+        throw new Error(`network layout failed: ${text.slice(0, 120)}`);
+      }
+      return text.includes("Couldn't render the graph");
+    },
+    null,
+    { timeout: 20000 },
+  );
+  // Exercise find-neighbours through the pick seam when a canvas mounted.
+  const netState = await page.evaluate(() => {
+    const mountEl = document
+      .querySelector('.cell[data-cell-kind="network"]')
+      ?.querySelector('[data-region="net-canvas"]');
+    const canvas = mountEl?.querySelector('canvas');
+    if (!canvas) return { canvas: false };
+    const handle = mountEl.__networkGraph;
+    const tip = document
+      .querySelector('.cell[data-cell-kind="network"]')
+      ?.querySelector('[data-region="net-tip"]');
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    let hit = null;
+    outer: for (let gy = 1; gy < 12; gy++) {
+      for (let gx = 1; gx < 12; gx++) {
+        const idx = handle?.simulateClick((w * gx) / 12, (h * gy) / 12, 12);
+        if (idx !== null && idx !== undefined) {
+          hit = idx;
+          break outer;
+        }
+      }
+    }
+    const pinnedTip = tip?.textContent ?? '';
+    const pinned = tip?.dataset.pinned === '1';
+    handle?.simulateClick(1, 1, 0);
+    return {
+      canvas: true,
+      hit,
+      pinned,
+      pinnedTip,
+      cleared: tip?.dataset.pinned !== '1',
+    };
+  });
+  if (netState.canvas) {
+    if (netState.hit === null || !netState.pinned || !/neighbours highlighted/.test(netState.pinnedTip)) {
+      throw new Error(
+        `network find-neighbours: no pinned highlight ("${netState.pinnedTip}")`,
+      );
+    }
+    if (!netState.cleared) {
+      throw new Error('network find-neighbours: background click did not clear');
+    }
+    log(`✓ Facet Network cell: edge list → force layout → canvas → find-neighbours ("${netState.pinnedTip.slice(0, 50)}…") → cleared`);
+  } else {
+    log('~ Facet Network cell rendered (no WebGL canvas in this environment)');
+  }
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.

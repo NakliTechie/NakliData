@@ -25,6 +25,8 @@ export interface LazyChunkRegistry {
   'deckgl-points': typeof import('../lazy/deckgl-points.ts');
   /** Facet track — standalone deck.gl scatter for the embedding / semantic-map cell. */
   'deckgl-embedding': typeof import('../lazy/deckgl-embedding.ts');
+  /** Facet track — GPU force layout + deck.gl force-graph for the Network cell. */
+  'deckgl-network': typeof import('../lazy/deckgl-network.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
