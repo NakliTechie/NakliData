@@ -154,6 +154,15 @@ export const ANONYMIZE_SINK: SinkDescriptor = {
     'Hash / redact / bucket / drop sensitive columns based on their taxonomy badges. CSV + Parquet output; manifest alongside.',
   async execute({ engine, cellId, cellName, result, columnAssignments }) {
     // Look up sensitivity per column from the taxonomy bundle + user types.
+    // GUARANTEE the bundle is loaded first: this sink's entire contract is
+    // sensitivity-driven redaction, and a null bundle makes sensitivityOf()
+    // return null for every column → defaultStrategyForSensitivity(undefined)
+    // → 'keep' → PII exported in the clear, i.e. the "anonymized" export is a
+    // plaintext copy. ensureReady() is idempotent + fast once loaded; on a
+    // freshly-restored workspace it closes the window where the taxonomy worker
+    // hasn't reloaded the bundle yet. (Walkthrough M1 — same null-bundle class
+    // as the schema-panel restore fix.)
+    await getTaxonomyClient().ensureReady();
     const bundle = getTaxonomyClient().getBundle();
     const sensitivityOf = (typeId: string | null): TypeSensitivity | null => {
       if (!typeId) return null;
