@@ -51,3 +51,6 @@ eval/spikes/gpu-layout-spike.js
 
 # sql.js wasm — vendored by scripts/vendor-sql-wasm.mjs (postinstall)
 public/sqlite-wasm/sql-wasm.wasm
+
+# session scratch — local test data (real-data format audit), never commit
+scratchpad/

@@ -2,6 +2,48 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — Cross-format + dirty-file test findings (LOGGED; fixes deferred)
+
+### Decision BX — real-data format coverage audit; 4 format gaps + 1 dirty-CSV papercut queued as F1–F5
+
+Followed the SQLite/CSV/XLSX real-data test with a **cross-format + dirty-file
+sweep** using real public data (NYC green-taxi parquet, Stata `auto.dta`, US-states
+GeoJSON, GitHub-commits nested JSONL, real messy CSVs; Arrow/TSV transcoded from the
+real taxi data). Kaggle was unavailable (no CLI / `~/.kaggle/kaggle.json`, and
+account/credential creation is a hard stop) — sourced from HuggingFace / GitHub /
+CloudFront / stata-press instead. Driven live via the Chrome MCP against the real
+engine (temporary `?debug` hook, since removed). **Findings logged; fixes deferred
+to F1–F5 at the user's call ("log this, pause").**
+
+**Format coverage (default = offline; `?cdn=1` = online):**
+
+| Format | Offline (default + deployed) | `?cdn=1` | Root cause / note |
+|---|---|---|---|
+| CSV · TSV · JSONL (flat + nested) · XLSX · SQLite | ✅ | ✅ | nested JSON → STRUCT cols; classifier + sampling run clean (graceful) |
+| **Parquet** | ❌ | ✅ (883 ms) | extension not vendored; offline pins `custom_extension_repository` to the local dir → `INSTALL parquet` 404s |
+| **Spatial** (GeoJSON/KML) | ❌ | ✅ | same — `spatial` not vendored |
+| **Arrow / .feather** | ❌ | ❌ | `registerArrow` → `insertArrowFromIPCStream` expects Arrow IPC **stream**; files are IPC **file** format (`ARROW1` magic) → silent no-op → "table does not exist" |
+| **Stata / SPSS / SAS** (`read_stat`) | ❌ | ❌ | community-ext loader runs `SET allow_unsigned_extensions=true` at runtime; DuckDB-wasm rejects it (config-time only) → **no community extension can load** |
+
+Parquet is the headline: mainstream format, user's explicit ask, and **dead in the
+shipped/offline experience** (the app boots `offline:true` by default and on both
+Cloudflare + GitHub-Pages deploys). `.assetsignore` skips only `duckdb-fallback/`,
+NOT `duckdb-extensions/`, so **vendoring parquet + spatial ships them on every
+deploy** — the clean fix.
+
+**Dirty-data behaviour:** headerless CSV (`addresses.csv`) is **mis-headered** — the
+first data row became the column names because `createDelimitedView` forces
+`header=true` (F4). Everything else degraded well: nested JSON → STRUCT (no crash),
+R `rownames`/index columns + space-in-name columns + `NA` nulls all typed correctly,
+and the earlier messy-CSV resilience (skip tally) held.
+
+**Deferred fix plan (queued F1–F5):**
+- **F1** — vendor `parquet` + `spatial` in `scripts/fetch-duckdb-extensions.mjs` (both exist at extensions.duckdb.org for v1.1.1/wasm_eh; confirmed by the online autoload). Deploy serves `duckdb-extensions/`, so this fixes offline everywhere.
+- **F2** — Arrow/.feather: read via `apache-arrow` `tableFromIPC` (handles file **and** stream) → `insertArrowTable`, likely a lazy chunk (apache-arrow is a transitive dep of duckdb-wasm; add as a direct dep or reach it).
+- **F3** — set `allow_unsigned_extensions` at DB-instantiation config (not runtime `SET`); then verify `read_stat` is published for wasm_eh v1.1.1. If it isn't, **remove** stat formats from the picker rather than advertise a dead surface.
+- **F4** — headerless CSV: DuckDB auto header-detection or a "first row is data" toggle (the all-VARCHAR case is inherently ambiguous — document the limit).
+- **F5** — gate the picker to formats that actually work in the current mode; add smoke coverage for parquet + arrow; then the usual gates + docs.
+
 ## 2026-07-04 — Real-data test fixes: SQLite via sql.js, "+ Add source", resilient CSV, introspection passthrough
 
 ### Decision BW — SQLite mounts through sql.js (not DuckDB ATTACH); + three smaller mount/UX fixes
