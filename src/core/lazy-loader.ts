@@ -30,6 +30,8 @@ export interface LazyChunkRegistry {
    * chunks, which each duplicated deck.gl and double-inited luma).
    */
   deckgl: typeof import('../lazy/deckgl.ts');
+  /** Facet track — SVG renderers for the Temporal timeline + Distribution bars. */
+  'facet-charts': typeof import('../lazy/facet-charts.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
