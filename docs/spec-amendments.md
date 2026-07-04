@@ -1447,6 +1447,29 @@ change yet.
 next actionable step (WebGPU-gated; see `plan/workplan.md`). Companion design:
 `plan/facet-track-vision.md` + `plan/facet-m0-handoff.md`. See DECISIONS BE.
 
+**Addendum 2026-07-04 (ratifies DECISIONS BL / BO / BR — supersedes the three
+open items above):**
+
+- **M0 gate: RAN 2026-07-03 → the named escalation fired → AI is
+  BYOK-primary (BL).** Live results (OpenAlex corpus, 85 tasks, `eval/m0/`):
+  BYOK-grade generation clears (DeepSeek 77% intent-correct, 0/6 safety
+  leaks); in-browser WebGPU *generation* is broken (onnxruntime q4f16
+  repetition loop — a Layer-3 bug, isolated by Ollama A/B, not a
+  model-size wall); free local generation is below par (0.5B ~10% →
+  3B 31%). Per the escalation clause, the pitch restructured: **free-tier
+  AI = BYOK AI** (user's key, user's provider, surfaced egress — sovereign
+  posture intact); local in-browser generation is a *"when it scales"*
+  opt-in. **Local embedding survives** — the VSS path (`core/embed-search.ts`)
+  validated and shipped. Vision doc revised to v0.2 accordingly.
+- **Persistence: RESOLVED (BO)** — a Facet view is a **new `.naklidata`
+  cell kind** (pure config, no schema change; old files round-trip). The
+  `embedding` cell shipped this way; Network and later views follow it.
+- **Build status:** the first view is live — the **Embedding cell** shipped
+  2026-07-03 (BO) and became interactive 2026-07-04 (BR): click-to-find-
+  similar over precomputed vectors (in-memory cosine, no model download)
+  + in-browser PCA projection when no x/y are precomputed. The M0-before-
+  shell ordering was honored.
+
 ---
 
 ## Future amendments live here
