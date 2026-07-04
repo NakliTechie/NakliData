@@ -44,6 +44,7 @@ eval/spikes/network-data.json
 __pycache__/
 eval/spikes/embedding-spike.js
 eval/spikes/embedding-map-data.json
+eval/spikes/gpu-layout-spike.js
 
 # Claude Code local (personal permissions); launch.json IS tracked — preview config
 .claude/settings.local.json

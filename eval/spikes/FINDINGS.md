@@ -84,3 +84,60 @@ citation papers (title+abstract) with all-MiniLM-L6-v2 → UMAP to 2D → deck.g
 
 Files: `embed-corpus.mjs` (Node embed), `embedding-spike.mjs/.html` (deck.gl).
 2D-reduction (UMAP) is offline python. Artifacts gitignored.
+
+---
+
+# Chunk 2 de-risk round 2 — GPU force layout resolves the COOP/COEP tension (2026-07-04)
+
+The round-1 caveat (JS layout too slow; `-wasm` needs SharedArrayBuffer →
+cross-origin isolation → collides with the DuckDB CDN) had a third door we
+hadn't tested: **`@antv/layout-gpu`** (WebGL/GPGPU, float textures). It needs
+**no SharedArrayBuffer, no COOP/COEP, no header changes** — so the whole
+cross-origin-isolation problem is **resolved by avoidance**, not by solving it.
+
+## Capability probe (live, in the running app)
+- `crossOriginIsolated: false` · `SharedArrayBuffer: absent` → **`-wasm` is
+  dead on arrival today** (no SAB without isolating the page, which fights the
+  cross-origin DuckDB load + OSM tiles + HF model fetches).
+- `WebGL2: true` · `EXT_color_buffer_float: true` · `OES_texture_float_linear:
+  true` → **`-gpu`'s prerequisites are already met.** (Renderer: Apple M4 Pro
+  via ANGLE/Metal.)
+
+## GPU layout ladder (clustered synthetic graphs, avgDeg 4, 200 iters)
+
+Both GPU layouts run in-browser and return finite coordinates. Two algorithms:
+
+| layout | 500 | 10k | 50k | 100k | scaling | resolves? |
+|--------|-----|-----|-----|------|---------|-----------|
+| **Fruchterman GPU** | 0.13 s | 1.16 s | 7.55 s | **26.1 s** | O(n²) all-pairs repulsion | ✅ spread grows, clusters form |
+| **GForce GPU** (seeded) | 0.71 s | 0.54 s | 2.02 s | **4.95 s** | sub-quadratic | ⚠️ resolves *non-degenerate* but layout **quality unverified** |
+
+(Edge counts: 1k / 20k / 100k / 200k respectively — real densities after the
+PRNG fix; round-1's ~11k-edge numbers were a short-cycle-LCG artifact.)
+
+**Two real caveats on GForce:** (1) it collapses everything to the origin
+unless **initial node positions are seeded** (Fruchterman randomizes
+internally; GForce reads `node.data.{x,y}` and defaults to center → symmetric
+forces → no spread). (2) Even seeded, its output spread stayed pinned at
+exactly the seed range at every size, where Fruchterman's grew — so GForce is
+*running* but whether it produces a **structured** layout (clusters visually
+separated) is not yet confirmed. Needs a deck.gl render check before it's
+trusted as the default.
+
+## Verdict (feeds DECISIONS BS)
+- **The GPU path is the answer** — force layout in-browser with **zero header
+  changes**, sidestepping the COOP/COEP-vs-DuckDB-CDN tension entirely.
+- **Fruchterman GPU is the validated default**: interactive to **~10k (≤1.2 s)**,
+  compute-once-and-cache to **~50k (7.5 s)**, background/precompute at **100k
+  (26 s)**. This refines DECISIONS BF's "routine 1M force" — honest in-browser
+  ceiling for all-pairs GPU force is ~50k interactive-ish; 1M needs precompute
+  or a Barnes-Hut/GForce path.
+- **GForce GPU is the promising fast path** (100k in 5 s, sub-quadratic) —
+  pending a seed step + a layout-quality (cluster-separation) confirmation.
+- `-wasm` is shelved: it buys nothing the GPU path doesn't, at the cost of the
+  cross-origin-isolation blast radius. Only revisit if GPU layout quality proves
+  inadequate AND a precompute path is unacceptable.
+
+Files: `gpu-layout-spike.mjs` + `.html` (needs `npm i --no-save
+@antv/layout-gpu@1.1.7`; build artifact `.js` gitignored). Bench on Apple M4 Pro
+— re-measure on target hardware before pinning scale claims.

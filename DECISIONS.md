@@ -2,6 +2,53 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-04 — Facet Network view: GPU force layout, resolving the COOP/COEP blocker by avoidance
+
+### Decision BS — the Network view uses `@antv/layout-gpu` (WebGL/GPGPU), not `-wasm`; the SharedArrayBuffer/COOP-COEP tension is sidestepped, not solved
+
+**Context.** The Network view was blocked (BM) on the layout engine at scale:
+pure-JS `@antv/layout` is unusably slow (7–26 s @ 2.6k nodes), and the accel
+path we'd assumed — `@antv/layout-wasm` — needs `SharedArrayBuffer`, which
+needs the page cross-origin-isolated (COOP `same-origin` + COEP `require-corp`/
+`credentialless`). That collides with NakliData's **cross-origin DuckDB CDN
+load** (jsdelivr / GitHub Pages mirror), the OSM map tiles, and HF model
+fetches — COEP would gate every one of them. A real architectural cost.
+
+**Decision.** Use the **GPU layout path (`@antv/layout-gpu`, WebGL float-texture
+GPGPU)**. It needs **no SharedArrayBuffer, no COOP/COEP, no HTTP-header changes**
+— so the entire cross-origin-isolation problem is **resolved by avoidance**.
+Empirically de-risked in-browser (round-2 spike, `eval/spikes/FINDINGS.md`):
+
+- Capability probe: `crossOriginIsolated: false` + `SharedArrayBuffer: absent`
+  today (so `-wasm` can't run without isolating the page), but `WebGL2` +
+  `EXT_color_buffer_float` + `OES_texture_float_linear` all present — the GPU
+  path's prerequisites are already met.
+- Fruchterman GPU (validated default, resolves cleanly): **10k in 1.2 s · 50k
+  in 7.5 s · 100k in 26 s** (O(n²) all-pairs repulsion). GForce GPU is
+  sub-quadratic and much faster (**100k in 5 s**) but needs seeded initial
+  positions and a layout-quality confirmation before it's the default.
+
+**Refines BF.** BF's "routine 1M-node force" doesn't hold for in-browser GPU
+all-pairs force. Honest ceiling: **~10k interactive · ~50k compute-once-and-
+cache · 100k background**. Beyond that needs a precompute path or Barnes-Hut/
+GForce. deck.gl render at 1M still stands (BF/BM) — it's the *layout* that's
+capped, not the draw. This is a refinement of the scale claim, not a reversal
+of the engine pin.
+
+**Consequences.** (a) Network view is **unblocked** — no header changes, no
+sovereign-posture risk. (b) `@antv/layout-gpu@1.1.7` becomes a real runtime dep
+when the view is scaffolded (lazy chunk, budget-exempt per A34 — same as
+deck.gl). (c) `@antv/layout-wasm` shelved; revisit only if GPU layout quality
+proves inadequate. (d) Open follow-up: confirm GForce cluster-separation
+quality; pick a compute-once-then-cache persistence for laid-out coords (a
+Network cell likely stores its computed x/y like the Embedding cell stores
+precomputed x/y — BO/BR shape).
+
+**Alternatives rejected.** `-wasm` + flip COEP to `credentialless` (Chrome/FF
+only, no Safari SAB; still a blast-radius change for zero gain over GPU); a
+bespoke WebGPU compute-shader force sim (more code than the GPU lib already
+gives us; hold as a fallback).
+
 ## 2026-07-04 — Facet: Embedding view made interactive (find-similar + in-browser PCA)
 
 ### Decision BR — find-similar reuses precomputed vectors in-memory; PCA (not UMAP) for the no-x/y projection; no third worker
