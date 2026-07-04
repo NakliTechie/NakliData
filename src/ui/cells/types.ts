@@ -144,6 +144,23 @@ export interface NetworkCellState {
 }
 
 /**
+ * Temporal cell (Facet track). Buckets an upstream SQL cell's time column into
+ * a histogram over time (an SVG bar timeline) with a brushable window that
+ * reports the selected range + in-window row count. The histogram + selection
+ * are derived (recomputed on render, transient) — only the config persists.
+ */
+export interface TemporalCellState {
+  id: string;
+  kind: 'temporal';
+  order: number;
+  name: string | null;
+  /** Upstream SQL cell id whose rows carry the time column. */
+  inputCell: string | null;
+  /** The DATE / TIMESTAMP column to bucket. */
+  timeCol: string | null;
+}
+
+/**
  * Cohort cell — Wave 4 W4.4. Structurally a SQL cell whose result is
  * a single `user_id` column. Downstream cells reference the cohort
  * via `@<cohort_name>` using the same machinery that resolves any
@@ -311,6 +328,7 @@ export type CellState =
   | MapCellState
   | EmbeddingCellState
   | NetworkCellState
+  | TemporalCellState
   | CohortCellState
   | AssertionCellState
   | InputCellState

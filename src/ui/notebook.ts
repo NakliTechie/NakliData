@@ -36,6 +36,7 @@ import { renderPivotCell } from './cells/pivot-cell.ts';
 import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import { renderStatsCell } from './cells/stats-cell.ts';
+import { renderTemporalCell } from './cells/temporal-cell.ts';
 import type {
   AssertionCellState,
   CellHandlers,
@@ -52,6 +53,7 @@ import type {
   ReportCellState,
   SqlCellState,
   StatsCellState,
+  TemporalCellState,
 } from './cells/types.ts';
 import { detectRefIssue, refIssueMessage, topoOrderRunnableCells } from './notebook-graph.ts';
 import { notebookCss } from './notebook.css.ts';
@@ -169,6 +171,15 @@ export class Notebook {
         edgeColorCol: null,
         edgeWidthCol: null,
       } satisfies NetworkCellState;
+    } else if (kind === 'temporal') {
+      cell = {
+        id: genCellId(),
+        kind: 'temporal',
+        order,
+        name: null,
+        inputCell: null,
+        timeCol: null,
+      } satisfies TemporalCellState;
     } else if (kind === 'cohort') {
       cell = {
         id: genCellId(),
@@ -607,6 +618,7 @@ export function renderNotebook(
     else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
     else if (cell.kind === 'embedding') root.append(renderEmbeddingCell(cell, sqlCells, handlers));
     else if (cell.kind === 'network') root.append(renderNetworkCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'temporal') root.append(renderTemporalCell(cell, sqlCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
@@ -625,6 +637,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-map">${iconSvg('plus', 12)} Map</button>
     <button class="btn" data-nb-action="add-embedding" title="Semantic map — scatter precomputed x / y (e.g. an embedding projection) with colour + hover labels.">${iconSvg('plus', 12)} Embedding</button>
     <button class="btn" data-nb-action="add-network" title="Force graph — an edge list (source-id + target-id columns) laid out on the GPU; nodes sized by degree, click to highlight neighbours.">${iconSvg('plus', 12)} Network</button>
+    <button class="btn" data-nb-action="add-temporal" title="Timeline — bucket a date / timestamp column into a histogram over time; drag to brush a window and count rows inside it.">${iconSvg('plus', 12)} Temporal</button>
     <button class="btn" data-nb-action="add-cohort" title="A reusable user-id list. Reference via @cohort_name in downstream cells.">${iconSvg('plus', 12)} Cohort</button>
     <button class="btn" data-nb-action="add-assertion" title="SQL that should return 0 rows when an invariant holds. Any row → assertion fails.">${iconSvg('plus', 12)} Assertion</button>
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
@@ -654,6 +667,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-network"]')
     ?.addEventListener('click', () => notebook.addCell('network'));
+  addRow
+    .querySelector('[data-nb-action="add-temporal"]')
+    ?.addEventListener('click', () => notebook.addCell('temporal'));
   addRow
     .querySelector('[data-nb-action="add-cohort"]')
     ?.addEventListener('click', () => notebook.addCell('cohort'));

@@ -908,6 +908,99 @@ async function main() {
     log('~ Facet Network cell rendered (no WebGL canvas in this environment)');
   }
 
+  // 10g. Facet Temporal cell — a SQL cell with a timestamp column → bucketed
+  // SVG timeline (core/temporal), then brush a window via the seam and assert
+  // the readout reports an in-window row count.
+  const tempSqlBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+    tempSqlBefore,
+    { timeout: 5000 },
+  );
+  const tempSqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await tempSqlCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    "SELECT TIMESTAMP '2020-01-01' + INTERVAL (i) DAY AS ts, i AS n FROM range(120) t(i)",
+  );
+  await tempSqlCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+      const last = cells[cells.length - 1];
+      return !!last && !last.classList.contains('errored') && last.querySelector('table') !== null;
+    },
+    null,
+    { timeout: 15000 },
+  );
+  await page.click('[data-nb-action="add-temporal"]');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="temporal"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
+    const sqlCells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+    const src = sqlCells[sqlCells.length - 1];
+    const sel = cell?.querySelector('[data-action="temporal-input"]');
+    if (sel && src) {
+      sel.value = src.dataset.cellId ?? '';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.cell[data-cell-kind="temporal"]')
+        ?.querySelector('[data-action="temporal-time"]') !== null,
+    null,
+    { timeout: 5000 },
+  );
+  await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
+    const t = cell?.querySelector('[data-action="temporal-time"]');
+    if (t) {
+      t.value = 'ts';
+      t.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.waitForFunction(
+    () =>
+      (document
+        .querySelector('.cell[data-cell-kind="temporal"]')
+        ?.querySelectorAll('[data-region="temporal-svg"] rect').length ?? 0) > 2,
+    null,
+    { timeout: 8000 },
+  );
+  const temporal = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
+    const mountEl = cell?.querySelector('[data-region="temporal-canvas"]');
+    const bars = mountEl?.querySelectorAll('[data-region="temporal-svg"] rect').length ?? 0;
+    const seam = mountEl?.__temporalBrush;
+    if (!seam) return { bars, brushed: false };
+    // Brush the middle third of the time range.
+    const [lo, hi] = seam.range;
+    seam.brushTimeWindow(lo + (hi - lo) * 0.33, lo + (hi - lo) * 0.66);
+    const readout = cell?.querySelector('[data-region="temporal-readout"]');
+    return {
+      bars,
+      brushed: true,
+      count: readout?.dataset.windowCount ? Number(readout.dataset.windowCount) : null,
+      text: readout?.textContent ?? '',
+    };
+  });
+  if (temporal.bars < 3) {
+    throw new Error(`temporal: expected an SVG bar timeline, got ${temporal.bars} rects`);
+  }
+  if (!temporal.brushed || temporal.count === null || temporal.count <= 0 || temporal.count >= 120) {
+    throw new Error(`temporal: brushing a window did not report a partial count (${temporal.count})`);
+  }
+  log(`✓ Facet Temporal cell: timeline (${temporal.bars} bars) → brush window → ${temporal.count}/120 rows in range`);
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.
