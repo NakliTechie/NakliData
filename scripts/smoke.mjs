@@ -1431,7 +1431,40 @@ async function main() {
   }
   log('✓ headerless CSV auto-detected (3 rows kept, no forced header) — F4');
 
+  // 12j. Statistical-format mount (SPSS/Stata/SAS via the vendored ReadStat-wasm
+  //      reader — Polyglot-Workbench Fork 1). DuckDB's read_stat has no wasm
+  //      build; we own the reader (src/lazy/readstat-reader.ts → the C wrapper
+  //      emits NDJSON → read_json_auto). Fixture: a 3-row Stata .dta
+  //      (city/pop/code) written by pyreadstat, read from the committed
+  //      tests/e2e/fixtures/sample-data/stat_demo.dta.
+  const dtaBytes = await readFile('tests/e2e/fixtures/sample-data/stat_demo.dta');
+  const DTA_B64 = dtaBytes.toString('base64');
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'stat_demo.dta', { type: 'application/octet-stream' });
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  }, DTA_B64);
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  await page.waitForFunction(
+    () => /\bstat_demo\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    null,
+    { timeout: 20000 },
+  );
+  const statRows = await page.evaluate(() => {
+    const t = document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '';
+    return t.match(/\bstat_demo\b\s+([\d,]+)\s+rows/)?.[1] ?? null;
+  });
+  if (statRows !== '3') {
+    fail(`Stata .dta mount row count wrong: ${statRows} (expected 3)`);
+  }
+  log('✓ Stata .dta mounts (3 rows) — ReadStat-wasm reader → NDJSON → read_json_auto');
+
   // 13. Sanity: no uncaught errors in the console.
+
   if (consoleErrors.length > 0) {
     log('NOTE: console errors during run:');
     for (const e of consoleErrors) log('  •', e);

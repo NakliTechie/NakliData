@@ -48,6 +48,14 @@ export interface LazyChunkRegistry {
    * / protocol). See src/lazy/sqlite-reader.ts + DECISIONS 2026-07-04.
    */
   'sqlite-reader': typeof import('../lazy/sqlite-reader.ts');
+  /**
+   * Statistical-format mounts — ReadStat compiled to wasm reads SPSS/Stata/SAS
+   * files (`.sav/.zsav/.por/.dta/.sas7bdat/.xpt`) and emits NDJSON the engine
+   * loads via read_json_auto. Owns the reader because DuckDB's `read_stat`
+   * community ext has no wasm build (F3 reopen / Polyglot-Workbench Fork 1).
+   * See src/lazy/readstat-reader.ts + src/vendor/readstat/.
+   */
+  'readstat-reader': typeof import('../lazy/readstat-reader.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel

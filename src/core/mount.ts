@@ -23,6 +23,10 @@ export type FileFormat =
   | 'duckdb'
   | 'xlsx'
   | 'arrow'
+  | 'sav'
+  | 'dta'
+  | 'sas7bdat'
+  | 'xpt'
   | 'geojson'
   | 'kml';
 
@@ -192,11 +196,16 @@ export function detectFormat(filename: string): FileFormat | null {
   )
     return 'sqlite';
   if (lower.endsWith('.xlsx')) return 'xlsx';
-  // Statistical formats (.sav/.zsav/.por/.dta/.sas7bdat/.xpt) were mounted via
-  // the `read_stat` community extension — but it is NOT published for the wasm
-  // platform at all (404 on community-extensions.duckdb.org for every
-  // version/wasm target), so it could never load in-browser. Dropped rather
-  // than advertise a dead surface (DECISIONS BX/F3, 2026-07-05).
+  // Statistical formats: `.sav`/`.zsav`/`.por` (SPSS) share the `sav`
+  // FileFormat; the engine's `registerReadStat` re-derives `.por` vs
+  // `.sav`/`.zsav` from the extension for ReadStat. F3 dropped these
+  // (DECISIONS CA) when the DuckDB `read_stat` ext proved unpublished for
+  // wasm; restored once we vendored our own ReadStat-wasm reader
+  // (Polyglot-Workbench Fork 1 — see src/lazy/readstat-reader.ts).
+  if (lower.endsWith('.sav') || lower.endsWith('.zsav') || lower.endsWith('.por')) return 'sav';
+  if (lower.endsWith('.dta')) return 'dta';
+  if (lower.endsWith('.sas7bdat')) return 'sas7bdat';
+  if (lower.endsWith('.xpt')) return 'xpt';
   if (lower.endsWith('.geojson') || lower.endsWith('.geo.json')) return 'geojson';
   if (lower.endsWith('.kml')) return 'kml';
   return null;
@@ -247,6 +256,11 @@ async function registerFileByFormat(
       return await engine.registerXlsx(opts);
     case 'arrow':
       return await engine.registerArrow(opts);
+    case 'sav':
+    case 'dta':
+    case 'sas7bdat':
+    case 'xpt':
+      return await engine.registerReadStat(opts);
     case 'geojson':
     case 'kml':
       return await engine.registerSpatial(opts);
@@ -473,7 +487,7 @@ export async function mountFolder(
         ? ` Folder mount doesn't look inside subfolders — ${subdirCount} were skipped; mount the subfolder directly.`
         : '';
     throw new MountError(
-      `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, and GeoJSON/KML).${subHint}`,
+      `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, SPSS/Stata/SAS, and GeoJSON/KML).${subHint}`,
     );
   }
   return source;
@@ -515,7 +529,7 @@ export async function mountFile(
     // (F1 vendored parquet+spatial; xlsx/sqlite/arrow ship as vendored lazy
     // chunks), so there's no mode-conditional gating to do.
     throw new MountError(
-      `Unsupported file type: "${file.name}". NakliData mounts CSV, TSV, JSONL/NDJSON, Parquet, Arrow/Feather, Excel (.xlsx), SQLite, DuckDB, and GeoJSON/KML files.`,
+      `Unsupported file type: "${file.name}". NakliData mounts CSV, TSV, JSONL/NDJSON, Parquet, Arrow/Feather, Excel (.xlsx), SQLite, DuckDB, SPSS/Stata/SAS (.sav/.dta/.sas7bdat/.xpt), and GeoJSON/KML files.`,
     );
   }
   const tableLabel = opts.tableName ?? sanitizeTableName(file.name);

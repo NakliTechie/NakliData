@@ -2,6 +2,55 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — Polyglot-Workbench Fork 1: SPSS/Stata/SAS via a vendored ReadStat-wasm reader
+
+### Decision CD — own the stat-format reader (compile ReadStat → wasm); reverses CA's *drop*
+
+F3 (DECISIONS CA) dropped `.sav/.zsav/.por/.dta/.sas7bdat/.xpt` because DuckDB's
+`read_stat` community extension has no wasm build. **Fork 1 of the Polyglot-Workbench
+vision reopens that not as "wait for the ext" but as "own the reader"** — the same
+posture as the sql.js SQLite bypass (BW) and SheetJS xlsx. CA's *finding* still holds
+(the ext genuinely isn't published); this routes around it.
+
+**What shipped:**
+- **Compiled ReadStat → wasm** (the small C lib R's `haven` and the dead DuckDB ext both
+  wrap). Upstream `WizardMac/ReadStat` @ `3c68974`, emcc 6.0.1, read-side sources only
+  (+ `-sUSE_ZLIB=1` for `.zsav`), `EXPORT_ES6`/`MODULARIZE`, `ENVIRONMENT=web,worker`
+  (no Node paths → no CSP-tripping `eval`/`require`). A ~90-line C wrapper
+  (`src/vendor/readstat/rs_wrapper.c`) parses an in-memory buffer and emits NDJSON +
+  a column list; `build.sh` + README (with the pinned commit) live beside it for
+  reproducibility.
+- **Vendored, committed artifacts** — `public/readstat-wasm/readstat.wasm` (275 KB,
+  served same-origin) + `src/vendor/readstat/readstat-glue.js` (62 KB Emscripten glue,
+  bundled into the chunk). **Committed, not postinstall-fetched:** there is no
+  npm/CDN source and CI/deploy has no emcc, so the prebuilt artifact is the only
+  sovereign option (biome ignores the generated glue).
+- **`src/lazy/readstat-reader.ts`** — lazy chunk: `readStatFile(bytes, format)` writes
+  the buffer to the wasm heap, calls `rs_read`, and copies the NDJSON straight out of
+  the heap (no intermediate JS string). `Engine.registerReadStat` loads it and mounts
+  via `read_json_auto` (single table per file). `.por` is re-derived from the extension
+  since it's a different ReadStat format from `.sav`/`.zsav`.
+- **Formats restored** to `detectFormat`, the `FileFormat` union, the mount router,
+  both picker accept lists, and the supported-types message. F5's message now lists
+  "SPSS/Stata/SAS (.sav/.dta/.sas7bdat/.xpt)".
+
+**Sovereign + budget:** the wasm is fetched same-origin (never a CDN); data never leaves
+the tab. The reader is a budget-exempt lazy chunk (A34) — the shell bundle is 744.6/750
+(the ~1.2 KB main-bundle bump is just the restored format detection).
+
+**Verified:** all read formats parse in Node (`.dta` auto.dta → 74 rows/12 cols with
+correct types + nulls; `.sav`/`.xpt` via pyreadstat fixtures). Live offline mount of the
+real `auto.dta` → 74 rows through the real add-source UI. Smoke +1 leg (committed 3-row
+`.dta` fixture → 3 rows). 956 vitest (mount.test routes stat formats to registerReadStat
+again) · check clean · bundle in budget.
+
+**Known limits (documented in the vendor README):** LZ4/ZSTD not relevant here;
+non-UTF-8 codepages rely on musl iconv; SPSS/Stata **dates** come through as their raw
+numeric offset (v1 — decoding via the variable format string is a future refinement).
+
+**Not** Fork 2 (Python/R compute cells) — that remains gated behind the round-trip spike
+(`plan/polyglot-workbench-vision.md`).
+
 ## 2026-07-05 — F4 + F5: headerless-CSV auto-detect; picker message (BX queue CLOSED)
 
 ### Decision CB — F4: let DuckDB's sniffer detect the CSV header (drop forced `header=true`)

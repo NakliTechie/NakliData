@@ -18,6 +18,15 @@ describe('detectFormat', () => {
     ['data.sqlite', 'sqlite'],
     ['data.sqlite3', 'sqlite'],
     ['data.xlsx', 'xlsx'],
+    // Statistical formats — restored once we vendored a ReadStat-wasm reader
+    // (Polyglot-Workbench Fork 1). `.sav`/`.zsav`/`.por` share the `sav`
+    // FileFormat; the engine re-derives `.por` for ReadStat.
+    ['data.sav', 'sav'],
+    ['data.zsav', 'sav'],
+    ['data.por', 'sav'],
+    ['data.dta', 'dta'],
+    ['data.sas7bdat', 'sas7bdat'],
+    ['data.xpt', 'xpt'],
     ['shape.geojson', 'geojson'],
     ['shape.geo.json', 'geojson'],
     ['MAP.KML', 'kml'],
@@ -25,24 +34,12 @@ describe('detectFormat', () => {
     expect(detectFormat(filename)).toBe(expected);
   });
 
-  // Statistical formats were dropped (DECISIONS BX/F3): `read_stat` is not
-  // published for the wasm platform, so they could never mount in-browser.
-  // detectFormat must now return null → the picker surfaces "unsupported".
-  it.each([
-    ['data.txt'],
-    ['no-extension'],
-    ['data.exe'],
-    ['data.numbers'],
-    ['data.mdb'],
-    ['data.sav'],
-    ['data.zsav'],
-    ['data.por'],
-    ['data.dta'],
-    ['data.sas7bdat'],
-    ['data.xpt'],
-  ])('returns null for unsupported %s', (filename) => {
-    expect(detectFormat(filename)).toBeNull();
-  });
+  it.each([['data.txt'], ['no-extension'], ['data.exe'], ['data.numbers'], ['data.mdb']])(
+    'returns null for unsupported %s',
+    (filename) => {
+      expect(detectFormat(filename)).toBeNull();
+    },
+  );
 });
 
 describe('describeReadFailure', () => {
@@ -110,6 +107,7 @@ function mockEngine(overrides: Record<string, unknown> = {}) {
     registerXlsx: vi.fn().mockResolvedValue(['sheet1']),
     registerArrow: vi.fn().mockResolvedValue(['observations']),
     registerArrowBuffer: vi.fn().mockResolvedValue(['arrow_buffer_table']),
+    registerReadStat: vi.fn().mockResolvedValue(['data']),
     query: vi.fn().mockResolvedValue([{ n: 42n }]),
     ...overrides,
   };
@@ -161,18 +159,20 @@ describe('mountFile routes formats to the right engine method', () => {
     expect(src.tables[0]?.name).toBe('observations');
   });
 
-  // Statistical formats were dropped (DECISIONS BX/F3) — `read_stat` has no
-  // wasm build, so these must be refused like any other unsupported type
-  // rather than routed to a dead mount path.
-  it.each([['survey.sav'], ['responses.dta'], ['cohort.sas7bdat'], ['extract.xpt'], ['old.por']])(
-    'refuses dropped statistical format %s',
-    async (filename) => {
-      const engine = mockEngine();
-      await expect(mountFile(engine as never, fakeFile(filename))).rejects.toThrow(
-        /Unsupported file type/,
-      );
-    },
-  );
+  // Statistical formats route to registerReadStat (ReadStat-wasm reader).
+  it.each([
+    ['survey.sav', 'sav'],
+    ['survey.zsav', 'sav'],
+    ['portable.por', 'sav'],
+    ['responses.dta', 'dta'],
+    ['cohort.sas7bdat', 'sas7bdat'],
+    ['extract.xpt', 'xpt'],
+  ])('statistical format %s → registerReadStat (format=%s)', async (filename, expectedFormat) => {
+    const engine = mockEngine();
+    const src = await mountFile(engine as never, fakeFile(filename));
+    expect(engine.registerReadStat).toHaveBeenCalledOnce();
+    expect(src.tables[0]?.format).toBe(expectedFormat);
+  });
 
   it('refuses unsupported extensions', async () => {
     const engine = mockEngine();

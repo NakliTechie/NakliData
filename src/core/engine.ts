@@ -815,13 +815,43 @@ export class Engine {
     return [safeTable];
   }
 
-  // NOTE: `registerReadStat` (SPSS/Stata/SAS via the `read_stat` community
-  // extension) was removed 2026-07-05 (DECISIONS BX/F3). `read_stat` is not
-  // published for the wasm platform on community-extensions.duckdb.org (404
-  // for every version/wasm target), so it could never load in-browser —
-  // moving `allow_unsigned_extensions` to config-time wouldn't have helped.
-  // The stat formats are dropped from `detectFormat` + the picker rather than
-  // advertise a mount path that always fails.
+  /**
+   * Mount a statistical-format file (SPSS `.sav`/`.zsav`/`.por`, Stata `.dta`,
+   * SAS `.sas7bdat`/`.xpt`). Single-table per file.
+   *
+   * Reads via the vendored ReadStat-wasm lazy chunk (Polyglot-Workbench
+   * Fork 1) — DuckDB's `read_stat` community ext has no wasm build (F3 /
+   * DECISIONS CA), so we own the reader. The chunk emits NDJSON, which we
+   * load through `read_json_auto` exactly like the sql.js SQLite path.
+   */
+  async registerReadStat({ tableName, file }: RegisterFileOptions): Promise<string[]> {
+    const format = statFormatFromName(file.name);
+    if (!format) {
+      throw new EngineError(`Not a recognised statistical file: "${file.name}"`);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { readStatFile } = await loadChunk('readstat-reader');
+    const table = await readStatFile(bytes, format);
+    const view = sanitizeIdent(tableName);
+    if (table.rowCount > 0 && table.ndjson.length > 0) {
+      const fname = sanitizeFileName(`${file.name}.ndjson`);
+      if (!this.db) throw new EngineError('Engine not booted');
+      await this.db.registerFileBuffer(fname, table.ndjson);
+      await this.exec(
+        `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
+         SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
+      );
+    } else {
+      // Empty file — build a 0-row shell from the variable names so the
+      // mounted table still shows its schema (mirrors registerSqlite).
+      const colDefs = table.columns.length
+        ? table.columns.map((c) => `${quoteIdent(c)} VARCHAR`).join(', ')
+        : '_empty VARCHAR';
+      await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(view)}`);
+      await this.exec(`CREATE TABLE ${quoteIdent(view)} (${colDefs})`);
+    }
+    return [view];
+  }
 
   /**
    * Mount a spatial vector file (`.geojson` / `.kml`) via DuckDB's
@@ -1372,6 +1402,22 @@ function escapeLiteral(s: string): string {
 
 function sanitizeFileName(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+/**
+ * Map a statistical-file extension to the ReadStat parser format. Distinct
+ * from `detectFormat`'s coarse `FileFormat` because `.por` is a different
+ * ReadStat format from `.sav`/`.zsav` (which share the SAV parser — it
+ * auto-detects zsav compression). Returns null for non-stat files.
+ */
+function statFormatFromName(name: string): 'dta' | 'sav' | 'por' | 'sas7bdat' | 'xpt' | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.dta')) return 'dta';
+  if (lower.endsWith('.sav') || lower.endsWith('.zsav')) return 'sav';
+  if (lower.endsWith('.por')) return 'por';
+  if (lower.endsWith('.sas7bdat')) return 'sas7bdat';
+  if (lower.endsWith('.xpt')) return 'xpt';
+  return null;
 }
 
 /** Process-wide singleton; one DuckDB engine per tab is enough. */

@@ -9,7 +9,8 @@
       "eval/m0/runner/harness.js",
       "eval/m0/results.json",
       "eval/m0/results-*.json",
-      "eval/spikes"
+      "eval/spikes",
+      "src/vendor/readstat/readstat-glue.js"
     ]
   },
   "organizeImports": { "enabled": true },
