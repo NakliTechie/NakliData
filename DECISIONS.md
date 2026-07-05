@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — F1: Parquet + Spatial vendored for offline (BX gap closed)
+
+### Decision BY — vendor `parquet` + `spatial` DuckDB extensions for the offline build
+
+Closes the headline gap from BX. Both `read_parquet` and `spatial`'s `ST_Read`
+**autoload** their extension from the DuckDB extension repo, not the wasm bundle.
+An offline boot pins `custom_extension_repository` + `autoinstall_extension_repository`
+to the local `public/duckdb-extensions/` dir (engine.ts:280), so the autoload 404'd
+and both formats were dead in the shipped/offline experience (the app boots
+`offline:true` by default and on both deploys).
+
+**Fix:** added `parquet` + `spatial` to `EXTENSIONS` in
+`scripts/fetch-duckdb-extensions.mjs`. Both exist at extensions.duckdb.org for
+`v1.1.1/wasm_eh` (confirmed by BX's online autoload). Postinstall vendors the bytes
+into `public/duckdb-extensions/v1.1.1/wasm_eh/` (gitignored); only `integrity.json`
+is committed. Regenerated the pin by bootstrap (deleted + re-fetched) — verified the
+existing `json` + `sqlite` hashes are byte-identical, so this is a clean widening,
+not a supply-chain swap.
+
+**Sizes:** `parquet` 2.7 MB, `spatial` 22 MB. Neither touches the `dist/index.html`
+bundle budget — extensions are served as separate assets under `duckdb-extensions/`
+and fetched lazily only when a Parquet/GeoJSON file is actually mounted. Bundle stays
+743.8/750 KB. The 22 MB spatial payload is a real one-time download cost for offline
+GeoJSON users, accepted (it only loads on first spatial mount).
+
+**Verified (offline, `?offline=1`, real UI Add-source path):**
+- `green_taxi.parquet` → **56,551 rows** (264 ms)
+- `us-states.geojson` → **52 features**
+- `npm run smoke` +2 legs (tiny inlined fixtures: 5-row Parquet, 2-feature GeoJSON)
+  as the committed regression guard. 951 vitest · check clean · bundle in budget.
+
+Next in the BX queue: **F2** (Arrow IPC-file), **F3** (`read_stat` config-time flag /
+decide-to-drop), **F4** (headerless CSV), **F5** (picker gating).
+
 ## 2026-07-04 — Cross-format + dirty-file test findings (LOGGED; fixes deferred)
 
 ### Decision BX — real-data format coverage audit; 4 format gaps + 1 dirty-CSV papercut queued as F1–F5

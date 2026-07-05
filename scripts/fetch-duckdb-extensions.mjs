@@ -43,6 +43,14 @@ const REMOTE_BASE = `https://extensions.duckdb.org/${REVISION}/${PLATFORM}`;
 const EXTENSIONS = [
   { name: 'json', aliasFrom: [] },
   { name: 'sqlite_scanner', aliasFrom: ['sqlite'] },
+  // F1 (DECISIONS BX / 2026-07-05): parquet + spatial autoload from the
+  // extension repo, NOT the wasm bundle — so an offline boot (which pins
+  // `custom_extension_repository` local) 404s on `read_parquet` /
+  // `ST_Read` unless the bytes are vendored here. Both exist at
+  // extensions.duckdb.org for v1.1.1/wasm_eh (confirmed by the online
+  // autoload). Neither needs a LOAD-side alias.
+  { name: 'parquet', aliasFrom: [] },
+  { name: 'spatial', aliasFrom: [] },
 ];
 
 async function fileExists(p) {
