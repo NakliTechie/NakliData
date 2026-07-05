@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+  Polyglot-Workbench Fork 2 — round-trip spike (THROWAWAY, not product code).
+
+  Question the spike must answer (plan/polyglot-workbench-vision.md):
+    Does DuckDB -> Arrow -> pandas -> (compute) -> Arrow -> DuckDB stay fast and
+    memory-sane with TWO wasm heaps live in one tab, on real-sized data
+    (>=1M rows), and is first-load latency tolerable?
+
+  Loads DuckDB-wasm + Pyodide (pandas, pyarrow) from jsDelivr. Exposes
+  window.runSpike(rows) which does one full round-trip and returns metrics.
+  window.loadRuntimes() loads both runtimes once and returns load timings.
+-->
+<meta charset="utf-8" />
+<title>Fork 2 round-trip spike</title>
+<body>
+  <pre id="log">loading…</pre>
+  <script type="module">
+    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
+    import { tableToIPC } from 'https://cdn.jsdelivr.net/npm/apache-arrow@17.0.0/+esm';
+    import { loadPyodide } from 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs';
+
+    const logEl = document.getElementById('log');
+    const log = (m) => {
+      logEl.textContent += '\n' + m;
+      console.log('[spike]', m);
+    };
+    const now = () => performance.now();
+
+    let db, conn, pyodide;
+    let duckWasmMemory = null; // WebAssembly.Memory of the DuckDB worker is out-of-process; track main-thread only.
+
+    // Pyodide's wasm heap byte length — the "second heap".
+    const pyHeapBytes = () => {
+      try {
+        return pyodide._module.HEAPU8.buffer.byteLength;
+      } catch {
+        return 0;
+      }
+    };
+    const jsHeap = () =>
+      performance.memory ? performance.memory.usedJSHeapSize : 0;
+
+    window.loadRuntimes = async () => {
+      const t0 = now();
+      // --- DuckDB-wasm ---
+      const bundles = duckdb.getJsDelivrBundles();
+      const bundle = await duckdb.selectBundle(bundles);
+      // A cross-origin worker script can't be `new Worker`'d directly; wrap it
+      // in a same-origin blob that importScripts the CDN worker (the standard
+      // duckdb-wasm-from-CDN pattern).
+      const workerUrl = URL.createObjectURL(
+        new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' }),
+      );
+      const worker = new Worker(workerUrl);
+      const logger = new duckdb.VoidLogger();
+      db = new duckdb.AsyncDuckDB(logger, worker);
+      await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+      conn = await db.connect();
+      const tDuck = now();
+      // --- Pyodide + pandas + pyarrow ---
+      pyodide = await loadPyodide({
+        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/',
+      });
+      const tPyCore = now();
+      await pyodide.loadPackage(['pandas', 'pyarrow']);
+      const tPyPkg = now();
+      return {
+        duckdbMs: Math.round(tDuck - t0),
+        pyodideCoreMs: Math.round(tPyCore - tDuck),
+        pyodidePkgMs: Math.round(tPyPkg - tPyCore),
+        totalMs: Math.round(tPyPkg - t0),
+        pyHeapMB: +(pyHeapBytes() / 1048576).toFixed(1),
+      };
+    };
+
+    window.runSpike = async (rows) => {
+      const m = { rows };
+      // 1. Generate `rows` rows in DuckDB.
+      let t = now();
+      await conn.query(`DROP TABLE IF EXISTS big`);
+      await conn.query(
+        `CREATE TABLE big AS
+         SELECT i AS id, (i * 1.5)::DOUBLE AS val, 'cat' || (i % 10) AS cat, random() AS r
+         FROM range(${rows}) t(i)`,
+      );
+      m.genMs = Math.round(now() - t);
+
+      // 2. DuckDB -> Arrow IPC bytes.
+      t = now();
+      const tbl = await conn.query('SELECT * FROM big');
+      const ipcOut = tableToIPC(tbl, 'stream');
+      m.duckToArrowMs = Math.round(now() - t);
+      m.arrowBytesMB = +(ipcOut.byteLength / 1048576).toFixed(1);
+
+      // 3. Hand bytes to Python; pandas transform; back to Arrow IPC bytes.
+      t = now();
+      pyodide.globals.set('arrow_in', ipcOut);
+      const ipcBackProxy = pyodide.runPython(`
+import pyarrow as pa
+import pandas as pd
+_buf = bytes(arrow_in.to_py())
+_tbl = pa.ipc.open_stream(pa.BufferReader(_buf)).read_all()
+_df = _tbl.to_pandas()
+# A representative pandas compute SQL can't do trivially: rank within cat.
+_df['val2'] = _df['val'] * 2.0
+_df['rank_in_cat'] = _df.groupby('cat')['r'].rank(method='first')
+_out_tbl = pa.Table.from_pandas(_df, preserve_index=False)
+_sink = pa.BufferOutputStream()
+with pa.ipc.new_stream(_sink, _out_tbl.schema) as w:
+    w.write_table(_out_tbl)
+bytes(_sink.getvalue().to_pybytes())
+`);
+      const ipcBack = ipcBackProxy.toJs(); // Uint8Array
+      ipcBackProxy.destroy?.();
+      m.pandasMs = Math.round(now() - t);
+      m.pyHeapMB = +(pyHeapBytes() / 1048576).toFixed(1);
+
+      // 4. Arrow IPC bytes -> DuckDB.
+      t = now();
+      await conn.query('DROP TABLE IF EXISTS big2');
+      await conn.insertArrowFromIPCStream(ipcBack, { name: 'big2', create: true });
+      m.arrowToDuckMs = Math.round(now() - t);
+
+      // 5. Verify round-trip integrity.
+      const chk = await conn.query(
+        'SELECT count(*) AS n, count(val2) AS nv2, max(rank_in_cat) AS maxrank FROM big2',
+      );
+      const row = chk.get(0);
+      m.verifyRows = Number(row.n);
+      m.hasVal2 = Number(row.nv2) === Number(row.n);
+      m.maxRankInCat = Number(row.maxrank);
+
+      m.jsHeapMB = +(jsHeap() / 1048576).toFixed(1);
+      m.totalRoundTripMs =
+        m.duckToArrowMs + m.pandasMs + m.arrowToDuckMs;
+      // free the JS-side arrow bytes
+      pyodide.globals.set('arrow_in', undefined);
+      return m;
+    };
+
+    log('module loaded; call window.loadRuntimes() then window.runSpike(n)');
+    window.__spikeReady = true;
+  </script>
+</body>

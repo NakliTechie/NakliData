@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — Polyglot-Workbench Fork 2: round-trip spike PASSED — Python cell greenlit
+
+### Decision CE — the DuckDB↔pandas Arrow round-trip is viable in-tab; build the Python cell
+
+Fork 2's gate (`plan/polyglot-workbench-vision.md`) was a blocking spike: prove the
+`DuckDB → Arrow → pandas → compute → Arrow → DuckDB` round-trip is fast + memory-sane
+with two wasm heaps live on ≥1M rows before building any shell. Ran it as a throwaway
+(`eval/spikes/fork2-roundtrip/`, no product code): DuckDB-wasm 1.29 + apache-arrow 17 +
+**Pyodide 0.27.7** (pandas + pyarrow), one tab, full round-trip with integrity checks.
+
+**Result: PASS.** 1M rows round-trips in **499 ms** (DuckDB↔Arrow hops ~45 ms each; the
+rest is pandas), ~640 MB combined heaps, two wasm heaps coexist cleanly, no OOM. Survives
+5M (3.2 s, 1.3 GB Pyodide heap). The named escalation (reframe Python as an export target)
+**does not trigger**. Full numbers: `eval/spikes/fork2-roundtrip/FINDINGS.md`.
+
+**Constraints the build must honor (discovered by the spike):**
+- **Pin Pyodide 0.27.7** (load-bearing): `pyarrow` ships **only in Pyodide 0.27.x** — not
+  0.26, not 0.28. Without it the clean Arrow path is gone (CSV/JSON fallback is slower +
+  lossy). This pin is the single most important build constraint.
+- **Vendor ~30 MB same-origin** (DuckDB + Pyodide core + pandas + pyarrow + numpy) and
+  cache to OPFS/HTTP so cold load (~4 s, incl. download) is one-time; warm re-init ~2.3 s.
+  Behind an honest "Downloading Python (~30 MB)…" affordance. Sovereign posture holds:
+  runtime *code* is fetched + surfaced, *data* never leaves the tab.
+- **Pre-warm** the first pandas/pyarrow import (~1.2 s JIT) on cell-add, not first Run.
+- **Cap rows into a Python cell** (~a few million; memory ~300 MB Pyodide heap per 1M rows
+  at 4 cols) and warn/refuse above it rather than OOM the tab.
+- Interchange is Arrow IPC stream both ways; apache-arrow 17 `tableToIPC` on a duckdb-wasm
+  1.29 Table is version-compatible.
+
+**Scope for the build (unchanged from the vision):** a lazy, opt-in `python` cell,
+`Arrow in → Arrow out`, result re-registers as a DuckDB table; budget-exempt (A34); no
+cell-private state; no compute through our infra. R (WebR) follows once Python proves the
+rails. Server-run kernels stay out (commercial, bright line).
+
 ## 2026-07-05 — Polyglot-Workbench Fork 1: SPSS/Stata/SAS via a vendored ReadStat-wasm reader
 
 ### Decision CD — own the stat-format reader (compile ReadStat → wasm); reverses CA's *drop*
