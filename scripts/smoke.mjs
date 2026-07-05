@@ -1403,6 +1403,34 @@ async function main() {
   }
   log('✓ Arrow IPC-file mounts (3 rows) — file→stream re-framed via the arrow-reader chunk');
 
+  // 12i. Headerless CSV auto-detection (F4 / DECISIONS BX). createDelimitedView
+  //      used to force header=true, so a headerless file's first data row
+  //      became the column names — one record lost + garbage headers. Now
+  //      header detection is left to DuckDB's sniffer. This 3-row typed CSV
+  //      (first row is data, same shape as the rest) must mount as 3 rows
+  //      with generated `column0…` names; a forced header would show 2 rows.
+  await page.evaluate(() => {
+    const text = '1,2.5,alpha\n2,3.5,beta\n3,4.5,gamma\n';
+    const file = new File([new TextEncoder().encode(text)], 'htyped.csv', { type: 'text/csv' });
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  });
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  await page.waitForFunction(
+    () => /\bhtyped\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    null,
+    { timeout: 20000 },
+  );
+  const headerlessRows = await page.evaluate(() => {
+    const t = document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '';
+    return t.match(/\bhtyped\b\s+([\d,]+)\s+rows/)?.[1] ?? null;
+  });
+  if (headerlessRows !== '3') {
+    fail(`headerless CSV row count wrong: ${headerlessRows} (expected 3 — a forced header would give 2)`);
+  }
+  log('✓ headerless CSV auto-detected (3 rows kept, no forced header) — F4');
+
   // 13. Sanity: no uncaught errors in the console.
   if (consoleErrors.length > 0) {
     log('NOTE: console errors during run:');

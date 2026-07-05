@@ -2,6 +2,46 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — F4 + F5: headerless-CSV auto-detect; picker message (BX queue CLOSED)
+
+### Decision CB — F4: let DuckDB's sniffer detect the CSV header (drop forced `header=true`)
+
+`createDelimitedView` hard-coded `header=true` in its `read_csv_auto` options, so a
+**headerless** file's first data row became the column names — one record lost, columns
+named after the data (real-data test: `addresses.csv`). Removed the explicit `header=`
+so DuckDB's auto-detect decides. Verified live (offline, real add-source path):
+- headerless **typed** CSV (`1,2.5,alpha\n…`, first row same shape as data) → **3 rows**,
+  columns `column0/column1/column2` (was: 2 rows + `1`/`2.5`/`alpha` headers).
+- headered CSV (`id,score,label\n…`) → 2 rows, columns `id/score/label` — **no regression**.
+- real headered files `recent-grads.csv` (173 rows) + `ag-exports.csv` (50 rows) mount
+  with correct headers.
+
+**Documented limit:** the **all-VARCHAR** headerless case (every column text, first row
+indistinguishable from data — e.g. `addresses.csv`) stays inherently ambiguous; DuckDB's
+sniffer decides and we accept its call. A "first row is data" toggle was considered and
+**not** built — it adds picker UI + persistence surface for a narrow case; auto-detect is
+strictly better than the old forced header (fixes typed-headerless, no regression on
+headered, unchanged on all-VARCHAR). Smoke +1 leg guards the typed-headerless row count.
+
+### Decision CC — F5: name the supported formats on an unsupported mount (gating is moot)
+
+The original F5 — "gate the picker to formats that work in the current mode" — is
+**satisfied by construction** after F1–F3: every format the picker advertises now works
+in BOTH online and offline modes (F1 vendored parquet+spatial; xlsx/sqlite/arrow ship as
+vendored lazy chunks; the dead stat formats were dropped in F3). There is no
+mode-conditional format left to gate, so no mode-aware UI was added.
+
+What remained useful: the bare `Unsupported file extension: <name>` throw became
+`Unsupported file type: "<name>". NakliData mounts CSV, TSV, JSONL/NDJSON, Parquet,
+Arrow/Feather, Excel (.xlsx), SQLite, DuckDB, and GeoJSON/KML files.` — the actionable
+message a user dragging a `.dta`/`.mdb`/`.txt` (incl. the F3-dropped stat formats) needs.
+The one degraded in-list case (LZ4/ZSTD Arrow) already surfaces its own actionable error
+(BZ).
+
+**BX queue (F1–F5) is now fully closed.** Coverage: CSV · TSV · JSONL (flat+nested) ·
+Parquet (offline+online) · Arrow/Feather (uncompressed) · Excel · SQLite · DuckDB ·
+GeoJSON/KML — all working in both modes. Stat formats intentionally dropped.
+
 ## 2026-07-05 — F2 + F3: Arrow IPC-file reader fixed; stat formats dropped (BX queue)
 
 ### Decision BZ — F2: mount Arrow `.arrow`/`.feather` via a file→stream re-frame

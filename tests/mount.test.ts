@@ -169,7 +169,7 @@ describe('mountFile routes formats to the right engine method', () => {
     async (filename) => {
       const engine = mockEngine();
       await expect(mountFile(engine as never, fakeFile(filename))).rejects.toThrow(
-        /Unsupported file extension/,
+        /Unsupported file type/,
       );
     },
   );
@@ -177,7 +177,7 @@ describe('mountFile routes formats to the right engine method', () => {
   it('refuses unsupported extensions', async () => {
     const engine = mockEngine();
     await expect(mountFile(engine as never, fakeFile('notes.txt'))).rejects.toThrow(
-      /Unsupported file extension/,
+      /Unsupported file type/,
     );
   });
 });

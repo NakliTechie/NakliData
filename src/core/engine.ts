@@ -385,6 +385,16 @@ export class Engine {
    * non-fatal "loaded N; skipped M" notice — resilient AND honest, never a
    * silent cap (the reject tally is best-effort and bounded to smaller files
    * to keep large-file mounts from paying for a second scan).
+   *
+   * F4 (DECISIONS BX, 2026-07-05): header detection is left to DuckDB's
+   * sniffer (no explicit `header=`). The old `header=true` forced a
+   * HEADERLESS file's first data row to become the column names (real-data
+   * test: `addresses.csv` lost its first record + got garbage column names).
+   * With auto-detect, a file whose data rows are typed (numeric/date) but
+   * whose first row is text is correctly read as headerless (`column0…`).
+   * The all-VARCHAR case (every column text, first row indistinguishable
+   * from data) stays inherently ambiguous — DuckDB's sniffer decides and we
+   * accept its call; there's no signal to do better without user input.
    */
   private async createDelimitedView(
     fname: string,
@@ -396,7 +406,7 @@ export class Engine {
     const lit = escapeLiteral(fname);
     const view = quoteIdent(table);
     const delimClause = delim ? `, delim='${delim === '\t' ? '\\t' : escapeLiteral(delim)}'` : '';
-    const readOpts = `header=true, sample_size=-1, ignore_errors=true, null_padding=true${delimClause}`;
+    const readOpts = `sample_size=-1, ignore_errors=true, null_padding=true${delimClause}`;
     await this.exec(
       `CREATE OR REPLACE VIEW ${view} AS SELECT * FROM read_csv_auto('${lit}', ${readOpts})`,
     );

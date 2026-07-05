@@ -509,7 +509,14 @@ export async function mountFile(
 ): Promise<MountedSource> {
   const format = detectFormat(file.name);
   if (!format) {
-    throw new MountError(`Unsupported file extension: ${file.name}`);
+    // F5 (DECISIONS BX): name the supported set rather than a bare
+    // "unsupported" — the actionable message a user dragging a .dta / .mdb /
+    // .txt needs. Every listed format works in BOTH online and offline modes
+    // (F1 vendored parquet+spatial; xlsx/sqlite/arrow ship as vendored lazy
+    // chunks), so there's no mode-conditional gating to do.
+    throw new MountError(
+      `Unsupported file type: "${file.name}". NakliData mounts CSV, TSV, JSONL/NDJSON, Parquet, Arrow/Feather, Excel (.xlsx), SQLite, DuckDB, and GeoJSON/KML files.`,
+    );
   }
   const tableLabel = opts.tableName ?? sanitizeTableName(file.name);
   let registered: string[];
