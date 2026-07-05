@@ -1,0 +1,14 @@
+# Cloudflare Workers Assets headers.
+#
+# Cross-origin isolation: turns on `crossOriginIsolated`, which unlocks
+# SharedArrayBuffer — required by WebR (the R cell) and @antv/layout-wasm
+# (Facet 1M-node GPU layouts). `credentialless` (not `require-corp`) lets the
+# app's cross-origin no-credential fetches through WITHOUT the origins needing
+# to send CORP headers — critical because the deploy cross-fetches the 34 MB
+# DuckDB-wasm from the GitHub Pages mirror (Cloudflare's 25 MB/file limit
+# forces it off-origin). Verified: the engine boots cross-origin under these
+# headers and the full smoke passes. See DECISIONS (COOP/COEP for Fork 2 R +
+# Facet).
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

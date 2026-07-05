@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — Cross-origin isolation enabled (COOP/COEP credentialless)
+
+### Decision CG — turn on `crossOriginIsolated` to unlock SharedArrayBuffer (R cell + Facet)
+
+Reverses the BS-era avoidance of COOP/COEP. **The R cell needs it** — WebR requires
+SharedArrayBuffer to run R (verified: without it WebR's default channel throws on init
+and the PostMessage fallback times out; `eval/spikes/webr-derisk/FINDINGS.md`). The
+**Facet 1M-node GPU layout** (`@antv/layout-wasm`, DECISIONS BF/BS) needs it too — so
+enabling it once serves both. BS avoided COOP/COEP because `require-corp` collides with
+the app's cross-origin loads; **`credentialless` removes that collision** (cross-origin
+no-credential fetches are allowed without the origin sending CORP headers).
+
+**The load-bearing risk was the cross-origin DuckDB load.** On the Cloudflare deploy the
+34 MB DuckDB-wasm exceeds Cloudflare's 25 MB/file asset limit, so it's `.assetsignore`d
+and the app **cross-fetches DuckDB from the GitHub Pages mirror** (`naklitechie.github.io`,
+`ACAO:*`). De-risked empirically: served `dist` with `COOP: same-origin` +
+`COEP: credentialless`, loaded `?cdn=1` (forces the cross-origin DuckDB path), and
+confirmed **`crossOriginIsolated=true`, `SharedArrayBuffer` present, and the engine boots
+cross-origin under COEP**. The **full `npm run smoke` then passed with the headers on** —
+every format mount, all Facet views, and the Python cell work under isolation, unchanged.
+
+**Wired at all three serving layers:** `public/_headers` (Cloudflare Workers Assets →
+`dist/_headers`), the esbuild dev server, and `scripts/smoke.mjs`'s static server — dev,
+test, and prod all isolate identically. The app doesn't branch on `crossOriginIsolated`,
+so existing paths (incl. the `@antv/layout-gpu` WebGL layout BS chose) behave the same;
+isolation just makes SAB *available* for the new consumers.
+
+**Remaining cross-origin surfaces** (OSM tiles — moot, the Map cell ships no basemap; HF
+model fetches; BYOK sidecar) are no-credential public/`Authorization`-header requests that
+`credentialless` permits; the hardest case (the cross-origin DuckDB *Worker* + wasm)
+already passed. **Next:** vendor a pinned WebR (the CDN `latest` threw an internal
+`ASM_CONSTS` error — a version/loading wrinkle, not an isolation problem) and build the R
+cell on the Python cell's rails.
+
 ## 2026-07-05 — Polyglot-Workbench Fork 2: the Python cell SHIPPED (v1.0)
 
 ### Decision CF — a lazy, opt-in `python` cell over vendored Pyodide; Parquet interchange

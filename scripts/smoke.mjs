@@ -79,6 +79,11 @@ async function startServer() {
         const body = await readFile(filePath);
         res.writeHead(200, {
           'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+          // Cross-origin isolation (matches the deploy _headers) — enables
+          // SharedArrayBuffer for WebR + @antv/layout-wasm. credentialless lets
+          // the cross-origin DuckDB mirror + public CDN fetches through.
+          'Cross-Origin-Opener-Policy': 'same-origin',
+          'Cross-Origin-Embedder-Policy': 'credentialless',
         });
         res.end(body);
       } catch {

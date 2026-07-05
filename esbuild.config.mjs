@@ -292,7 +292,13 @@ async function serve() {
                         : ext === '.parquet'
                           ? 'application/octet-stream'
                           : 'application/octet-stream';
-          res.writeHead(200, { 'content-type': type });
+          res.writeHead(200, {
+            'content-type': type,
+            // Cross-origin isolation (mirrors the deploy's public/_headers) so
+            // dev matches prod: SharedArrayBuffer on for WebR + @antv/layout-wasm.
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'credentialless',
+          });
           res.end(body);
           return;
         }
