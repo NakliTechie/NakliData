@@ -51,3 +51,22 @@ language (the vision itself made it secondary). Revisit if (a) real R demand
 appears, or (b) the app takes on cross-origin isolation for another reason (e.g.
 `@antv/layout-wasm` for 1M-node Facet layouts — the other COOP/COEP customer),
 at which point WebR comes along for the ride.
+
+## Resolution (2026-07-05, after choosing Option B)
+
+**Option B chosen** — cross-origin isolation enabled app-wide (COOP:same-origin +
+COEP:credentialless; DECISIONS CG). With that:
+
+- `crossOriginIsolated=true`, `SharedArrayBuffer` available.
+- The CDN-`latest` WebR threw `ASM_CONSTS[code] is not a function` — a **cross-origin
+  loading artifact** (webr-worker.js + wasm fetched cross-origin under credentialless).
+- **Vendored SAME-ORIGIN, WebR 0.2.0 works cleanly:** `new WebR({ baseUrl })` → init on
+  the SAB channel → `evalR('median(1:99)')=50` → `aggregate(mpg~cyl, mtcars, mean)`
+  round-trips back to JS as a data.frame. This is also the sovereign path.
+
+**R is de-risked.** Remaining build: `scripts/fetch-webr.mjs` (vendor ~13 MB core
+same-origin, integrity-pinned) · `src/lazy/webr-runtime.ts` (mirror pyodide-runtime) ·
+refactor python-cell into a shared **language cell** (bundle is at 749.8/750 — one
+renderer must serve both Python + R) · wire + smoke + gates. Interchange options open
+(nanoarrow Arrow IPC · duckdb-in-R Parquet · or WebR's native JS↔R data.frame marshaling
+— no extra package).
