@@ -88,6 +88,15 @@ export const notebookCss = `
   background: #FDECE3;
   white-space: pre-wrap;
 }
+.python-code {
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.python-shape { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
 .result-table {
   border-collapse: collapse;
   width: 100%;

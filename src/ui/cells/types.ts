@@ -338,6 +338,37 @@ export interface ReportCellState {
   definition: import('../../core/report-layout.ts').ReportDefinition;
 }
 
+/**
+ * Python cell — Polyglot-Workbench Fork 2. Bound to an upstream result cell
+ * via `inputCell`; the cell hands that table (as Parquet) to Pyodide, runs the
+ * user's Python against a pandas DataFrame `df`, and re-registers the result as
+ * a DuckDB table `cell_<id>` so downstream cells can query it (`@name`).
+ *
+ * Sovereign: Pyodide + pandas + pyarrow are vendored same-origin
+ * (public/pyodide/, DECISIONS CE); data never leaves the tab. Lazy + opt-in +
+ * budget-exempt (A34) — the ~33 MB runtime loads only when a cell first runs.
+ *
+ * Pure config → persists in `.naklidata` with no schema change (old files
+ * round-trip). `preview` is a small head snapshot for re-render; the real
+ * artifact is the re-registered DuckDB table.
+ */
+export interface PythonCellState {
+  id: string;
+  kind: 'python';
+  order: number;
+  name: string | null;
+  /** Upstream cell id (resolves to `cell_<id>`) — the input table. */
+  inputCell: string | null;
+  /** The user's Python. Operates on a pandas DataFrame `df`; the final `df` is the result. */
+  code: string;
+  /** Head snapshot of the last result (for re-render). */
+  preview: { columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number } | null;
+  status: 'idle' | 'loading' | 'running' | 'success' | 'error';
+  /** Coarse load phase shown while the runtime downloads ("Downloading Python…"). */
+  loadPhase: string | null;
+  lastError: string | null;
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
@@ -353,6 +384,7 @@ export type CellState =
   | InputCellState
   | DashboardCellState
   | StatsCellState
+  | PythonCellState
   | ReportCellState;
 
 export interface SqlResult {
@@ -367,5 +399,11 @@ export type CellPatch = Record<string, unknown>;
 export interface CellHandlers {
   onRun: (id: string, payload?: { code?: string }) => void;
   onChange: (id: string, patch: CellPatch) => void;
+  /**
+   * Like onChange but does NOT re-render — for in-place edits where the DOM
+   * already reflects the change (e.g. a code textarea persisting on blur). A
+   * re-render there would detach an adjacent button mid-click.
+   */
+  onChangeSilent: (id: string, patch: CellPatch) => void;
   onDelete: (id: string) => void;
 }

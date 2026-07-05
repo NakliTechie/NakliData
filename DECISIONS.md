@@ -2,6 +2,49 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — Polyglot-Workbench Fork 2: the Python cell SHIPPED (v1.0)
+
+### Decision CF — a lazy, opt-in `python` cell over vendored Pyodide; Parquet interchange
+
+Built the Python cell greenlit by CE. A new `python` cell kind takes an upstream
+result cell as input, runs the user's pandas code over a DataFrame `df`, and
+re-registers the result as `cell_<id>` — queryable downstream like any other cell.
+Fits the A34 lazy/budget-exempt compute-track envelope; no new spec amendment.
+
+**Runtime (sovereign):** Pyodide 0.27.7 + pandas + pyarrow, **vendored same-origin**
+(`scripts/fetch-pyodide.mjs` → `public/pyodide/`, ~33 MB, bytes gitignored /
+integrity.json pinned — same posture as the DuckDB exts / sql.js / ReadStat). The
+`pyodide-runtime` lazy chunk loads it from the vendored path (runtime dynamic import
+of `pyodide.mjs`); nothing hits the shell bundle. **De-risked under the real CSP:**
+Pyodide runs pandas+pyarrow with **zero violations** under `script-src 'self'
+'wasm-unsafe-eval'` (no `unsafe-eval` needed — Python compiles inside the wasm
+runtime). Version pin is load-bearing (pyarrow only in 0.27.x).
+
+**Interchange: Parquet, not Arrow IPC.** DuckDB `COPY (…) TO … (FORMAT parquet)` +
+`copyFileToBuffer` out, `read_parquet` back — **no apache-arrow on the JS side**,
+which sidesteps the main-bundle-vs-chunk Arrow-`Table`-instance identity problem
+(the F2 concern). pyarrow reads/writes the Parquet inside Python. Columnar + typed,
+functionally equivalent to the spike's Arrow path.
+
+**UX:** "Downloading Python (~33 MB)…" affordance on first run; imports pre-warmed at
+load; result shows a head-snapshot preview; input rows capped at
+`PYTHON_MAX_ROWS = 2,000,000` (refuse-not-OOM, per the spike's memory curve).
+Persists as pure `.naklidata` config (code + input binding; the preview snapshot is
+dropped on save, re-derived on Run; old files round-trip).
+
+**Latent bug fixed along the way:** a cell code textarea persisting on `change`
+(blur) triggered a full notebook re-render, which **detached the Run button as it
+was being clicked → the click was dropped** (user would have to click Run twice).
+Added `Notebook.patchCellSilent` + a `CellHandlers.onChangeSilent` path — in-place
+edits persist to state without a re-render.
+
+**Verified:** smoke +1 leg (SQL → Parquet → Pyodide(pandas) → Parquet → DuckDB
+table, queryable downstream: `sum(c)=120`); live in-browser under the real CSP
+(`df['c']=df['b']*2` → correct, ~6 s incl. runtime load). 956 vitest · check clean ·
+bundle **749.8/750** (the compute lives in the chunk; only render + wiring are eager,
+trimmed hard to fit). **Next (per the vision):** R cell (WebR) on the same rails;
+richer editor (CodeMirror Python) later. Server-run kernels stay out (commercial).
+
 ## 2026-07-05 — Polyglot-Workbench Fork 2: round-trip spike PASSED — Python cell greenlit
 
 ### Decision CE — the DuckDB↔pandas Arrow round-trip is viable in-tab; build the Python cell

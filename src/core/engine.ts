@@ -797,6 +797,44 @@ export class Engine {
   }
 
   /**
+   * Export a query's result as a Parquet buffer (Polyglot-Workbench Fork 2:
+   * the interchange handed to the Python cell). Uses DuckDB's native
+   * `COPY … TO … (FORMAT parquet)` into a virtual file, then reads the bytes —
+   * no apache-arrow on the JS side. Returns the raw Parquet bytes.
+   */
+  async queryToParquetBuffer(sql: string): Promise<Uint8Array> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    const tmp = sanitizeFileName(`__nd_pyout_${Date.now().toString(36)}.parquet`);
+    await this.exec(`COPY (${sql}) TO '${escapeLiteral(tmp)}' (FORMAT parquet)`);
+    const buf = await this.db.copyFileToBuffer(tmp);
+    try {
+      await this.db.dropFile(tmp);
+    } catch {
+      /* best-effort cleanup */
+    }
+    return buf;
+  }
+
+  /**
+   * Register a Parquet buffer as a table (Fork 2: the Python cell result comes
+   * back as Parquet). Creates/replaces `tableName` from the bytes.
+   */
+  async registerParquetBuffer(tableName: string, bytes: Uint8Array): Promise<void> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    const fname = sanitizeFileName(`${tableName}__pyout.parquet`);
+    await this.db.registerFileBuffer(fname, bytes);
+    const view = quoteIdent(sanitizeIdent(tableName));
+    await this.exec(
+      `CREATE OR REPLACE TABLE ${view} AS SELECT * FROM read_parquet('${escapeLiteral(fname)}')`,
+    );
+    try {
+      await this.db.dropFile(fname);
+    } catch {
+      /* the CREATE TABLE materialised the data; the registered file is no longer needed */
+    }
+  }
+
+  /**
    * Wave 3 W3.4a — like registerArrow but takes the IPC bytes as a
    * Uint8Array directly (e.g. from a Compute Bridge HTTP response,
    * where there's no File to wrap). Same DROP+CREATE semantics.

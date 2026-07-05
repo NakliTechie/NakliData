@@ -28,6 +28,7 @@ import type { CellHandlers, CellState, DashboardCellState, SqlCellState } from '
 const NOOP_HANDLERS: CellHandlers = {
   onRun: () => {},
   onChange: () => {},
+  onChangeSilent: () => {},
   onDelete: () => {},
 };
 

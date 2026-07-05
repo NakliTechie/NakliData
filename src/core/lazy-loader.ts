@@ -56,6 +56,13 @@ export interface LazyChunkRegistry {
    * See src/lazy/readstat-reader.ts + src/vendor/readstat/.
    */
   'readstat-reader': typeof import('../lazy/readstat-reader.ts');
+  /**
+   * Python cell (Polyglot-Workbench Fork 2) — Pyodide 0.27.7 + pandas + pyarrow,
+   * loaded same-origin from the vendored public/pyodide/. Arrow-in / Arrow-out;
+   * the result re-registers as a DuckDB table. See src/lazy/pyodide-runtime.ts +
+   * scripts/fetch-pyodide.mjs + DECISIONS CE.
+   */
+  'pyodide-runtime': typeof import('../lazy/pyodide-runtime.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel

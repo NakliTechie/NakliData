@@ -44,6 +44,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 const MIME = {
   '.html': 'text/html',
   '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
   '.css': 'text/css',
   '.json': 'application/json',
   '.jsonl': 'application/x-ndjson',
@@ -52,6 +53,8 @@ const MIME = {
   '.wasm': 'application/wasm',
   '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
+  '.zip': 'application/zip',
+  '.whl': 'application/octet-stream',
 };
 
 const log = (...a) => console.log('[smoke]', ...a);
@@ -1462,6 +1465,72 @@ async function main() {
     fail(`Stata .dta mount row count wrong: ${statRows} (expected 3)`);
   }
   log('✓ Stata .dta mounts (3 rows) — ReadStat-wasm reader → NDJSON → read_json_auto');
+
+  // 12k. Python cell (Polyglot-Workbench Fork 2). Add a SQL cell that yields a
+  //      tiny table, then a Python cell bound to it: pandas doubles a column.
+  //      Exercises the full path — table → Parquet → Pyodide (vendored,
+  //      same-origin) → pandas → Parquet → re-registered DuckDB table. First
+  //      run loads the ~33 MB runtime, so this leg gets a generous timeout.
+  await page.click('[data-nb-action="add-sql"]');
+  const pySqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await pySqlCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.insertText('SELECT 1 AS a, 10 AS b UNION ALL SELECT 2, 20 UNION ALL SELECT 3, 30');
+  await pySqlCell.locator('[data-action="cell-run"]').click();
+  const pySqlId = await pySqlCell.getAttribute('data-cell-id');
+  // Wait for the SQL cell to produce its result view (cell_<id>).
+  await page.waitForFunction(
+    (id) => {
+      const c = document.querySelector(`.cell[data-cell-id="${id}"]`);
+      return !!c && !c.classList.contains('errored') && !!c.querySelector('.result-table, .cell-output table');
+    },
+    pySqlId,
+    { timeout: 15000 },
+  );
+
+  await page.click('[data-nb-action="add-python"]');
+  const pyCell = page.locator('.cell[data-cell-kind="python"]').last();
+  // Pick the SQL cell as input.
+  await pyCell.locator('[data-action="python-input"]').selectOption(pySqlId ?? '');
+  // Replace the starter code with a deterministic transform.
+  const ta = pyCell.locator('[data-action="python-code"]');
+  await ta.fill("df['c'] = df['b'] * 2\ndf = df[['a', 'c']]");
+  await pyCell.locator('[data-action="run-python"]').click();
+  // First run downloads + inits Pyodide (~33 MB) then runs — allow 120 s.
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="python"]');
+      const c = cells[cells.length - 1];
+      const txt = c?.querySelector('.cell-output')?.textContent ?? '';
+      return /rows ×/.test(txt) || /Python error/.test(txt);
+    },
+    null,
+    { timeout: 120000 },
+  );
+  const pyOut = await pyCell.locator('.cell-output').innerText();
+  if (/Python error/.test(pyOut)) {
+    fail(`Python cell errored: ${pyOut.slice(0, 200)}`);
+  }
+  if (!/3 rows × 2 cols/.test(pyOut)) {
+    fail(`Python cell output wrong: ${pyOut.slice(0, 200)} (expected "3 rows × 2 cols")`);
+  }
+  // The result must be queryable downstream as the python cell's table.
+  const pyId = await pyCell.getAttribute('data-cell-id');
+  await page.click('[data-nb-action="add-sql"]');
+  const dsCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await dsCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.insertText(`SELECT sum(c) AS total FROM cell_${(pyId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`);
+  await dsCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+      const last = cells[cells.length - 1];
+      // sum(c) = (10+20+30)*2 = 120
+      return !!last && /120/.test(last.querySelector('.cell-output')?.textContent ?? '');
+    },
+    null,
+    { timeout: 10000 },
+  );
+  log('✓ Python cell: SQL → Parquet → Pyodide(pandas) → Parquet → DuckDB table, queryable downstream (sum=120)');
 
   // 13. Sanity: no uncaught errors in the console.
 

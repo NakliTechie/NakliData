@@ -34,6 +34,7 @@ import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderNetworkCell } from './cells/network-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
+import { renderPythonCell } from './cells/python-cell.ts';
 import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import { renderStatsCell } from './cells/stats-cell.ts';
@@ -52,6 +53,7 @@ import type {
   MarkdownCellState,
   NetworkCellState,
   PivotCellState,
+  PythonCellState,
   ReportCellState,
   SqlCellState,
   StatsCellState,
@@ -298,6 +300,21 @@ LIMIT 100`,
         status: 'idle',
         lastError: null,
       } satisfies StatsCellState;
+    } else if (kind === 'python') {
+      // Polyglot-Workbench Fork 2 — Python cell. Bound to no input by
+      // default; user picks an upstream result cell + writes Python over `df`.
+      cell = {
+        id: genCellId(),
+        kind: 'python',
+        order,
+        name: null,
+        inputCell: null,
+        code: '',
+        preview: null,
+        status: 'idle',
+        loadPhase: null,
+        lastError: null,
+      } satisfies PythonCellState;
     } else if (kind === 'report') {
       // v1.3 M3 — report cell. Defaults to an A4 empty report; user
       // adds items via JSON edits to definition.items for v1.
@@ -353,6 +370,19 @@ LIMIT 100`,
     });
     this.state = { cells: next };
     this.notify();
+  }
+
+  /**
+   * Update a cell's state WITHOUT re-rendering. For in-place edits where the
+   * DOM already reflects the change (e.g. a textarea persisting its code) —
+   * a re-render there would replace the element mid-interaction and, worse,
+   * detach an adjacent button being clicked (dropping the click). Autosave
+   * still fires (it subscribes to the workbook, not this notify path).
+   */
+  patchCellSilent(id: string, patch: Record<string, unknown>): void {
+    this.state = {
+      cells: this.state.cells.map((c) => (c.id === id ? ({ ...c, ...patch } as CellState) : c)),
+    };
   }
 
   cancel(id: string): void {
@@ -645,6 +675,9 @@ export function renderNotebook(
     onChange: (id, patch) => {
       notebook.patchCell(id, patch as Partial<CellState>);
     },
+    onChangeSilent: (id, patch) => {
+      notebook.patchCellSilent(id, patch as Partial<CellState>);
+    },
     onDelete: (id) => {
       notebook.deleteCell(id);
     },
@@ -685,6 +718,7 @@ export function renderNotebook(
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
     else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
     else if (cell.kind === 'stats') root.append(renderStatsCell(cell, cells, handlers));
+    else if (cell.kind === 'python') root.append(renderPythonCell(cell, sqlCells, handlers));
     else if (cell.kind === 'report') root.append(renderReportCell(cell, handlers));
   }
 
@@ -705,6 +739,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
     <button class="btn" data-nb-action="add-dashboard" title="Grid layout for markdown / chart / pivot / map cells. Type the cell names to embed.">${iconSvg('plus', 12)} Dashboard</button>
     <button class="btn" data-nb-action="add-stats" title="Descriptive statistics + correlation matrix over an upstream cell's result.">${iconSvg('plus', 12)} Stats</button>
+    <button class="btn" data-nb-action="add-python" title="Run Python (pandas) over an upstream cell's result — the result becomes a queryable table. First run downloads the runtime (~33 MB, cached).">${iconSvg('plus', 12)} Python</button>
     <button class="btn" data-nb-action="add-report" title="Paginated report: KPI tiles + cell embeds. Print to PDF via the browser.">${iconSvg('plus', 12)} Report</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
@@ -750,6 +785,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-stats"]')
     ?.addEventListener('click', () => notebook.addCell('stats'));
+  addRow
+    .querySelector('[data-nb-action="add-python"]')
+    ?.addEventListener('click', () => notebook.addCell('python'));
   addRow
     .querySelector('[data-nb-action="add-report"]')
     ?.addEventListener('click', () => notebook.addCell('report'));

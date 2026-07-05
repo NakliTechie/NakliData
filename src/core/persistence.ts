@@ -283,6 +283,18 @@ function cellWithoutResults(c: CellState): CellState {
       correlations: null,
     };
   }
+  if (c.kind === 'python') {
+    // The preview is a head snapshot re-derived on Run; the durable artifact
+    // is the re-registered DuckDB table. Keep the code + input binding; drop
+    // the snapshot so `.naklidata` stays lean.
+    return {
+      ...c,
+      status: 'idle',
+      loadPhase: null,
+      lastError: null,
+      preview: null,
+    };
+  }
   return c;
 }
 

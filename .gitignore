@@ -52,5 +52,10 @@ eval/spikes/gpu-layout-spike.js
 # sql.js wasm — vendored by scripts/vendor-sql-wasm.mjs (postinstall)
 public/sqlite-wasm/sql-wasm.wasm
 
+# Pyodide runtime + pandas/pyarrow wheels — vendored by scripts/fetch-pyodide.mjs
+# (postinstall, ~33 MB). Bytes gitignored; integrity.json IS committed (pins them).
+public/pyodide/*
+!public/pyodide/integrity.json
+
 # session scratch — local test data (real-data format audit), never commit
 scratchpad/

@@ -1089,6 +1089,46 @@ async function handleRunStats(engine: Engine, cellId: string): Promise<void> {
   }
 }
 
+// Whether the Python runtime has finished loading at least once this session —
+// drives the "Downloading Python…" vs "Running Python…" cell state.
+let pythonRuntimeReady = false;
+
+/**
+ * Run a Python cell (Polyglot-Workbench Fork 2): hand the input cell's table to
+ * Pyodide, run the user's pandas code, re-register the result as `cell_<id>`.
+ */
+async function handleRunPython(engine: Engine, cellId: string): Promise<void> {
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'python') return;
+  if (!cell.inputCell) {
+    nb.patchCell(cellId, { status: 'error', lastError: 'Pick an input cell first.' });
+    return;
+  }
+  // A missing input result view surfaces via the catch below ("… does not exist
+  // — run the input cell first" is clear enough); no separate pre-check needed.
+  nb.patchCell(cellId, {
+    status: pythonRuntimeReady ? 'running' : 'loading',
+    loadPhase: pythonRuntimeReady ? null : 'Downloading Python (~33 MB)…',
+    lastError: null,
+  });
+  try {
+    // The Python orchestration lives in the lazy chunk (off the shell budget).
+    const { runPythonCell } = await loadChunk('pyodide-runtime');
+    const preview = await runPythonCell(engine, {
+      cellId,
+      inputTable: cell.inputCell,
+      code: cell.code || '',
+      onProgress: (phase) => nb.patchCell(cellId, { status: 'loading', loadPhase: phase }),
+    });
+    pythonRuntimeReady = true;
+    nb.patchCell(cellId, { status: 'success', preview, loadPhase: null, lastError: null });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    nb.patchCell(cellId, { status: 'error', loadPhase: null, lastError: msg });
+  }
+}
+
 /** Test whether a column has an identifier-class taxonomy assignment
  *  on ANY mounted source. Cheap O(assignments). */
 function isIdentifierType(
@@ -1755,6 +1795,12 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
       await handleRunStats(engine, cellId);
+      return;
+    }
+    case 'run-python': {
+      const cellId = el?.dataset.cellId;
+      if (!cellId) return;
+      await handleRunPython(engine, cellId);
       return;
     }
     case 'report-print': {
