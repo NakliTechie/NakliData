@@ -23,10 +23,6 @@ export type FileFormat =
   | 'duckdb'
   | 'xlsx'
   | 'arrow'
-  | 'sav'
-  | 'dta'
-  | 'sas7bdat'
-  | 'xpt'
   | 'geojson'
   | 'kml';
 
@@ -196,10 +192,11 @@ export function detectFormat(filename: string): FileFormat | null {
   )
     return 'sqlite';
   if (lower.endsWith('.xlsx')) return 'xlsx';
-  if (lower.endsWith('.sav') || lower.endsWith('.zsav') || lower.endsWith('.por')) return 'sav';
-  if (lower.endsWith('.dta')) return 'dta';
-  if (lower.endsWith('.sas7bdat')) return 'sas7bdat';
-  if (lower.endsWith('.xpt')) return 'xpt';
+  // Statistical formats (.sav/.zsav/.por/.dta/.sas7bdat/.xpt) were mounted via
+  // the `read_stat` community extension — but it is NOT published for the wasm
+  // platform at all (404 on community-extensions.duckdb.org for every
+  // version/wasm target), so it could never load in-browser. Dropped rather
+  // than advertise a dead surface (DECISIONS BX/F3, 2026-07-05).
   if (lower.endsWith('.geojson') || lower.endsWith('.geo.json')) return 'geojson';
   if (lower.endsWith('.kml')) return 'kml';
   return null;
@@ -250,11 +247,6 @@ async function registerFileByFormat(
       return await engine.registerXlsx(opts);
     case 'arrow':
       return await engine.registerArrow(opts);
-    case 'sav':
-    case 'dta':
-    case 'sas7bdat':
-    case 'xpt':
-      return await engine.registerReadStat(opts);
     case 'geojson':
     case 'kml':
       return await engine.registerSpatial(opts);
@@ -481,7 +473,7 @@ export async function mountFolder(
         ? ` Folder mount doesn't look inside subfolders — ${subdirCount} were skipped; mount the subfolder directly.`
         : '';
     throw new MountError(
-      `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, and stats formats).${subHint}`,
+      `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, and GeoJSON/KML).${subHint}`,
     );
   }
   return source;
@@ -579,7 +571,7 @@ export async function mountUrl(
   const format = detectFormat(lastSegment);
   if (!format) {
     throw new MountError(
-      'Could not infer a supported format from the URL. Filename should end in .csv, .tsv, .jsonl/.ndjson, or .parquet (slice 1 — Excel / SQLite / DuckDB / stats formats via URL are queued for Wave 2 slice 2+).',
+      'Could not infer a supported format from the URL. Filename should end in .csv, .tsv, .jsonl/.ndjson, or .parquet (slice 1 — Excel / SQLite / DuckDB via URL are queued for Wave 2 slice 2+).',
     );
   }
   if (format !== 'csv' && format !== 'tsv' && format !== 'jsonl' && format !== 'parquet') {

@@ -762,18 +762,27 @@ export class Engine {
   }
 
   /**
-   * Mount an Apache Arrow IPC file (`.arrow` / `.feather` v2). DuckDB-wasm's
-   * `insertArrowFromIPCStream` reads the bytes directly into a DuckDB table —
-   * no `apache-arrow` JS dep needed. Creates a TABLE (not a view), so
-   * `drop()` is dual-mode: tries DROP VIEW, then DROP TABLE.
+   * Mount an Apache Arrow IPC file (`.arrow` / `.feather` v2). Creates a
+   * TABLE (not a view), so `drop()` is dual-mode: tries DROP VIEW, then
+   * DROP TABLE.
+   *
+   * `.arrow`/`.feather` files are IPC **file** format (`ARROW1` magic +
+   * footer), but `insertArrowFromIPCStream` expects IPC **stream** framing
+   * — fed a file buffer it silently ingested nothing (DECISIONS BX/F2). We
+   * normalise to stream framing in the `arrow-reader` lazy chunk first
+   * (apache-arrow reads both file and stream), then insert. The chunk
+   * throws an actionable error for LZ4/ZSTD-compressed files, which the
+   * JS reader can't decompress.
    */
   async registerArrow({ tableName, file }: RegisterFileOptions): Promise<string[]> {
     const conn = this.requireConn();
     const safeTable = sanitizeIdent(tableName);
     const bytes = new Uint8Array(await file.arrayBuffer());
+    const { arrowToStreamIPC } = await loadChunk('arrow-reader');
+    const streamBytes = arrowToStreamIPC(bytes);
     // create:true → CREATE TABLE; replaces if exists via prior DROP.
     await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(safeTable)}`);
-    await conn.insertArrowFromIPCStream(bytes, { name: safeTable, create: true });
+    await conn.insertArrowFromIPCStream(streamBytes, { name: safeTable, create: true });
     return [safeTable];
   }
 
@@ -796,21 +805,13 @@ export class Engine {
     return [safeTable];
   }
 
-  /**
-   * Mount a statistical-format file (SPSS `.sav` / `.zsav` / `.por`,
-   * Stata `.dta`, SAS `.sas7bdat` / `.xpt`) via the `read_stat`
-   * community extension. Single-table per file.
-   */
-  async registerReadStat({ tableName, file }: RegisterFileOptions): Promise<string[]> {
-    await this.ensureExtension('read_stat', 'community');
-    const fname = sanitizeFileName(file.name);
-    await this.registerFile(fname, file);
-    const view = sanitizeIdent(tableName);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM read_stat('${escapeLiteral(fname)}')`,
-    );
-    return [view];
-  }
+  // NOTE: `registerReadStat` (SPSS/Stata/SAS via the `read_stat` community
+  // extension) was removed 2026-07-05 (DECISIONS BX/F3). `read_stat` is not
+  // published for the wasm platform on community-extensions.duckdb.org (404
+  // for every version/wasm target), so it could never load in-browser —
+  // moving `allow_unsigned_extensions` to config-time wouldn't have helped.
+  // The stat formats are dropped from `detectFormat` + the picker rather than
+  // advertise a mount path that always fails.
 
   /**
    * Mount a spatial vector file (`.geojson` / `.kml`) via DuckDB's

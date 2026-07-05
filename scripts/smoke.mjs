@@ -1370,6 +1370,39 @@ async function main() {
   }
   log('✓ GeoJSON mounts offline (2 features) — spatial extension autoloads from the vendored repo');
 
+  // 12h. Arrow IPC-file mount (F2 / DECISIONS BX). `.arrow`/`.feather` files
+  //      are IPC *file* format (ARROW1 magic); the engine used to feed them
+  //      to insertArrowFromIPCStream (which wants IPC *stream*) → silent
+  //      no-op → "table does not exist". Now the arrow-reader chunk re-frames
+  //      file→stream via apache-arrow. Fixture: a 674-byte UNCOMPRESSED
+  //      feather (3 cities); LZ4/ZSTD-compressed Arrow is unsupported by the
+  //      JS reader (surfaced as an actionable error, not tested here).
+  const ARROW_B64 =
+    'QVJST1cxAAD/////qAAAABAAAAAAAAoADAAGAAUACAAKAAAAAAEEAAwAAAAIAAgAAAAEAAgAAAAEAAAAAgAAAEwAAAAEAAAAzP///wAAAQIQAAAAHAAAAAQAAAAAAAAAAwAAAHBvcAAIAAwACAAHAAgAAAAAAAABQAAAABAAFAAIAAYABwAMAAAAEAAQAAAAAAABBRAAAAAcAAAABAAAAAAAAAAEAAAAY2l0eQAAAAAEAAQABAAAAP/////IAAAAFAAAAAAAAAAMABYABgAFAAgADAAMAAAAAAMEABgAAAA4AAAAAAAAAAAACgAYAAwABAAIAAoAAABsAAAAEAAAAAMAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAADwAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAYAAAAAAAAAAAAAAACAAAAAwAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAsAAAAPAAAATXVtYmFpRGVsaGlQdW5lABQAAAAAAAAAIQAAAAAAAAAHAAAAAAAAAP////8AAAAAEAAAAAwAFAAGAAgADAAQAAwAAAAAAAQANAAAACQAAAAEAAAAAQAAALgAAAAAAAAA0AAAAAAAAAA4AAAAAAAAAAAAAAAIAAgAAAAEAAgAAAAEAAAAAgAAAEwAAAAEAAAAzP///wAAAQIQAAAAHAAAAAQAAAAAAAAAAwAAAHBvcAAIAAwACAAHAAgAAAAAAAABQAAAABAAFAAIAAYABwAMAAAAEAAQAAAAAAABBRAAAAAcAAAABAAAAAAAAAAEAAAAY2l0eQAAAAAEAAQABAAAANAAAABBUlJPVzE=';
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'arrow_cities.arrow', { type: 'application/octet-stream' });
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  }, ARROW_B64);
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  await page.waitForFunction(
+    () => /\barrow_cities\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    null,
+    { timeout: 20000 },
+  );
+  const arrowRows = await page.evaluate(() => {
+    const t = document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '';
+    return t.match(/\barrow_cities\b\s+([\d,]+)\s+rows/)?.[1] ?? null;
+  });
+  if (arrowRows !== '3') {
+    fail(`Arrow IPC-file mount row count wrong: ${arrowRows} (expected 3)`);
+  }
+  log('✓ Arrow IPC-file mounts (3 rows) — file→stream re-framed via the arrow-reader chunk');
+
   // 13. Sanity: no uncaught errors in the console.
   if (consoleErrors.length > 0) {
     log('NOTE: console errors during run:');

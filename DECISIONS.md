@@ -2,6 +2,58 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-05 — F2 + F3: Arrow IPC-file reader fixed; stat formats dropped (BX queue)
+
+### Decision BZ — F2: mount Arrow `.arrow`/`.feather` via a file→stream re-frame
+
+`.arrow`/`.feather` v2 files are Arrow IPC **file** format (`ARROW1` magic +
+footer), but `registerArrow` fed them to `insertArrowFromIPCStream`, which expects
+IPC **stream** framing — so a file buffer silently ingested nothing ("table does
+not exist"). Broken offline AND online (it never depended on an extension).
+
+**Fix:** new lazy chunk `src/lazy/arrow-reader.ts` — `arrowToStreamIPC(bytes)` parses
+with apache-arrow's `tableFromIPC` (accepts both file & stream framing) and re-emits
+via `tableToIPC(…, 'stream')`; only `Uint8Array`s cross the module boundary (no
+cross-copy Arrow `Table` identity concern). `registerArrow` loads the chunk, converts,
+then inserts as before. `registerArrowBuffer` (Compute Bridge) is untouched — it
+genuinely receives stream IPC.
+
+- **Dep:** promoted `apache-arrow@^17.0.0` (duckdb-wasm's own transitive version) to a
+  **direct** dependency so it's not relied on by hoisting; npm dedupes to the single
+  install → no added weight. Imported **only** in the lazy chunk (196 KB), so the
+  inlined shell bundle is untouched (743.8/750).
+- **Known limitation (documented, not fixed):** apache-arrow's JS reader does **not**
+  implement IPC record-batch decompression, so **LZ4/ZSTD-compressed** `.arrow` files
+  can't be read in-browser (the real-data test's `taxi_slice.arrow` was LZ4). The chunk
+  detects this and throws an actionable error ("re-export uncompressed, or use Parquet")
+  instead of a cryptic throw. Uncompressed Arrow + Arrow IPC streams work.
+- **Verified:** 3 vitest (`tests/arrow-reader.test.ts`: file→stream round-trip, stream
+  passthrough, non-Arrow error) + smoke +1 leg (674-byte uncompressed feather → 3 rows
+  through the real add-source path).
+
+### Decision CA — F3: drop the statistical formats (`read_stat` has no wasm build)
+
+The audit's hypothesis was that the community-extension loader's runtime
+`SET allow_unsigned_extensions = true` (rejected by DuckDB-wasm — config-time only)
+blocked `read_stat`. Probed the actual cause first: **`read_stat` is not published for
+the wasm platform at all** — `community-extensions.duckdb.org/{v1.1.1,v1.1.0}/{wasm_eh,
+wasm_mvp}/read_stat.duckdb_extension.wasm` all 404, while a known community ext (`h3`)
+returns 200 for the same `wasm_eh/v1.1.1` path (so the probe is valid). Moving the flag
+to config-time would not have helped — there is no wasm binary to load.
+
+**Decision:** **drop** `.sav/.zsav/.por/.dta/.sas7bdat/.xpt` from `detectFormat`, the
+`FileFormat` union, the mount router, and both file-picker accept lists, rather than
+advertise a mount path that always fails. `Engine.registerReadStat` removed (a comment
+marks why). The stat formats now surface the normal "Unsupported file extension" path.
+`read_stat` was the only `'community'`-source extension; the generic community-load
+machinery in `ensureExtension` stays (harmless, future-proof) but is currently unused.
+- **Verified:** `tests/mount.test.ts` — stat extensions now assert `detectFormat → null`
+  and `mountFile → "Unsupported file extension"`. 955 vitest · check clean · smoke green.
+
+**F5 note:** dropping the stat formats already gates the picker for the biggest dead
+surface. The remaining F5 picker-gating (mode-aware hints) + F4 (headerless CSV) are
+the next increment.
+
 ## 2026-07-05 — F1: Parquet + Spatial vendored for offline (BX gap closed)
 
 ### Decision BY — vendor `parquet` + `spatial` DuckDB extensions for the offline build

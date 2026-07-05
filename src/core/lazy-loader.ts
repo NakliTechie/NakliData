@@ -35,6 +35,13 @@ export interface LazyChunkRegistry {
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**
+   * Arrow mounts — apache-arrow re-frames an IPC *file* (`.arrow`/`.feather`,
+   * `ARROW1` magic + footer) as an IPC *stream* so the engine's
+   * `insertArrowFromIPCStream` ingests it. Fixes the silent no-op where a
+   * file-format buffer produced no table (DECISIONS BX/F2).
+   */
+  'arrow-reader': typeof import('../lazy/arrow-reader.ts');
+  /**
    * SQLite mounts — sql.js reads the DB file's bytes and extracts each table
    * as NDJSON; the engine loads them via read_json_auto. Bypasses DuckDB-wasm's
    * sqlite_scanner, whose VFS can't open a browser-registered file (any version
