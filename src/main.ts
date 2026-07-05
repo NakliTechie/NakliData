@@ -1089,39 +1089,44 @@ async function handleRunStats(engine: Engine, cellId: string): Promise<void> {
   }
 }
 
-// Whether the Python runtime has finished loading at least once this session —
-// drives the "Downloading Python…" vs "Running Python…" cell state.
-let pythonRuntimeReady = false;
+// Whether each language runtime has loaded at least once this session — drives
+// the "Downloading…" vs "Running…" cell state (skips the affordance on reruns).
+const langRuntimeReady = { python: false, r: false };
 
 /**
- * Run a Python cell (Polyglot-Workbench Fork 2): hand the input cell's table to
- * Pyodide, run the user's pandas code, re-register the result as `cell_<id>`.
+ * Run a language cell (Polyglot-Workbench Fork 2): hand the input cell's table
+ * to the runtime (Pyodide for `python`, WebR for `r`), run the user's code, and
+ * re-register the result as `cell_<id>`. The orchestration lives in the lazy
+ * runtime chunk (off the shell budget); this only manages cell state.
  */
-async function handleRunPython(engine: Engine, cellId: string): Promise<void> {
+async function handleRunLanguage(engine: Engine, cellId: string): Promise<void> {
   const nb = getNotebook(engine);
   const cell = nb.get().cells.find((c) => c.id === cellId);
-  if (!cell || cell.kind !== 'python') return;
+  if (!cell || (cell.kind !== 'python' && cell.kind !== 'r')) return;
   if (!cell.inputCell) {
     nb.patchCell(cellId, { status: 'error', lastError: 'Pick an input cell first.' });
     return;
   }
-  // A missing input result view surfaces via the catch below ("… does not exist
-  // — run the input cell first" is clear enough); no separate pre-check needed.
+  const ready = langRuntimeReady[cell.kind];
   nb.patchCell(cellId, {
-    status: pythonRuntimeReady ? 'running' : 'loading',
-    loadPhase: pythonRuntimeReady ? null : 'Downloading Python (~33 MB)…',
+    status: ready ? 'running' : 'loading',
+    loadPhase: ready
+      ? null
+      : `Downloading ${cell.kind === 'r' ? 'R (~66 MB)' : 'Python (~33 MB)'}…`,
     lastError: null,
   });
   try {
-    // The Python orchestration lives in the lazy chunk (off the shell budget).
-    const { runPythonCell } = await loadChunk('pyodide-runtime');
-    const preview = await runPythonCell(engine, {
+    const args = {
       cellId,
       inputTable: cell.inputCell,
       code: cell.code || '',
-      onProgress: (phase) => nb.patchCell(cellId, { status: 'loading', loadPhase: phase }),
-    });
-    pythonRuntimeReady = true;
+      onProgress: (phase: string) => nb.patchCell(cellId, { status: 'loading', loadPhase: phase }),
+    };
+    const preview =
+      cell.kind === 'python'
+        ? await (await loadChunk('pyodide-runtime')).runPythonCell(engine, args)
+        : await (await loadChunk('webr-runtime')).runRCell(engine, args);
+    langRuntimeReady[cell.kind] = true;
     nb.patchCell(cellId, { status: 'success', preview, loadPhase: null, lastError: null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1797,10 +1802,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await handleRunStats(engine, cellId);
       return;
     }
-    case 'run-python': {
+    case 'run-python':
+    case 'run-r': {
       const cellId = el?.dataset.cellId;
       if (!cellId) return;
-      await handleRunPython(engine, cellId);
+      await handleRunLanguage(engine, cellId);
       return;
     }
     case 'report-print': {

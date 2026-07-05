@@ -17,7 +17,7 @@
     "eval": "node eval/run.mjs",
     "gen-examples": "node scripts/gen-examples.mjs",
     "test:watch": "vitest",
-    "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs && node scripts/vendor-sql-wasm.mjs && node scripts/fetch-pyodide.mjs",
+    "postinstall": "node scripts/fetch-duckdb-fallback.mjs && node scripts/fetch-duckdb-extensions.mjs && node scripts/vendor-sql-wasm.mjs && node scripts/fetch-pyodide.mjs && node scripts/fetch-webr.mjs",
     "predeploy": "node scripts/stage-guide.mjs",
     "deploy": "wrangler deploy",
     "preview": "wrangler dev"
@@ -45,6 +45,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.60.0",
+    "@r-wasm/webr": "^0.2.0",
     "@types/cytoscape": "^3.21.9",
     "@types/node": "^22.5.0",
     "@types/sql.js": "^1.4.11",

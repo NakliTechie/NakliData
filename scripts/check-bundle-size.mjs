@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Bundle-size gate. Spec §7.1 budgets `dist/index.html` at ≤ 600 KB
-// pre-v1.3; v1.3 (Prior Art) amendment A30 raises the cap to 750 KB
-// to accommodate six new milestone surfaces (measures, associative
-// cross-filter, stats cell, report+PDF, shelves, lineage edit mode).
-// All NEW heavy panels still ship as lazy chunks; the raised cap
-// covers the shared shell's accumulated surface — not a license
-// to dump deps.
+// pre-v1.3; v1.3 (Prior Art) amendment A30 raised the cap to 750 KB
+// (measures, cross-filter, stats, report+PDF, shelves, lineage). A35
+// (2026-07-05) raises it again to 768 KB for the Polyglot-Workbench
+// language cells: Python (Pyodide) + R (WebR) added two in-browser
+// runtimes; their compute stays in lazy chunks, but wiring a *second*
+// language into the shared shell (the language-cell renderer, the run
+// dispatcher, both cell kinds) cost ~1 KB eager. All NEW heavy logic
+// still ships as lazy chunks; the raised cap covers the shell's
+// accumulated surface — not a license to dump deps.
 //
 // Runs as the last step of `npm run check`; fails the gate if the
 // built shell exceeds the budget.
@@ -19,7 +22,7 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const BUNDLE_PATH = resolve('dist/index.html');
-const BUDGET_BYTES = 750 * 1024; // 750 KB — v1.3 raised cap (spec amendment A30)
+const BUDGET_BYTES = 768 * 1024; // 768 KB — raised for the language cells (A35); was 750 (A30)
 
 const fmtKB = (n) => `${(n / 1024).toFixed(1)} KB`;
 

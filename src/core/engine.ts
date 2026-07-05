@@ -816,6 +816,36 @@ export class Engine {
   }
 
   /**
+   * Export a query's result as a CSV buffer (Fork 2: the interchange handed to
+   * the R cell — base R's `read.csv` needs no package, unlike Parquet). Uses
+   * DuckDB's native `COPY … TO … (FORMAT csv, HEADER)`.
+   */
+  async queryToCsvBuffer(sql: string): Promise<Uint8Array> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    const tmp = sanitizeFileName(`__nd_rout_${Date.now().toString(36)}.csv`);
+    await this.exec(`COPY (${sql}) TO '${escapeLiteral(tmp)}' (FORMAT csv, HEADER)`);
+    const buf = await this.db.copyFileToBuffer(tmp);
+    try {
+      await this.db.dropFile(tmp);
+    } catch {
+      /* best-effort cleanup */
+    }
+    return buf;
+  }
+
+  /**
+   * Register a CSV buffer as a table (Fork 2: the R cell result comes back as
+   * CSV). Routes through the resilient `createDelimitedView` (full-file type
+   * inference), so DuckDB re-infers column types from the R output.
+   */
+  async registerCsvBuffer(tableName: string, bytes: Uint8Array): Promise<void> {
+    if (!this.db) throw new EngineError('Engine not booted');
+    const fname = sanitizeFileName(`${tableName}__rout.csv`);
+    await this.db.registerFileBuffer(fname, bytes);
+    await this.createDelimitedView(fname, sanitizeIdent(tableName), fname, bytes.length);
+  }
+
+  /**
    * Register a Parquet buffer as a table (Fork 2: the Python cell result comes
    * back as Parquet). Creates/replaces `tableName` from the bytes.
    */

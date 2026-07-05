@@ -63,6 +63,12 @@ export interface LazyChunkRegistry {
    * scripts/fetch-pyodide.mjs + DECISIONS CE.
    */
   'pyodide-runtime': typeof import('../lazy/pyodide-runtime.ts');
+  /**
+   * R cell (Polyglot-Workbench Fork 2) — WebR loaded same-origin from the
+   * vendored public/webr/. CSV interchange over WebR's VFS; needs SharedArray-
+   * Buffer (cross-origin isolation, DECISIONS CG). See src/lazy/webr-runtime.ts.
+   */
+  'webr-runtime': typeof import('../lazy/webr-runtime.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel

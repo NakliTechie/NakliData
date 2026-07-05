@@ -369,6 +369,27 @@ export interface PythonCellState {
   lastError: string | null;
 }
 
+/**
+ * R cell — Polyglot-Workbench Fork 2. Structurally identical to the Python cell
+ * (same shared renderer), but runs the user's R over a data.frame `df` via WebR
+ * (vendored same-origin, `public/webr/`, DECISIONS CG). CSV interchange over
+ * WebR's VFS; needs cross-origin isolation for SharedArrayBuffer. Pure config →
+ * round-trips in `.naklidata`.
+ */
+export interface RCellState {
+  id: string;
+  kind: 'r';
+  order: number;
+  name: string | null;
+  inputCell: string | null;
+  /** The user's R. Operates on a data.frame `df`; the final `df` is the result. */
+  code: string;
+  preview: { columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number } | null;
+  status: 'idle' | 'loading' | 'running' | 'success' | 'error';
+  loadPhase: string | null;
+  lastError: string | null;
+}
+
 export type CellState =
   | SqlCellState
   | MarkdownCellState
@@ -385,6 +406,7 @@ export type CellState =
   | DashboardCellState
   | StatsCellState
   | PythonCellState
+  | RCellState
   | ReportCellState;
 
 export interface SqlResult {

@@ -30,11 +30,11 @@ import { renderDashboardCell } from './cells/dashboard-cell.ts';
 import { renderDistributionCell } from './cells/distribution-cell.ts';
 import { renderEmbeddingCell } from './cells/embedding-cell.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
+import { renderLanguageCell } from './cells/language-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
 import { renderNetworkCell } from './cells/network-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
-import { renderPythonCell } from './cells/python-cell.ts';
 import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
 import { renderStatsCell } from './cells/stats-cell.ts';
@@ -54,6 +54,7 @@ import type {
   NetworkCellState,
   PivotCellState,
   PythonCellState,
+  RCellState,
   ReportCellState,
   SqlCellState,
   StatsCellState,
@@ -300,12 +301,13 @@ LIMIT 100`,
         status: 'idle',
         lastError: null,
       } satisfies StatsCellState;
-    } else if (kind === 'python') {
-      // Polyglot-Workbench Fork 2 — Python cell. Bound to no input by
-      // default; user picks an upstream result cell + writes Python over `df`.
+    } else if (kind === 'python' || kind === 'r') {
+      // Polyglot-Workbench Fork 2 — language cells (Python/Pyodide, R/WebR).
+      // Same shape; bound to no input by default. User picks an upstream result
+      // cell + writes code over `df`.
       cell = {
         id: genCellId(),
-        kind: 'python',
+        kind,
         order,
         name: null,
         inputCell: null,
@@ -314,7 +316,7 @@ LIMIT 100`,
         status: 'idle',
         loadPhase: null,
         lastError: null,
-      } satisfies PythonCellState;
+      } satisfies PythonCellState | RCellState;
     } else if (kind === 'report') {
       // v1.3 M3 — report cell. Defaults to an A4 empty report; user
       // adds items via JSON edits to definition.items for v1.
@@ -718,7 +720,8 @@ export function renderNotebook(
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
     else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
     else if (cell.kind === 'stats') root.append(renderStatsCell(cell, cells, handlers));
-    else if (cell.kind === 'python') root.append(renderPythonCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'python' || cell.kind === 'r')
+      root.append(renderLanguageCell(cell, sqlCells, handlers));
     else if (cell.kind === 'report') root.append(renderReportCell(cell, handlers));
   }
 
@@ -739,7 +742,8 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-input" title="Interactive parameter (text / number / date / dropdown). Reference via @name in downstream SQL.">${iconSvg('plus', 12)} Input</button>
     <button class="btn" data-nb-action="add-dashboard" title="Grid layout for markdown / chart / pivot / map cells. Type the cell names to embed.">${iconSvg('plus', 12)} Dashboard</button>
     <button class="btn" data-nb-action="add-stats" title="Descriptive statistics + correlation matrix over an upstream cell's result.">${iconSvg('plus', 12)} Stats</button>
-    <button class="btn" data-nb-action="add-python" title="Run Python (pandas) over an upstream cell's result — the result becomes a queryable table. First run downloads the runtime (~33 MB, cached).">${iconSvg('plus', 12)} Python</button>
+    <button class="btn" data-nb-action="add-python" title="Run Python (pandas) over a cell's result; the result becomes a queryable table.">${iconSvg('plus', 12)} Python</button>
+    <button class="btn" data-nb-action="add-r" title="Run R over a cell's result; the result becomes a queryable table.">${iconSvg('plus', 12)} R</button>
     <button class="btn" data-nb-action="add-report" title="Paginated report: KPI tiles + cell embeds. Print to PDF via the browser.">${iconSvg('plus', 12)} Report</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
   `;
@@ -788,6 +792,9 @@ export function renderNotebook(
   addRow
     .querySelector('[data-nb-action="add-python"]')
     ?.addEventListener('click', () => notebook.addCell('python'));
+  addRow
+    .querySelector('[data-nb-action="add-r"]')
+    ?.addEventListener('click', () => notebook.addCell('r'));
   addRow
     .querySelector('[data-nb-action="add-report"]')
     ?.addEventListener('click', () => notebook.addCell('report'));

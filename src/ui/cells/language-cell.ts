@@ -1,26 +1,42 @@
-// Python cell renderer — Polyglot-Workbench Fork 2. The compute lives in the
-// lazy `pyodide-runtime` chunk (off the shell budget); this is render-only.
-//
-// Bound to an upstream result cell via `inputCell`. On Run the input table is
-// handed (as Parquet) to the vendored Pyodide runtime, the user's Python
-// mutates a pandas `df`, and the result re-registers as `cell_<id>` — queryable
-// downstream. See DECISIONS CE + src/lazy/pyodide-runtime.ts.
+// Shared renderer for the language cells — Polyglot-Workbench Fork 2. One
+// renderer serves both the `python` (Pyodide) and `r` (WebR) cells: they're
+// structurally identical (input picker + code editor + Run + preview), differ
+// only in label, starter code, and the run action. Compute lives in the lazy
+// runtime chunks; this is render-only. (One shared renderer, not two, keeps the
+// eager shell within budget.)
 
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, PythonCellState } from './types.ts';
+import type { CellHandlers, PythonCellState, RCellState } from './types.ts';
 
-const STARTER_CODE = `# 'df' is the input as a pandas DataFrame; the final 'df' becomes this cell's table.
-df = df.head(100)`;
+type LangCell = PythonCellState | RCellState;
 
-export function renderPythonCell(
-  cell: PythonCellState,
+const LANG = {
+  python: {
+    label: 'python',
+    action: 'run-python',
+    size: '33 MB',
+    starter:
+      '# df: the input table (pandas DataFrame). The final df becomes this cell.\ndf = df.head(100)',
+  },
+  r: {
+    label: 'r',
+    action: 'run-r',
+    size: '66 MB',
+    starter:
+      '# df: the input table (data.frame). The final df becomes this cell.\ndf <- head(df, 100)',
+  },
+} as const;
+
+export function renderLanguageCell(
+  cell: LangCell,
   sqlCells: ReadonlyArray<{ id: string; name: string | null }>,
   handlers: CellHandlers,
 ): HTMLElement {
+  const lang = LANG[cell.kind];
   const wrap = document.createElement('div');
-  wrap.className = 'cell cell-python';
+  wrap.className = `cell cell-${cell.kind}`;
   wrap.dataset.cellId = cell.id;
-  wrap.dataset.cellKind = 'python';
+  wrap.dataset.cellKind = cell.kind;
 
   const options = sqlCells
     .map(
@@ -32,18 +48,18 @@ export function renderPythonCell(
 
   wrap.innerHTML = `
     <div class="cell-head">
-      <span class="cell-kind">${iconSvg('file', 12)} python</span>
+      <span class="cell-kind">${iconSvg('file', 12)} ${lang.label}</span>
       <input class="cell-name-input" placeholder="name (optional)" value="${cell.name ? esc(cell.name) : ''}" data-action="cell-name-edit" />
-      <select data-action="python-input" aria-label="Input cell" style="font-size:12px;">
+      <select data-action="lang-input" aria-label="Input cell" style="font-size:12px;">
         <option value="" ${cell.inputCell ? '' : 'selected'}>(pick input)</option>
         ${options}
       </select>
       <span style="flex:1;"></span>
-      <button class="btn btn-ghost" data-action="run-python" data-cell-id="${cell.id}" title="Run Python" ${busy ? 'disabled' : ''}>${iconSvg('play', 12)} <span>Run</span></button>
+      <button class="btn btn-ghost" data-action="${lang.action}" data-cell-id="${cell.id}" title="Run" ${busy ? 'disabled' : ''}>${iconSvg('play', 12)} <span>Run</span></button>
       <button class="btn btn-ghost" data-action="cell-delete" data-cell-id="${cell.id}" aria-label="Delete cell">${iconSvg('x', 12)}</button>
     </div>
-    <textarea class="python-code" data-action="python-code" spellcheck="false">${esc(cell.code || STARTER_CODE)}</textarea>
-    <div class="cell-output">${renderBody(cell)}</div>
+    <textarea class="python-code" data-action="lang-code" spellcheck="false">${esc(cell.code || lang.starter)}</textarea>
+    <div class="cell-output">${renderBody(cell, lang)}</div>
   `;
 
   wrap
@@ -52,18 +68,16 @@ export function renderPythonCell(
       handlers.onChange(cell.id, { name: (ev.target as HTMLInputElement).value.trim() || null });
     });
   wrap
-    .querySelector<HTMLSelectElement>('[data-action="python-input"]')
+    .querySelector<HTMLSelectElement>('[data-action="lang-input"]')
     ?.addEventListener('change', (ev) => {
       handlers.onChange(cell.id, { inputCell: (ev.target as HTMLSelectElement).value || null });
     });
-  const ta = wrap.querySelector<HTMLTextAreaElement>('[data-action="python-code"]');
+  const ta = wrap.querySelector<HTMLTextAreaElement>('[data-action="lang-code"]');
   ta?.addEventListener('change', (ev) => {
-    // Silent — persist the code WITHOUT re-rendering. A re-render on blur would
-    // detach the Run button as it's being clicked, dropping the click.
+    // Silent — a re-render on blur would detach the Run button mid-click.
     handlers.onChangeSilent(cell.id, { code: (ev.target as HTMLTextAreaElement).value });
   });
   ta?.addEventListener('keydown', (ev) => {
-    // Tab inserts two spaces instead of moving focus.
     if (ev.key === 'Tab') {
       ev.preventDefault();
       const t = ev.target as HTMLTextAreaElement;
@@ -75,18 +89,18 @@ export function renderPythonCell(
   return wrap;
 }
 
-function renderBody(cell: PythonCellState): string {
+function renderBody(cell: LangCell, lang: (typeof LANG)[keyof typeof LANG]): string {
   if (cell.status === 'loading') {
-    return `<div class="cell-output-loading">${esc(cell.loadPhase ?? 'Downloading Python…')}</div>`;
+    return `<div class="cell-output-loading">${esc(cell.loadPhase ?? 'Downloading…')}</div>`;
   }
   if (cell.status === 'running') {
-    return `<div class="cell-output-loading">Running Python…</div>`;
+    return `<div class="cell-output-loading">Running ${lang.label}…</div>`;
   }
   if (cell.status === 'error') {
-    return `<div class="cell-output-error">Python error: ${esc(cell.lastError ?? 'unknown error')}</div>`;
+    return `<div class="cell-output-error">${lang.label} error: ${esc(cell.lastError ?? 'unknown error')}</div>`;
   }
   if (!cell.preview) {
-    return `<div class="cell-output-empty">Pick an input cell and Run. First run downloads Python (~33 MB, cached).</div>`;
+    return `<div class="cell-output-empty">Pick an input cell and Run. First run downloads ${lang.label} (~${lang.size}, cached).</div>`;
   }
   const p = cell.preview;
   const head = `<tr>${p.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>`;
@@ -102,7 +116,6 @@ function fmt(v: unknown): string {
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
-
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }

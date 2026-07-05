@@ -1495,9 +1495,9 @@ async function main() {
   await page.click('[data-nb-action="add-python"]');
   const pyCell = page.locator('.cell[data-cell-kind="python"]').last();
   // Pick the SQL cell as input.
-  await pyCell.locator('[data-action="python-input"]').selectOption(pySqlId ?? '');
+  await pyCell.locator('[data-action="lang-input"]').selectOption(pySqlId ?? '');
   // Replace the starter code with a deterministic transform.
-  const ta = pyCell.locator('[data-action="python-code"]');
+  const ta = pyCell.locator('[data-action="lang-code"]');
   await ta.fill("df['c'] = df['b'] * 2\ndf = df[['a', 'c']]");
   await pyCell.locator('[data-action="run-python"]').click();
   // First run downloads + inits Pyodide (~33 MB) then runs — allow 120 s.
@@ -1536,6 +1536,50 @@ async function main() {
     { timeout: 10000 },
   );
   log('✓ Python cell: SQL → Parquet → Pyodide(pandas) → Parquet → DuckDB table, queryable downstream (sum=120)');
+
+  // 12l. R cell (Polyglot-Workbench Fork 2, WebR). Same shared language-cell
+  //      path as Python, but CSV interchange over WebR's VFS + base R. Reuse the
+  //      same SQL input; R doubles column b into c. First run downloads the
+  //      ~66 MB WebR runtime (SharedArrayBuffer — needs cross-origin isolation,
+  //      which the smoke server sets), so this leg gets a generous timeout.
+  await page.click('[data-nb-action="add-r"]');
+  const rCell = page.locator('.cell[data-cell-kind="r"]').last();
+  await rCell.locator('[data-action="lang-input"]').selectOption(pySqlId ?? '');
+  await rCell.locator('[data-action="lang-code"]').fill("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
+  await rCell.locator('[data-action="run-r"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="r"]');
+      const c = cells[cells.length - 1];
+      const txt = c?.querySelector('.cell-output')?.textContent ?? '';
+      return /rows ×/.test(txt) || /r error/i.test(txt);
+    },
+    null,
+    { timeout: 180000 },
+  );
+  const rOut = await rCell.locator('.cell-output').innerText();
+  if (/r error/i.test(rOut)) {
+    fail(`R cell errored: ${rOut.slice(0, 200)}`);
+  }
+  if (!/3 rows × 2 cols/.test(rOut)) {
+    fail(`R cell output wrong: ${rOut.slice(0, 200)} (expected "3 rows × 2 cols")`);
+  }
+  const rId = await rCell.getAttribute('data-cell-id');
+  await page.click('[data-nb-action="add-sql"]');
+  const rdsCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await rdsCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.insertText(`SELECT sum(c) AS total FROM cell_${(rId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`);
+  await rdsCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+      const last = cells[cells.length - 1];
+      return !!last && /120/.test(last.querySelector('.cell-output')?.textContent ?? '');
+    },
+    null,
+    { timeout: 10000 },
+  );
+  log('✓ R cell: SQL → CSV → WebR(base R) → CSV → DuckDB table, queryable downstream (sum=120)');
 
   // 13. Sanity: no uncaught errors in the console.
 

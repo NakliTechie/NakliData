@@ -1472,6 +1472,29 @@ open items above):**
 
 ---
 
+## A35 — Shell bundle budget raised to 768 KB (Polyglot-Workbench language cells) (amends spec §7.1 + A30)
+
+**Amended §7.1 (per A30):**
+> The single-file shell (`dist/index.html`) must stay ≤ 750 KB.
+
+**New wording:**
+> The single-file shell must stay ≤ **768 KB**.
+
+**Reasoning:** Polyglot-Workbench Fork 2 added two in-browser language runtimes —
+Python (Pyodide) and R (WebR). Their heavy compute stays in lazy chunks (the
+`pyodide-runtime` / `webr-runtime` chunks) and their multi-MB runtimes are vendored
+same-origin assets, both off-budget. But wiring a *second* language into the shared shell
+— the `language-cell` renderer (parameterized over python/r), the `handleRunLanguage`
+dispatcher, both cell kinds, the add-buttons — cost ~1 KB eager, pushing the shell just
+over 750. A 2.4 % bump is imperceptible for load and is the honest trade vs degrading a
+headline feature to save <1 KB. The discipline stands: new *heavy* logic still ships as a
+lazy chunk; the cap covers the shell's accumulated surface, not a license to dump deps.
+
+**Status: adopted 2026-07-05.** `check-bundle-size.mjs` `BUDGET_BYTES = 768 * 1024`; shell
+at 750.8/768. DECISIONS CH + A35.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.
