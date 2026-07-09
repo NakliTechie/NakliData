@@ -2,6 +2,72 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Facet Network: Barnes–Hut lifts the layout ceiling
+
+### Decision CQ — in-house Barnes–Hut quadtree; ceiling 3k → 30k
+
+The Network view's force layout (`src/core/force-layout.ts`) was capped at
+**3,000 nodes** by its O(n²) all-pairs repulsion. Rather than a dependency
+(`@antv/layout-wasm` is CSP-blocked by `new Function`; needs SAB → fights the
+DuckDB CDN cross-origin load — DECISIONS BS), added an **in-house array-backed
+Barnes–Hut quadtree**: each body is repelled by aggregated far cells (opening
+criterion `s/d < θ`, θ=0.9) → **O(n log n)** per iteration.
+
+- **Hybrid, not a rewrite:** n ≤ `BARNES_HUT_THRESHOLD` (2,000) keeps the exact
+  O(n²) path (byte-identical output for existing small graphs; preserves every
+  prior test, incl. the 400-node `onIteration` timing one). Above it → Barnes–Hut.
+- **Ceiling `NETWORK_LAYOUT_MAX` 3,000 → 30,000.** The cell's over-ceiling message
+  interpolates the constant, so it now reads "limited to 30,000" automatically;
+  graphs up to 30k render instead of showing the cap.
+- **Stayed inside every constraint the module exists to satisfy:** synchronous
+  (tight loop + cooperative `onIteration` yields, no rAF), **deterministic** (fixed
+  θ, seeded golden-angle init, fixed DFS traversal order — no RNG, verified by a
+  large-graph determinism test), engine-boundary clean (no DOM/globals; pure,
+  Node-testable). Quadtree scratch is allocated once and reused across iterations.
+- **Coincident bodies:** deep clustering hits a depth/size floor → nodes collapse
+  into a "bucket" leaf treated as one aggregate (with the same deterministic nudge
+  the exact path uses); no unbounded subdivision, no NaN/hang (star-graph test).
+- **Testing note:** a two-clique "separation" assertion is *ill-posed at scale* —
+  the symmetric golden-spiral init gives both halves a coincident centre of mass,
+  a metastable concentric minimum that *exact* FR gets stuck in too (confirmed by
+  a probe: `between` never exceeds `spread` at any iteration count). Replaced with
+  robust properties: on a ring, adjacent pairs land ~15× closer than random pairs;
+  an edgeless cloud expands ~10× (repulsion sign/magnitude). Plus finite-output at
+  5k + at the 30k ceiling.
+- **Gates:** `npm run check` clean · **965 vitest** (+the Barnes–Hut suite) ·
+  `npm run smoke` green · bundle **757.2/768** (pure numeric core, no new dep).
+- **Not yet exercised live in-browser** at >2k nodes (needs a synthetic large
+  dataset mounted through the UI); the ≤2k render path is unchanged and the new
+  path is unit-covered at 5k + 30k. Crossfilter propagation of Facet selections
+  to downstream cells is the next Facet item (still open).
+
+## 2026-07-09 — Deploy-footprint verification (Cloudflare)
+
+### Decision CP — live deploy verified; Cloudflare Web-Analytics beacon flagged
+
+Verified the live Cloudflare Workers Assets deploy of `5e33dd4`
+(naklidata.naklitechie.com). **Result: PASS.** The effective upload set (after
+`.assetsignore` skips `duckdb-fallback/`) is **1,877 files / 159.2 MiB / largest
+file 22.1 MiB**, all within Workers Assets limits (20k files · 25 MiB/file). The
+two >25 MiB fallback wasm files are correctly excluded and the deploy 404s on
+`duckdb-fallback/*`, so the runtime's jsDelivr CDN fallback engages as designed.
+All same-origin runtimes serve 200 (httpfs/M30, spatial, parquet, WebR, Pyodide);
+`crossOriginIsolated` + `SharedArrayBuffer` confirmed true in a real browser
+(WebR's keystone requirement — the cross-origin `ASM_CONSTS` failure is now
+structurally impossible). DuckDB boots and runs real queries; M30 S3 mount loads
+httpfs and reaches the network stage live. Live R-cell *execution* was not
+exercised (the C1 `subscribeSilent` CodeMirror sync rejects headless synthetic
+input — automation limitation, not a user bug; all WebR prerequisites confirmed).
+
+**Finding (not yet fixed — needs a Cloudflare dashboard action):** the zone
+auto-injects Cloudflare Web Analytics (`static.cloudflareinsights.com/beacon.min.js`).
+Our CSP **blocks** it (no external-host `script-src`), so it never runs — but it
+(a) throws a CSP error in the console on every page load, and (b) is telemetry the
+spec explicitly forbids (§6 "no telemetry, analytics, or error reporting").
+**Action:** disable automatic injection in Cloudflare → Web Analytics for the zone
+(dashboard-only; can't be done from the repo). Until then the block is our
+belt-and-braces and no beacon data leaves the page.
+
 ## 2026-07-09 — Forward-pass deferrals: user decisions (H6/W6/W8/SB4)
 
 Four deferred forward-pass items were resolved by explicit user decision:

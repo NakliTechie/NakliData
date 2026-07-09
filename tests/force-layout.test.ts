@@ -2,7 +2,12 @@
 // Network view. Pure numeric logic, no DOM.
 
 import { describe, expect, it } from 'vitest';
-import { NETWORK_LAYOUT_MAX, NetworkTooLargeError, forceLayout } from '../src/core/force-layout.ts';
+import {
+  BARNES_HUT_THRESHOLD,
+  NETWORK_LAYOUT_MAX,
+  NetworkTooLargeError,
+  forceLayout,
+} from '../src/core/force-layout.ts';
 
 describe('forceLayout', () => {
   it('handles empty + single-node graphs', async () => {
@@ -111,5 +116,134 @@ describe('forceLayout', () => {
       },
     });
     expect(calls).toBeGreaterThan(0);
+  });
+});
+
+describe('forceLayout — Barnes–Hut path (n > BARNES_HUT_THRESHOLD)', () => {
+  // Deterministic ring-of-cliques generator so the tests exercise the quadtree
+  // path (n above the threshold) with real structure, not just noise.
+  const cliqueRing = (cliques: number, per: number) => {
+    const n = cliques * per;
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}` }));
+    const edges: Array<{ source: string; target: string }> = [];
+    for (let c = 0; c < cliques; c++) {
+      const base = c * per;
+      // sparse intra-clique links (every 3rd pair — enough to bind, cheap)
+      for (let i = 0; i < per; i++)
+        for (let j = i + 1; j < per; j++)
+          if ((i * 5 + j) % 3 === 0) edges.push({ source: `n${base + i}`, target: `n${base + j}` });
+      // one bridge to the next clique
+      edges.push({ source: `n${base}`, target: `n${((c + 1) % cliques) * per}` });
+    }
+    return { nodes, edges };
+  };
+
+  it('the threshold sits below the ceiling', () => {
+    expect(BARNES_HUT_THRESHOLD).toBeLessThan(NETWORK_LAYOUT_MAX);
+    expect(NETWORK_LAYOUT_MAX).toBe(30000);
+  });
+
+  it('returns finite coordinates for every node on a large graph', async () => {
+    const { nodes, edges } = cliqueRing(20, 250); // 5,000 nodes
+    expect(nodes.length).toBeGreaterThan(BARNES_HUT_THRESHOLD);
+    const pos = await forceLayout(nodes, edges, { iterations: 40 });
+    expect(pos.size).toBe(5000);
+    for (const [, [x, y]] of pos) {
+      expect(Number.isFinite(x)).toBe(true);
+      expect(Number.isFinite(y)).toBe(true);
+    }
+  });
+
+  it('is deterministic across runs (fixed θ + seeded init, no RNG)', async () => {
+    const { nodes, edges } = cliqueRing(12, 250); // 3,000 nodes
+    const a = await forceLayout(nodes, edges, { iterations: 30 });
+    const b = await forceLayout(nodes, edges, { iterations: 30 });
+    for (const [id, [ax, ay]] of a) {
+      const [bx, by] = b.get(id) as [number, number];
+      expect(bx).toBeCloseTo(ax, 10);
+      expect(by).toBeCloseTo(ay, 10);
+    }
+  });
+
+  it('clusters adjacency: edge-connected pairs land far closer than random pairs', async () => {
+    // A ring (i — i+1 mod n) is the robust large-scale structure check: the
+    // approximation must still pull neighbours together far more than the
+    // average pair. (A two-clique "separation" test is ill-posed at this scale —
+    // the symmetric golden-spiral init gives both halves a coincident centre of
+    // mass, a metastable concentric minimum that *exact* FR gets stuck in too.)
+    const n = 3000; // > BARNES_HUT_THRESHOLD
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}` }));
+    const edges = Array.from({ length: n }, (_, i) => ({
+      source: `n${i}`,
+      target: `n${(i + 1) % n}`,
+    }));
+    const pos = await forceLayout(nodes, edges, { iterations: 120 });
+    const dist = (i: number, j: number) => {
+      const [ax, ay] = pos.get(`n${i}`) as [number, number];
+      const [bx, by] = pos.get(`n${j}`) as [number, number];
+      return Math.hypot(ax - bx, ay - by);
+    };
+    let adj = 0;
+    for (let i = 0; i < n; i++) adj += dist(i, (i + 1) % n);
+    adj /= n;
+    // Deterministic spread of non-adjacent pairs.
+    let rnd = 0;
+    let cnt = 0;
+    for (let s = 0; s < n; s += 7) {
+      const i = s % n;
+      const j = (s * 131 + 59) % n;
+      if (i === j) continue;
+      rnd += dist(i, j);
+      cnt++;
+    }
+    rnd /= cnt;
+    // Neighbours cluster; empirically the ratio is ~15×. Assert a wide margin.
+    expect(rnd).toBeGreaterThan(adj * 4);
+  });
+
+  it('repulsion expands an edgeless cloud (Barnes–Hut push works)', async () => {
+    // With no edges there is only repulsion; the seeded ~sqrt(n) init radius
+    // must blow up. Validates the quadtree force magnitude/sign end-to-end.
+    const n = 3000;
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}` }));
+    const pos = await forceLayout(nodes, [], { iterations: 20 });
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (const [, [x]] of pos) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+    }
+    // Init radius ≈ sqrt(3000) ≈ 55 → x-spread ≈ 110; repulsion pushes it well
+    // past that. Empirically ~570.
+    expect(maxX - minX).toBeGreaterThan(200);
+  });
+
+  it('handles a graph at the ceiling without throwing', async () => {
+    // Edgeless 30k-node cloud, few iters — exercises quadtree build + traverse
+    // at the max size and asserts it terminates with finite output.
+    const nodes = Array.from({ length: NETWORK_LAYOUT_MAX }, (_, i) => ({ id: `n${i}` }));
+    const pos = await forceLayout(nodes, [], { iterations: 6 });
+    expect(pos.size).toBe(NETWORK_LAYOUT_MAX);
+    let ok = true;
+    for (const [, [x, y]] of pos) if (!Number.isFinite(x) || !Number.isFinite(y)) ok = false;
+    expect(ok).toBe(true);
+  });
+
+  it('tolerates coincident bodies (bucket path) without NaN or hang', async () => {
+    // All-coincident init is impossible (golden-angle spreads them), but heavy
+    // clustering drives deep subdivision → bucket leaves. A star graph piles
+    // many leaves onto one hub; assert clean finite output.
+    const n = BARNES_HUT_THRESHOLD + 500;
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}` }));
+    const edges = Array.from({ length: n - 1 }, (_, i) => ({
+      source: 'n0',
+      target: `n${i + 1}`,
+    }));
+    const pos = await forceLayout(nodes, edges, { iterations: 25 });
+    expect(pos.size).toBe(n);
+    for (const [, [x, y]] of pos) {
+      expect(Number.isFinite(x)).toBe(true);
+      expect(Number.isFinite(y)).toBe(true);
+    }
   });
 });
