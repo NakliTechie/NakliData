@@ -40,7 +40,6 @@ function sql(name: string, code: string): Omit<SqlCellState, 'order' | 'id'> {
     status: 'idle',
     lastError: null,
     lastResult: null,
-    pinned: false,
   };
 }
 

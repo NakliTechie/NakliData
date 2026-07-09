@@ -459,7 +459,7 @@ async function boot(): Promise<void> {
   // go to Settings + click "Download & load" to acknowledge the
   // multi-GB download. Matches the BYOK posture: keys auto-load
   // from session/IDB (already-committed state), not from nowhere.
-  void autoLoadLocalIfCached(engine);
+  void autoLoadLocalIfCached();
 
   // First-run welcome splash — only for a genuine first visit (nothing was
   // restored from a previous session) and only once (localStorage-gated inside
@@ -477,7 +477,7 @@ async function boot(): Promise<void> {
  * user knows the local provider is ready without having to open
  * Settings.
  */
-async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
+async function autoLoadLocalIfCached(): Promise<void> {
   try {
     const settings = await loadSettings();
     if (settings.sidecarProvider !== 'local') return;
@@ -513,21 +513,6 @@ async function autoLoadLocalIfCached(_engine: Engine): Promise<void> {
 }
 
 /**
- * Theme 4 wave 2 (B4). The Settings modal dispatches
- * `naklidata-demo-mode-changed` after toggling demoMode. We re-render
- * the surfaces that route through `maskLabel` so the change takes
- * effect immediately without a reload. Also re-renders any open
- * notebook so SQL-result column headers flip.
- */
-/**
- * v1.3 M3 — report print lifecycle (forward-pass H10 + H11). `beforeprint`
- * embeds the `[data-printing]` report's cell-ref placeholders with the
- * referenced cells' rendered DOM; `afterprint` restores the placeholders
- * and clears the `[data-printing]` flag. Works for both the "Print to PDF"
- * button and `window.naklidataRenderReport(id)` — both set `[data-printing]`
- * then call `window.print()`.
- */
-/**
  * v1.3 M1 Phase 2 — repaint the associative cross-filter grey-out on
  * every SQL result table currently in the DOM, in place. Triggered on a
  * selection-store tick. Surgical (per-td class toggles) rather than a
@@ -549,6 +534,14 @@ function repaintSelectionStates(root: HTMLElement, engine: Engine): void {
   }
 }
 
+/**
+ * v1.3 M3 — report print lifecycle (forward-pass H10 + H11). `beforeprint`
+ * embeds the `[data-printing]` report's cell-ref placeholders with the
+ * referenced cells' rendered DOM; `afterprint` restores the placeholders
+ * and clears the `[data-printing]` flag. Works for both the "Print to PDF"
+ * button and `window.naklidataRenderReport(id)` — both set `[data-printing]`
+ * then call `window.print()`.
+ */
 function installReportPrintListeners(engine: Engine): void {
   window.addEventListener('beforeprint', () => {
     const reportEl = document.querySelector<HTMLElement>('.cell-report[data-printing]');
@@ -562,6 +555,13 @@ function installReportPrintListeners(engine: Engine): void {
   });
 }
 
+/**
+ * Theme 4 wave 2 (B4). The Settings modal dispatches
+ * `naklidata-demo-mode-changed` after toggling demoMode. We re-render
+ * the surfaces that route through `maskLabel` so the change takes
+ * effect immediately without a reload. Also re-renders any open
+ * notebook so SQL-result column headers flip.
+ */
 function installDemoModeListener(engine: Engine, root: HTMLElement): void {
   document.addEventListener('naklidata-demo-mode-changed', () => {
     const wb = getWorkbook().get();
@@ -3531,7 +3531,6 @@ function openNlToSqlSidecar(engine: Engine): void {
         status: 'idle',
         lastError: null,
         lastResult: null,
-        pinned: false,
       };
       nb.load([...existing, newCell]);
       toast('SQL cell inserted — review then click Run.');

@@ -42,6 +42,27 @@ interface CacheEntry {
 }
 const _layoutCache = new Map<string, CacheEntry>();
 
+/** L27: cheap order-sensitive hash of node ids, folded into the layout cache
+ *  signature so a re-run with the same count but different nodes re-lays out. */
+function hashNodeIds(nodes: ReadonlyArray<{ id: string }>): string {
+  let h = 2166136261;
+  for (const n of nodes) {
+    const s = n.id;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    h ^= 0x2c; // ',' separator so ['ab','c'] ≠ ['a','bc']
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** L27: drop a deleted cell's cached layout so positions don't leak for the
+ *  tab's lifetime. Called from Notebook.deleteCell. */
+export function disposeNetworkCell(id: string): void {
+  _layoutCache.delete(id);
+}
+
 export function renderNetworkCell(
   cell: NetworkCellState,
   upstreamCells: SqlCellState[],
@@ -243,7 +264,10 @@ async function renderGraph(
   // Layout FIRST (core module, no chunk needed), then the render chunk — so a
   // too-large or failed layout never fetches the heavy deck.gl bundle. Edge
   // colour/width don't affect POSITIONS, so they're absent from the layout sig.
-  const sig = `${cell.inputCell}|${cell.sourceCol}|${cell.targetCol}|${result.rows.length}|${nodes.length}`;
+  // L27: fold a hash of the node ids into the sig — counts alone let a re-run
+  // with the SAME row/node count but DIFFERENT ids reuse a stale layout, dumping
+  // the unknown nodes at [0,0].
+  const sig = `${cell.inputCell}|${cell.sourceCol}|${cell.targetCol}|${result.rows.length}|${nodes.length}|${hashNodeIds(nodes)}`;
   let positions =
     _layoutCache.get(cell.id)?.sig === sig ? _layoutCache.get(cell.id)?.positions : null;
   if (!positions) {

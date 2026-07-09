@@ -100,8 +100,11 @@ export async function forceLayout(
   const xs = new Float64Array(n);
   const ys = new Float64Array(n);
   const GOLDEN = Math.PI * (3 - Math.sqrt(5));
-  const area = n; // unit area per node
-  const k = Math.sqrt(area / n); // ideal edge length (== 1 here; scaled below)
+  // S9: the Fruchterman-Reingold ideal edge length. With unit area per node it
+  // is exactly 1 (the old `sqrt(area/n)` with `area = n` was dead generality
+  // that always evaluated to 1); positions are scaled to the viewport by the
+  // caller, so a fixed unit-length k is correct.
+  const k = 1;
   const initR = Math.sqrt(n);
   for (let i = 0; i < n; i++) {
     const r = initR * Math.sqrt((i + 0.5) / n);

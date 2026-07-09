@@ -176,7 +176,9 @@ function handleEditClick(target: HTMLElement): void {
         kind: 'insert-on-edge',
         edge: { from, to },
         newCellKind,
-        newCellId: `ins_${_insertSeq++}`,
+        // W3: timestamp-prefix the id so it can't collide with an `ins_N`
+        // persisted in a prior session (the bare counter resets on reload).
+        newCellId: `ins_${Date.now().toString(36)}_${_insertSeq++}`,
       });
     }
   }

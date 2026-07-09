@@ -22,7 +22,6 @@ function sql(id: string, name: string | null, code: string): SqlCellState {
     status: 'idle',
     lastError: null,
     lastResult: null,
-    pinned: false,
   };
 }
 function assertion(id: string, name: string, code: string): AssertionCellState {

@@ -20,7 +20,7 @@ export function renderAssertionCell(
   extra?: SqlCellExtra,
 ): HTMLElement {
   // Build a SqlCellState-shaped object so we can pass through the
-  // SQL renderer. Fields line up; `pinned` defaults to false.
+  // SQL renderer. The fields all line up.
   const sqlCompat: SqlCellState = {
     id: cell.id,
     kind: 'sql',
@@ -30,7 +30,6 @@ export function renderAssertionCell(
     status: cell.status,
     lastError: cell.lastError,
     lastResult: cell.lastResult,
-    pinned: false,
   };
   const el = renderSqlCell(sqlCompat, handlers, extra);
   el.dataset.cellKind = 'assertion';

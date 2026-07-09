@@ -190,7 +190,7 @@ function q(s: string): string {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-function sql(name: string, code: string, pinned = false): Omit<SqlCellState, 'order'> {
+function sql(name: string, code: string): Omit<SqlCellState, 'order'> {
   return {
     id: '',
     kind: 'sql',
@@ -199,7 +199,6 @@ function sql(name: string, code: string, pinned = false): Omit<SqlCellState, 'or
     status: 'idle',
     lastError: null,
     lastResult: null,
-    pinned,
   };
 }
 

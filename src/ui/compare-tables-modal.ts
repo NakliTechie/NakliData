@@ -1,8 +1,9 @@
 // Compare-tables modal — Theme 4 wave 2 (B2). Pick two tables, run
 // `Engine.compareTables` with an auto-detected join key drawn from
 // taxonomy assignments, render bucket counts + a column-level diff
-// sample. The modal is ephemeral; the user can copy the SQL the modal
-// builds (TODO future) but the result is not persisted.
+// sample. The modal is ephemeral and the result is not persisted. (S20: a
+// copy-the-generated-SQL affordance was scoped but never built — it's a backlog
+// idea, not a TODO owed by this shipped surface.)
 
 import type { Engine, TableComparison } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';

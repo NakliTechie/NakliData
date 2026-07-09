@@ -256,7 +256,12 @@ export function extractInputsFromSqlRegex(
   // (handoff §M2's CTE-shadow guarantee) instead of only as a parse-failure
   // fallback.
   const cteNames = new Set<string>();
-  for (const m of stripped.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi)) {
+  // W2: `<ident> AS (` also matches `WINDOW w AS (…)` window definitions — a
+  // window named identically to a mounted table would wrongly suppress that
+  // table's edge. The bounded lookbehind skips the `WINDOW <name> AS (` shape.
+  for (const m of stripped.matchAll(
+    /(?<!\bWINDOW\s{1,20})\b([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi,
+  )) {
     if (m[1]) cteNames.add(m[1]);
   }
 

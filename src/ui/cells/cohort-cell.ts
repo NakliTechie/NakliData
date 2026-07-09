@@ -21,8 +21,7 @@ export function renderCohortCell(
   extra?: SqlCellExtra,
 ): HTMLElement {
   // Build a SqlCellState-shaped object so we can pass it through the
-  // standard SQL renderer. The fields all line up; `pinned` is the
-  // only SqlCell-only field, and false is the right default.
+  // standard SQL renderer. The fields all line up.
   const sqlCompat: SqlCellState = {
     id: cell.id,
     kind: 'sql',
@@ -32,7 +31,6 @@ export function renderCohortCell(
     status: cell.status,
     lastError: cell.lastError,
     lastResult: cell.lastResult,
-    pinned: false,
   };
   const el = renderSqlCell(sqlCompat, handlers, extra);
   // Re-stamp the kind so save/load round-trips honor the cohort

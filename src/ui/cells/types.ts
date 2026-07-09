@@ -13,7 +13,6 @@ export interface SqlCellState {
   status: 'idle' | 'running' | 'success' | 'error';
   lastError: string | null;
   lastResult: SqlResult | null;
-  pinned: boolean;
 }
 
 export interface MarkdownCellState {

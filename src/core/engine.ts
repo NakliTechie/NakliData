@@ -738,7 +738,7 @@ export class Engine {
     // Same random-access requirement as SQLite — a native DuckDB file ATTACHed
     // read-only reads pages at arbitrary offsets.
     await this.registerFileHandle(fname, file);
-    return await this.attachDatabase(fname, tableName, 'duckdb');
+    return await this.attachDatabase(fname, tableName);
   }
 
   /**
@@ -946,17 +946,14 @@ export class Engine {
     return [view];
   }
 
-  /** Shared ATTACH path for SQLite + DuckDB file mounts. */
-  private async attachDatabase(
-    filename: string,
-    tableLabel: string,
-    type: 'sqlite' | 'duckdb',
-  ): Promise<string[]> {
+  /**
+   * Shared ATTACH path for DuckDB file mounts. (S1: the old `type: 'sqlite'`
+   * branch was dead — SQLite is read via sql.js since DECISIONS 2026-07-04, so
+   * `registerSqlite` never calls this; the param + sqlite clause are removed.)
+   */
+  private async attachDatabase(filename: string, tableLabel: string): Promise<string[]> {
     const attachName = sanitizeIdent(`attached_${tableLabel}_${Date.now().toString(36)}`);
-    const typeClause = type === 'sqlite' ? ' (TYPE sqlite, READ_ONLY)' : ' (READ_ONLY)';
-    await this.exec(
-      `ATTACH '${escapeLiteral(filename)}' AS ${quoteIdent(attachName)}${typeClause}`,
-    );
+    await this.exec(`ATTACH '${escapeLiteral(filename)}' AS ${quoteIdent(attachName)} (READ_ONLY)`);
     const tables = await this.query<{ table_name: string; schema_name: string }>(
       `SELECT table_name, schema_name
          FROM duckdb_tables()

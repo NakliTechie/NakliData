@@ -33,7 +33,7 @@ import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderLanguageCell } from './cells/language-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
 import { renderMarkdownCell } from './cells/markdown-cell.ts';
-import { renderNetworkCell } from './cells/network-cell.ts';
+import { disposeNetworkCell, renderNetworkCell } from './cells/network-cell.ts';
 import { renderPivotCell } from './cells/pivot-cell.ts';
 import { renderReportCell } from './cells/report-cell.ts';
 import { type SqlCellExtra, disposeSqlCellEditor, renderSqlCell } from './cells/sql-cell.ts';
@@ -168,7 +168,6 @@ export class Notebook {
         status: 'idle',
         lastError: null,
         lastResult: null,
-        pinned: false,
       } satisfies SqlCellState;
     } else if (kind === 'markdown') {
       cell = {
@@ -370,6 +369,8 @@ LIMIT 100`,
   deleteCell(id: string): void {
     // Release the CM6 editor instance if any (the registry is per-cell-id).
     disposeSqlCellEditor(id);
+    // L27: drop any cached network-cell force layout for this id.
+    disposeNetworkCell(id);
     // M2 — drop the cell's lineage entry so the lineage panel doesn't
     // surface orphaned references. Downstream edges (cells that read
     // FROM this cell) clean up when those cells re-run.

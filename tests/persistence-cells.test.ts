@@ -61,7 +61,6 @@ describe('persistence round-trip — SQL cell (W4 baseline)', () => {
         rowCount: 1,
         elapsedMs: 12,
       }, // runtime — should NOT round-trip
-      pinned: true,
     };
     const [out] = roundTripCells([cell]);
     expect(out).toEqual({
@@ -73,7 +72,6 @@ describe('persistence round-trip — SQL cell (W4 baseline)', () => {
       status: 'idle',
       lastError: null,
       lastResult: null,
-      pinned: true,
     });
   });
 });
@@ -376,7 +374,6 @@ describe('persistence round-trip — mixed notebook', () => {
         status: 'idle',
         lastError: null,
         lastResult: null,
-        pinned: false,
       },
       {
         id: 'c3',

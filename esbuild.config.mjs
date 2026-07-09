@@ -225,8 +225,8 @@ async function serve() {
     outfile: `${OUT_DIR}/main.js`,
   });
   await ctx.watch();
+  // S14: buildShell() already builds the lazy chunks — don't build them twice.
   await buildShell();
-  await buildLazyChunks();
   const port = 5173;
   // Forward-pass M14 (2026-06-02): reject any path that escapes the
   // intended document roots. `join()` happily resolves `..` segments
@@ -265,9 +265,11 @@ async function serve() {
       decoded.startsWith('/taxonomy/') ? decoded.slice(1) : null,
     ].filter(Boolean);
     for (const filePath of candidates) {
-      // Second-pass containment check: ensure the candidate resolves
-      // INSIDE one of the allowed roots even after symlink resolution
-      // and any tricky joins.
+      // Second-pass containment check: ensure the candidate resolves INSIDE
+      // one of the allowed roots after `..`/join normalization. (W7: this uses
+      // path.resolve, NOT realpath — it does NOT follow symlinks. That's fine
+      // for this loopback-only dev server; a symlink under a root that points
+      // outside would still be served. Not a product surface.)
       if (!isUnderAllowedRoot(filePath)) continue;
       try {
         const st = await stat(filePath);

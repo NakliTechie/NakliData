@@ -18,9 +18,7 @@
 // Usage:
 //   node scripts/gen-raw-events-fixture.mjs > public/examples/events/events.jsonl
 //
-// Or run via the npm script wrapper (no args; writes to the canonical
-// path):
-//   npm run gen:events
+// (S16: there is no `npm run gen:events` wrapper — run the node command above.)
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';

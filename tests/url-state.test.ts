@@ -39,7 +39,6 @@ const SAMPLE: NakliDataFile = {
       status: 'idle',
       lastError: null,
       lastResult: null,
-      pinned: false,
     },
   ],
   user_types: [],
@@ -66,7 +65,6 @@ describe('url-state encode/decode', () => {
         status: 'idle' as const,
         lastError: null,
         lastResult: null,
-        pinned: false,
       })),
     };
     const encoded = await encodeLensParam(repetitive);
@@ -94,7 +92,6 @@ describe('url-state encode/decode', () => {
           status: 'idle' as const,
           lastError: null,
           lastResult: null,
-          pinned: false,
         },
       ],
     } as NakliDataFile;
