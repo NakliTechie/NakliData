@@ -1793,6 +1793,41 @@ async function main() {
   );
   log('✓ R cell: SQL → CSV → WebR(base R) → CSV → DuckDB table, queryable downstream (sum=120)');
 
+  // 12b. Service-worker runtime-byte caching. The large, immutable vendored
+  // runtimes (Pyodide/WebR/ReadStat/DuckDB-ext) are cached cache-first in a
+  // deploy-independent `naklidata-runtime-*` bucket so a shell redeploy doesn't
+  // evict ~100 MB. Verify a runtime asset lands there and NOT in the shell cache.
+  // Soft-skips when the SW isn't controlling (registration is prod + async).
+  const rtCache = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    let controlled = false;
+    for (let i = 0; i < 24; i++) {
+      if (navigator.serviceWorker?.controller) {
+        controlled = true;
+        break;
+      }
+      await wait(250);
+    }
+    if (!controlled) return { skipped: true };
+    const asset = '/readstat-wasm/readstat.wasm';
+    await fetch(asset);
+    await wait(400); // let the fire-and-forget cache.put settle
+    const keys = await caches.keys();
+    const runtimeKey = keys.find((k) => k.startsWith('naklidata-runtime-')) ?? null;
+    const shellKey = keys.find((k) => k.startsWith('naklidata-shell-')) ?? null;
+    const inRuntime = runtimeKey ? !!(await (await caches.open(runtimeKey)).match(asset)) : false;
+    const inShell = shellKey ? !!(await (await caches.open(shellKey)).match(asset)) : false;
+    return { skipped: false, runtimeKey, inRuntime, inShell };
+  });
+  if (rtCache.skipped) {
+    log('~ SW runtime-cache guard skipped (service worker not controlling in harness)');
+  } else {
+    if (!rtCache.inRuntime) fail('SW: runtime asset was not cached in the runtime cache');
+    if (rtCache.inShell)
+      fail('SW: runtime asset leaked into the shell cache (should be runtime-only)');
+    log(`✓ SW runtime cache: readstat wasm cached in ${rtCache.runtimeKey}, not the shell cache`);
+  }
+
   // 13. Sanity: no uncaught errors in the console. (SB5: this used to log and
   // pass regardless — now a real gate.) A short allowlist covers errors that
   // are benign in the headless/offline harness only; anything else fails.

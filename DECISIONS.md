@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Runtime-byte caching (service worker, not OPFS)
+
+### Decision CV — dedicated deploy-independent runtime cache; fixes an eviction bug
+
+The pending item was "OPFS caching of the Pyodide/WebR bytes." Investigation
+changed the mechanism: **the service worker already cached these** (they're
+same-origin GETs caught by the SWR handler) — but in the SHELL cache keyed by
+`CACHE_VERSION`, which esbuild rewrites to the inline-script hash every deploy.
+So `activate` **evicted ~100 MB of Pyodide/WebR on every app update** (bytes that
+never changed), and SWR **re-fetched the full 66 MB in the background on every
+load**. Two real bugs hiding behind "it's cached."
+
+**Chose the SW Cache API over OPFS.** These runtimes are fetched over HTTP
+same-origin, and Pyodide/WebR drive their own internal sub-fetches (packages, VFS
+files) that OPFS can't cleanly intercept without shimming `fetch`. The SW is the
+natural, transparent home. Implementation:
+
+- A second cache **`naklidata-runtime-<RUNTIME_VERSION>`** for the immutable
+  runtime prefixes (`/pyodide/`, `/webr/`, `/readstat-wasm/`, `/duckdb-extensions/`),
+  served **cache-first with NO background revalidation** (a cached 66 MB file is
+  never re-fetched). `RUNTIME_VERSION` is independent of `CACHE_VERSION`, and
+  `activate` now keeps BOTH the current shell AND runtime caches — so the runtime
+  bytes **survive shell redeploys** (bump `RUNTIME_VERSION` only when the vendored
+  bytes are re-vendored). Only a full `200` is cached (206/errors can't poison it).
+  Fallback-safe: a cache miss / failure falls through to network.
+- `CACHE_VERSION` line format preserved, so the M12 "exactly one CACHE_VERSION"
+  build rewrite + assert still hold.
+
+**Verified in a real browser (preview):** a runtime asset fetch lands in
+`naklidata-runtime-v1`, served cache-first, and does NOT leak into the shell
+cache. Added a **smoke guard** (soft-skips if the SW isn't controlling) that
+re-confirms this in the harness. Gates: check clean · **978 vitest** · smoke green
+(incl. the new SW-runtime-cache leg) · bundle 762.9/768.
+
 ## 2026-07-09 — CodeMirror syntax highlighting (Python / R / SQL)
 
 ### Decision CU — lang packs in the lazy chunk; highlight style added to all editors
