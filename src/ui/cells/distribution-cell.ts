@@ -7,11 +7,11 @@
 
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, DistributionCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, DistributionCellState, ResultRefCell } from './types.ts';
 
 export function renderDistributionCell(
   cell: DistributionCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

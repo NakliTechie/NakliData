@@ -15,14 +15,14 @@ import { rankBySimilarity } from '../../core/embed-search.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { coerceVector, pcaProject2D } from '../../core/project2d.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, EmbeddingCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, EmbeddingCellState, ResultRefCell } from './types.ts';
 
 /** Neighbours highlighted per find-similar click (excluding the clicked point). */
 const SIMILAR_K = 10;
 
 export function renderEmbeddingCell(
   cell: EmbeddingCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

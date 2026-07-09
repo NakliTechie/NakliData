@@ -192,6 +192,25 @@ describe('expandMeasures — single-level expansion', () => {
     expect(result.sql).toBe('SELECT measure(revenue) FROM x');
     expect(result.expansions).toEqual([]);
   });
+
+  it('L16: does NOT expand a MEASURE() inside a string literal', () => {
+    const measures = asMap(m('revenue', 'SUM(amount)'));
+    // The literal must survive verbatim; the real MEASURE() still expands.
+    const result = expandMeasures(
+      `SELECT MEASURE(revenue), 'MEASURE(revenue)' AS note FROM x`,
+      measures,
+    );
+    expect(result.sql).toBe(`SELECT (SUM(amount)), 'MEASURE(revenue)' AS note FROM x`);
+    expect(result.expansions).toHaveLength(1);
+    expect(result.unknownMeasures).toEqual([]);
+  });
+
+  it('L16: does NOT expand a MEASURE() inside a comment (and does not loop to the cap)', () => {
+    const measures = asMap(m('revenue', 'SUM(amount)'));
+    const result = expandMeasures('SELECT 1 -- MEASURE(ghost)\nFROM x', measures);
+    expect(result.sql).toBe('SELECT 1 -- MEASURE(ghost)\nFROM x');
+    expect(result.unknownMeasures).toEqual([]);
+  });
 });
 
 describe('expandMeasures — nested expansion', () => {

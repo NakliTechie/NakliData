@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Forward-pass deferrals: user decisions (H6/W6/W8/SB4)
+
+Four deferred forward-pass items were resolved by explicit user decision:
+
+### Decision CL — H6: opt-in preflight DuckDB integrity verification (spike)
+
+SRI was removed in W1.8.2/A14 because the blob-worker-can't-fetch-sibling-blob
+pattern broke boot in Chrome. Rather than re-touch the working spawn path, added
+an **opt-in `?verify=1`** preflight: before instantiate, fetch the selected
+worker + wasm bytes and SHA-384-verify them against the sibling `integrity.json`,
+fail-closed on mismatch. Additive — it does NOT alter the worker-spawn/instantiate
+path, so it cannot reintroduce the W1.8.2 regression. Verified in-browser: clean
+payload boots; a one-byte-tampered `duckdb-eh.wasm` refuses to boot. **Not yet
+default** — TOCTOU (DuckDB re-fetches the URL itself) and the cross-origin mirror
+path still needs live-browser confirmation before promotion. Tracked as the
+remaining half of H6.
+
+### Decision CM — W6: the 'custom' sidecar provider key is now optional
+
+An unauthenticated self-hosted endpoint (Ollama/vLLM/LM Studio) no longer needs a
+junk placeholder key; when the custom key is empty we send NO Authorization
+header. Anthropic/OpenAI still require a real key.
+
+### Decision CN — W8: cohort + assertion cells are valid visual-cell inputs
+
+They materialise the same `cell_<id>` view as SQL cells, so the chart/pivot/map/
+embedding/network/temporal/distribution/dashboard/language pickers now accept all
+three (via a shared `ResultRefCell` type).
+
+### Decision CO — SB4: keep local (WebGPU) inference, gate it behind a known-issue note
+
+WebGPU in-browser inference is unlikely to be reliable near-term (M0 found
+repetition-loop degeneration); kept as experimental with an explicit in-UI
+known-issue warning that points users to Ollama/LM Studio via the Custom provider
+for a dependable local setup.
+
 ## 2026-07-09 — Forward-pass audit + fix sweep
 
 Full ranked findings + batched workplan + progress log live in

@@ -56,6 +56,7 @@ import type {
   PythonCellState,
   RCellState,
   ReportCellState,
+  ResultRefCell,
   SqlCellState,
   StatsCellState,
   TemporalCellState,
@@ -769,7 +770,11 @@ export function renderNotebook(
 ): void {
   injectNotebookCss();
   const cells = notebook.get().cells;
-  const sqlCells = cells.filter((c): c is SqlCellState => c.kind === 'sql');
+  // W8: SQL, cohort, and assertion cells all materialise a `cell_<id>` view and
+  // carry lastResult, so all three are valid inputs for the visual cells.
+  const inputCells: ResultRefCell[] = cells.filter(
+    (c) => c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion',
+  );
 
   const handlers: CellHandlers = {
     onRun: (id, payload) => {
@@ -808,21 +813,22 @@ export function renderNotebook(
   for (const cell of cells) {
     if (cell.kind === 'sql') root.append(renderSqlCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'markdown') root.append(renderMarkdownCell(cell, handlers));
-    else if (cell.kind === 'chart') root.append(renderChartCell(cell, sqlCells, handlers));
-    else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, sqlCells, handlers));
-    else if (cell.kind === 'map') root.append(renderMapCell(cell, sqlCells, handlers));
-    else if (cell.kind === 'embedding') root.append(renderEmbeddingCell(cell, sqlCells, handlers));
-    else if (cell.kind === 'network') root.append(renderNetworkCell(cell, sqlCells, handlers));
-    else if (cell.kind === 'temporal') root.append(renderTemporalCell(cell, sqlCells, handlers));
+    else if (cell.kind === 'chart') root.append(renderChartCell(cell, inputCells, handlers));
+    else if (cell.kind === 'pivot') root.append(renderPivotCell(cell, inputCells, handlers));
+    else if (cell.kind === 'map') root.append(renderMapCell(cell, inputCells, handlers));
+    else if (cell.kind === 'embedding')
+      root.append(renderEmbeddingCell(cell, inputCells, handlers));
+    else if (cell.kind === 'network') root.append(renderNetworkCell(cell, inputCells, handlers));
+    else if (cell.kind === 'temporal') root.append(renderTemporalCell(cell, inputCells, handlers));
     else if (cell.kind === 'distribution')
-      root.append(renderDistributionCell(cell, sqlCells, handlers));
+      root.append(renderDistributionCell(cell, inputCells, handlers));
     else if (cell.kind === 'cohort') root.append(renderCohortCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'assertion') root.append(renderAssertionCell(cell, handlers, sqlExtra));
     else if (cell.kind === 'input') root.append(renderInputCell(cell, handlers));
     else if (cell.kind === 'dashboard') root.append(renderDashboardCell(cell, cells, handlers));
     else if (cell.kind === 'stats') root.append(renderStatsCell(cell, cells, handlers));
     else if (cell.kind === 'python' || cell.kind === 'r')
-      root.append(renderLanguageCell(cell, sqlCells, handlers));
+      root.append(renderLanguageCell(cell, inputCells, handlers));
     else if (cell.kind === 'report') root.append(renderReportCell(cell, handlers));
   }
 

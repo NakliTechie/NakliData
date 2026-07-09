@@ -121,18 +121,21 @@ export async function dispatchJob(
   job: SidecarJob,
   opts: SidecarDispatchOpts,
 ): Promise<SidecarResponse> {
-  // The 'local' provider runs in-browser — no API key. Every other
-  // provider requires a BYOK key before we'll build a prompt.
+  // The 'local' provider runs in-browser — no API key. W6: the 'custom'
+  // (OpenAI-compatible) provider may point at an UNAUTHENTICATED endpoint
+  // (self-hosted Ollama / vLLM / LM Studio), so its key is optional — an empty
+  // key means "send no Authorization header" rather than forcing the user to
+  // store a junk placeholder. Anthropic/OpenAI still require a real key.
   let key = '';
   if (opts.provider !== 'local') {
     const loaded = await loadKey(opts.provider);
-    if (!loaded) {
+    if (!loaded && opts.provider !== 'custom') {
       throw new SidecarError(
         `No API key configured for ${opts.provider}. Open Settings to add one.`,
         'no-key',
       );
     }
-    key = loaded;
+    key = loaded ?? '';
   }
   const transport = opts.transport ?? defaultTransport;
   if (job.kind === 'explain-error') {

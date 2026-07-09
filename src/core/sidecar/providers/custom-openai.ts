@@ -74,12 +74,14 @@ export async function callCustomOpenAI(opts: CustomOpenAICallOpts): Promise<stri
       { role: 'user', content: opts.user },
     ],
   };
+  // W6: only send Authorization when a key is actually set. An
+  // unauthenticated endpoint (self-hosted Ollama/vLLM) no longer needs a junk
+  // placeholder key, and we don't ship `Bearer ` / `Bearer placeholder` to it.
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (opts.apiKey.trim()) headers.authorization = `Bearer ${opts.apiKey}`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${opts.apiKey}`,
-    },
+    headers,
     body: JSON.stringify(body),
     ...(opts.signal ? { signal: opts.signal } : {}),
   });

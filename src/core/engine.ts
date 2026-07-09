@@ -34,6 +34,16 @@ export interface EngineBootOptions {
    * the cross-origin Worker spawn.
    */
   fallbackBase?: string;
+  /**
+   * H6 (spike, `?verify=1`): before instantiating, fetch the selected DuckDB
+   * worker + wasm bytes and SHA-384-verify them against the sibling
+   * `integrity.json` (fail-closed on mismatch). Detects a tampered
+   * offline/mirror payload at boot. Opt-in for now: the check is a preflight
+   * fetch that does NOT alter the (working) worker-spawn/instantiate path, so
+   * it can't reintroduce the W1.8.2 blob-worker regression. Only meaningful on
+   * the offline / fallbackBase paths (jsDelivr doesn't serve our manifest).
+   */
+  verifyIntegrity?: boolean;
 }
 
 export interface EngineEvents {
@@ -119,6 +129,9 @@ export interface QueryOptions {
 }
 
 const DEFAULT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
+
+/** L6: monotonic counter for per-mount CSV reject-table names. */
+let rejectSeq = 0;
 
 /**
  * Absolute URL of a same-origin asset relative to the page. Used for
@@ -209,6 +222,17 @@ export class Engine {
       const bundle = await duckdb.selectBundle(bundles);
       if (!bundle.mainWorker) {
         throw new EngineError('DuckDB bundle did not include a mainWorker URL');
+      }
+
+      // H6 (opt-in): preflight SHA-384 verification of the worker + wasm bytes
+      // against the sibling integrity.json. Fail-closed. Additive — leaves the
+      // worker-spawn/instantiate path below untouched (no blob-worker change).
+      if (
+        opts.verifyIntegrity &&
+        !opts.cdnBase &&
+        !bundle.mainModule.includes('cdn.jsdelivr.net')
+      ) {
+        await verifyDuckdbBundle(bundle);
       }
 
       // Worker spawn strategy depends on the worker URL's origin:
@@ -416,17 +440,24 @@ export class Engine {
     // view still loaded what it could; we just don't quantify the skips).
     const REJECT_PROBE_LIMIT = 64 * 1024 * 1024;
     if (fileSize > REJECT_PROBE_LIMIT) return;
+    // L6: per-mount reject-table names. The old code used DuckDB's DEFAULT
+    // `reject_errors`/`reject_scans` and `DROP TABLE IF EXISTS` on them — which
+    // would destroy a user table of that name (SQL cells allow DDL) and let two
+    // concurrent CSV mounts clobber each other's tally. Unique `nd_rej_*` names
+    // (via `rejects_table`/`rejects_scan`) avoid both.
+    const rid = `${(++rejectSeq).toString(36)}_${Date.now().toString(36)}`;
+    const rejErr = `nd_rej_err_${rid}`;
+    const rejScan = `nd_rej_scan_${rid}`;
+    const probeOpts = `${readOpts.replace(
+      'ignore_errors=true',
+      'store_rejects=true',
+    )}, rejects_table='${rejErr}', rejects_scan='${rejScan}'`;
     try {
-      await this.exec('DROP TABLE IF EXISTS reject_errors');
-      await this.exec('DROP TABLE IF EXISTS reject_scans');
       const loadedRows = await this.query<{ n: number | bigint }>(
-        `SELECT count(*) AS n FROM read_csv_auto('${lit}', ${readOpts.replace(
-          'ignore_errors=true',
-          'store_rejects=true',
-        )})`,
+        `SELECT count(*) AS n FROM read_csv_auto('${lit}', ${probeOpts})`,
       );
       const rejects = await this.query<{ n: number | bigint }>(
-        'SELECT count(DISTINCT (scan_id, line)) AS n FROM reject_errors',
+        `SELECT count(DISTINCT (scan_id, line)) AS n FROM ${quoteIdent(rejErr)}`,
       );
       const skipped = Number(rejects[0]?.n ?? 0);
       if (skipped > 0) {
@@ -436,8 +467,8 @@ export class Engine {
             `${skipped.toLocaleString()} malformed row(s) were skipped.`,
         );
       }
-      await this.exec('DROP TABLE IF EXISTS reject_errors');
-      await this.exec('DROP TABLE IF EXISTS reject_scans');
+      await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(rejErr)}`);
+      await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(rejScan)}`);
     } catch (err) {
       // The tally is diagnostics-only; a failure here must never break the
       // mount (reject-table schema shifts across DuckDB versions, etc.).
@@ -1396,6 +1427,41 @@ export class Engine {
         this.worker = null;
         this.setStatus('idle');
       }
+    }
+  }
+}
+
+/**
+ * H6 (spike): fetch the selected bundle's worker + wasm bytes and verify each
+ * against the SHA-384 hash in the sibling `integrity.json` (same base URL).
+ * Throws EngineError (fail-closed) on a missing manifest, a missing hash, or a
+ * mismatch. A preflight-only check — DuckDB re-fetches the URLs itself when it
+ * instantiates (TOCTOU), but this detects a tampered offline/mirror payload at
+ * boot without touching the working spawn path.
+ */
+async function verifyDuckdbBundle(bundle: {
+  mainModule: string;
+  mainWorker?: string | null;
+}): Promise<void> {
+  const integrityUrl = bundle.mainModule.replace(/[^/]+(?:\?.*)?$/, 'integrity.json');
+  const res = await fetch(integrityUrl);
+  if (!res.ok) {
+    throw new EngineError(
+      `DuckDB integrity manifest fetch failed (${res.status}) — refusing to boot`,
+    );
+  }
+  const manifest = (await res.json()) as { files?: Record<string, string> };
+  const files = manifest.files ?? {};
+  const targets = [bundle.mainModule, bundle.mainWorker].filter((u): u is string => !!u);
+  for (const url of targets) {
+    const name = (url.split('/').pop() ?? '').split('?')[0] ?? '';
+    const expected = files[name];
+    if (!expected) throw new EngineError(`No integrity hash for "${name}" — refusing to boot`);
+    const bytes = await (await fetch(url)).arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-384', bytes);
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(digest)));
+    if (`sha384-${b64}` !== expected) {
+      throw new EngineError(`DuckDB integrity mismatch for "${name}" — refusing to boot`);
     }
   }
 }

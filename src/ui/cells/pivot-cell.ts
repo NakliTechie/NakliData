@@ -8,11 +8,11 @@
 // (other aggregations don't have a meaningful "total of totals").
 
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, PivotCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, PivotCellState, ResultRefCell } from './types.ts';
 
 export function renderPivotCell(
   cell: PivotCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

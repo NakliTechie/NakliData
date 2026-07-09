@@ -373,7 +373,7 @@ function renderModal(): HTMLElement {
             </div>
           </label>
           <div class="settings-field" data-region="settings-local-section" hidden>
-            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Experimental: needs WebGPU; in-browser inference output quality varies and can be unreliable for the structured-output jobs — a cloud provider is recommended for those.</em></span>
+            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Known issue (SB4): the in-browser WebGPU path frequently degenerates into repetition loops and is unreliable for the structured-output jobs — treat it as experimental. For a dependable local setup, run Ollama (or LM Studio / vLLM) and point the <strong>Custom (OpenAI-compatible)</strong> provider at it; use a cloud provider for the structured jobs.</em></span>
             <div class="settings-local-picker">
               ${LOCAL_MODEL_OPTIONS.map(
                 (m) => `
@@ -715,15 +715,10 @@ async function testCustomConnection(overlay: HTMLElement, target: HTMLElement): 
     }
     return;
   }
-  const apiKey = await loadKey('custom');
-  if (!apiKey) {
-    if (resultEl) {
-      resultEl.textContent =
-        'No API key saved for "custom" — save one below (use any placeholder if the endpoint is unauthenticated).';
-      resultEl.dataset.state = 'error';
-    }
-    return;
-  }
+  // W6: the key is optional for custom endpoints — an empty key means the
+  // probe (and real calls) send no Authorization header, for unauthenticated
+  // self-hosted servers. No more "save a placeholder key" dance.
+  const apiKey = (await loadKey('custom')) ?? '';
   if (resultEl) {
     resultEl.textContent = 'Probing…';
     resultEl.dataset.state = 'pending';

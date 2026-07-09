@@ -242,6 +242,79 @@ const SEGMENT_CALL_RE = /\bSEGMENT\(([a-z_][a-z0-9_]*)\)/g;
 const MAX_DEPTH = 10;
 
 /**
+ * L16: walk `text`, invoking `fn` on each CODE region and leaving single-quoted
+ * string literals, double-quoted identifiers, and line/block comments verbatim.
+ * Macro expansion runs through this so a literal like `'MEASURE(x)'` or a
+ * `-- MEASURE(x)` comment is never rewritten. A macro call (`MEASURE(name)`)
+ * never spans a quote, so it's always wholly inside one code region.
+ */
+function mapCodeSpans(text: string, fn: (code: string) => string): string {
+  let out = '';
+  let i = 0;
+  let codeStart = 0;
+  const n = text.length;
+  const flush = (end: number) => {
+    if (end > codeStart) out += fn(text.slice(codeStart, end));
+  };
+  while (i < n) {
+    const ch = text[i];
+    if (ch === "'" || ch === '"') {
+      flush(i);
+      const q = ch;
+      const start = i;
+      i++;
+      while (i < n) {
+        if (text[i] === q) {
+          if (text[i + 1] === q) {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += text.slice(start, i);
+      codeStart = i;
+      continue;
+    }
+    if (ch === '-' && text[i + 1] === '-') {
+      flush(i);
+      const start = i;
+      i += 2;
+      while (i < n && text[i] !== '\n') i++;
+      out += text.slice(start, i);
+      codeStart = i;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      flush(i);
+      const start = i;
+      i += 2;
+      while (i < n && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i = Math.min(n, i + 2);
+      out += text.slice(start, i);
+      codeStart = i;
+      continue;
+    }
+    i++;
+  }
+  flush(n);
+  return out;
+}
+
+/** Code regions only (literals/comments removed) — for macro presence tests
+ *  that must not fire on a macro inside a string/comment (L16). Reuses the same
+ *  strip as `validateMeasureExpression`. */
+function codeOnly(text: string): string {
+  return text
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/'(?:[^']|'')*'/g, "''")
+    .replace(/"(?:[^"]|"")*"/g, '""');
+}
+
+/**
  * Expand `MEASURE(name)` AND `DIM(name)` calls in `sql` recursively.
  * Iteratively substitutes until no macro calls remain OR the depth cap
  * (`MAX_DEPTH`) is hit (loud failure — defence against a malicious
@@ -271,49 +344,60 @@ export function expandMeasures(
     // module-level ones would need a manual reset every time. The
     // `.replace()` calls below still use the `/g` module regexes (they
     // must, to replace all occurrences). Defence-in-depth per L15.
-    const hasMeasure = new RegExp(MEASURE_CALL_RE.source).test(current);
-    const hasDim = new RegExp(DIM_CALL_RE.source).test(current);
-    const hasSegment = new RegExp(SEGMENT_CALL_RE.source).test(current);
+    // L16: test presence + expand only in CODE regions, so a `MEASURE()` inside
+    // a string literal or comment is neither counted nor rewritten (it used to
+    // be substituted to NULL, corrupting the literal — and a literal macro that
+    // couldn't be replaced would spin the loop to the depth cap and throw).
+    const scanText = codeOnly(current);
+    const hasMeasure = new RegExp(MEASURE_CALL_RE.source).test(scanText);
+    const hasDim = new RegExp(DIM_CALL_RE.source).test(scanText);
+    const hasSegment = new RegExp(SEGMENT_CALL_RE.source).test(scanText);
     if (!hasMeasure && !hasDim && !hasSegment) {
       return { sql: current, expansions, unknownMeasures, unknownDimensions, unknownSegments };
     }
     if (hasMeasure) {
-      current = current.replace(MEASURE_CALL_RE, (_match, name: string) => {
-        const def = measures.get(name);
-        if (!def) {
-          if (!unknownMeasures.includes(name)) unknownMeasures.push(name);
-          // NULL keeps the outer SQL well-formed; the unknown-measures
-          // list is the parser-level diagnostic the caller surfaces.
-          return 'NULL';
-        }
-        expansions.push({ name, expression: def.expression });
-        return `(${def.expression})`;
-      });
+      current = mapCodeSpans(current, (code) =>
+        code.replace(MEASURE_CALL_RE, (_match, name: string) => {
+          const def = measures.get(name);
+          if (!def) {
+            if (!unknownMeasures.includes(name)) unknownMeasures.push(name);
+            // NULL keeps the outer SQL well-formed; the unknown-measures
+            // list is the parser-level diagnostic the caller surfaces.
+            return 'NULL';
+          }
+          expansions.push({ name, expression: def.expression });
+          return `(${def.expression})`;
+        }),
+      );
     }
     if (hasDim) {
-      current = current.replace(DIM_CALL_RE, (_match, name: string) => {
-        const def = dims.get(name);
-        if (!def) {
-          if (!unknownDimensions.includes(name)) unknownDimensions.push(name);
-          return 'NULL';
-        }
-        expansions.push({ name, expression: def.expression });
-        return `(${def.expression})`;
-      });
+      current = mapCodeSpans(current, (code) =>
+        code.replace(DIM_CALL_RE, (_match, name: string) => {
+          const def = dims.get(name);
+          if (!def) {
+            if (!unknownDimensions.includes(name)) unknownDimensions.push(name);
+            return 'NULL';
+          }
+          expansions.push({ name, expression: def.expression });
+          return `(${def.expression})`;
+        }),
+      );
     }
     if (hasSegment) {
-      current = current.replace(SEGMENT_CALL_RE, (_match, name: string) => {
-        const def = segs.get(name);
-        if (!def) {
-          if (!unknownSegments.includes(name)) unknownSegments.push(name);
-          // FALSE keeps a WHERE predicate slot well-formed (SEGMENT sits in a
-          // boolean position); the unknown-segments list is the diagnostic the
-          // caller surfaces before running anything.
-          return 'FALSE';
-        }
-        expansions.push({ name, expression: def.expression });
-        return `(${def.expression})`;
-      });
+      current = mapCodeSpans(current, (code) =>
+        code.replace(SEGMENT_CALL_RE, (_match, name: string) => {
+          const def = segs.get(name);
+          if (!def) {
+            if (!unknownSegments.includes(name)) unknownSegments.push(name);
+            // FALSE keeps a WHERE predicate slot well-formed (SEGMENT sits in a
+            // boolean position); the unknown-segments list is the diagnostic the
+            // caller surfaces before running anything.
+            return 'FALSE';
+          }
+          expansions.push({ name, expression: def.expression });
+          return `(${def.expression})`;
+        }),
+      );
     }
   }
   throw new Error(

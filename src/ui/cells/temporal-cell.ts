@@ -7,11 +7,11 @@
 
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, SqlCellState, TemporalCellState } from './types.ts';
+import type { CellHandlers, ResultRefCell, TemporalCellState } from './types.ts';
 
 export function renderTemporalCell(
   cell: TemporalCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

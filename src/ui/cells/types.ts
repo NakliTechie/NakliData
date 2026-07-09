@@ -415,6 +415,15 @@ export interface SqlResult {
   elapsedMs: number;
 }
 
+/**
+ * W8: the shape a visual cell (chart/pivot/map/embedding/network/temporal/
+ * distribution) needs from an upstream result it can read. SQL, cohort, and
+ * assertion cells all materialise a `cell_<id>` view and carry `lastResult`,
+ * so all three are valid input sources — this narrow type lets the pickers
+ * accept any of them without depending on the full SqlCellState.
+ */
+export type ResultRefCell = Pick<SqlCellState, 'id' | 'name' | 'lastResult'>;
+
 export type CellPatch = Record<string, unknown>;
 
 export interface CellHandlers {

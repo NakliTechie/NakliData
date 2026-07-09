@@ -23,7 +23,7 @@ import { renderChartCell } from './chart-cell.ts';
 import { renderMapCell } from './map-cell.ts';
 import { renderMarkdownCell } from './markdown-cell.ts';
 import { renderPivotCell } from './pivot-cell.ts';
-import type { CellHandlers, CellState, DashboardCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, CellState, DashboardCellState, ResultRefCell } from './types.ts';
 
 const NOOP_HANDLERS: CellHandlers = {
   onRun: () => {},
@@ -117,7 +117,10 @@ export function renderDashboardCell(
         'Add cell names (comma-separated) in the header to populate this dashboard.';
       grid.appendChild(empty);
     } else {
-      const sqlCells = allCells.filter((c): c is SqlCellState => c.kind === 'sql');
+      // W8: cohort/assertion results are valid inputs too (same cell_<id> view).
+      const sqlCells: ResultRefCell[] = allCells.filter(
+        (c) => c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion',
+      );
       for (const name of items) {
         grid.appendChild(renderSlot(name, allCells, sqlCells));
       }
@@ -127,7 +130,7 @@ export function renderDashboardCell(
   return el;
 }
 
-function renderSlot(name: string, allCells: CellState[], sqlCells: SqlCellState[]): HTMLElement {
+function renderSlot(name: string, allCells: CellState[], sqlCells: ResultRefCell[]): HTMLElement {
   const slot = document.createElement('div');
   slot.className = 'dashboard-slot';
   slot.style.cssText =

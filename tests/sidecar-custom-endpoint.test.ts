@@ -83,6 +83,25 @@ describe('callCustomOpenAI (Wave 2 W2.3)', () => {
     }
   });
 
+  it('W6: omits the Authorization header when the key is empty (unauthenticated endpoint)', async () => {
+    const originalFetch = globalThis.fetch;
+    const { calls, fetchSpy } = makeFetchSpy({ choices: [{ message: { content: 'k' } }] });
+    globalThis.fetch = fetchSpy as never;
+    try {
+      await callCustomOpenAI({
+        endpointUrl: 'https://llm.example.com',
+        apiKey: '',
+        model: 'llama3',
+        system: 's',
+        user: 'u',
+      });
+      const headers = new Headers(calls[0]?.init?.headers);
+      expect(headers.has('authorization')).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('rejects empty endpoint URL as no-provider', async () => {
     await expect(
       callCustomOpenAI({

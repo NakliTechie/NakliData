@@ -22,7 +22,7 @@ import {
 } from '../../core/force-layout.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, NetworkCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, NetworkCellState, ResultRefCell } from './types.ts';
 
 /** Structural subset of the deck.gl network handle the legend needs. */
 interface LegendHandle {
@@ -65,7 +65,7 @@ export function disposeNetworkCell(id: string): void {
 
 export function renderNetworkCell(
   cell: NetworkCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

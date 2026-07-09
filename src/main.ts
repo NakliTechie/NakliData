@@ -343,7 +343,7 @@ async function boot(): Promise<void> {
   // cross-blob worker access in current Chrome.
   const FALLBACK_MIRROR = 'https://naklitechie.github.io/NakliData/duckdb-fallback/';
   const params = new URLSearchParams(location.search);
-  let bootOpts: { offline?: boolean; fallbackBase?: string };
+  let bootOpts: { offline?: boolean; fallbackBase?: string; verifyIntegrity?: boolean };
   if (params.has('cdn')) {
     bootOpts = { offline: false };
   } else if (params.has('offline')) {
@@ -358,6 +358,11 @@ async function boot(): Promise<void> {
     }
     bootOpts = sameOrigin ? { offline: true } : { offline: true, fallbackBase: FALLBACK_MIRROR };
   }
+  // H6 (spike, opt-in): `?verify=1` turns on the preflight SHA-384 integrity
+  // check of the DuckDB worker + wasm bytes before instantiate. Off by default
+  // — promoting it (esp. for the cross-origin mirror) needs live-browser
+  // verification first (see DECISIONS 2026-07-09 / plan forward-pass report).
+  if (params.has('verify')) bootOpts.verifyIntegrity = true;
   try {
     await engine.boot(bootOpts);
   } catch (err) {

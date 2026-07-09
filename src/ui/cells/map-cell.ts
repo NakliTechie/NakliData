@@ -10,11 +10,11 @@
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { loadSettings } from '../../core/settings.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, MapCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, MapCellState, ResultRefCell } from './types.ts';
 
 export function renderMapCell(
   cell: MapCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');

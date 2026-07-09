@@ -17,7 +17,7 @@ import {
   inferFieldClass,
 } from '../../core/chart-shelves.ts';
 import { iconSvg } from '../../tokens/icons.ts';
-import type { CellHandlers, ChartCellState, SqlCellState } from './types.ts';
+import type { CellHandlers, ChartCellState, ResultRefCell } from './types.ts';
 
 /**
  * Chart-type picker options. `satisfies` keeps every entry a valid member
@@ -56,7 +56,7 @@ const SHELVES: ReadonlyArray<{ key: keyof ShelfState; label: string }> = [
 
 export function renderChartCell(
   cell: ChartCellState,
-  upstreamCells: SqlCellState[],
+  upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
   const el = document.createElement('div');
