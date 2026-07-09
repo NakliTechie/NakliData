@@ -30,12 +30,11 @@ is mounted alongside a URL mount) is documented, not closed.
 ### Decision CK — deferrals from the forward pass (need their own passes/decisions)
 
 Fixed ~55 findings; deferred these deliberately rather than ship risky half-fixes:
-- **M30 (sharpest):** A6/A7/A8 claim S3/Iceberg mounts shipped, but the iceberg+httpfs
-  DuckDB extensions aren't vendored and the default boot is offline → they likely
-  `ExtensionLoadError` at runtime. Needs a live-browser `INSTALL` probe, then
-  drop/flag vs bump-the-DuckDB-pin. (Background task spawned.)
-- **H5:** `xlsx@0.18.5` carries prototype-pollution + ReDoS CVEs and parses untrusted
-  files — swap to the maintained SheetJS CDN dist (vendored + hash-pinned). (Task spawned.)
+- **M30 (sharpest): RESOLVED 2026-07-09** (background chip) — httpfs vendored → S3 mounts
+  work offline; iceberg fail-fasts (no wasm build until DuckDB 1.3.1). See the dedicated
+  "M30/SB2" entry below.
+- **H5: RESOLVED 2026-07-09** (background chip) — `xlsx` swapped to the maintained SheetJS
+  0.20.3 CDN tarball (both CVEs fixed). See the "H5" entry below.
 - **H6:** runtime SRI on the cross-origin DuckDB bytes was dropped in W1.8.2; re-adding
   it touches the boot path and needs the committed integrity.json to match the mirror.
 - **SB4:** local-inference output was known-degenerate on the WebGPU path at M0; re-run
