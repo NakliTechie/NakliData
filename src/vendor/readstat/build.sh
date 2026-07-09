@@ -28,7 +28,7 @@ emcc \
   -sALLOW_MEMORY_GROWTH=1 \
   -sFILESYSTEM=1 \
   -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,stringToNewUTF8,getValue,HEAPU8 \
-  -sEXPORTED_FUNCTIONS=_rs_read,_rs_ndjson,_rs_ndjson_len,_rs_columns,_rs_rowcount,_rs_varcount,_rs_errmsg,_malloc,_free \
+  -sEXPORTED_FUNCTIONS=_rs_read,_rs_free,_rs_ndjson,_rs_ndjson_len,_rs_columns,_rs_rowcount,_rs_varcount,_rs_errmsg,_malloc,_free \
   -sENVIRONMENT=web,worker \
   -sSINGLE_FILE=0 \
   -o "$OUT/readstat.mjs"

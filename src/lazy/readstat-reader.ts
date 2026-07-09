@@ -61,10 +61,28 @@ function getModule(): Promise<ReadStatModule> {
  * Parse a statistical file from its bytes into a single NDJSON table.
  * Throws with the ReadStat error message if the file can't be parsed.
  */
+// wasm is 32-bit: the heap can't address ≥ 2 GiB, and a `_malloc` that big would
+// fail (or a memory-grow would). Refuse oversized inputs up front with a clear
+// message rather than letting the module OOM-crash (L24).
+const MAX_STAT_BYTES = 2 * 1024 * 1024 * 1024 - 1;
+
 export async function readStatFile(bytes: Uint8Array, format: StatFormat): Promise<StatTable> {
   const mod = await getModule();
 
+  if (bytes.length > MAX_STAT_BYTES) {
+    throw new Error(
+      `${format.toUpperCase()} file is ${(bytes.length / 1e9).toFixed(2)} GB — too large for the in-browser reader (2 GB limit). Convert it to CSV/Parquet first.`,
+    );
+  }
+
+  // L24: `_malloc` returns 0 (NULL) on failure — copying into it would corrupt
+  // the wasm heap. Bail before touching HEAPU8.
   const ptr = mod._malloc(bytes.length);
+  if (ptr === 0) {
+    throw new Error(
+      `Out of memory reading the ${format.toUpperCase()} file (${(bytes.length / 1e6).toFixed(0)} MB). Try a smaller file.`,
+    );
+  }
   let rc: number;
   try {
     mod.HEAPU8.set(bytes, ptr);
@@ -79,7 +97,13 @@ export async function readStatFile(bytes: Uint8Array, format: StatFormat): Promi
   }
 
   if (rc !== 0) {
-    const msg = mod.ccall('rs_errmsg', 'string', ['number'], [rc]);
+    // -2 is the wrapper's OOM-while-building-output sentinel (M28); other codes
+    // are ReadStat error codes. Release any partial output before throwing.
+    const msg =
+      rc === -2
+        ? 'ran out of memory building the output'
+        : mod.ccall('rs_errmsg', 'string', ['number'], [rc]);
+    mod.ccall('rs_free', null, [], []);
     throw new Error(`Could not read ${format.toUpperCase()} file: ${msg}`);
   }
 
@@ -95,6 +119,10 @@ export async function readStatFile(bytes: Uint8Array, format: StatFormat): Promi
   // don't store it in the header and report -1, so fall back to a line count.
   const metaRows = mod.ccall('rs_rowcount', 'number', [], []);
   const rowCount = metaRows >= 0 ? metaRows : countLines(ndjson);
+
+  // L25: now that the NDJSON + columns are copied out, free the wasm-resident
+  // buffers — otherwise this file's output stays live for the whole session.
+  mod.ccall('rs_free', null, [], []);
 
   return { ndjson, rowCount, columns };
 }

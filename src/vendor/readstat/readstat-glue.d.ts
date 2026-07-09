@@ -19,6 +19,13 @@ export interface ReadStatModule {
     argTypes: Array<'number' | 'string'>,
     args: Array<number | string>,
   ): string;
+  // Void call (e.g. `rs_free`) — Emscripten accepts a null returnType.
+  ccall(
+    name: string,
+    returnType: null,
+    argTypes: Array<'number' | 'string'>,
+    args: Array<number | string>,
+  ): void;
 }
 
 export interface ReadStatModuleOptions {

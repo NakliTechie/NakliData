@@ -15,25 +15,37 @@ typedef struct {
   char *buf;
   size_t len;
   size_t cap;
+  int oom;  // M28: set once a realloc fails; further appends become no-ops
 } strbuf;
 
 static void sb_ensure(strbuf *sb, size_t extra) {
+  if (sb->oom) return;
   if (sb->len + extra + 1 > sb->cap) {
     size_t ncap = sb->cap ? sb->cap : 4096;
     while (ncap < sb->len + extra + 1) ncap *= 2;
-    sb->buf = realloc(sb->buf, ncap);
+    // M28: realloc into a temp so a NULL return (wasm OOM) doesn't leak the old
+    // buffer or leave sb->buf dangling — flag OOM and stop appending instead of
+    // memcpy'ing into NULL.
+    char *nbuf = realloc(sb->buf, ncap);
+    if (!nbuf) {
+      sb->oom = 1;
+      return;
+    }
+    sb->buf = nbuf;
     sb->cap = ncap;
   }
 }
 static void sb_puts(strbuf *sb, const char *s) {
   size_t n = strlen(s);
   sb_ensure(sb, n);
+  if (sb->oom) return;
   memcpy(sb->buf + sb->len, s, n);
   sb->len += n;
   sb->buf[sb->len] = 0;
 }
 static void sb_putc(strbuf *sb, char c) {
   sb_ensure(sb, 1);
+  if (sb->oom) return;
   sb->buf[sb->len++] = c;
   sb->buf[sb->len] = 0;
 }
@@ -69,6 +81,7 @@ typedef struct {
   int cur_obs;
   int started_row;
   int row_count;
+  int oom;  // M28: a calloc/strdup failed — rs_read reports it as a distinct code
 } rs_ctx;
 
 static rs_ctx g;
@@ -78,7 +91,14 @@ static int meta_handler(readstat_metadata_t *md, void *ctx) {
   g.row_count = readstat_get_row_count(md);
   int vc = readstat_get_var_count(md);
   g.var_count = vc;
+  // M28: a NULL calloc previously left g.names NULL, so the next var_handler's
+  // `g.names[index] = …` was a NULL-deref. Flag OOM and abort the parse instead.
   g.names = calloc(vc > 0 ? vc : 1, sizeof(char *));
+  if (!g.names) {
+    g.var_count = 0;
+    g.oom = 1;
+    return READSTAT_HANDLER_ABORT;
+  }
   return READSTAT_HANDLER_OK;
 }
 
@@ -87,7 +107,13 @@ static int var_handler(int index, readstat_variable_t *var, const char *labels, 
   (void)ctx;
   const char *name = readstat_variable_get_name(var);
   if (index >= 0 && index < g.var_count) {
-    g.names[index] = strdup(name ? name : "");
+    // M28: check strdup — on OOM, abort rather than storing NULL silently.
+    char *dup = strdup(name ? name : "");
+    if (!dup) {
+      g.oom = 1;
+      return READSTAT_HANDLER_ABORT;
+    }
+    g.names[index] = dup;
   }
   return READSTAT_HANDLER_OK;
 }
@@ -169,10 +195,10 @@ static int value_handler(int obs_index, readstat_variable_t *var, readstat_value
   return READSTAT_HANDLER_OK;
 }
 
-// format: 0=dta 1=sav 2=por 3=sas7bdat 4=xport. Returns 0 on success,
-// else the readstat_error_t code.
-int rs_read(const uint8_t *data, int len, int format) {
-  // Free any prior run.
+// L25: release the wasm-resident output of the previous parse (NDJSON + column
+// list + name table). Exported so the JS side can free the last file's buffer
+// after copying it out — otherwise it stays resident for the whole session.
+void rs_free(void) {
   if (g.out.buf) free(g.out.buf);
   if (g.cols.buf) free(g.cols.buf);
   if (g.names) {
@@ -181,6 +207,13 @@ int rs_read(const uint8_t *data, int len, int format) {
   }
   memset(&g, 0, sizeof g);
   g.cur_obs = -1;
+}
+
+// format: 0=dta 1=sav 2=por 3=sas7bdat 4=xport. Returns 0 on success, -1 on a
+// file-write failure, -2 on an out-of-memory while building output, else the
+// readstat_error_t code.
+int rs_read(const uint8_t *data, int len, int format) {
+  rs_free();  // free any prior run
 
   FILE *f = fopen("/rs_input", "wb");
   if (!f) return -1;
@@ -211,6 +244,10 @@ int rs_read(const uint8_t *data, int len, int format) {
     sb_json_str(&g.cols, g.names[i] ? g.names[i] : "");
   }
   sb_putc(&g.cols, ']');
+
+  // M28: an allocation failed while building the name table or the output
+  // buffers — report it distinctly instead of returning a truncated success.
+  if (g.oom || g.out.oom || g.cols.oom) return -2;
 
   return err == READSTAT_OK ? 0 : (int)err;
 }

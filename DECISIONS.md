@@ -2,6 +2,45 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — rs_wrapper C memory-safety (M28/L24/L25) + wasm rebuilt in-session
+
+### Decision CT — checked allocations, `rs_free` export, oversized-input guards
+
+The forward-pass flagged `src/vendor/readstat/rs_wrapper.c` (the ReadStat→NDJSON
+wasm wrapper) for unchecked allocations (NULL-deref / leak on wasm OOM) and a
+session-long leak of the last file's NDJSON. Fixed and **rebuilt the wasm in
+this session** — the workplan assumed no emcc, but **emcc 6.0.1 + python@3.14 are
+installed on this machine** (`/opt/homebrew`), and `build.sh` already prepends
+python@3.14 to PATH, so the pinned-commit rebuild is reproducible here. See
+[[readstat-wasm-buildable-in-session]].
+
+- **M28 (C):** `sb_ensure` now `realloc`s into a temp and sets a per-buffer `oom`
+  flag on NULL (no dangling `buf`, no `memcpy` into NULL); `sb_puts`/`sb_putc`
+  no-op once OOM. `meta_handler`'s `calloc` and `var_handler`'s `strdup` are
+  checked → set `g.oom` + `READSTAT_HANDLER_ABORT` (the un-checked `calloc` was
+  the real NULL-deref: a NULL `g.names` then indexed in `var_handler`). `rs_read`
+  returns a distinct **-2** when any OOM flag is set instead of a truncated
+  success.
+- **L25 (C):** added an exported **`rs_free()`** (also called at the top of
+  `rs_read`, replacing the duplicated cleanup) so the JS side can release the
+  last file's wasm-resident NDJSON/cols/names — previously they stayed live for
+  the whole session. Added `_rs_free` to `build.sh`'s `EXPORTED_FUNCTIONS` and a
+  void `ccall` overload to `readstat-glue.d.ts`.
+- **L24 (JS):** `readstat-reader.ts` now rejects inputs ≥ 2 GiB up front (wasm32
+  can't address them) and bails if `_malloc` returns 0 (NULL) before touching
+  `HEAPU8`; calls `rs_free()` after copying the NDJSON out (and on the error
+  path).
+- **Rebuild:** cloned ReadStat @ `3c68974` (per the README provenance), built via
+  `build.sh` (emcc 6.0.1), re-vendored `readstat.wasm` (275,672 → 276,754 B) +
+  `readstat-glue.js`, then removed the ephemeral `ReadStat/` clone (not committed;
+  re-clone to rebuild). No hash/SRI pin on the readstat wasm (same-origin glue),
+  so nothing else to update.
+- **Verified:** the smoke's Stata `.dta` leg still mounts 3 rows through the new
+  wasm (so parse correctness + the new `rs_free`-after-extract are sound); check
+  clean · **978 vitest** · smoke green · bundle 762.8/768 (readstat glue is a lazy
+  chunk, off-shell). **Owed:** SPSS/Stata date decoding (still emits raw numeric —
+  a separate future refinement, README "Known limitations").
+
 ## 2026-07-09 — Language cells: CodeMirror editor (vs textarea)
 
 ### Decision CS — shared `code-editor-host`, SQL surface untouched
