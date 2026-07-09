@@ -60,6 +60,10 @@ and `-sENVIRONMENT=web,worker` (no Node paths → no CSP-tripping `eval`/`requir
 
 - **Encoding:** string columns are converted to UTF-8 via musl iconv. Files
   declaring an unusual codepage may need review.
-- **Dates:** SPSS/Stata store dates as numeric offsets with a display format;
-  v1 emits the raw numeric (DuckDB types it as a number). Decoding to real
-  TIMESTAMPs via the variable's format string is a future refinement.
+- **Dates:** **Stata** `%td` (daily) + `%tc` (datetime) columns ARE decoded to
+  ISO strings (`2020-01-01` / `2020-01-01 13:30:00`) so DuckDB types them as
+  DATE/TIMESTAMP — see `stata_date_kind`/`sb_stata_date` in `rs_wrapper.c`
+  (DECISIONS CW; verified against `tests/e2e/fixtures/sample-data/stat_dates.dta`).
+  Still raw numeric: other Stata period formats (`%tw/%tm/%tq/%th/%ty` — not a
+  single instant) and **all SPSS/SAS** date formats (different epochs; no
+  pyreadstat fixture on hand to verify a decoder). Those remain the refinement.

@@ -1663,6 +1663,66 @@ async function main() {
   }
   log('✓ Stata .dta mounts (3 rows) — ReadStat-wasm reader → NDJSON → read_json_auto');
 
+  // 12j-2. Stata date decoding — a fixture whose columns are %td (daily) + %tc
+  //        (datetime) dates must come through as real ISO dates, not the raw
+  //        Stata offsets (2020-01-01 not 21915). Mount it, then query row id=1.
+  const dtaDates = await readFile('tests/e2e/fixtures/sample-data/stat_dates.dta');
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'stat_dates.dta', { type: 'application/octet-stream' });
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  }, dtaDates.toString('base64'));
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  await page.waitForFunction(
+    () =>
+      /\bstat_dates\b/.test(
+        document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '',
+      ),
+    null,
+    { timeout: 20000 },
+  );
+  const dcBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (b) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > b,
+    dcBefore,
+    { timeout: 5000 },
+  );
+  const dCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await dCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    'SELECT d::VARCHAR AS d, ts::VARCHAR AS ts FROM stat_dates WHERE id = 1',
+  );
+  await dCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const c = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')].at(-1);
+      return c && !c.classList.contains('errored') && c.querySelector('table td');
+    },
+    null,
+    { timeout: 15000 },
+  );
+  const dCells = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')].at(-1);
+    return [...c.querySelectorAll('table td')].map((td) => td.textContent);
+  });
+  if (!dCells.includes('2020-01-01')) {
+    fail(`Stata %td date not decoded (expected 2020-01-01, got ${JSON.stringify(dCells)})`);
+  }
+  if (!dCells.some((v) => /^2020-01-01 13:30:00/.test(v ?? ''))) {
+    fail(
+      `Stata %tc datetime not decoded (expected 2020-01-01 13:30:00, got ${JSON.stringify(dCells)})`,
+    );
+  }
+  log('✓ Stata date decoding: %td → 2020-01-01, %tc → 2020-01-01 13:30:00 (not raw offsets)');
+
   // 12k. Python cell (Polyglot-Workbench Fork 2). Add a SQL cell that yields a
   //      tiny table, then a Python cell bound to it: pandas doubles a column.
   //      Exercises the full path — table → Parquet → Pyodide (vendored,

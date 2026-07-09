@@ -2,6 +2,34 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Stata date decoding (%td / %tc)
+
+### Decision CW — decode Stata daily/datetime dates in the wrapper
+
+Stata stores dates as a numeric offset from 1960-01-01 with a display format, so a
+date column previously mounted as a meaningless number (`21915` for 2020-01-01).
+`rs_wrapper.c` now decodes them: `stata_date_kind()` classifies each variable's
+format (`readstat_variable_get_format`) — `%td`/`%d` = daily, `%tc`/`%tC` =
+datetime (ms) — and `value_handler` converts the numeric offset to an ISO string
+(`sb_stata_date` + a self-contained Hinnant `civil_from_days`, floored division so
+pre-1960 dates work), which DuckDB's `read_json_auto` then types as DATE/TIMESTAMP.
+
+- **Stata-only, by design:** gated on `g.fmt == 0` (dta). SPSS/SAS use different
+  formats + epochs (SPSS = seconds since 1582); their format strings don't even
+  match the `%t…` detection, and — decisively — **there's no pyreadstat on this
+  machine to generate an SPSS fixture**, so I won't ship an unverified SPSS epoch
+  decoder. Other Stata period formats (`%tw/%tm/%tq/%th/%ty`) stay raw numeric
+  (not a single calendar instant). Documented in the vendored README.
+- **Fixture built to verify:** system `pandas.to_stata(convert_dates=…)` (2.3.3)
+  generated `tests/e2e/fixtures/sample-data/stat_dates.dta` with `%td` + `%tc`
+  columns. Direct node check of the rebuilt wasm decoded all three rows exactly
+  (incl. the 1960-01-01 epoch boundary + a 23:59:59 datetime); a new smoke leg
+  mounts it and asserts `%td → 2020-01-01`, `%tc → 2020-01-01 13:30:00`.
+- **Rebuilt** the wasm (emcc 6.0.1, ReadStat @`3c68974`), re-vendored (275,672 …
+  now 277,750 B); glue unchanged (loader is independent of the C logic). No SRI
+  pin → nothing else to update. Gates: check clean · **978 vitest** · smoke green
+  (+Stata-date leg) · bundle 762.9/768.
+
 ## 2026-07-09 — Runtime-byte caching (service worker, not OPFS)
 
 ### Decision CV — dedicated deploy-independent runtime cache; fixes an eviction bug

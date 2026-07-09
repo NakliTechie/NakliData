@@ -73,18 +73,91 @@ static void sb_json_str(strbuf *sb, const char *s) {
   sb_putc(sb, '"');
 }
 
+// Stata date decoding. Stata stores dates as numeric offsets from 1960-01-01
+// with a display format (%td = whole days, %tc = milliseconds). Without decoding
+// a date column mounts as a meaningless number (21915 for 2020-01-01); we convert
+// %td/%tc to an ISO string so DuckDB's read_json_auto types it as DATE/TIMESTAMP.
+// Only applied to Stata (.dta) — SPSS/SAS use different formats + epochs and are
+// left as raw numeric (README "Known limitations").
+enum { DATE_NONE = 0, DATE_DAILY = 1, DATE_DATETIME = 2 };
+
+// Days from 1960-01-01 (Stata epoch) to 1970-01-01 (the civil algorithm's epoch).
+#define STATA_EPOCH_DAYS 3653
+
 typedef struct {
   strbuf out;   // NDJSON rows
   strbuf cols;  // JSON array of column names
   char **names;
+  int *datekind;  // per-variable Stata date kind (DATE_NONE/DAILY/DATETIME)
   int var_count;
   int cur_obs;
   int started_row;
   int row_count;
+  int fmt;  // file format code (0=dta) — date decoding is Stata-only
   int oom;  // M28: a calloc/strdup failed — rs_read reports it as a distinct code
 } rs_ctx;
 
 static rs_ctx g;
+
+// Classify a Stata display format string → date kind. `%td…`/`%d…` = daily,
+// `%tc…`/`%tC…` = datetime (ms). Other period formats (%tw/%tm/%tq/%th/%ty) are
+// left as raw numeric — they're not a single calendar instant.
+static int stata_date_kind(const char *fmt) {
+  if (!fmt || fmt[0] != '%') return DATE_NONE;
+  if (fmt[1] == 't') {
+    if (fmt[2] == 'c' || fmt[2] == 'C') return DATE_DATETIME;
+    if (fmt[2] == 'd') return DATE_DAILY;
+    return DATE_NONE;
+  }
+  if (fmt[1] == 'd') return DATE_DAILY;  // legacy %d…
+  return DATE_NONE;
+}
+
+// Howard Hinnant's civil-from-days: days since 1970-01-01 → (y, m, d). Exact for
+// the full proleptic Gregorian range; no libc/timezone dependency.
+static void civil_from_days(long z, int *yy, int *mm, int *dd) {
+  z += 719468;
+  long era = (z >= 0 ? z : z - 146096) / 146097;
+  unsigned doe = (unsigned)(z - era * 146097);
+  unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  long y = (long)yoe + era * 400;
+  unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  unsigned mp = (5 * doy + 2) / 153;
+  unsigned d = doy - (153 * mp + 2) / 5 + 1;
+  unsigned m = mp < 10 ? mp + 3 : mp - 9;
+  *yy = (int)(y + (m <= 2));
+  *mm = (int)m;
+  *dd = (int)d;
+}
+
+// Emit a numeric Stata date value as a quoted ISO string. daily → the offset is
+// in days; datetime → in milliseconds. Uses floored division so pre-1960 (negative
+// offset) dates decode correctly.
+static void sb_stata_date(strbuf *sb, int kind, double value) {
+  long days;
+  long tod = 0;  // seconds within the day (datetime only)
+  if (kind == DATE_DATETIME) {
+    long secs = (long)(value / 1000.0);  // ms → s (truncate sub-second)
+    days = secs / 86400;
+    tod = secs - days * 86400;
+    if (tod < 0) {  // floor toward negative infinity
+      tod += 86400;
+      days -= 1;
+    }
+  } else {
+    days = (long)value;
+  }
+  int y, m, d;
+  civil_from_days(days - STATA_EPOCH_DAYS, &y, &m, &d);
+  char tmp[40];
+  if (kind == DATE_DATETIME) {
+    int hh = (int)(tod / 3600), mi = (int)((tod % 3600) / 60), ss = (int)(tod % 60);
+    snprintf(tmp, sizeof tmp, "\"%04d-%02d-%02d %02d:%02d:%02d\"", y, m, d, hh, mi, ss);
+  } else {
+    snprintf(tmp, sizeof tmp, "\"%04d-%02d-%02d\"", y, m, d);
+  }
+  sb_puts(sb, tmp);
+}
 
 static int meta_handler(readstat_metadata_t *md, void *ctx) {
   (void)ctx;
@@ -93,8 +166,10 @@ static int meta_handler(readstat_metadata_t *md, void *ctx) {
   g.var_count = vc;
   // M28: a NULL calloc previously left g.names NULL, so the next var_handler's
   // `g.names[index] = …` was a NULL-deref. Flag OOM and abort the parse instead.
-  g.names = calloc(vc > 0 ? vc : 1, sizeof(char *));
-  if (!g.names) {
+  int n = vc > 0 ? vc : 1;
+  g.names = calloc(n, sizeof(char *));
+  g.datekind = calloc(n, sizeof(int));  // DATE_NONE (0) for every column by default
+  if (!g.names || !g.datekind) {
     g.var_count = 0;
     g.oom = 1;
     return READSTAT_HANDLER_ABORT;
@@ -114,6 +189,9 @@ static int var_handler(int index, readstat_variable_t *var, const char *labels, 
       return READSTAT_HANDLER_ABORT;
     }
     g.names[index] = dup;
+    // Stata-only: remember which columns carry a %td/%tc date format so
+    // value_handler can decode their numeric offset to an ISO string.
+    if (g.fmt == 0) g.datekind[index] = stata_date_kind(readstat_variable_get_format(var));
   }
   return READSTAT_HANDLER_OK;
 }
@@ -148,6 +226,27 @@ static int value_handler(int obs_index, readstat_variable_t *var, readstat_value
   if (readstat_value_is_missing(value, var)) {
     sb_puts(&g.out, "null");
     return READSTAT_HANDLER_OK;
+  }
+  // Stata date column: decode the numeric offset (days for %td, ms for %tc) to
+  // an ISO string. Falls through to normal emission for a non-numeric/NaN value.
+  int dk = (vindex >= 0 && vindex < g.var_count) ? g.datekind[vindex] : DATE_NONE;
+  if (dk != DATE_NONE) {
+    int isnum = 1;
+    double num;
+    switch (readstat_value_type(value)) {
+      case READSTAT_TYPE_INT8: num = readstat_int8_value(value); break;
+      case READSTAT_TYPE_INT16: num = readstat_int16_value(value); break;
+      case READSTAT_TYPE_INT32: num = readstat_int32_value(value); break;
+      case READSTAT_TYPE_FLOAT: num = readstat_float_value(value); break;
+      case READSTAT_TYPE_DOUBLE: num = readstat_double_value(value); break;
+      default:
+        isnum = 0;
+        num = 0;
+    }
+    if (isnum && !isnan(num) && !isinf(num)) {
+      sb_stata_date(&g.out, dk, num);
+      return READSTAT_HANDLER_OK;
+    }
   }
   char tmp[64];
   switch (readstat_value_type(value)) {
@@ -205,6 +304,7 @@ void rs_free(void) {
     for (int i = 0; i < g.var_count; i++) free(g.names[i]);
     free(g.names);
   }
+  if (g.datekind) free(g.datekind);
   memset(&g, 0, sizeof g);
   g.cur_obs = -1;
 }
@@ -214,6 +314,7 @@ void rs_free(void) {
 // readstat_error_t code.
 int rs_read(const uint8_t *data, int len, int format) {
   rs_free();  // free any prior run
+  g.fmt = format;  // gates Stata-only date decoding (rs_free memset cleared it)
 
   FILE *f = fopen("/rs_input", "wb");
   if (!f) return -1;
