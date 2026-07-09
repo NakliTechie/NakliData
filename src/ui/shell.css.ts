@@ -736,7 +736,7 @@ button {
   color: var(--text-muted);
 }
 .settings-test-result[data-state='ok'] {
-  color: var(--ok, #5a8f4a);
+  color: var(--success);
 }
 .settings-test-result[data-state='error'] {
   color: var(--danger);
@@ -752,7 +752,7 @@ button {
 .settings-endpoint-host {
   margin-top: var(--space-2);
   font-size: ${Type.size.xs};
-  color: var(--ok, #5a8f4a);
+  color: var(--success);
   font-family: var(--font-mono);
   word-break: break-all;
 }

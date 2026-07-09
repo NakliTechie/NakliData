@@ -147,15 +147,13 @@ async function buildShell() {
       //   - form-action 'self' — blocks injected forms from POSTing to a
       //     foreign origin (would otherwise be the easy exfil channel
       //     for any XSS that escapes our DOM hardening).
-      //   - frame-ancestors 'none' — clickjacking guard. NOTE: per CSP
-      //     L3, frame-ancestors is IGNORED when delivered via <meta>; we
-      //     ship it for documentation and for any future deploy that
-      //     speaks real HTTP headers. GitHub Pages doesn't, so the meta
-      //     entry is currently aspirational there.
+      // NOTE (M26): `frame-ancestors` is deliberately NOT set here — it is
+      // IGNORED when delivered via <meta> (CSP L3) and only logs a console
+      // warning. The clickjacking guard now ships as a real header in
+      // `public/_headers` (Cloudflare Workers Assets honours it).
       "base-uri 'self'",
       "object-src 'none'",
       "form-action 'self'",
-      "frame-ancestors 'none'",
     ].join('; ');
     const shellHtml = await readFile('src/index.html', 'utf8');
     // NB: use function-form replacers when inserting bundle output —

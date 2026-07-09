@@ -97,15 +97,15 @@ describe('emitDescriptivesSql', () => {
 describe('emitCorrelationMatrixSql', () => {
   it('emits Pearson correlation for upper triangle', () => {
     const sql = emitCorrelationMatrixSql('invoices', ['amount', 'tax']);
-    // self-pairs (i==j) AND (amount, tax) BUT NOT (tax, amount) — only upper triangle.
+    // self-pairs (i==j) AND (amount, tax) BUT NOT (tax, amount) — only upper
+    // triangle. M10: aliases are index-based (corr__<i>__<j>) so column names
+    // containing `__` can't collide.
     expect(sql).toContain(
-      `corr(CAST("amount" AS DOUBLE), CAST("amount" AS DOUBLE)) AS "corr__amount__amount"`,
+      `corr(CAST("amount" AS DOUBLE), CAST("amount" AS DOUBLE)) AS "corr__0__0"`,
     );
-    expect(sql).toContain(
-      `corr(CAST("amount" AS DOUBLE), CAST("tax" AS DOUBLE)) AS "corr__amount__tax"`,
-    );
-    expect(sql).toContain(`corr(CAST("tax" AS DOUBLE), CAST("tax" AS DOUBLE)) AS "corr__tax__tax"`);
-    expect(sql).not.toContain(`AS "corr__tax__amount"`); // lower triangle skipped
+    expect(sql).toContain(`corr(CAST("amount" AS DOUBLE), CAST("tax" AS DOUBLE)) AS "corr__0__1"`);
+    expect(sql).toContain(`corr(CAST("tax" AS DOUBLE), CAST("tax" AS DOUBLE)) AS "corr__1__1"`);
+    expect(sql).not.toContain(`AS "corr__1__0"`); // lower triangle skipped
   });
 
   it('< 2 numeric columns emits placeholder', () => {
@@ -213,9 +213,9 @@ describe('parseCorrelationRow', () => {
   it('returns the upper triangle as {a, b, value} entries', () => {
     const numericCols = ['amount', 'tax'];
     const row = {
-      corr__amount__amount: 1.0,
-      corr__amount__tax: 0.85,
-      corr__tax__tax: 1.0,
+      corr__0__0: 1.0,
+      corr__0__1: 0.85,
+      corr__1__1: 1.0,
     };
     const parsed = parseCorrelationRow(row, numericCols);
     expect(parsed).toEqual([
@@ -227,9 +227,9 @@ describe('parseCorrelationRow', () => {
 
   it('null correlation (insufficient pairs) parses as null, not NaN', () => {
     const row = {
-      corr__a__a: null,
-      corr__a__b: null,
-      corr__b__b: null,
+      corr__0__0: null,
+      corr__0__1: null,
+      corr__1__1: null,
     };
     const parsed = parseCorrelationRow(row, ['a', 'b']);
     expect(parsed.every((p) => p.value === null)).toBe(true);
@@ -239,13 +239,24 @@ describe('parseCorrelationRow', () => {
     // DuckDB shouldn't return NaN for corr() but the parser handles
     // the edge case so a bad fixture doesn't leak NaN into the UI.
     const row = {
-      corr__a__a: Number.NaN,
-      corr__a__b: 0.5,
-      corr__b__b: 1.0,
+      corr__0__0: Number.NaN,
+      corr__0__1: 0.5,
+      corr__1__1: 1.0,
     };
     const parsed = parseCorrelationRow(row, ['a', 'b']);
     expect(parsed[0]?.value).toBeNull(); // NaN → null
     expect(parsed[1]?.value).toBe(0.5);
     expect(parsed[2]?.value).toBe(1.0);
+  });
+
+  it('M10: column names containing __ do not collide', () => {
+    // ('x__y','z') and ('x','y__z') would both alias to corr__x__y__z under
+    // the old name-based scheme. Index aliases keep every pair distinct.
+    const cols = ['x__y', 'z'];
+    const sql = emitCorrelationMatrixSql('t', cols);
+    expect(sql).toContain('AS "corr__0__1"'); // (x__y, z)
+    const row = { corr__0__0: 1.0, corr__0__1: 0.42, corr__1__1: 1.0 };
+    const parsed = parseCorrelationRow(row, cols);
+    expect(parsed).toContainEqual({ a: 'x__y', b: 'z', value: 0.42 });
   });
 });

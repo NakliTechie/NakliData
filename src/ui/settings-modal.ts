@@ -326,7 +326,7 @@ function renderModal(): HTMLElement {
             <input type="checkbox" data-action="settings-enable" />
             <span>Enable sidecar (shows the Explain button on errored SQL cells)</span>
           </label>
-          <p class="settings-hint">Per spec §4.3: the v1.1 sidecar is narrow — it explains query errors, helps disambiguate column types, and helps define new types. It never generates SQL you didn't write yourself.</p>
+          <p class="settings-hint">Per spec §4.3: the v1.1 sidecar is narrow — it explains query errors, helps disambiguate column types, and helps define new types. Any SQL it drafts (e.g. NL→SQL) is inserted as an unrun cell — it is never executed without your explicit click.</p>
         </section>
         <section class="settings-section">
           <h2>Demo / censor mode</h2>

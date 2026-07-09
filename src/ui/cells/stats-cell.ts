@@ -58,6 +58,10 @@ export function renderStatsCell(
       const next = (ev.target as HTMLInputElement).value.trim() || null;
       handlers.onChange(cell.id, { name: next });
     });
+  // H3: the global dispatcher skips cell-delete expecting a local handler; wire it.
+  wrap
+    .querySelector<HTMLButtonElement>('[data-action="cell-delete"]')
+    ?.addEventListener('click', () => handlers.onDelete(cell.id));
   return wrap;
 }
 

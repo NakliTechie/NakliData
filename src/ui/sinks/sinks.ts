@@ -347,7 +347,9 @@ async function parquetBytes(engine: Engine, cellId: string): Promise<Uint8Array>
 async function readDuckDbFile(engine: Engine, name: string): Promise<Uint8Array> {
   try {
     const bytes = await engine.exportFileBytes(name);
-    void engine.removeFile(name);
+    // L35: best-effort cleanup — await + swallow so a failed remove doesn't
+    // become an unhandled rejection (the temp file is disposable either way).
+    await engine.removeFile(name).catch(() => {});
     return bytes;
   } catch (err) {
     throw new SinkError(
@@ -357,10 +359,18 @@ async function readDuckDbFile(engine: Engine, name: string): Promise<Uint8Array>
 }
 
 function csvEscape(v: string): string {
-  if (v.includes(',') || v.includes('"') || v.includes('\n') || v.includes('\r')) {
-    return `"${v.replace(/"/g, '""')}"`;
+  // M25: CSV formula-injection guard. A value starting with = + - @ (or a
+  // leading tab/CR) is executed as a formula when the CSV is opened in Excel /
+  // Google Sheets. Prefix a `'` to neutralise it (the standard OWASP mitigation)
+  // before the RFC-4180 quoting below.
+  let s = v;
+  if (/^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
   }
-  return v;
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }
 
 function formatCsvValue(v: unknown): string {

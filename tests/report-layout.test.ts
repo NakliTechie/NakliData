@@ -87,7 +87,16 @@ describe('validateReport', () => {
       ...emptyReportDefinition(),
       items: [{ kind: 'spacer', height: 999 }],
     };
-    expect(validateReport(r, [])[0]).toContain('must be in [1, 200] mm');
+    expect(validateReport(r, [])[0]).toContain('must be a number in [1, 200] mm');
+  });
+
+  it('flags a non-numeric (hostile) spacer height', () => {
+    const r = {
+      ...emptyReportDefinition(),
+      // A loaded .naklidata could carry a string here (H2 injection vector).
+      items: [{ kind: 'spacer', height: '1mm;"><img src=x>' }],
+    } as unknown as ReportDefinition;
+    expect(validateReport(r, [])[0]).toContain('must be a number in [1, 200] mm');
   });
 });
 

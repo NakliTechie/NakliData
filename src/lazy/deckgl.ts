@@ -36,6 +36,20 @@ import { ACCENT_RGB, CATEGORICAL_RGB, assignCategoryColors } from '../core/categ
 // single-accent / hub color; CATEGORICAL_RGB cycles for distinct values.
 const PALETTE_RGB = CATEGORICAL_RGB;
 
+// H7: loop-based min/max. `Math.min(...xs)` spreads one argument per point, and
+// V8 throws RangeError (call-stack overflow) above ~125k args — SQL results are
+// uncapped, so a large embedding/network scatter crashed at mount.
+function minOf(a: readonly number[]): number {
+  let m = Number.POSITIVE_INFINITY;
+  for (const v of a) if (v < m) m = v;
+  return m;
+}
+function maxOf(a: readonly number[]): number {
+  let m = Number.NEGATIVE_INFINITY;
+  for (const v of a) if (v > m) m = v;
+  return m;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Embedding scatter — standalone Deck on an OrthographicView (abstract 2-D
 // plane, no geography) for precomputed (x, y) embedding coordinates.
@@ -100,9 +114,9 @@ export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScat
 
   const xs = points.map((p) => p.position[0]);
   const ys = points.map((p) => p.position[1]);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) || 1;
+  const cx = (minOf(xs) + maxOf(xs)) / 2;
+  const cy = (minOf(ys) + maxOf(ys)) / 2;
+  const span = Math.max(maxOf(xs) - minOf(xs), maxOf(ys) - minOf(ys)) || 1;
   const width = container.clientWidth || 600;
   const height = container.clientHeight || 420;
   const zoom = Math.log2(Math.min(width, height) / span) - 0.2;
@@ -275,9 +289,9 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
 
   const xs = nodes.map((n) => n.position[0]);
   const ys = nodes.map((n) => n.position[1]);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) || 1;
+  const cx = (minOf(xs) + maxOf(xs)) / 2;
+  const cy = (minOf(ys) + maxOf(ys)) / 2;
+  const span = Math.max(maxOf(xs) - minOf(xs), maxOf(ys) - minOf(ys)) || 1;
   const width = container.clientWidth || 600;
   const height = container.clientHeight || 420;
   const zoom = Math.log2(Math.min(width, height) / span) - 0.2;
@@ -302,8 +316,8 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
   const hasEdgeColor = edgeColorMap.size > 0;
   // Edge width scaling (Weighted view) — normalize finite weights to [1, 6] px.
   const weights = edges.map((e) => e.weight).filter((w): w is number => Number.isFinite(w));
-  const wMin = weights.length ? Math.min(...weights) : 0;
-  const wMax = weights.length ? Math.max(...weights) : 0;
+  const wMin = weights.length ? minOf(weights) : 0;
+  const wMax = weights.length ? maxOf(weights) : 0;
   const hasEdgeWidth = weights.length > 0 && wMax > wMin;
   const edgeWidthFor = (w: number | null | undefined): number => {
     if (!hasEdgeWidth || !Number.isFinite(w)) return 1;

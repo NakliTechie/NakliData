@@ -66,7 +66,7 @@ function renderModal(opts: {
           <input type="url" data-region="metadata-url-input" placeholder="https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json" autocomplete="off" spellcheck="false">
         </label>
         <label class="mount-url-field">
-          <span>Bearer token <em>(optional — leave blank for public tables)</em></span>
+          <span>Bearer token <em>(optional — leave blank for public tables; applies to all data requests this session)</em></span>
           <input type="password" data-region="bearer-token-input" autocomplete="off" spellcheck="false">
         </label>
         <label class="mount-url-field mount-s3-remember">

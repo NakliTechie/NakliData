@@ -502,9 +502,13 @@ export class Engine {
   }): Promise<void> {
     const safeTable = sanitizeIdent(tableName);
     const lit = escapeLiteral(url);
+    // M29: match the resilient options `createDelimitedView` uses for local
+    // files (whole-file type inference + skip broken rows + sniffer header
+    // detection). The old `header=true, sample_size=2048` re-introduced the
+    // "CSV Error on Line N" hard-fail and ate headerless files' first row.
     const reader: Record<typeof format, string> = {
-      csv: `read_csv_auto('${lit}', header=true, sample_size=2048)`,
-      tsv: `read_csv_auto('${lit}', delim='\t', header=true, sample_size=2048)`,
+      csv: `read_csv_auto('${lit}', sample_size=-1, ignore_errors=true, null_padding=true)`,
+      tsv: `read_csv_auto('${lit}', delim='\t', sample_size=-1, ignore_errors=true, null_padding=true)`,
       jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
       parquet: `read_parquet('${lit}')`,
     };
@@ -558,9 +562,10 @@ export class Engine {
   }): Promise<void> {
     const safeTable = sanitizeIdent(tableName);
     const lit = escapeLiteral(s3Url);
+    // M29: same resilient options as the local + URL CSV readers.
     const reader: Record<typeof format, string> = {
-      csv: `read_csv_auto('${lit}', header=true, sample_size=2048)`,
-      tsv: `read_csv_auto('${lit}', delim='\t', header=true, sample_size=2048)`,
+      csv: `read_csv_auto('${lit}', sample_size=-1, ignore_errors=true, null_padding=true)`,
+      tsv: `read_csv_auto('${lit}', delim='\t', sample_size=-1, ignore_errors=true, null_padding=true)`,
       jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
       parquet: `read_parquet('${lit}')`,
     };
@@ -994,7 +999,7 @@ export class Engine {
     distinctCount: number;
   }> {
     const safeTable = quoteIdent(sanitizeIdent(tableName));
-    const safeCol = quoteIdent(columnName.replace(/"/g, '""'));
+    const safeCol = quoteIdent(columnName);
     const half = Math.max(1, Math.floor(limit / 2));
     const head = await this.query<{ v: unknown }>(
       `SELECT ${safeCol}::VARCHAR AS v FROM ${safeTable} LIMIT ${half}`,
@@ -1029,7 +1034,7 @@ export class Engine {
    */
   async profileColumn(tableName: string, columnName: string): Promise<ColumnProfile> {
     const safeTable = quoteIdent(sanitizeIdent(tableName));
-    const safeCol = quoteIdent(columnName.replace(/"/g, '""'));
+    const safeCol = quoteIdent(columnName);
     const summaryRows = await this.query<{
       total: number | bigint;
       null_count: number | bigint;
@@ -1161,8 +1166,8 @@ export class Engine {
   ): Promise<TableComparison> {
     const safeA = quoteIdent(sanitizeIdent(tableAName));
     const safeB = quoteIdent(sanitizeIdent(tableBName));
-    const safeKeyA = quoteIdent(joinColA.replace(/"/g, '""'));
-    const safeKeyB = quoteIdent(joinColB.replace(/"/g, '""'));
+    const safeKeyA = quoteIdent(joinColA);
+    const safeKeyB = quoteIdent(joinColB);
 
     // Discover columns on each side via DESCRIBE.
     const colsA = await this.query<{ column_name: string }>(`DESCRIBE ${safeA}`);
@@ -1186,10 +1191,7 @@ export class Engine {
       common.length === 0
         ? '0' // no common columns → never "differing"
         : common
-            .map(
-              (c) =>
-                `(a.${quoteIdent(c.replace(/"/g, '""'))} IS DISTINCT FROM b.${quoteIdent(c.replace(/"/g, '""'))})::INT`,
-            )
+            .map((c) => `(a.${quoteIdent(c)} IS DISTINCT FROM b.${quoteIdent(c)})::INT`)
             .join(' + ');
     const bucketsSql = `
       WITH joined AS (
@@ -1230,7 +1232,7 @@ export class Engine {
         ? ''
         : common
             .map((c, i) => {
-              const safeC = quoteIdent(c.replace(/"/g, '""'));
+              const safeC = quoteIdent(c);
               return `a.${safeC} AS a_${i}, b.${safeC} AS b_${i}`;
             })
             .join(', ');
@@ -1327,9 +1329,19 @@ export class Engine {
   }
 
   /** Execute a statement, discarding the result rows. */
-  async exec(sql: string): Promise<void> {
+  async exec(sql: string, opts: QueryOptions = {}): Promise<void> {
     const conn = this.requireConn();
-    await conn.query(sql);
+    const { signal } = opts;
+    if (signal?.aborted) throw new EngineError('Statement aborted before start');
+    const onAbort = () => {
+      void conn.cancelSent();
+    };
+    signal?.addEventListener('abort', onAbort);
+    try {
+      await conn.query(sql);
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
   }
 
   /**

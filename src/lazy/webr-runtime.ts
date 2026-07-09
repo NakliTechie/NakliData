@@ -60,6 +60,10 @@ export function loadRRuntime(onProgress?: (phase: string) => void): Promise<WebR
       onProgress?.('Ready');
       return webR;
     })();
+    // M5: don't cache a rejected init forever (retry re-loads).
+    _rPromise.catch(() => {
+      _rPromise = null;
+    });
   }
   return _rPromise;
 }
@@ -83,7 +87,24 @@ export class RRunError extends Error {
  * `cell_<cellId>`. Returns a head-snapshot preview. Throws on R error or when
  * the input exceeds R_MAX_ROWS.
  */
-export async function runRCell(
+// M27: WebR runs share the VFS files `/nd_r_in.csv` + `/nd_r_out.csv` and the
+// R global `df`, and the critical section spans ~6 awaits. Two concurrent runs
+// would interleave and silently corrupt each other. Serialize every run through
+// a promise queue (in-chunk, not relying on UI discipline).
+let _rLock: Promise<unknown> = Promise.resolve();
+
+export function runRCell(
+  engine: Engine,
+  opts: { cellId: string; inputTable: string; code: string; onProgress?: (phase: string) => void },
+): Promise<RPreview> {
+  const run = _rLock.then(() => runRCellImpl(engine, opts));
+  // Keep the chain alive across failures without leaking the rejection to the
+  // NEXT queued run (each caller still gets its own rejection via `run`).
+  _rLock = run.catch(() => {});
+  return run;
+}
+
+async function runRCellImpl(
   engine: Engine,
   opts: { cellId: string; inputTable: string; code: string; onProgress?: (phase: string) => void },
 ): Promise<RPreview> {

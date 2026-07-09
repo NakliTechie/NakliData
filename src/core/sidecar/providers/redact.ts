@@ -19,8 +19,10 @@
 // still sees the error message context.
 
 const REDACTION_PATTERNS: RegExp[] = [
-  // `Authorization: Bearer xxx…` and any embedded `Bearer xxx`
-  /Bearer\s+[A-Za-z0-9._\-+/=]+/g,
+  // `Authorization: Bearer xxx…` and any embedded `Bearer xxx`. L31: `i` flag
+  // so a proxy echoing a lowercased `authorization: bearer <token>` is redacted
+  // (under-redaction is the risk this module refuses to accept).
+  /Bearer\s+[A-Za-z0-9._\-+/=]+/gi,
   // Anthropic keys: `sk-ant-…`
   /sk-ant-[A-Za-z0-9_-]+/g,
   // OpenAI keys: `sk-…` (after sk-ant- already matched above)

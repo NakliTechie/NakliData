@@ -774,6 +774,56 @@ export function extractFromTables(sql: string): string[] {
   return found;
 }
 
+/**
+ * Strip SQL line (`-- …`) and block (`/* … *​/`) comments, preserving
+ * single-quoted string literals verbatim (so `'a -- b'` isn't gutted).
+ * M1: the nl-to-sql gates below must run on a comment-free view — otherwise
+ * `FROM/**​/'https://attacker/x.csv'` slips past the `FROM\s+'` replacement-scan
+ * gate (the comment defeats `\s+`) and past the identifier walker (no ident to
+ * validate). Comments are replaced with a space so adjacent tokens don't fuse.
+ */
+function stripSqlComments(sql: string): string {
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    if (ch === "'") {
+      const start = i;
+      i++;
+      while (i < n) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += sql.slice(start, i);
+      continue;
+    }
+    if (ch === '-' && sql[i + 1] === '-') {
+      i += 2;
+      while (i < n && sql[i] !== '\n') i++;
+      out += ' ';
+      continue;
+    }
+    if (ch === '/' && sql[i + 1] === '*') {
+      i += 2;
+      while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+      i = Math.min(n, i + 2);
+      out += ' ';
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSqlResponse {
   const stripped = raw
     .trim()
@@ -783,16 +833,21 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   if (!stripped) {
     return { kind: 'nl-to-sql', sql: '' };
   }
+  // M1: run EVERY security gate against a comment-free view so a model (or a
+  // prompt-injected one) can't hide a replacement-scan URL or extra statement
+  // behind `/* */` or `--`. The returned SQL stays `stripped` (comments are
+  // harmless once the dangerous forms are rejected).
+  const norm = stripSqlComments(stripped).trim();
   // Must start with SELECT or WITH (optionally inside a leading
   // parenthesis — `(SELECT …)` and `(WITH …)` are valid).
   const headMatcher = /^(?:\(\s*)?(SELECT|WITH)\b/i;
-  if (!headMatcher.test(stripped)) {
+  if (!headMatcher.test(norm)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
   // Reject any write/DDL/session-mutating keyword anywhere in the body.
   // (A SELECT that references a column literally named `delete` is rare;
   // if it happens we false-reject and the user can edit.)
-  if (WRITE_KEYWORDS.test(stripped)) {
+  if (WRITE_KEYWORDS.test(norm)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
   // Reject DuckDB's "replacement scan" syntax: `FROM '…'` (single-quoted
@@ -802,7 +857,7 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   // emit `SELECT * FROM 'https://attacker.com/x.csv'` and the parser
   // would let it through. (Code-review of v1.2.1..HEAD surfaced.)
   // Same gate for JOIN as defence-in-depth.
-  if (/\b(?:FROM|JOIN)\s+'/i.test(stripped)) {
+  if (/\b(?:FROM|JOIN)\s+'/i.test(norm)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
   // Reject multi-statement responses. The model is instructed to emit a
@@ -815,7 +870,7 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   // doesn't false-trip the gate. DuckDB strings use `''` as embedded-
   // quote escape — the regex handles that with `(?:[^']|'')*`.
   // (Code-review of v1.2.1..HEAD surfaced.)
-  const strippedNoStrings = stripped.replace(/'(?:[^']|'')*'/g, "''");
+  const strippedNoStrings = norm.replace(/'(?:[^']|'')*'/g, "''");
   if (/;\s*\S/.test(strippedNoStrings)) {
     return { kind: 'nl-to-sql', sql: '' };
   }
@@ -830,14 +885,14 @@ export function parseNlToSqlResponse(raw: string, tableNames: string[]): NlToSql
   const cteMatcher = /(?:WITH\s+(?:RECURSIVE\s+)?|,\s*)([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi;
   let cm: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
-  while ((cm = cteMatcher.exec(stripped)) !== null) {
+  while ((cm = cteMatcher.exec(norm)) !== null) {
     const name = cm[1]?.toLowerCase() ?? '';
     if (name) cteNames.add(name);
   }
   const allowed = new Set(tableNames.map((n) => n.toLowerCase()));
   // extractFromTables walks every FROM/JOIN window and returns ALL
   // comma-separated identifiers inside each — closing the H2 gap.
-  for (const refRaw of extractFromTables(stripped)) {
+  for (const refRaw of extractFromTables(norm)) {
     const ref = refRaw.toLowerCase();
     // Skip CTE references and known cell-view shorthands (cell_<id>).
     if (cteNames.has(ref)) continue;

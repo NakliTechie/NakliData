@@ -39,9 +39,8 @@ function renderHeader(state: ShellState): HTMLElement {
     <div class="session-switcher" data-region="session-switcher"></div>
     <div class="selections-bar" data-region="selections-bar" hidden></div>
     <div class="right">
-      <button class="btn btn-ghost" data-action="spotlight" aria-keyshortcuts="Control+K" title="Search (Ctrl+K)">
-        ${iconSvg('search', 14)} <span>Search</span>
-      </button>
+      <!-- S5: the Search/spotlight affordance is not implemented — the button
+           and its Ctrl+K binding toasted "not wired yet". Removed until built. -->
       <button class="btn btn-ghost" data-action="load" title="Open .naklidata">
         ${iconSvg('folder', 14)} <span>Open</span>
       </button>

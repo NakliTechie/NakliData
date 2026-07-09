@@ -101,6 +101,12 @@ export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRe
     // prevents the bundler from trying to resolve the import at build
     // time; no comment annotation is required.
     p = import(url);
+    // M5: don't cache a REJECTED import forever — one transient network failure
+    // would otherwise brick this chunk for the whole session (every retry
+    // re-awaits the same rejection). Evict on failure so a retry re-imports.
+    p.catch(() => {
+      if (cache.get(name) === p) cache.delete(name);
+    });
     cache.set(name, p);
   }
   return p as Promise<LazyChunkRegistry[K]>;

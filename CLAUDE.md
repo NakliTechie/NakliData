@@ -14,7 +14,7 @@ decision log, and `plan/pending.md` for what's queued next.
    No exceptions for "small" changes — small changes break this surface
    most often.
 2. **`npm run test` green.** Vitest unit tests.
-3. **Bundle within budget.** `dist/index.html` ≤ 600 KB (spec §7.1).
+3. **Bundle within budget.** `dist/index.html` ≤ 768 KB (spec §7.1, A35).
    Enforced by `scripts/check-bundle-size.mjs`, which runs as the
    bundle-gate step of `npm run check` (skipped if `dist/` is absent —
    run `npm run build` first to force the gate). Manual inspection

@@ -17,6 +17,7 @@
 // (Engine.registerArrowBuffer).
 
 import { assertSafeBearerToken } from '../bearer-token.ts';
+import { redactSecrets } from '../sidecar/providers/redact.ts';
 
 export interface BridgeClientOptions {
   /** Bridge base URL — e.g. `https://nakli-compute.your-vpc.internal:8088`. */
@@ -187,12 +188,14 @@ export class BridgeClient {
           if (err && typeof err === 'object') {
             if (typeof err.code === 'string') code = err.code;
             if (typeof err.message === 'string' && err.message.trim()) {
-              message = `Bridge ${res.status}: ${err.message}`;
+              // L30: cap + redact — a proxy echoing Authorization in the JSON
+              // error message would otherwise surface the bearer token.
+              message = `Bridge ${res.status}: ${redactSecrets(err.message.slice(0, 240))}`;
             }
           }
         } catch {
-          // Body wasn't JSON — keep the default message.
-          message = `Bridge ${res.status}: ${text.slice(0, 240) || res.statusText}`;
+          // Body wasn't JSON — keep the default message (capped + redacted).
+          message = `Bridge ${res.status}: ${redactSecrets(text.slice(0, 240)) || res.statusText}`;
         }
       }
     } catch {

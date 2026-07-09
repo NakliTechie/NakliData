@@ -9,6 +9,9 @@
 //
 // Reference: https://iceberg.apache.org/spec/rest-catalog-open-api.yaml
 
+import { assertSafeBearerToken } from '../bearer-token.ts';
+import { redactSecrets } from '../sidecar/providers/redact.ts';
+
 export interface IcebergCatalogClientOptions {
   /** Base URL of the catalog — e.g. `https://lakehouse.example.com/iceberg`. */
   catalogUrl: string;
@@ -56,6 +59,9 @@ export class IcebergCatalogClient {
     this.catalogUrl = opts.catalogUrl.trim().replace(/\/+$/, '');
     this.headers = { Accept: 'application/json' };
     if (opts.bearerToken) {
+      // L29: validate before building the header (CR/LF etc.), matching
+      // BridgeClient + engine.configureIceberg — this site was missed.
+      assertSafeBearerToken(opts.bearerToken);
       this.headers.Authorization = `Bearer ${opts.bearerToken}`;
     }
     this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
@@ -149,7 +155,10 @@ function encodeNamespace(namespace: string): string {
 
 async function safeReadText(res: Response): Promise<string> {
   try {
-    return await res.text();
+    // M14: cap + redact — a misconfigured proxy that echoes the Authorization
+    // header in the error body would otherwise surface the bearer token in the
+    // mount modal. Matches the sidecar providers' error handling.
+    return redactSecrets((await res.text()).slice(0, 240));
   } catch {
     return '';
   }

@@ -314,7 +314,22 @@ export function parse(text: string): NakliDataFile {
       `This notebook was saved with a newer version of NakliData (${obj.version}). Please update.`,
     );
   }
-  // Trivial migration path for v1.0 — just trust the shape.
+  // W1: validate the top-level shape before trusting it. This is the
+  // deserializer for the attacker-controllable `?lens=` payload, so a
+  // non-array `sources`/`cells`/`assignments` must be rejected rather than
+  // flowed into workbook/notebook state as type-confused data.
+  if (!Array.isArray(obj.sources))
+    throw new Error('Malformed .naklidata: sources must be an array.');
+  if (!Array.isArray(obj.cells)) throw new Error('Malformed .naklidata: cells must be an array.');
+  if (obj.assignments != null && !Array.isArray(obj.assignments)) {
+    throw new Error('Malformed .naklidata: assignments must be an array.');
+  }
+  for (const c of obj.cells) {
+    if (typeof c !== 'object' || c === null || typeof (c as { kind?: unknown }).kind !== 'string') {
+      throw new Error('Malformed .naklidata: each cell needs a string "kind".');
+    }
+  }
+  // Trivial migration path for v1.0 — just trust the (now shape-checked) rest.
   return obj as NakliDataFile;
 }
 
@@ -337,7 +352,13 @@ export function defaultFilename(name: string): string {
   return `${slug || 'NakliData'}.naklidata`;
 }
 
-export async function saveToFile(file: NakliDataFile): Promise<{ name: string }> {
+/** Sentinel returned when the user cancels the Save dialog (L4) — callers
+ *  should treat this as a no-op, not an error. */
+export const SAVE_CANCELLED = { name: null } as const;
+
+export async function saveToFile(
+  file: NakliDataFile,
+): Promise<{ name: string } | typeof SAVE_CANCELLED> {
   const json = JSON.stringify(file, null, 2);
   const bytes = new TextEncoder().encode(json);
   const suggested = defaultFilename(file.name);
@@ -347,15 +368,23 @@ export async function saveToFile(file: NakliDataFile): Promise<{ name: string }>
   }) => Promise<FileSystemFileHandle>;
   const picker = (window as unknown as { showSaveFilePicker?: Picker }).showSaveFilePicker;
   if (typeof picker === 'function') {
-    const handle = await picker({
-      suggestedName: suggested,
-      types: [
-        {
-          description: '.naklidata file',
-          accept: { 'application/json': ['.naklidata', '.json'] },
-        },
-      ],
-    });
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picker({
+        suggestedName: suggested,
+        types: [
+          {
+            description: '.naklidata file',
+            accept: { 'application/json': ['.naklidata', '.json'] },
+          },
+        ],
+      });
+    } catch (err) {
+      // L4: cancelling the picker throws AbortError — that's a no-op, not a
+      // "Save failed" error toast.
+      if ((err as DOMException)?.name === 'AbortError') return SAVE_CANCELLED;
+      throw err;
+    }
     const w = await handle.createWritable();
     await w.write(new Blob([new Uint8Array(bytes)]));
     await w.close();
@@ -400,7 +429,7 @@ export async function loadFromFile(): Promise<NakliDataFile | null> {
       throw err;
     }
   }
-  return await new Promise<NakliDataFile | null>((resolve) => {
+  return await new Promise<NakliDataFile | null>((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.naklidata,.json,application/json';
@@ -410,9 +439,17 @@ export async function loadFromFile(): Promise<NakliDataFile | null> {
         resolve(null);
         return;
       }
-      const text = await f.text();
-      resolve(parse(text));
+      // L5: without this try/catch a parse() throw becomes an unhandled
+      // rejection and the promise never settles — the load silently hangs.
+      try {
+        const text = await f.text();
+        resolve(parse(text));
+      } catch (err) {
+        reject(err);
+      }
     };
+    // Resolve(null) if the dialog is dismissed so the caller doesn't hang.
+    input.addEventListener('cancel', () => resolve(null));
     input.click();
   });
 }

@@ -108,7 +108,11 @@ export class Notebook {
   private state: NotebookState = { cells: [] };
   private engine: Engine;
   private listeners = new Set<(s: NotebookState) => void>();
+  /** Listeners that fire on silent edits too (autosave) but NOT the render. */
+  private silentListeners = new Set<() => void>();
   private aborts = new Map<string, AbortController>();
+  /** M16: per-cell run generation — the latest run wins; older ones no-op. */
+  private runGen = new Map<string, number>();
 
   constructor(engine: Engine) {
     this.engine = engine;
@@ -121,6 +125,17 @@ export class Notebook {
   subscribe(fn: (s: NotebookState) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /**
+   * Subscribe to EVERY state change including silent per-keystroke edits
+   * (`patchCellSilent`). Used by autosave so typed-but-unrun code still gets
+   * persisted, without the render churn a full `notify()` would cause. A
+   * full `notify()` also fires these, so one subscription catches both paths.
+   */
+  subscribeSilent(fn: () => void): () => void {
+    this.silentListeners.add(fn);
+    return () => this.silentListeners.delete(fn);
   }
 
   load(cells: CellState[]): void {
@@ -376,15 +391,18 @@ LIMIT 100`,
 
   /**
    * Update a cell's state WITHOUT re-rendering. For in-place edits where the
-   * DOM already reflects the change (e.g. a textarea persisting its code) —
-   * a re-render there would replace the element mid-interaction and, worse,
-   * detach an adjacent button being clicked (dropping the click). Autosave
-   * still fires (it subscribes to the workbook, not this notify path).
+   * DOM already reflects the change (e.g. a textarea/CM6 persisting its code,
+   * an input widget's live value) — a full re-render there would replace the
+   * element mid-interaction and detach the focused editor (forward-pass C1:
+   * per-keystroke `patchCell` dropped focus and broke typing). Silent edits
+   * still fire `subscribeSilent` listeners, so autosave persists typed-but-
+   * unrun code without the render churn.
    */
   patchCellSilent(id: string, patch: Record<string, unknown>): void {
     this.state = {
       cells: this.state.cells.map((c) => (c.id === id ? ({ ...c, ...patch } as CellState) : c)),
     };
+    this.notifySilent();
   }
 
   cancel(id: string): void {
@@ -420,6 +438,14 @@ LIMIT 100`,
       });
       return;
     }
+    // M16: a per-cell run generation. A newer run supersedes an older one —
+    // abort the in-flight run for this cell, bump the generation, and only
+    // apply results/status if we're still the latest (guards out-of-order
+    // patches when a slow run finishes after a newer one).
+    this.aborts.get(id)?.abort();
+    const myGen = (this.runGen.get(id) ?? 0) + 1;
+    this.runGen.set(id, myGen);
+    const isLatest = () => this.runGen.get(id) === myGen;
     this.patchCell(id, { code, status: 'running', lastError: null });
     const ac = new AbortController();
     this.aborts.set(id, ac);
@@ -458,7 +484,11 @@ LIMIT 100`,
         >;
       } else {
         const viewName = `cell_${id}`;
-        await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`);
+        // L28: pass the abort signal to the view materialisation too, so Esc
+        // cancels a long CREATE VIEW, not just the follow-up SELECT.
+        await this.engine.exec(`CREATE OR REPLACE VIEW "${viewName}" AS ${rewritten}`, {
+          signal: ac.signal,
+        });
         rows = (await this.engine.query(`SELECT * FROM "${viewName}"`, {
           signal: ac.signal,
         })) as Array<Record<string, unknown>>;
@@ -473,6 +503,9 @@ LIMIT 100`,
       }
       const elapsed = performance.now() - t0;
       const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
+      // M16: a superseding run has already claimed this cell — don't clobber
+      // its (newer) result with our stale one.
+      if (!isLatest()) return;
       this.patchCell(id, {
         status: 'success',
         lastResult: {
@@ -483,10 +516,13 @@ LIMIT 100`,
         },
       });
     } catch (err) {
+      if (!isLatest()) return;
       const msg = err instanceof Error ? err.message : String(err);
       this.patchCell(id, { status: 'error', lastError: msg, lastResult: null });
     } finally {
-      this.aborts.delete(id);
+      // Only clear the abort entry if it's still ours (a newer run may have
+      // replaced it — deleting that would break its Esc-cancel).
+      if (this.aborts.get(id) === ac) this.aborts.delete(id);
     }
   }
 
@@ -614,7 +650,7 @@ LIMIT 100`,
    * existing view will surface as a DuckDB error inline.
    */
   private rewriteReferences(sql: string): string {
-    return sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_m, name) => {
+    const resolve = (name: string): string => {
       // W6.1 — Input cells inline their `value` as a SQL literal
       // (text → quoted, number → bare, date → DATE 'YYYY-MM-DD').
       // Checked first so they shadow same-named SQL cells (which
@@ -633,7 +669,60 @@ LIMIT 100`,
       );
       if (!ref) return `"${name}"`;
       return `"cell_${ref.id}"`;
-    });
+    };
+    // M15: only rewrite @refs in CODE — a literal `'x@gmail.com'` or a
+    // `-- @note` comment must pass through verbatim. Scan tracking
+    // single-quote strings, double-quote identifiers, and line/block comments.
+    const n = sql.length;
+    let out = '';
+    let i = 0;
+    while (i < n) {
+      const ch = sql[i];
+      if (ch === "'" || ch === '"') {
+        const q = ch;
+        const start = i;
+        i++;
+        while (i < n) {
+          if (sql[i] === q) {
+            if (sql[i + 1] === q) {
+              i += 2; // doubled quote = escaped, stay inside
+              continue;
+            }
+            i++;
+            break;
+          }
+          i++;
+        }
+        out += sql.slice(start, i);
+        continue;
+      }
+      if (ch === '-' && sql[i + 1] === '-') {
+        const start = i;
+        i += 2;
+        while (i < n && sql[i] !== '\n') i++;
+        out += sql.slice(start, i);
+        continue;
+      }
+      if (ch === '/' && sql[i + 1] === '*') {
+        const start = i;
+        i += 2;
+        while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+        i = Math.min(n, i + 2);
+        out += sql.slice(start, i);
+        continue;
+      }
+      if (ch === '@') {
+        const m = /^@([A-Za-z_][A-Za-z0-9_]*)/.exec(sql.slice(i));
+        if (m?.[1]) {
+          out += resolve(m[1]);
+          i += m[0].length;
+          continue;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return out;
   }
 
   private notify(): void {
@@ -642,6 +731,17 @@ LIMIT 100`,
         fn(this.state);
       } catch (err) {
         console.error('[notebook] listener error', err);
+      }
+    }
+    this.notifySilent();
+  }
+
+  private notifySilent(): void {
+    for (const fn of this.silentListeners) {
+      try {
+        fn();
+      } catch (err) {
+        console.error('[notebook] silent listener error', err);
       }
     }
   }

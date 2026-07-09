@@ -76,7 +76,7 @@ function renderModal(opts: {
           </label>
         </div>
         <label class="mount-url-field">
-          <span>Bearer token <em>(optional — leave blank for public catalogs)</em></span>
+          <span>Bearer token <em>(optional — leave blank for public catalogs; applies to all data requests this session)</em></span>
           <input type="password" data-region="bearer-token-input" autocomplete="off" spellcheck="false">
         </label>
         <label class="mount-url-field mount-s3-remember">

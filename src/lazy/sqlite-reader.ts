@@ -45,6 +45,10 @@ function getSqlJs(): Promise<initSqlJs.SqlJsStatic> {
     _sqlPromise = initSqlJs({
       locateFile: (file: string) => new URL(`./sqlite-wasm/${file}`, document.baseURI).href,
     });
+    // M5: don't cache a rejected wasm init forever (retry re-loads).
+    _sqlPromise.catch(() => {
+      _sqlPromise = null;
+    });
   }
   return _sqlPromise;
 }

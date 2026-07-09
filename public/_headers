@@ -9,6 +9,12 @@
 # forces it off-origin). Verified: the engine boots cross-origin under these
 # headers and the full smoke passes. See DECISIONS (COOP/COEP for Fork 2 R +
 # Facet).
+# M26: clickjacking protection. `frame-ancestors` in the <meta> CSP is ignored
+# per spec (meta can't set it), so deliver it as a real header. Cloudflare
+# Workers Assets honours _headers today (unlike the GitHub Pages mirror, where
+# header delivery is aspirational). X-Frame-Options is the legacy belt-and-braces.
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY

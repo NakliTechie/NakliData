@@ -20,6 +20,12 @@
 export function coerceVector(value: unknown): Float32Array | null {
   if (value == null) return null;
   if (value instanceof Float32Array) return value;
+  // L20: BigInt64Array/BigUint64Array are ArrayBuffer views but `Float32Array
+  // .from` THROWS on BigInt elements — the contract is "return the vector or
+  // null", not throw. A BIGINT[] embedding column should be skipped, not crash.
+  if (value instanceof BigInt64Array || value instanceof BigUint64Array) {
+    return Float32Array.from(value, (v) => Number(v));
+  }
   if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
     return Float32Array.from(value as unknown as ArrayLike<number>);
   }

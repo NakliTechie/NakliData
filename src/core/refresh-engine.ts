@@ -92,12 +92,19 @@ export async function computeRefreshDiff(opts: {
 }
 
 /** Persist the fresh fingerprint map — called after the user
- *  confirms the refresh proposal. */
+ *  confirms the refresh proposal.
+ *
+ *  M9: MERGE over the persisted map rather than replacing it. The fresh map
+ *  omits uncheckable sources (permission temporarily lost, HEAD failed); a
+ *  plain replace would drop their stored baseline, so once checkable again
+ *  there'd be "no prior" and a real change would be silently missed. Merging
+ *  keeps each uncheckable source's last-known baseline intact. */
 export async function persistFingerprints(
   sessionId: string,
   fingerprints: Record<string, SourceFingerprint>,
 ): Promise<void> {
-  await saveFingerprints(sessionId, fingerprints);
+  const existing = await loadFingerprints(sessionId);
+  await saveFingerprints(sessionId, { ...existing, ...fingerprints });
 }
 
 /**

@@ -19,7 +19,7 @@
 // templates a user value into SQL without quoteIdent / quoteLiteral.
 
 import { distance } from 'fastest-levenshtein';
-import { quoteIdent, quoteLiteral } from './query-builder.ts';
+import { quoteIdent, quoteLiteral, stripTrailingSql } from './query-builder.ts';
 
 /** A distinct source value + how many rows carry it (from `GROUP BY 1`). */
 export interface ValueCount {
@@ -333,7 +333,7 @@ export function buildMergeCaseSql(
   const suffix = opts?.aliasSuffix ?? DEFAULT_ALIAS_SUFFIX;
   const col = quoteIdent(column);
   const alias = quoteIdent(`${column}${suffix}`);
-  const src = upstreamSql.trim().replace(/;\s*$/, '');
+  const src = stripTrailingSql(upstreamSql); // L19
 
   const arms: string[] = [];
   for (const c of clusters) {

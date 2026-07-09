@@ -8,7 +8,7 @@
 // Per handoff §10 Hard NOT: this stores ONLY change-detection tokens
 // (size + lastModified + ETag), NEVER file contents or query results.
 
-import { kvGet, kvPut } from './idb.ts';
+import { kvDelete, kvGet, kvPut } from './idb.ts';
 import type { SourceFingerprint } from './refresh.ts';
 
 const KEY_PREFIX = 'refresh:';
@@ -30,20 +30,6 @@ export async function loadFingerprints(sessionId: string): Promise<FingerprintMa
 }
 
 /**
- * Replace the fingerprint for one source. Other sources' fingerprints
- * are preserved. Idempotent — safe to call on every cell run.
- */
-export async function saveFingerprint(
-  sessionId: string,
-  sourceId: string,
-  fingerprint: SourceFingerprint,
-): Promise<void> {
-  const current = await loadFingerprints(sessionId);
-  current[sourceId] = fingerprint;
-  await kvPut(key(sessionId), current);
-}
-
-/**
  * Replace every fingerprint for a session in one IDB write — used by
  * the boot path to commit a batch of newly-computed fingerprints
  * after all sources have been mounted.
@@ -57,8 +43,9 @@ export async function saveFingerprints(
 
 /**
  * Drop a session's fingerprints. Called when a session is deleted
- * so the IDB record doesn't outlive the session metadata.
+ * so the IDB record doesn't outlive the session metadata (L7). Deletes
+ * the KV entry outright rather than leaving an empty `{}` record behind.
  */
 export async function clearFingerprints(sessionId: string): Promise<void> {
-  await kvPut(key(sessionId), {});
+  await kvDelete(key(sessionId));
 }

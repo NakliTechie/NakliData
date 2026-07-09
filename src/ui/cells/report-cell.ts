@@ -6,7 +6,7 @@
 // page-break-inside: avoid per item, so charts and tables don't
 // clip across pages.
 
-import { type ReportItem, buildPageCss } from '../../core/report-layout.ts';
+import { type ReportItem, buildPageCss, clampMm } from '../../core/report-layout.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, ReportCellState } from './types.ts';
 
@@ -46,6 +46,10 @@ export function renderReportCell(cell: ReportCellState, handlers: CellHandlers):
       const next = (ev.target as HTMLInputElement).value.trim() || null;
       handlers.onChange(cell.id, { name: next });
     });
+  // H3: the global dispatcher skips cell-delete expecting a local handler; wire it.
+  wrap
+    .querySelector<HTMLButtonElement>('[data-action="cell-delete"]')
+    ?.addEventListener('click', () => handlers.onDelete(cell.id));
   return wrap;
 }
 
@@ -54,7 +58,10 @@ function renderItem(item: ReportItem): string {
     return `<div class="report-page-break"></div>`;
   }
   if (item.kind === 'spacer') {
-    return `<div class="report-item" style="height:${item.height}mm;"></div>`;
+    // H2: coerce+clamp the height numerically — a string height from a hostile
+    // .naklidata would otherwise inject markup here (validateReport also gates
+    // this on load, but the render site must be safe regardless).
+    return `<div class="report-item" style="height:${clampMm(item.height, 200)}mm;"></div>`;
   }
   if (item.kind === 'kpi-row') {
     const tilesHtml = item.tiles

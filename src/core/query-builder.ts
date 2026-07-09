@@ -127,6 +127,27 @@ export function quoteLiteral(s: string): string {
 }
 
 /**
+ * Strip trailing statement terminators (`;`) AND trailing SQL comments so an
+ * upstream query can be safely wrapped as a subquery. L19: a plain
+ * `replace(/;\s*$/,'')` left the `;` in place when the query ended
+ * `...; -- comment` (or a block comment), producing an invalid subquery.
+ * Repeats until stable so `; -- a /* b *​/` all peel off.
+ */
+export function stripTrailingSql(sql: string): string {
+  let s = sql.trim();
+  let prev = '';
+  while (s !== prev) {
+    prev = s;
+    s = s
+      .replace(/;+\s*$/, '') // trailing semicolons
+      .replace(/\/\*[\s\S]*?\*\/\s*$/, '') // trailing block comment
+      .replace(/--[^\n]*$/, '') // trailing line comment (last line)
+      .trimEnd();
+  }
+  return s;
+}
+
+/**
  * Emit a filter-value literal, type-validated.
  *
  * Returns the SQL fragment OR null if the value can't be emitted

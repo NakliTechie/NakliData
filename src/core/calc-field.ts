@@ -18,7 +18,7 @@
 // **Engine-boundary contract (v1.3 M0):** no DOM, no FSA, no globals.
 
 import { validateMeasureExpression } from './measures.ts';
-import { quoteIdent } from './query-builder.ts';
+import { quoteIdent, stripTrailingSql } from './query-builder.ts';
 
 export function validateCalcAlias(alias: string): string | null {
   const t = alias.trim();
@@ -62,7 +62,7 @@ export function emitCalculatedField(upstreamSql: string, alias: string, expr: st
   if (aliasErr) throw new Error(aliasErr);
   const exprErr = validateCalcExpression(expr);
   if (exprErr) throw new Error(exprErr);
-  // Strip a trailing semicolon so the wrap stays a valid subquery.
-  const src = upstreamSql.trim().replace(/;\s*$/, '');
+  // Strip trailing terminators/comments so the wrap stays a valid subquery (L19).
+  const src = stripTrailingSql(upstreamSql);
   return `SELECT *, (${expr.trim()}) AS ${quoteIdent(alias.trim())}\nFROM (\n${src}\n) AS calc_src`;
 }

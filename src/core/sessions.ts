@@ -11,6 +11,7 @@
 import { deleteHandle } from './handles.ts';
 import { kvDelete, kvGet, kvPut } from './idb.ts';
 import type { NakliDataFile } from './persistence.ts';
+import { clearFingerprints } from './refresh-store.ts';
 
 const INDEX_KEY = 'sessions/index';
 const LEGACY_SNAPSHOT_KEY = 'workbook/current';
@@ -141,14 +142,27 @@ export async function deleteSession(id: string): Promise<void> {
   }
   // Free any FSA handles this session's sources kept in IDB before the
   // snapshot that references them is deleted — otherwise the handle
-  // leaks forever (forward-pass H1). Handle ids are session-unique
-  // (newHandleId is monotonic + sessions aren't duplicated), so this
-  // can't orphan another session's handle. Best-effort: an IDB hiccup
-  // must not block the delete.
+  // leaks forever (forward-pass H1). L9: a handle ref CAN be shared across
+  // sessions (a .naklidata loaded into two sessions, or a lens), so only
+  // delete a handle no surviving session's snapshot still references.
+  // Best-effort: an IDB hiccup must not block the delete.
   const snapshot = await loadSnapshot(id);
   if (snapshot) {
+    const survivingRefs = new Set<string>();
+    for (const other of idx.sessions) {
+      if (other.id === id) continue;
+      const os = await loadSnapshot(other.id);
+      if (!os) continue;
+      for (const s of os.sources) {
+        if (s.ref) survivingRefs.add(s.ref);
+      }
+    }
     for (const s of snapshot.sources) {
-      if ((s.kind === 'fsa-folder' || s.kind === 'fsa-file') && s.ref) {
+      if (
+        (s.kind === 'fsa-folder' || s.kind === 'fsa-file') &&
+        s.ref &&
+        !survivingRefs.has(s.ref)
+      ) {
         try {
           await deleteHandle(s.ref);
         } catch {
@@ -158,6 +172,13 @@ export async function deleteSession(id: string): Promise<void> {
     }
   }
   await kvDelete(snapshotKey(id));
+  // L7: drop the session's refresh fingerprints so the IDB record doesn't
+  // outlive the session metadata.
+  try {
+    await clearFingerprints(id);
+  } catch {
+    // ignore
+  }
   const remaining = idx.sessions.filter((s) => s.id !== id);
   if (remaining.length === 0) throw new Error('unreachable: length check above');
   const head = remaining[0];

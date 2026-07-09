@@ -29,7 +29,13 @@ import {
   mountUrl,
   remountFolderFromHandle,
 } from './core/mount.ts';
-import { type NakliDataFile, loadFromFile, saveToFile, serialize } from './core/persistence.ts';
+import {
+  type NakliDataFile,
+  type SerializeInput,
+  loadFromFile,
+  saveToFile,
+  serialize,
+} from './core/persistence.ts';
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
@@ -117,6 +123,18 @@ function detectSupport(): { supported: boolean; reason?: string } {
   const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
   if (isSafari) {
     return { supported: false, reason: 'safari' };
+  }
+  // SB7: capability probe, not just a UA sniff. An old Chromium or a
+  // capability-stripped/embedded webview passes the UA check but then fails
+  // deep in a mount with a raw error. Feature-detect the load-bearing APIs so
+  // those land on the friendly unsupported page instead. WebAssembly is
+  // required for DuckDB; FSA (showOpenFilePicker) for mounting local data.
+  const w = window as unknown as { showOpenFilePicker?: unknown };
+  if (typeof WebAssembly === 'undefined') {
+    return { supported: false, reason: 'capabilities' };
+  }
+  if (typeof w.showOpenFilePicker !== 'function') {
+    return { supported: false, reason: 'capabilities' };
   }
   return { supported: true };
 }
@@ -583,6 +601,9 @@ function installUserTypesSync(): void {
 }
 
 let _activeSession: SessionMeta | null = null;
+/** M7: has the current session held content since load? Gates whether an
+ *  empty state is persisted (clearing a stale snapshot) vs skipped. */
+let _sessionWasNonEmpty = false;
 
 /**
  * Column-profile cache (Theme 4 wave 1). Keyed by assignmentKey.
@@ -847,6 +868,9 @@ async function switchToSession(engine: Engine, root: HTMLElement, id: string): P
   const idx = await loadIndex();
   const meta = idx.sessions.find((s) => s.id === id) ?? null;
   _activeSession = meta;
+  // M4: drop the outgoing session's DuckDB views before clearing state, so
+  // its data isn't queryable from the incoming session's SQL cells.
+  await dropAllSourceViews(engine);
   getWorkbook().clear();
   getNotebook(engine).load([]);
   await restoreFromActiveSession(engine);
@@ -906,7 +930,18 @@ function installAutoSave(engine: Engine): void {
     }, AUTOSAVE_DEBOUNCE_MS);
   };
   workbook.subscribe(scheduleSave);
-  nb.subscribe(scheduleSave);
+  // subscribeSilent catches both silent per-keystroke edits (forward-pass C1)
+  // and full notifies, so typed-but-unrun code is still autosaved.
+  nb.subscribeSilent(scheduleSave);
+  // L8: flush the pending debounced save on tab close/hide so the last ≤300 ms
+  // of edits aren't lost. pagehide fires on both close and bfcache eviction.
+  window.addEventListener('pagehide', () => {
+    if (_autoSaveTimer !== null) {
+      window.clearTimeout(_autoSaveTimer);
+      _autoSaveTimer = null;
+    }
+    void persistSnapshot(engine);
+  });
 }
 
 /**
@@ -1060,7 +1095,10 @@ async function handleRunStats(engine: Engine, cellId: string): Promise<void> {
       (r) => r[colName] !== null && r[colName] !== undefined,
     );
     const val = firstSample?.[colName];
-    if (typeof val === 'number') return { name: colName, type: 'numeric' };
+    // M6: DuckDB BIGINT/HUGEINT arrive as JS `bigint`, not `number` — count
+    // them as numeric so integer columns aren't silently excluded from stats.
+    if (typeof val === 'number' || typeof val === 'bigint')
+      return { name: colName, type: 'numeric' };
     return { name: colName, type: 'other' };
   });
 
@@ -1442,29 +1480,74 @@ async function runStaleCells(engine: Engine, cellIds: ReadonlyArray<string>): Pr
   }
 }
 
+/**
+ * Build the COMPLETE serialize input from live workbook + all semantic stores.
+ * H1: save (⌘S) and share-link previously omitted measures/selections/
+ * associations/dimensions/segments (share also dropped lineage), so a notebook
+ * using MEASURE()/DIM()/SEGMENT() lost those defs on save/share and broke on
+ * load. Every serialize site now goes through here so they can't drift again.
+ */
+function fullSerializeInput(engine: Engine, notebookName: string): SerializeInput {
+  const wb = getWorkbook().get();
+  const nb = getNotebook(engine);
+  return {
+    notebookName,
+    sources: wb.sources,
+    assignments: wb.assignments,
+    cells: nb.get().cells,
+    autoAcceptThreshold: wb.autoAcceptThreshold,
+    userTypes: wb.userTypes,
+    overrideRules: wb.overrideRules,
+    lineage: getLineageStore().toJSON(),
+    measures: getMeasuresStore().toFile(),
+    selections: getSelectionsStore().toFile(),
+    associations: getAssociationsStore().toFile(),
+    dimensions: getDimensionsStore().toFile(),
+    segments: getSegmentsStore().toFile(),
+  };
+}
+
+/**
+ * M4: drop every DuckDB view/table backing the current workbook's sources.
+ * `workbook.clear()` only wipes the in-memory source list — without this the
+ * previous session/file's data stayed queryable from SQL cells in the newly
+ * loaded workspace (cross-session exposure in a sovereign-workspace product).
+ * Best-effort: a failed drop is logged, not fatal.
+ */
+async function dropAllSourceViews(engine: Engine): Promise<void> {
+  for (const src of getWorkbook().get().sources) {
+    for (const t of src.tables) {
+      try {
+        await engine.drop(t.name);
+      } catch (err) {
+        console.warn(`[naklidata] drop view failed for ${t.name}`, err);
+      }
+    }
+  }
+}
+
 async function persistSnapshot(engine: Engine): Promise<void> {
   const wb = getWorkbook().get();
   const nb = getNotebook(engine);
-  // Skip the no-state case — leave the active session's stored snapshot
-  // alone so a fresh boot doesn't find a stale "empty" record.
-  if (wb.sources.length === 0 && nb.get().cells.length === 0) return;
+  const isEmpty = wb.sources.length === 0 && nb.get().cells.length === 0;
+  if (isEmpty) {
+    // M7: if this session HAD content and the user cleared it all, persist the
+    // empty state so a reload doesn't resurrect the deleted work. If it was
+    // empty all along (fresh boot), skip so we don't clobber nothing.
+    if (_sessionWasNonEmpty) {
+      _sessionWasNonEmpty = false;
+      try {
+        await clearSnapshot(getActiveSessionId());
+      } catch (err) {
+        console.warn('[naklidata] snapshot clear failed', err);
+      }
+    }
+    return;
+  }
+  _sessionWasNonEmpty = true;
   try {
     const sessionName = _activeSession?.name ?? 'Untitled';
-    const file = serialize({
-      notebookName: sessionName,
-      sources: wb.sources,
-      assignments: wb.assignments,
-      cells: nb.get().cells,
-      autoAcceptThreshold: wb.autoAcceptThreshold,
-      userTypes: wb.userTypes,
-      overrideRules: wb.overrideRules,
-      lineage: getLineageStore().toJSON(),
-      measures: getMeasuresStore().toFile(),
-      selections: getSelectionsStore().toFile(),
-      associations: getAssociationsStore().toFile(),
-      dimensions: getDimensionsStore().toFile(),
-      segments: getSegmentsStore().toFile(),
-    });
+    const file = serialize(fullSerializeInput(engine, sessionName));
     await saveSnapshot(getActiveSessionId(), file);
   } catch (err) {
     console.warn('[naklidata] snapshot save failed', err);
@@ -1515,10 +1598,7 @@ function wireActions(root: HTMLElement): void {
   });
 
   document.addEventListener('keydown', (ev) => {
-    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
-      ev.preventDefault();
-      void handleAction('spotlight', null);
-    }
+    // S5: Ctrl/Cmd+K (spotlight) removed — the feature isn't implemented.
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
       ev.preventDefault();
       void handleAction('save', null);
@@ -1599,6 +1679,22 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
           } catch (err) {
             console.warn(`[naklidata] iceberg secret cleanup failed for ${id}`, err);
           }
+          // H4: the iceberg bearer token is set as DuckDB's session-global
+          // `extra_http_headers`, which attaches to EVERY httpfs request. When
+          // the last iceberg source goes away, clear it so the token can't ride
+          // along on a later plain-URL/S3 mount to a third-party host.
+          const otherIceberg = workbook
+            .get()
+            .sources.some(
+              (s) => s.id !== id && (s.kind === 'iceberg-table' || s.kind === 'iceberg-catalog'),
+            );
+          if (!otherIceberg) {
+            try {
+              await engine.configureIceberg({ bearerToken: null });
+            } catch (err) {
+              console.warn('[naklidata] clearing iceberg http headers failed', err);
+            }
+          }
         }
         if (src.kind === 'compute-bridge' || src.kind === 'compute-bridge-catalog') {
           try {
@@ -1627,20 +1723,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         toast('Nothing to save yet.');
         return;
       }
-      const nb = getNotebook(engine);
-      const file = serialize({
-        notebookName: 'Untitled',
-        sources: wb.sources,
-        assignments: wb.assignments,
-        cells: nb.get().cells,
-        autoAcceptThreshold: wb.autoAcceptThreshold,
-        userTypes: wb.userTypes,
-        overrideRules: wb.overrideRules,
-        lineage: getLineageStore().toJSON(),
-      });
+      const file = serialize(fullSerializeInput(engine, 'Untitled'));
       try {
         const res = await saveToFile(file);
-        toast(`Saved ${res.name}.`);
+        // L4: null name = user cancelled the picker; no toast.
+        if (res.name !== null) toast(`Saved ${res.name}.`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         toast(`Save failed: ${msg}`, 'error');
@@ -1963,16 +2050,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         toast('Mount a source first — nothing to share yet.');
         return;
       }
-      const nb = getNotebook(engine);
-      const file = serialize({
-        notebookName: 'Untitled',
-        sources: wb.sources,
-        assignments: wb.assignments,
-        cells: nb.get().cells,
-        autoAcceptThreshold: wb.autoAcceptThreshold,
-        userTypes: wb.userTypes,
-        overrideRules: wb.overrideRules,
-      });
+      const file = serialize(fullSerializeInput(engine, 'Untitled'));
       try {
         const { url, tooLong } = await buildShareUrl(file);
         await navigator.clipboard.writeText(url);
@@ -2163,10 +2241,6 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'close-add-source':
       closeAddSourceModal();
       return;
-    case 'spotlight':
-      console.info(`[naklidata] action requested: ${action} (not yet wired)`);
-      toast(`${action} is not wired yet.`);
-      return;
     default:
       console.warn(`[naklidata] unknown action: ${action}`);
   }
@@ -2219,6 +2293,9 @@ async function doApplyLoadedFile(
 ): Promise<void> {
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
+  // M4: drop the previous workbook's DuckDB views before loading — otherwise
+  // the old data stays queryable from the loaded file's SQL cells.
+  await dropAllSourceViews(engine);
   workbook.clear();
   // Restore user-defined types from the file before sources mount, so the
   // override menu has them available when the schema panel re-renders.
@@ -2516,6 +2593,9 @@ async function doApplyLoadedFile(
   getDimensionsStore().loadFromFile(file.dimensions);
   // Resolve M2 — restore segments (optional; pre-M2 files have no segments).
   getSegmentsStore().loadFromFile(file.segments);
+  // M7: record whether the just-restored workspace has content, so a later
+  // "delete everything" is persisted as empty (not skipped → resurrected).
+  _sessionWasNonEmpty = restoredSources.length > 0 || file.cells.length > 0;
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
   } else if (!opts.silent) {
@@ -3038,6 +3118,8 @@ async function pickSingleFile(): Promise<File | null> {
     input.accept =
       '.csv,.tsv,.jsonl,.ndjson,.parquet,.pq,.arrow,.feather,.duckdb,.db,.db3,.sqlite,.sqlite3,.xlsx,.sav,.zsav,.por,.dta,.sas7bdat,.xpt,.geojson,.kml';
     input.onchange = () => resolve(input.files?.[0] ?? null);
+    // L5: resolve(null) if the dialog is dismissed so the caller doesn't hang.
+    input.addEventListener('cancel', () => resolve(null));
     input.click();
   });
 }
@@ -3401,6 +3483,7 @@ function inferTypeFromRows(rows: Array<Record<string, unknown>>, col: string): s
     const v = r[col];
     if (v === null || v === undefined) continue;
     if (typeof v === 'number') return Number.isInteger(v) ? 'BIGINT' : 'DOUBLE';
+    if (typeof v === 'bigint') return 'BIGINT'; // M6: DuckDB BIGINT/HUGEINT
     if (typeof v === 'boolean') return 'BOOLEAN';
     if (typeof v === 'string') {
       if (/^\d{4}-\d{2}-\d{2}/.test(v)) return 'DATE';
@@ -3571,8 +3654,11 @@ async function runDisambiguateType(
     const msg =
       err instanceof SidecarError ? err.message : err instanceof Error ? err.message : String(err);
     toast(`Sidecar: ${msg}`, 'error');
-    // Restore the button state on error since no workbook update will
-    // re-render this row.
+  } finally {
+    // L3: restore the button on EVERY exit — the wrong-kind and
+    // null-confidence branches used to leave it stuck "Asking…" (only the
+    // catch restored it, and only the success path re-renders the row). On
+    // the success path this button is already detached, so this is a no-op.
     if (buttonEl instanceof HTMLButtonElement) {
       buttonEl.disabled = false;
       buttonEl.textContent = 'Ask sidecar';

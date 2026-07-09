@@ -49,6 +49,10 @@ function getModule(): Promise<ReadStatModule> {
     _modPromise = createReadStat({
       locateFile: (file: string) => new URL(`./readstat-wasm/${file}`, document.baseURI).href,
     });
+    // M5: don't cache a rejected wasm init forever (retry re-loads).
+    _modPromise.catch(() => {
+      _modPromise = null;
+    });
   }
   return _modPromise;
 }

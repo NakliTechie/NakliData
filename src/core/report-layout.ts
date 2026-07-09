@@ -95,8 +95,14 @@ export function validateReport(
     if (item.kind === 'kpi-row' && item.tiles.length > 4) {
       errors.push(`KPI row (item ${i + 1}) has ${item.tiles.length} tiles; max is 4.`);
     }
-    if (item.kind === 'spacer' && (item.height < 1 || item.height > 200)) {
-      errors.push(`Spacer (item ${i + 1}) height must be in [1, 200] mm.`);
+    if (
+      item.kind === 'spacer' &&
+      (typeof item.height !== 'number' ||
+        !Number.isFinite(item.height) ||
+        item.height < 1 ||
+        item.height > 200)
+    ) {
+      errors.push(`Spacer (item ${i + 1}) height must be a number in [1, 200] mm.`);
     }
   }
   return errors;
@@ -108,16 +114,20 @@ export function validateReport(
  * print mode. Browsers apply @page only at print time, so it doesn't
  * affect screen rendering.
  */
+/**
+ * Coerce + clamp an untrusted value to a finite mm measurement in [0, max].
+ * A loaded `.naklidata` / `?lens=` could carry a hostile string that would
+ * otherwise inject arbitrary CSS/markup where the value is templated into a
+ * `style="…"` attribute (forward-pass M3/H2).
+ */
+export function clampMm(v: unknown, max = 100): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0;
+}
+
 export function buildPageCss(report: ReportDefinition): string {
   const { pageSize, margins } = report;
-  // Coerce + clamp each margin to a finite value in [0, 100] mm. The type
-  // says `number`, but a loaded `.naklidata` / `?lens=` could carry a
-  // hostile string that would otherwise inject arbitrary CSS into the
-  // print stylesheet (forward-pass M3).
-  const mm = (v: unknown): number => {
-    const n = Number(v);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
-  };
+  const mm = (v: unknown): number => clampMm(v, 100);
   const m = {
     top: mm(margins.top),
     right: mm(margins.right),

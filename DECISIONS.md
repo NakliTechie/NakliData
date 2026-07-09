@@ -2,6 +2,49 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Forward-pass audit + fix sweep
+
+Full ranked findings + batched workplan + progress log live in
+`plan/forward-pass-2026-07-09.md` (plan/ is gitignored). The load-bearing decisions:
+
+### Decision CI — C1 fix: silent per-keystroke edits + a `subscribeSilent` autosave channel
+
+Typing was broken app-wide (only the first keystroke registered) because every
+non-silent `onChange` ran a full `renderNotebook` that detached (blurred) the focused
+editor. Rather than rework the whole render loop, per-keystroke edits in the SQL
+(CM6 + textarea), markdown, and input cells now call `patchCellSilent` (no re-render);
+full `onChange` still fires on blur/`change`/run. Because silent patches skipped
+autosave, added `Notebook.subscribeSilent` so typed-but-unrun code is still persisted
+without render churn. This is the same pattern the language-cell already used; the C1
+bug was that SQL/markdown/input regressed to non-silent. Verified in a headless browser.
+
+### Decision CJ — H4 Iceberg session-global token: mitigate, don't fully solve
+
+DuckDB-wasm's `extra_http_headers` is session-global (attaches to every httpfs
+request), so an Iceberg bearer token leaks onto later plain-URL/S3 mounts. A true
+per-host fix needs DuckDB-wasm support we don't have. Chosen mitigations: clear the
+header when the last iceberg source is removed, and disclose "applies to all data
+requests this session" in both Iceberg modals. Residual (leak while an iceberg source
+is mounted alongside a URL mount) is documented, not closed.
+
+### Decision CK — deferrals from the forward pass (need their own passes/decisions)
+
+Fixed ~55 findings; deferred these deliberately rather than ship risky half-fixes:
+- **M30 (sharpest):** A6/A7/A8 claim S3/Iceberg mounts shipped, but the iceberg+httpfs
+  DuckDB extensions aren't vendored and the default boot is offline → they likely
+  `ExtensionLoadError` at runtime. Needs a live-browser `INSTALL` probe, then
+  drop/flag vs bump-the-DuckDB-pin. (Background task spawned.)
+- **H5:** `xlsx@0.18.5` carries prototype-pollution + ReDoS CVEs and parses untrusted
+  files — swap to the maintained SheetJS CDN dist (vendored + hash-pinned). (Task spawned.)
+- **H6:** runtime SRI on the cross-origin DuckDB bytes was dropped in W1.8.2; re-adding
+  it touches the boot path and needs the committed integrity.json to match the mirror.
+- **SB4:** local-inference output was known-degenerate on the WebGPU path at M0; re-run
+  the eval or gate the radio behind a known-issue note.
+- **M28/L24/L25:** rs_wrapper.c memory-safety (unchecked malloc/realloc, no rs_free) —
+  needs an emcc wasm rebuild, not buildable in this environment.
+- **Low/Stray tail:** S11 hardcoded-hex token sweep, L6/L13/L15/L16/L21/L22/L26/L27,
+  W2–W9. No runtime risk; batched for a later cleanup pass.
+
 ## 2026-07-05 — Polyglot-Workbench Fork 2: the R cell SHIPPED (WebR)
 
 ### Decision CH — an `r` cell over vendored WebR; CSV interchange; shared language-cell

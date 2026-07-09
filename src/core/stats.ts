@@ -13,6 +13,8 @@
 // against hostile column names — same contract as the v1.2 M5 visual
 // query builder + v1.3 M1 selection predicate builder.
 
+import { quoteIdent } from './query-builder.ts';
+
 /**
  * The column-type buckets the stats emitter recognises. Aligned with
  * the v1.2 M5 query-builder shape so callers can map their existing
@@ -107,7 +109,9 @@ export function emitCorrelationMatrixSql(
       validateIdent(b);
       const aQ = quoteIdent(a);
       const bQ = quoteIdent(b);
-      const alias = quoteIdent(`corr__${a}__${b}`);
+      // M10: index-based alias — `corr__<a>__<b>` collides when a column name
+      // contains `__` (('x__y','z') vs ('x','y__z')). Indices are injective.
+      const alias = quoteIdent(`corr__${i}__${j}`);
       exprs.push(`corr(CAST(${aQ} AS DOUBLE), CAST(${bQ} AS DOUBLE)) AS ${alias}`);
     }
   }
@@ -182,7 +186,7 @@ export function parseCorrelationRow(
     for (let j = i; j < numericColumns.length; j++) {
       const a = numericColumns[i] as string;
       const b = numericColumns[j] as string;
-      const v = row[`corr__${a}__${b}`];
+      const v = row[`corr__${i}__${j}`];
       out.push({
         a,
         b,
@@ -194,10 +198,6 @@ export function parseCorrelationRow(
 }
 
 // ── Helpers (engine-boundary safe) ──────────────────────────────────
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
 
 function validateIdent(name: string): void {
   if (!name) throw new Error('Stats SQL: identifier is required.');

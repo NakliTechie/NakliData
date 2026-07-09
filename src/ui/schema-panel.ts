@@ -274,7 +274,11 @@ function renderColumnRow(
   const partners = handlers.partnersByTable?.get(tableName) ?? [];
   const quickActions = getQuickActions(a, tableName, partners);
 
-  const detailsId = `evidence-${sourceId}-${tableId}-${a.columnName}`;
+  // M18: the column name is untrusted file data — a `"` in it would break out
+  // of the id/aria-controls attributes and inject markup into the schema panel.
+  // escapeHtml both interpolation sites (the panel itself is found by class, so
+  // the exact id value only needs to be consistent + attribute-safe).
+  const detailsId = escapeHtml(`evidence-${sourceId}-${tableId}-${a.columnName}`);
 
   li.innerHTML = `
     <div class="schema-column-head">

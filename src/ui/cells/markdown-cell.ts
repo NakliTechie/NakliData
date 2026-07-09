@@ -4,6 +4,14 @@
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, MarkdownCellState } from './types.ts';
 
+// M17: track which cell ids have been rendered and which explicitly want
+// focus, so we autofocus the textarea ONLY when the user enters edit mode
+// (toggle / dblclick) or on a cell's first render — never on the passive
+// full re-renders that fire on every unrelated notebook change (which used
+// to steal page focus on each keystroke elsewhere).
+const mdSeen = new Set<string>();
+const mdWantFocus = new Set<string>();
+
 export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandlers): HTMLElement {
   const el = document.createElement('div');
   el.className = 'cell';
@@ -47,7 +55,9 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
       ta.style.cssText =
         'width:100%;min-height:120px;padding:12px;border:0;font:13px/1.5 var(--font-mono);background:transparent;outline:none;resize:vertical;';
       ta.addEventListener('input', () => {
-        handlers.onChange(cell.id, { code: ta.value });
+        // C1: silent — a full onChange re-renders the notebook (recomputing
+        // `editing` from cell.code and flipping to preview after one char).
+        handlers.onChangeSilent(cell.id, { code: ta.value });
       });
       ta.addEventListener('blur', () => {
         if (ta.value.trim().length > 0) {
@@ -56,13 +66,19 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
         }
       });
       body.append(ta);
-      setTimeout(() => ta.focus(), 0);
+      // M17: focus only on the first render of this cell (fresh empty cell)
+      // or when the user explicitly toggled into edit mode.
+      if (!mdSeen.has(cell.id) || mdWantFocus.has(cell.id)) {
+        mdWantFocus.delete(cell.id);
+        setTimeout(() => ta.focus(), 0);
+      }
     } else {
       const preview = document.createElement('div');
       preview.className = 'markdown-preview';
       preview.innerHTML = renderMarkdown(cell.code);
       preview.addEventListener('dblclick', () => {
         editing = true;
+        mdWantFocus.add(cell.id);
         render();
       });
       body.append(preview);
@@ -71,13 +87,17 @@ export function renderMarkdownCell(cell: MarkdownCellState, handlers: CellHandle
 
   el.querySelector('[data-action="cell-toggle"]')?.addEventListener('click', () => {
     editing = !editing;
+    if (editing) mdWantFocus.add(cell.id);
     render();
   });
-  el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () =>
-    handlers.onDelete(cell.id),
-  );
+  el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () => {
+    mdSeen.delete(cell.id);
+    mdWantFocus.delete(cell.id);
+    handlers.onDelete(cell.id);
+  });
 
   render();
+  mdSeen.add(cell.id);
   return el;
 }
 

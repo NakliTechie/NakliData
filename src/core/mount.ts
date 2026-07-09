@@ -225,6 +225,18 @@ export function sanitizeTableName(filenameOrStem: string): string {
 }
 
 /**
+ * M3: return `base`, or `base_2`, `base_3`, … if already taken. Used to keep
+ * view names unique within a folder mount so a second file doesn't clobber a
+ * first via CREATE OR REPLACE VIEW.
+ */
+function uniquifyName(base: string, used: ReadonlySet<string>): string {
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base}_${i}`)) i++;
+  return `${base}_${i}`;
+}
+
+/**
  * Register a file with DuckDB and return the list of table/view names
  * that resulted. Single-file formats return a 1-element array; multi-table
  * formats (SQLite, DuckDB attach, multi-sheet xlsx) return one entry per
@@ -401,12 +413,20 @@ async function getRowCount(engine: Engine, tableName: string): Promise<number> {
 export async function mountFolder(
   engine: Engine,
   dirHandle: FileSystemDirectoryHandle,
-  opts: { label?: string } = {},
+  opts: { label?: string; reuseHandleId?: string } = {},
 ): Promise<MountedSource> {
   const granted = await ensureReadPermission(dirHandle as AnyHandle);
   if (!granted) throw new MountError('Read permission was not granted on the folder.');
-  const handleId = newHandleId();
-  await putHandle(handleId, dirHandle as AnyHandle);
+  // M8: on a boot-time remount the handle is already persisted in IDB — reuse
+  // its id instead of minting + storing a fresh one (which orphaned a handle
+  // record on every restore, since remountFolderFromHandle then discarded it).
+  let handleId: string;
+  if (opts.reuseHandleId) {
+    handleId = opts.reuseHandleId;
+  } else {
+    handleId = newHandleId();
+    await putHandle(handleId, dirHandle as AnyHandle);
+  }
   const sourceId = genId('src');
   const source: MountedSource = {
     id: sourceId,
@@ -420,6 +440,8 @@ export async function mountFolder(
   // can't hang the mount indefinitely (forward-pass M16).
   const MAX_FOLDER_ENTRIES = 5000;
   let walked = 0;
+  // M3: view names registered so far in this folder mount, to avoid collisions.
+  const usedTableNames = new Set<string>();
   // Diagnostics so an empty result gives an honest reason, not a blanket
   // "no supported files" (which hides read failures + the no-recursion limit).
   let subdirCount = 0; // subfolders skipped (the scan is intentionally flat)
@@ -441,7 +463,12 @@ export async function mountFolder(
     const format = detectFormat(name);
     if (!format) continue;
     const fileHandle = entry as FileSystemFileHandle;
-    const tableLabel = sanitizeTableName(name);
+    // M3: two files that sanitize to the same view name (data.csv +
+    // data.parquet, or "a b.csv" + "a-b.csv") would otherwise clobber each
+    // other via CREATE OR REPLACE VIEW. Suffix collisions (data, data_2).
+    // Deterministic in folder-iteration order, so a reload reproduces the
+    // same names → assignment keys still resolve.
+    const tableLabel = uniquifyName(sanitizeTableName(name), usedTableNames);
     try {
       // getFile() is inside the try — it can throw NotFoundError if the file
       // vanished after the folder was picked.
@@ -451,6 +478,7 @@ export async function mountFolder(
         file,
       });
       for (const tableName of registered) {
+        usedTableNames.add(tableName);
         const rowCount = await getRowCount(engine, tableName);
         source.tables.push({
           id: genId('tbl'),
@@ -507,7 +535,8 @@ export async function remountFolderFromHandle(
 ): Promise<MountedSource> {
   const granted = await ensureReadPermission(handle as AnyHandle);
   if (!granted) throw new PermissionLostError(handleId);
-  const source = await mountFolder(engine, handle, { label });
+  // M8: reuse the already-persisted handle id instead of orphaning a fresh one.
+  const source = await mountFolder(engine, handle, { label, reuseHandleId: handleId });
   // Preserve the persisted sourceId so assignment keys still resolve.
   return { ...source, id: sourceId, ref: handleId };
 }

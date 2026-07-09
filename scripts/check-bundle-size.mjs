@@ -37,7 +37,7 @@ try {
       )} budget by ${fmtKB(used - BUDGET_BYTES)}.`,
     );
     console.error(
-      '[bundle-size] Spec §7.1 (A30) caps the shell at 750 KB. Move new logic into a lazy chunk.',
+      '[bundle-size] Spec §7.1 (A35) caps the shell at 768 KB. Move new logic into a lazy chunk.',
     );
     process.exit(1);
   }

@@ -67,6 +67,11 @@ export function renderLanguageCell(
     ?.addEventListener('change', (ev) => {
       handlers.onChange(cell.id, { name: (ev.target as HTMLInputElement).value.trim() || null });
     });
+  // H3: the global dispatcher skips cell-delete for cells that "attach their
+  // own handlers" — this renderer didn't, so delete was a no-op. Attach it.
+  wrap
+    .querySelector<HTMLButtonElement>('[data-action="cell-delete"]')
+    ?.addEventListener('click', () => handlers.onDelete(cell.id));
   wrap
     .querySelector<HTMLSelectElement>('[data-action="lang-input"]')
     ?.addEventListener('change', (ev) => {

@@ -138,6 +138,25 @@ describe('parseNlToSqlResponse — code-review of v1.2.1..HEAD', () => {
     expect(parseNlToSqlResponse("SELECT * FROM t JOIN 'evil' ON 1=1", ['t']).sql).toBe('');
   });
 
+  it('M1: rejects a replacement-scan URL hidden behind a block comment', () => {
+    expect(
+      parseNlToSqlResponse("SELECT * FROM/**/'https://attacker.example.com/x.csv'", ['t']).sql,
+    ).toBe('');
+  });
+
+  it('M1: rejects a multi-statement / write hidden behind a line comment', () => {
+    expect(parseNlToSqlResponse('SELECT 1 --\n; INSTALL httpfs', ['t']).sql).toBe('');
+    expect(parseNlToSqlResponse('SELECT 1; /* x */ SELECT 2', ['t']).sql).toBe('');
+  });
+
+  it('M1: rejects an unknown table hidden behind a comment', () => {
+    expect(parseNlToSqlResponse('SELECT * FROM /* c */ evil', ['t']).sql).toBe('');
+  });
+
+  it('M1: still accepts a benign comment on an allowed query', () => {
+    expect(parseNlToSqlResponse('SELECT * FROM t -- a note', ['t']).sql).toContain('SELECT');
+  });
+
   it('accepts a string literal in a column position (only FROM/JOIN-string is blocked)', () => {
     expect(parseNlToSqlResponse("SELECT 'hello' AS greet FROM t", ['t']).sql).toContain(
       "SELECT 'hello'",

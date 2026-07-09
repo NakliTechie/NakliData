@@ -78,6 +78,11 @@ export function loadPythonRuntime(onProgress?: (phase: string) => void): Promise
       onProgress?.('Ready');
       return py;
     })();
+    // M5: a rejected init (transient fetch failure) must not be cached forever
+    // — clear it so the next Run retries instead of re-awaiting the rejection.
+    _pyPromise.catch(() => {
+      _pyPromise = null;
+    });
   }
   return _pyPromise;
 }
@@ -101,43 +106,48 @@ export async function runPythonParquet(
 
   // 1. Load the Parquet bytes into `df` (pd/pa/np already imported at warmup).
   py.globals.set('__nd_pq_in', parquetIn);
+  // L23: release the (up to 2M-row) input buffer on EVERY exit, not just
+  // success — a user-code throw used to leave it referenced in Pyodide globals.
   try {
-    py.runPython(
-      [
-        'import pyarrow as pa, pyarrow.parquet as pq, pandas as pd, numpy as np, io as _io',
-        'df = pq.read_table(_io.BytesIO(bytes(__nd_pq_in.to_py()))).to_pandas()',
-      ].join('\n'),
-    );
-  } catch (err) {
-    throw new PythonRunError(`Failed to load the input table into pandas: ${pyErr(err)}`);
-  }
+    try {
+      py.runPython(
+        [
+          'import pyarrow as pa, pyarrow.parquet as pq, pandas as pd, numpy as np, io as _io',
+          'df = pq.read_table(_io.BytesIO(bytes(__nd_pq_in.to_py()))).to_pandas()',
+        ].join('\n'),
+      );
+    } catch (err) {
+      throw new PythonRunError(`Failed to load the input table into pandas: ${pyErr(err)}`);
+    }
 
-  // 2. Run the user's code (mutates the global `df`).
-  try {
-    py.runPython(userCode);
-  } catch (err) {
-    throw new PythonRunError(pyErr(err));
-  }
+    // 2. Run the user's code (mutates the global `df`).
+    try {
+      py.runPython(userCode);
+    } catch (err) {
+      throw new PythonRunError(pyErr(err));
+    }
 
-  // 3. Serialize the final `df` back to a Parquet buffer.
-  let proxy: PyProxy;
-  try {
-    proxy = py.runPython(
-      [
-        'if not isinstance(df, pd.DataFrame):',
-        "    raise TypeError('the cell must leave a pandas DataFrame in `df` (got %s)' % type(df).__name__)",
-        '_nd_sink = _io.BytesIO()',
-        'pq.write_table(pa.Table.from_pandas(df, preserve_index=False), _nd_sink)',
-        '_nd_sink.getvalue()',
-      ].join('\n'),
-    ) as PyProxy;
-  } catch (err) {
-    throw new PythonRunError(`Could not read the result back: ${pyErr(err)}`);
+    // 3. Serialize the final `df` back to a Parquet buffer.
+    let proxy: PyProxy;
+    try {
+      proxy = py.runPython(
+        [
+          'if not isinstance(df, pd.DataFrame):',
+          "    raise TypeError('the cell must leave a pandas DataFrame in `df` (got %s)' % type(df).__name__)",
+          '_nd_sink = _io.BytesIO()',
+          'pq.write_table(pa.Table.from_pandas(df, preserve_index=False), _nd_sink)',
+          '_nd_sink.getvalue()',
+        ].join('\n'),
+      ) as PyProxy;
+    } catch (err) {
+      throw new PythonRunError(`Could not read the result back: ${pyErr(err)}`);
+    }
+    const out = proxy.toJs() as Uint8Array;
+    proxy.destroy?.();
+    return out;
+  } finally {
+    py.globals.set('__nd_pq_in', undefined);
   }
-  const out = proxy.toJs() as Uint8Array;
-  proxy.destroy?.();
-  py.globals.set('__nd_pq_in', undefined);
-  return out;
 }
 
 /**

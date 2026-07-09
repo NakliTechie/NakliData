@@ -23,7 +23,6 @@
 // because it's available in Node.js, Workers, AND the browser — it's
 // already the engine-shape we want.
 
-import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const WATCHED_PATHS = [

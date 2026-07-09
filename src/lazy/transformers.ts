@@ -17,7 +17,7 @@
 //
 // 2. **The pipeline** (`loadPipeline`). Lazily constructs a
 //    text-generation pipeline against the configured model id
-//    (`onnx-community/Qwen2.5-1.5B-Instruct` by default — see
+//    (`onnx-community/Qwen2.5-0.5B-Instruct` by default — see
 //    DECISIONS J / scoping doc Decision 1). The pipeline is cached
 //    in-process; switching models requires explicit `disposePipeline`.
 //
@@ -54,10 +54,10 @@ import {
 import type { LocalGenerateRequest, LocalGenerator } from '../core/sidecar/local-runtime.ts';
 
 /**
- * Default model id when the user hasn't configured one yet. Picked
- * per scoping doc Decision 1 — Qwen2.5-1.5B-Instruct, ~0.9 GB 4-bit
- * quantized, Apache 2.0. The `onnx-community/` org maintains
- * canonical ONNX exports.
+ * Default model id when the user hasn't configured one yet — Qwen2.5-0.5B-
+ * Instruct (~0.5 GB 4-bit quantized, Apache 2.0). The `onnx-community/` org
+ * maintains canonical ONNX exports. (S17: was documented as the 1.5B/~0.9 GB
+ * variant, but the shipped constant is the 0.5B model.)
  */
 export const DEFAULT_LOCAL_MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
 

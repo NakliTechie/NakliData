@@ -746,7 +746,9 @@ async function main() {
     if (!similar.cleared || similar.clearedTip !== '') {
       throw new Error('embedding find-similar: background click did not clear the selection');
     }
-    log(`✓ Facet find-similar: picked #${similar.hit} → "${similar.pinnedTip.slice(0, 60)}…" → cleared`);
+    log(
+      `✓ Facet find-similar: picked #${similar.hit} → "${similar.pinnedTip.slice(0, 60)}…" → cleared`,
+    );
   } else {
     log('~ Facet find-similar skipped (no WebGL canvas in this environment)');
   }
@@ -774,7 +776,7 @@ async function main() {
     'WITH n AS (SELECT i, (i // 30) AS c FROM range(60) t(i)), ' +
       'e AS (SELECT a.i AS s, b.i AS d FROM n a JOIN n b ON a.c = b.c AND a.i < b.i ' +
       'AND (a.i * 7 + b.i * 13) % 5 < 2 UNION ALL SELECT 0, 30) ' +
-      "SELECT s::VARCHAR AS src, d::VARCHAR AS tgt, " +
+      'SELECT s::VARCHAR AS src, d::VARCHAR AS tgt, ' +
       "CASE WHEN (s + d) % 3 = 0 THEN 'cites' WHEN (s + d) % 3 = 1 THEN 'authored' ELSE 'funded' END AS rel, " +
       '(1 + (s * 7 + d) % 9) AS w FROM e',
   );
@@ -900,15 +902,19 @@ async function main() {
     };
   });
   if (netState.canvas) {
-    if (netState.hit === null || !netState.pinned || !/neighbours highlighted/.test(netState.pinnedTip)) {
-      throw new Error(
-        `network find-neighbours: no pinned highlight ("${netState.pinnedTip}")`,
-      );
+    if (
+      netState.hit === null ||
+      !netState.pinned ||
+      !/neighbours highlighted/.test(netState.pinnedTip)
+    ) {
+      throw new Error(`network find-neighbours: no pinned highlight ("${netState.pinnedTip}")`);
     }
     if (!netState.cleared) {
       throw new Error('network find-neighbours: background click did not clear');
     }
-    log(`✓ Facet Network cell: edge list → force layout → canvas → find-neighbours ("${netState.pinnedTip.slice(0, 50)}…") → cleared`);
+    log(
+      `✓ Facet Network cell: edge list → force layout → canvas → find-neighbours ("${netState.pinnedTip.slice(0, 50)}…") → cleared`,
+    );
 
     // 10f. Attributed edges (Knowledge-graph + Weighted): the `rel` column
     // drives a categorical legend (cites / authored / funded), clicking a
@@ -929,7 +935,9 @@ async function main() {
       return { count: swatches.length, values, dimmedAfterClick };
     });
     if (legend.count < 2) {
-      throw new Error(`attributed edges: expected an edge-type legend, got ${legend.count} swatches`);
+      throw new Error(
+        `attributed edges: expected an edge-type legend, got ${legend.count} swatches`,
+      );
     }
     if (!legend.dimmedAfterClick) {
       throw new Error('attributed edges: clicking a legend swatch did not filter (dim others)');
@@ -1027,10 +1035,19 @@ async function main() {
   if (temporal.bars < 3) {
     throw new Error(`temporal: expected an SVG bar timeline, got ${temporal.bars} rects`);
   }
-  if (!temporal.brushed || temporal.count === null || temporal.count <= 0 || temporal.count >= 120) {
-    throw new Error(`temporal: brushing a window did not report a partial count (${temporal.count})`);
+  if (
+    !temporal.brushed ||
+    temporal.count === null ||
+    temporal.count <= 0 ||
+    temporal.count >= 120
+  ) {
+    throw new Error(
+      `temporal: brushing a window did not report a partial count (${temporal.count})`,
+    );
   }
-  log(`✓ Facet Temporal cell: timeline (${temporal.bars} bars) → brush window → ${temporal.count}/120 rows in range`);
+  log(
+    `✓ Facet Temporal cell: timeline (${temporal.bars} bars) → brush window → ${temporal.count}/120 rows in range`,
+  );
 
   // 10h. Facet Distribution cell — reuse the same timestamp SQL cell; summarize
   // the numeric `n` column into a histogram, then click a bar via the seam and
@@ -1092,7 +1109,9 @@ async function main() {
   if (!dist.selected || !dist.count || dist.count <= 0) {
     throw new Error(`distribution: selecting a bar did not report a count (${dist.count})`);
   }
-  log(`✓ Facet Distribution cell: ${dist.bars} bars → select bar → ${dist.count} rows ("${dist.text.slice(0, 40)}…")`);
+  log(
+    `✓ Facet Distribution cell: ${dist.bars} bars → select bar → ${dist.count} rows ("${dist.text.slice(0, 40)}…")`,
+  );
 
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
@@ -1121,8 +1140,10 @@ async function main() {
     const row = document.querySelector(`.schema-column[data-column="${col}"]`);
     return row?.dataset.origin === 'user_override';
   }, overridden?.colName);
-  if (overrodeOk) log(`✓ overrode "${overridden?.colName}" → ${overridden?.id}`);
-  else log(`! override did not stick for ${overridden?.colName}`);
+  // SB6: the schema panel is the spec's single most important surface — a
+  // failed override is a real regression, so fail hard instead of soft-logging.
+  if (!overrodeOk) fail(`override did not stick for ${overridden?.colName}`);
+  log(`✓ overrode "${overridden?.colName}" → ${overridden?.id}`);
 
   // 12. Wave 5/6 surface affordances exist in the DOM. Deeper behaviour
   //     is covered by tests/e2e/*; this is the cheap "did the build drop
@@ -1333,7 +1354,8 @@ async function main() {
   await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
   await page.click('.add-source-overlay [data-action="mount-file"]');
   await page.waitForFunction(
-    () => /\bcities\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    () =>
+      /\bcities\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
     null,
     { timeout: 20000 },
   );
@@ -1351,8 +1373,16 @@ async function main() {
   const GEOJSON = JSON.stringify({
     type: 'FeatureCollection',
     features: [
-      { type: 'Feature', properties: { name: 'A' }, geometry: { type: 'Point', coordinates: [72.8, 19.0] } },
-      { type: 'Feature', properties: { name: 'B' }, geometry: { type: 'Point', coordinates: [77.2, 28.6] } },
+      {
+        type: 'Feature',
+        properties: { name: 'A' },
+        geometry: { type: 'Point', coordinates: [72.8, 19.0] },
+      },
+      {
+        type: 'Feature',
+        properties: { name: 'B' },
+        geometry: { type: 'Point', coordinates: [77.2, 28.6] },
+      },
     ],
   });
   await page.evaluate((gj) => {
@@ -1365,7 +1395,8 @@ async function main() {
   await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
   await page.click('.add-source-overlay [data-action="mount-file"]');
   await page.waitForFunction(
-    () => /\bplaces\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    () =>
+      /\bplaces\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
     null,
     { timeout: 20000 },
   );
@@ -1398,7 +1429,10 @@ async function main() {
   await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
   await page.click('.add-source-overlay [data-action="mount-file"]');
   await page.waitForFunction(
-    () => /\barrow_cities\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    () =>
+      /\barrow_cities\b/.test(
+        document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '',
+      ),
     null,
     { timeout: 20000 },
   );
@@ -1426,7 +1460,8 @@ async function main() {
   await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
   await page.click('.add-source-overlay [data-action="mount-file"]');
   await page.waitForFunction(
-    () => /\bhtyped\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    () =>
+      /\bhtyped\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
     null,
     { timeout: 20000 },
   );
@@ -1435,7 +1470,9 @@ async function main() {
     return t.match(/\bhtyped\b\s+([\d,]+)\s+rows/)?.[1] ?? null;
   });
   if (headerlessRows !== '3') {
-    fail(`headerless CSV row count wrong: ${headerlessRows} (expected 3 — a forced header would give 2)`);
+    fail(
+      `headerless CSV row count wrong: ${headerlessRows} (expected 3 — a forced header would give 2)`,
+    );
   }
   log('✓ headerless CSV auto-detected (3 rows kept, no forced header) — F4');
 
@@ -1458,7 +1495,10 @@ async function main() {
   await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
   await page.click('.add-source-overlay [data-action="mount-file"]');
   await page.waitForFunction(
-    () => /\bstat_demo\b/.test(document.querySelector('aside[aria-label="Sources"]')?.textContent ?? ''),
+    () =>
+      /\bstat_demo\b/.test(
+        document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '',
+      ),
     null,
     { timeout: 20000 },
   );
@@ -1479,14 +1519,20 @@ async function main() {
   await page.click('[data-nb-action="add-sql"]');
   const pySqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
   await pySqlCell.locator('.cm-content, textarea').first().click();
-  await page.keyboard.insertText('SELECT 1 AS a, 10 AS b UNION ALL SELECT 2, 20 UNION ALL SELECT 3, 30');
+  await page.keyboard.insertText(
+    'SELECT 1 AS a, 10 AS b UNION ALL SELECT 2, 20 UNION ALL SELECT 3, 30',
+  );
   await pySqlCell.locator('[data-action="cell-run"]').click();
   const pySqlId = await pySqlCell.getAttribute('data-cell-id');
   // Wait for the SQL cell to produce its result view (cell_<id>).
   await page.waitForFunction(
     (id) => {
       const c = document.querySelector(`.cell[data-cell-id="${id}"]`);
-      return !!c && !c.classList.contains('errored') && !!c.querySelector('.result-table, .cell-output table');
+      return (
+        !!c &&
+        !c.classList.contains('errored') &&
+        !!c.querySelector('.result-table, .cell-output table')
+      );
     },
     pySqlId,
     { timeout: 15000 },
@@ -1523,7 +1569,9 @@ async function main() {
   await page.click('[data-nb-action="add-sql"]');
   const dsCell = page.locator('.cell[data-cell-kind="sql"]').last();
   await dsCell.locator('.cm-content, textarea').first().click();
-  await page.keyboard.insertText(`SELECT sum(c) AS total FROM cell_${(pyId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`);
+  await page.keyboard.insertText(
+    `SELECT sum(c) AS total FROM cell_${(pyId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`,
+  );
   await dsCell.locator('[data-action="cell-run"]').click();
   await page.waitForFunction(
     () => {
@@ -1535,7 +1583,9 @@ async function main() {
     null,
     { timeout: 10000 },
   );
-  log('✓ Python cell: SQL → Parquet → Pyodide(pandas) → Parquet → DuckDB table, queryable downstream (sum=120)');
+  log(
+    '✓ Python cell: SQL → Parquet → Pyodide(pandas) → Parquet → DuckDB table, queryable downstream (sum=120)',
+  );
 
   // 12l. R cell (Polyglot-Workbench Fork 2, WebR). Same shared language-cell
   //      path as Python, but CSV interchange over WebR's VFS + base R. Reuse the
@@ -1545,7 +1595,9 @@ async function main() {
   await page.click('[data-nb-action="add-r"]');
   const rCell = page.locator('.cell[data-cell-kind="r"]').last();
   await rCell.locator('[data-action="lang-input"]').selectOption(pySqlId ?? '');
-  await rCell.locator('[data-action="lang-code"]').fill("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
+  await rCell
+    .locator('[data-action="lang-code"]')
+    .fill("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
   await rCell.locator('[data-action="run-r"]').click();
   await page.waitForFunction(
     () => {
@@ -1568,7 +1620,9 @@ async function main() {
   await page.click('[data-nb-action="add-sql"]');
   const rdsCell = page.locator('.cell[data-cell-kind="sql"]').last();
   await rdsCell.locator('.cm-content, textarea').first().click();
-  await page.keyboard.insertText(`SELECT sum(c) AS total FROM cell_${(rId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`);
+  await page.keyboard.insertText(
+    `SELECT sum(c) AS total FROM cell_${(rId ?? '').replace(/[^A-Za-z0-9_]/g, '_')}`,
+  );
   await rdsCell.locator('[data-action="cell-run"]').click();
   await page.waitForFunction(
     () => {
@@ -1581,14 +1635,22 @@ async function main() {
   );
   log('✓ R cell: SQL → CSV → WebR(base R) → CSV → DuckDB table, queryable downstream (sum=120)');
 
-  // 13. Sanity: no uncaught errors in the console.
-
-  if (consoleErrors.length > 0) {
-    log('NOTE: console errors during run:');
-    for (const e of consoleErrors) log('  •', e);
-  } else {
-    log('✓ no console errors');
+  // 13. Sanity: no uncaught errors in the console. (SB5: this used to log and
+  // pass regardless — now a real gate.) A short allowlist covers errors that
+  // are benign in the headless/offline harness only; anything else fails.
+  const BENIGN_CONSOLE_ERRORS = [
+    // egress to the CDN is blocked in the sandbox; the app falls back to the
+    // vendored runtime, so the failed cross-origin fetch is expected here.
+    /jsdelivr\.net/i,
+    /Failed to load resource/i,
+  ];
+  const realErrors = consoleErrors.filter((e) => !BENIGN_CONSOLE_ERRORS.some((re) => re.test(e)));
+  if (realErrors.length > 0) {
+    log('console errors during run:');
+    for (const e of realErrors) log('  •', e);
+    fail(`${realErrors.length} unexpected console error(s) during smoke run`);
   }
+  log('✓ no unexpected console errors');
 
   await browser.close();
   server.close();

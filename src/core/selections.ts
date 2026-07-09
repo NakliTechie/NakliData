@@ -18,6 +18,8 @@
 // "values that co-occur with the selection" lives in the UI binder
 // because it takes an Engine handle.
 
+import { quoteIdent, quoteLiteral } from './query-builder.ts';
+
 export type ValueState = 'selected' | 'associated' | 'excluded' | 'neutral';
 
 export interface SelectionKey {
@@ -27,9 +29,12 @@ export interface SelectionKey {
   column: string;
 }
 
-/** String form of a SelectionKey, for use as Map keys. */
+/** String form of a SelectionKey, for use as Map keys. L14: each component
+ *  is percent-encoded so a `::` inside a table/column name can't corrupt the
+ *  round-trip (encodeURIComponent escapes `:` → `%3A`, so neither encoded
+ *  component ever contains the `::` delimiter). */
 export function selectionKeyString(k: SelectionKey): string {
-  return `${k.table}::${k.column}`;
+  return `${encodeURIComponent(k.table)}::${encodeURIComponent(k.column)}`;
 }
 
 /**
@@ -189,11 +194,11 @@ export class SelectionsStore {
   list(): ReadonlyArray<SelectionEntry> {
     return Array.from(this.entries.entries())
       .map(([key, values]) => {
-        const [table, column] = key.split('::');
+        const [rawTable, rawColumn] = key.split('::');
         const type = this.types.get(key);
         const entry: SelectionEntry = {
-          table: table ?? '',
-          column: column ?? '',
+          table: rawTable ? decodeURIComponent(rawTable) : '',
+          column: rawColumn ? decodeURIComponent(rawColumn) : '',
           values: Array.from(values),
         };
         return type ? { ...entry, type } : entry;
@@ -377,12 +382,4 @@ function emitSelectionLiteral(type: SelectionValueType, value: string): string |
     return quoteLiteral(value);
   }
   return quoteLiteral(value);
-}
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-function quoteLiteral(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
 }

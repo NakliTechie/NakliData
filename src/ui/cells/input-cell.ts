@@ -57,14 +57,14 @@ export function renderInputCell(cell: InputCellState, handlers: CellHandlers): H
     </div>
   `;
 
-  // Bind name input. Listen on BOTH `input` (live keystroke) and
-  // `change` (blur) — `change` alone means a freshly-typed name is
-  // invisible to Run-all (Cmd+Shift+Enter) until the user blurs the
-  // field. Same story for value below. (Audit follow-up.)
+  // Bind name input. `input` (live keystroke) fires the SILENT patch so
+  // Run-all (Cmd+Shift+Enter) sees the live value without a re-render blurring
+  // the field mid-typing (forward-pass C1); `change` (blur) commits a full
+  // onChange so dependent UI (dashboards, @-refs) refreshes. Same for value.
   const nameInput = el.querySelector<HTMLInputElement>('[data-region="cell-name"]');
-  const fireName = () => handlers.onChange(cell.id, { name: nameInput?.value.trim() || null });
-  nameInput?.addEventListener('input', fireName);
-  nameInput?.addEventListener('change', fireName);
+  const patchName = () => ({ name: nameInput?.value.trim() || null });
+  nameInput?.addEventListener('input', () => handlers.onChangeSilent(cell.id, patchName()));
+  nameInput?.addEventListener('change', () => handlers.onChange(cell.id, patchName()));
 
   // Bind type select — switches the widget kind.
   const typeSel = el.querySelector<HTMLSelectElement>('[data-region="input-type"]');
@@ -117,7 +117,7 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
     editor.style.cssText =
       'font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;width:240px;color:var(--text-muted);';
     editor.setAttribute('aria-label', 'Option list (comma-separated)');
-    const fireEditor = () => {
+    const patchEditor = () => {
       const opts = editor.value
         .split(',')
         .map((s) => s.trim())
@@ -125,16 +125,17 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
       // If the current value is no longer in the new options list,
       // default to the first option (or empty string).
       const value = opts.includes(cell.value) ? cell.value : (opts[0] ?? '');
-      handlers.onChange(cell.id, { options: opts, value });
+      return { options: opts, value };
     };
-    editor.addEventListener('input', fireEditor);
-    editor.addEventListener('change', fireEditor);
+    // C1: silent on keystroke (Run-all still sees live state), full commit on blur.
+    editor.addEventListener('input', () => handlers.onChangeSilent(cell.id, patchEditor()));
+    editor.addEventListener('change', () => handlers.onChange(cell.id, patchEditor()));
     mount.appendChild(editor);
     return;
   }
-  // text / number / date — single input element. Listen on `input`
-  // (live keystroke) so Run-all triggered without a prior blur sees
-  // the latest value. (Audit follow-up.)
+  // text / number / date — single input element. `input` fires a silent patch
+  // (Run-all sees the latest value via state; no re-render blurs the field),
+  // `change`/blur commits a full onChange. (forward-pass C1)
   const input = document.createElement('input');
   input.type = cell.inputType;
   input.value = cell.value;
@@ -143,9 +144,8 @@ function renderWidget(mount: HTMLElement, cell: InputCellState, handlers: CellHa
   input.setAttribute('aria-label', cell.label ?? cell.name ?? 'Input value');
   if (widgetId) input.id = widgetId;
   if (cell.inputType === 'number') input.inputMode = 'decimal';
-  const fireValue = () => handlers.onChange(cell.id, { value: input.value });
-  input.addEventListener('input', fireValue);
-  input.addEventListener('change', fireValue);
+  input.addEventListener('input', () => handlers.onChangeSilent(cell.id, { value: input.value }));
+  input.addEventListener('change', () => handlers.onChange(cell.id, { value: input.value }));
   mount.appendChild(input);
 }
 

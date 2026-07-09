@@ -68,6 +68,12 @@ function headerMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
   return { score: bestScore, applicable: true, evidence: bestEvidence };
 }
 
+// L11: cap the string fed to a user-supplied regex. A pattern loaded from a
+// shared `.naklidata` can be crafted for catastrophic backtracking; bounding
+// the input length keeps a hostile pattern from wedging the taxonomy worker
+// (the 50 ms detector budget is advisory only). Real type values are short.
+const MAX_REGEX_INPUT = 512;
+
 function regexMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
   if (!spec.pattern || sample.values.length === 0) return inapplicable();
   let re: RegExp;
@@ -78,7 +84,7 @@ function regexMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
   }
   let hits = 0;
   for (const v of sample.values) {
-    if (re.test(v)) hits++;
+    if (re.test(v.length > MAX_REGEX_INPUT ? v.slice(0, MAX_REGEX_INPUT) : v)) hits++;
   }
   const ratio = hits / sample.values.length;
   return {

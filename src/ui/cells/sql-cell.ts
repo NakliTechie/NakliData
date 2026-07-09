@@ -84,7 +84,7 @@ export function renderSqlCell(
       <input class="cell-name" data-region="cell-name" value="${escapeAttr(cell.name ?? '')}"
              placeholder="@name (optional)" aria-label="Cell name" style="border:0;background:transparent;width:140px;outline:none;" />
       <div class="cell-actions">
-        <button class="btn btn-primary" data-action="cell-run" title="Run (Ctrl+Enter)">
+        <button class="btn btn-primary" data-action="cell-run" title="Run (Ctrl+Enter)" ${cell.status === 'running' ? 'disabled' : ''}>
           ${iconSvg('play', 12)} Run
         </button>
         <button class="btn btn-ghost" data-action="cell-delete" title="Delete cell" aria-label="Delete cell">
@@ -433,7 +433,8 @@ function makeTextarea(
   ta.setAttribute('aria-label', 'SQL editor');
   ta.addEventListener('input', () => {
     onDoc(ta.value);
-    handlers.onChange(cell.id, { code: ta.value });
+    // C1: silent — a full onChange re-renders and blurs the textarea.
+    handlers.onChangeSilent(cell.id, { code: ta.value });
   });
   ta.addEventListener('keydown', (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
@@ -447,7 +448,7 @@ function makeTextarea(
       ta.value = `${ta.value.slice(0, start)}  ${ta.value.slice(end)}`;
       ta.selectionStart = ta.selectionEnd = start + 2;
       onDoc(ta.value);
-      handlers.onChange(cell.id, { code: ta.value });
+      handlers.onChangeSilent(cell.id, { code: ta.value });
     }
   });
   return ta;
@@ -464,7 +465,9 @@ async function mountCodeMirrorOnto(
     initialDoc: cell.code,
     onChange: (doc) => {
       onDoc(doc);
-      handlers.onChange(cell.id, { code: doc });
+      // C1: per-keystroke edits go silent — a full onChange here would
+      // re-render the notebook and blur the CM6 editor mid-typing.
+      handlers.onChangeSilent(cell.id, { code: doc });
     },
     onRun: (doc) => handlers.onRun(cell.id, { code: doc }),
   });
