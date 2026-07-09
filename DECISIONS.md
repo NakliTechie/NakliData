@@ -2,6 +2,34 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — CodeMirror syntax highlighting (Python / R / SQL)
+
+### Decision CU — lang packs in the lazy chunk; highlight style added to all editors
+
+Followed up the CM-editor swap (CS) with real syntax highlighting via the
+`language` slot `mountCodeEditor` already exposed. New bundled deps
+`@codemirror/lang-python` (official Lezer) + `@codemirror/legacy-modes` (R has no
+CM6 Lezer package → its CM5 mode via `StreamLanguage`) — both resolved **inside
+the lazy `codemirror.ts` chunk**, so they never touch the 768 KB shell budget
+(same pattern as the existing `@codemirror/lang-sql`). Shell stayed **762.9/768**;
+the CM lazy chunk grew to ~430 KB (off-budget, loads on first code cell).
+
+- **The catch:** a CM6 `LanguageSupport` (`python()`, `sql()`) only *parses* — it
+  emits no coloured tokens without a `syntaxHighlighting(highlightStyle)`
+  extension (which the hand-built editors omitted; `basicSetup` would have
+  included it). Added `syntaxHighlighting(defaultHighlightStyle)` to BOTH
+  `mountCodeEditor` and `mountSqlEditor` — so SQL now highlights too (was plain
+  before), keeping the three editors visually consistent. `defaultHighlightStyle`
+  suits the app's light editor surface.
+- **Language resolved by name:** `mountCodeEditor`'s `language` option is a
+  `'python' | 'r'` string (not an `Extension`), resolved to the CM extension in
+  the chunk, so the eager host/cells pass only a string and the lang imports stay
+  lazy. `language-cell.ts` passes `cell.kind`.
+- **Verified in a real browser** (preview): Python + R editors colour comments
+  (brown) + numbers (green) via `defaultHighlightStyle`; the earlier "zero spans"
+  was a service-worker-cached stale chunk, not a wiring bug. Gates: check clean ·
+  **978 vitest** · smoke green (SQL + Python + R round-trip) · bundle 762.9/768.
+
 ## 2026-07-09 — rs_wrapper C memory-safety (M28/L24/L25) + wasm rebuilt in-session
 
 ### Decision CT — checked allocations, `rs_free` export, oversized-input guards

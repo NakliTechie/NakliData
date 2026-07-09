@@ -8,7 +8,7 @@
 // most-used surface carries zero regression risk from this change.
 
 import { loadChunk } from '../../core/lazy-loader.ts';
-import type { MountedSqlEditor } from '../../lazy/codemirror.ts';
+import type { CodeLanguage, MountedSqlEditor } from '../../lazy/codemirror.ts';
 
 /** Live CM6 instances, keyed by cell id — reattached across notebook re-renders. */
 const instances = new Map<string, MountedSqlEditor>();
@@ -25,6 +25,8 @@ export interface EditorHostOptions {
   onChange: (doc: string) => void;
   /** Cmd/Ctrl+Enter — the caller triggers the cell's run. */
   onRun: (doc: string) => void;
+  /** Syntax-highlighting language (omit for a plain editor). */
+  language?: CodeLanguage;
 }
 
 /** Dispose a cell's editor + cancel any in-flight mount. Call on delete + load. */
@@ -92,6 +94,7 @@ async function mountCm(opts: EditorHostOptions): Promise<void> {
     initialDoc: opts.initialDoc,
     onChange: opts.onChange,
     onRun: opts.onRun,
+    ...(opts.language ? { language: opts.language } : {}),
   });
   instances.set(opts.cellId, editor);
 }

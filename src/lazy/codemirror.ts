@@ -8,9 +8,25 @@
 
 import { autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { python } from '@codemirror/lang-python';
 import { sql } from '@codemirror/lang-sql';
+import { StreamLanguage, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { r as rMode } from '@codemirror/legacy-modes/mode/r';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
+
+/** Language modes the plain code editor can highlight. */
+export type CodeLanguage = 'python' | 'r';
+
+// R has no official CM6 Lezer package; the legacy CM5 mode (via StreamLanguage)
+// is the standard route and gives solid token highlighting. Defined once.
+const rLanguage = StreamLanguage.define(rMode);
+
+function languageExtension(lang: CodeLanguage | undefined): Extension | null {
+  if (lang === 'python') return python();
+  if (lang === 'r') return rLanguage;
+  return null;
+}
 
 export interface MountSqlEditorOptions {
   initialDoc: string;
@@ -39,6 +55,7 @@ export function mountSqlEditor(host: HTMLElement, opts: MountSqlEditorOptions): 
         lineNumbers(),
         history(),
         sql(),
+        syntaxHighlighting(defaultHighlightStyle),
         autocompletion(),
         keymap.of([
           ...defaultKeymap,
@@ -76,28 +93,29 @@ export interface MountCodeEditorOptions {
   onChange: (doc: string) => void;
   onRun: (doc: string) => void;
   /**
-   * Optional language extension (e.g. from a `@codemirror/lang-*` package). Omit
-   * for a plain editor — still gets line numbers, undo/redo, tab-indent, and the
-   * Mod-Enter run key, just no syntax colouring. The Python/R language cells use
-   * this without a language pack (none is bundled); adding one later is a drop-in.
+   * Syntax-highlighting language. Resolved to a CM extension inside this lazy
+   * chunk so the `lang-*` packages never touch the shell bundle. Omit for a plain
+   * editor — still gets line numbers, undo/redo, tab-indent, and Mod-Enter run.
    */
-  language?: Extension;
+  language?: CodeLanguage;
 }
 
 /**
- * A language-agnostic CodeMirror editor — the same shell as `mountSqlEditor` but
- * with a caller-supplied (or no) language extension and no SQL autocompletion.
- * Backs the Python/R cells' editor (via `code-editor-host`), replacing the plain
- * textarea. Returns the same handle type so the host machinery is shared.
+ * A language-aware CodeMirror editor — the same shell as `mountSqlEditor` but
+ * with a caller-named (or no) language and no SQL autocompletion. Backs the
+ * Python/R cells' editor (via `code-editor-host`), replacing the plain textarea.
+ * Returns the same handle type so the host machinery is shared.
  */
 export function mountCodeEditor(host: HTMLElement, opts: MountCodeEditorOptions): MountedSqlEditor {
+  const langExt = languageExtension(opts.language);
   const view = new EditorView({
     state: EditorState.create({
       doc: opts.initialDoc,
       extensions: [
         lineNumbers(),
         history(),
-        ...(opts.language ? [opts.language] : []),
+        ...(langExt ? [langExt] : []),
+        syntaxHighlighting(defaultHighlightStyle),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,

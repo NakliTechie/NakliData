@@ -88,6 +88,8 @@ export function renderLanguageCell(
     mountCodeEditorHost({
       cellId: cell.id,
       host: editorMount,
+      // cell.kind is 'python' | 'r' → syntax highlighting for the right language.
+      language: cell.kind,
       initialDoc: cell.code || lang.starter,
       // Silent — a re-render would detach the Run button mid-click (H3/C1).
       onChange: (doc) => handlers.onChangeSilent(cell.id, { code: doc }),
