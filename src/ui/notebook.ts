@@ -30,6 +30,7 @@ import { getSegmentsStore } from '../core/segments.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
+import { disposeCodeEditorHost } from './cells/code-editor-host.ts';
 import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderDashboardCell } from './cells/dashboard-cell.ts';
 import { renderDistributionCell } from './cells/distribution-cell.ts';
@@ -155,6 +156,8 @@ export class Notebook {
     for (const old of this.state.cells) {
       if (old.kind === 'sql' || old.kind === 'cohort' || old.kind === 'assertion') {
         disposeSqlCellEditor(old.id);
+      } else if (old.kind === 'python' || old.kind === 'r') {
+        disposeCodeEditorHost(old.id);
       }
     }
     this.state = { cells };

@@ -6,6 +6,7 @@
 // eager shell within budget.)
 
 import { iconSvg } from '../../tokens/icons.ts';
+import { disposeCodeEditorHost, mountCodeEditorHost } from './code-editor-host.ts';
 import type { CellHandlers, PythonCellState, RCellState } from './types.ts';
 
 type LangCell = PythonCellState | RCellState;
@@ -58,7 +59,7 @@ export function renderLanguageCell(
       <button class="btn btn-ghost" data-action="${lang.action}" data-cell-id="${cell.id}" title="Run" ${busy ? 'disabled' : ''}>${iconSvg('play', 12)} <span>Run</span></button>
       <button class="btn btn-ghost" data-action="cell-delete" data-cell-id="${cell.id}" aria-label="Delete cell">${iconSvg('x', 12)}</button>
     </div>
-    <textarea class="python-code" data-action="lang-code" spellcheck="false">${esc(cell.code || lang.starter)}</textarea>
+    <div class="cell-editor" data-region="lang-editor"></div>
     <div class="cell-output">${renderBody(cell, lang)}</div>
   `;
 
@@ -69,28 +70,35 @@ export function renderLanguageCell(
     });
   // H3: the global dispatcher skips cell-delete for cells that "attach their
   // own handlers" — this renderer didn't, so delete was a no-op. Attach it.
+  const runBtn = wrap.querySelector<HTMLButtonElement>(`[data-action="${lang.action}"]`);
   wrap
     .querySelector<HTMLButtonElement>('[data-action="cell-delete"]')
-    ?.addEventListener('click', () => handlers.onDelete(cell.id));
+    ?.addEventListener('click', () => {
+      disposeCodeEditorHost(cell.id);
+      handlers.onDelete(cell.id);
+    });
   wrap
     .querySelector<HTMLSelectElement>('[data-action="lang-input"]')
     ?.addEventListener('change', (ev) => {
       handlers.onChange(cell.id, { inputCell: (ev.target as HTMLSelectElement).value || null });
     });
-  const ta = wrap.querySelector<HTMLTextAreaElement>('[data-action="lang-code"]');
-  ta?.addEventListener('change', (ev) => {
-    // Silent — a re-render on blur would detach the Run button mid-click.
-    handlers.onChangeSilent(cell.id, { code: (ev.target as HTMLTextAreaElement).value });
-  });
-  ta?.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Tab') {
-      ev.preventDefault();
-      const t = ev.target as HTMLTextAreaElement;
-      const s = t.selectionStart;
-      t.value = `${t.value.slice(0, s)}  ${t.value.slice(t.selectionEnd)}`;
-      t.selectionStart = t.selectionEnd = s + 2;
-    }
-  });
+
+  const editorMount = wrap.querySelector<HTMLElement>('[data-region="lang-editor"]');
+  if (editorMount) {
+    mountCodeEditorHost({
+      cellId: cell.id,
+      host: editorMount,
+      initialDoc: cell.code || lang.starter,
+      // Silent — a re-render would detach the Run button mid-click (H3/C1).
+      onChange: (doc) => handlers.onChangeSilent(cell.id, { code: doc }),
+      // Mod-Enter runs the cell via its existing global-dispatch Run button,
+      // after flushing the latest doc so the run reads current code.
+      onRun: (doc) => {
+        handlers.onChangeSilent(cell.id, { code: doc });
+        runBtn?.click();
+      },
+    });
+  }
   return wrap;
 }
 

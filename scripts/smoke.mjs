@@ -283,9 +283,13 @@ async function main() {
   );
   log(`✓ iceberg mount fails fast with the honest "not available in this build" error`);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => document.querySelector('.mount-iceberg-overlay') === null, null, {
-    timeout: 2000,
-  });
+  await page.waitForFunction(
+    () => document.querySelector('.mount-iceberg-overlay') === null,
+    null,
+    {
+      timeout: 2000,
+    },
+  );
 
   // 4. Click "Browse example data" to mount the bundled sources.
   await page.click('[data-action="browse-examples"]');
@@ -1213,8 +1217,9 @@ async function main() {
   // Brush the full range via the seam → onSelect → applyCrossfilter → runAll runs
   // the downstream cell; CROSSFILTER(twin) should keep (nearly) all 120 rows.
   await page.evaluate(() => {
-    const seam = document.querySelector('.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]')
-      ?.__temporalBrush;
+    const seam = document.querySelector(
+      '.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]',
+    )?.__temporalBrush;
     const [lo, hi] = seam.range;
     seam.brushTimeWindow(lo, hi);
   });
@@ -1232,8 +1237,9 @@ async function main() {
   }, xfCellId);
   // Now brush a narrow middle window → downstream count must drop.
   await page.evaluate(() => {
-    const seam = document.querySelector('.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]')
-      ?.__temporalBrush;
+    const seam = document.querySelector(
+      '.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]',
+    )?.__temporalBrush;
     const [lo, hi] = seam.range;
     seam.brushTimeWindow(lo + (hi - lo) * 0.4, lo + (hi - lo) * 0.6);
   });
@@ -1688,9 +1694,14 @@ async function main() {
   const pyCell = page.locator('.cell[data-cell-kind="python"]').last();
   // Pick the SQL cell as input.
   await pyCell.locator('[data-action="lang-input"]').selectOption(pySqlId ?? '');
-  // Replace the starter code with a deterministic transform.
-  const ta = pyCell.locator('[data-action="lang-code"]');
-  await ta.fill("df['c'] = df['b'] * 2\ndf = df[['a', 'c']]");
+  // Replace the starter code with a deterministic transform. The language cells
+  // now use the shared CodeMirror editor (code-editor-host), so drive it the same
+  // way as the SQL cells: click the CM surface (or fallback textarea), select-all,
+  // then type.
+  const pyEditor = pyCell.locator('.cm-content, textarea').first();
+  await pyEditor.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText("df['c'] = df['b'] * 2\ndf = df[['a', 'c']]");
   await pyCell.locator('[data-action="run-python"]').click();
   // First run downloads + inits Pyodide (~33 MB) then runs — allow 120 s.
   await page.waitForFunction(
@@ -1741,9 +1752,10 @@ async function main() {
   await page.click('[data-nb-action="add-r"]');
   const rCell = page.locator('.cell[data-cell-kind="r"]').last();
   await rCell.locator('[data-action="lang-input"]').selectOption(pySqlId ?? '');
-  await rCell
-    .locator('[data-action="lang-code"]')
-    .fill("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
+  const rEditor = rCell.locator('.cm-content, textarea').first();
+  await rEditor.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
   await rCell.locator('[data-action="run-r"]').click();
   await page.waitForFunction(
     () => {

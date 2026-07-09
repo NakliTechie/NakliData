@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Language cells: CodeMirror editor (vs textarea)
+
+### Decision CS — shared `code-editor-host`, SQL surface untouched
+
+Replaced the Python/R cells' plain `<textarea>` with a real CodeMirror editor
+(line numbers, undo/redo, tab-indent, Mod-Enter run). How + why:
+
+- **Bundle-safe:** CodeMirror is a lazy chunk (`src/lazy/codemirror.ts`), so this
+  adds nothing to the 768 KB shell budget (added `mountCodeEditor` — a
+  language-agnostic sibling of `mountSqlEditor`, no SQL autocompletion, optional
+  language extension). Shell stayed at **762.8/768** (+1.2 KB is just the eager
+  host wiring).
+- **New shared host, SQL path left byte-identical:** the SQL cell's editor
+  lifecycle (instance registry + pending-mount race guard + textarea fallback +
+  reuse-across-render + dispose) is subtle and battle-hardened (C1/L8). Rather
+  than refactor sql-cell.ts (regression risk on the most-used surface), factored
+  a parallel `src/ui/cells/code-editor-host.ts` and used it in the language cells
+  only — so they **inherit** those fixes instead of risking new ones. sql-cell.ts
+  is unchanged; it can migrate to the host later.
+- **Run wiring:** the language cells run via a global-dispatch button
+  (`run-python`/`run-r` → `handleRunLanguage`, which reads `cell.code` from
+  state). CM's live `onChange` → `onChangeSilent` keeps `cell.code` current, so
+  Run always sees the latest; Mod-Enter flushes the doc then clicks that button
+  (one run path). Delete + notebook `load()`/session-switch call
+  `disposeCodeEditorHost` alongside the SQL disposal.
+- **No syntax highlighting yet** — `@codemirror/lang-python` + a legacy R mode
+  aren't installed. The editor is fully usable without them; `mountCodeEditor`
+  takes an optional language extension, so adding colour later is a drop-in (and
+  would land in the lazy chunk, still off-budget).
+- **Verified:** the smoke's Python + R legs now type into the CM editor (not a
+  textarea) and still round-trip (sum=120 each); the fallback textarea path is
+  kept for offline/chunk-fail. Gates: check clean · **978 vitest** · smoke green ·
+  bundle 762.8/768.
+
 ## 2026-07-09 — Facet crossfilter propagation
 
 ### Decision CR — `CROSSFILTER(name)` macro, selection stored on the cell
