@@ -76,7 +76,12 @@ export function renderTemporalCell(
     const rows = input.lastResult.rows;
     mount.innerHTML = '<div class="cell-output-empty">Rendering…</div>';
     void loadChunk('facet-charts')
-      .then((m) => m.renderTimeline(mount, readout, timeCol, rows))
+      .then((m) =>
+        m.renderTimeline(mount, readout, timeCol, rows, {
+          selection: cell.selection ?? null,
+          onSelect: (sel) => handlers.onCrossfilter(cell.id, sel),
+        }),
+      )
       .catch((err) => {
         mount.innerHTML = `<div class="cell-output-empty">Couldn't render the timeline: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
       });

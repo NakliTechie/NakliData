@@ -157,6 +157,12 @@ export interface TemporalCellState {
   inputCell: string | null;
   /** The DATE / TIMESTAMP column to bucket. */
   timeCol: string | null;
+  /**
+   * Committed brush window, injected downstream via `CROSSFILTER(<name>)`.
+   * Absent/null = no active window (the macro expands to a no-op `TRUE`).
+   * Optional so pre-crossfilter `.naklidata` files round-trip.
+   */
+  selection?: import('../../core/facet-crossfilter.ts').FacetSelection | null;
 }
 
 /**
@@ -175,6 +181,12 @@ export interface DistributionCellState {
   inputCell: string | null;
   /** The column to summarize (numeric → histogram, else category bars). */
   column: string | null;
+  /**
+   * Committed bar selection (numeric bin range or categorical value set),
+   * injected downstream via `CROSSFILTER(<name>)`. Absent/null = no active
+   * selection. Optional so pre-crossfilter `.naklidata` files round-trip.
+   */
+  selection?: import('../../core/facet-crossfilter.ts').FacetSelection | null;
 }
 
 /**
@@ -436,4 +448,15 @@ export interface CellHandlers {
    */
   onChangeSilent: (id: string, patch: CellPatch) => void;
   onDelete: (id: string) => void;
+  /**
+   * A Facet cell (Temporal/Distribution) committed a new crossfilter selection
+   * (or `null` to clear). Persists it on the cell and re-runs the downstream
+   * cells that reference it via `CROSSFILTER(<name>)`. Separate from onChange so
+   * the write can be silent (the SVG already reflects the brush) yet still
+   * trigger downstream re-execution — which onChange alone never does.
+   */
+  onCrossfilter: (
+    id: string,
+    selection: import('../../core/facet-crossfilter.ts').FacetSelection | null,
+  ) => void;
 }

@@ -76,7 +76,12 @@ export function renderDistributionCell(
     const rows = input.lastResult.rows;
     mount.innerHTML = '<div class="cell-output-empty">Rendering…</div>';
     void loadChunk('facet-charts')
-      .then((m) => m.renderDistribution(mount, readout, column, rows))
+      .then((m) =>
+        m.renderDistribution(mount, readout, column, rows, {
+          selection: cell.selection ?? null,
+          onSelect: (sel) => handlers.onCrossfilter(cell.id, sel),
+        }),
+      )
       .catch((err) => {
         mount.innerHTML = `<div class="cell-output-empty">Couldn't render the distribution: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
       });

@@ -30,6 +30,7 @@ const NOOP_HANDLERS: CellHandlers = {
   onChange: () => {},
   onChangeSilent: () => {},
   onDelete: () => {},
+  onCrossfilter: () => {},
 };
 
 export function renderDashboardCell(

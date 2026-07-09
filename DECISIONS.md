@@ -2,6 +2,48 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-09 — Facet crossfilter propagation
+
+### Decision CR — `CROSSFILTER(name)` macro, selection stored on the cell
+
+Wired the Temporal brush + Distribution bar selection to filter downstream SQL
+cells. Chosen shape, and why:
+
+- **Read side = a `CROSSFILTER(name)` macro**, not `@name`. It sits in a WHERE
+  (boolean) position exactly like `SEGMENT(name)`, so it's expanded in the SAME
+  `expandMeasures` pass (string/comment-safe via `mapCodeSpans`, depth-capped).
+  `@name` was rejected: it yields a *value/table*, and overloading it with a
+  *predicate* would be semantically muddy. Key difference from SEGMENT: an
+  unknown crossfilter expands to **TRUE** (never silently zeroes rows), and a
+  named-but-un-brushed Facet cell is "known" → also TRUE (inactive filter). Only
+  a typo (no matching Facet cell) lands in `unknownCrossfilters` → the run aborts
+  with the same diagnostic as unknown measures/segments.
+- **Store = the cell itself.** Added `selection?: FacetSelection | null` to
+  Temporal/Distribution cell state — no singleton store, and it round-trips in
+  `.naklidata` for free (persistence passes Facet-cell config through as-is).
+  `src/core/facet-crossfilter.ts` is the pure compiler: `selectionToPredicate`
+  (`timeRange` → `TRY_CAST(col AS TIMESTAMP) BETWEEN …` so it works on
+  TIMESTAMP/DATE/varchar time columns; `numRange` → `BETWEEN`; `valueSet` →
+  `IN (…)`) + `isFacetSelection` guard for defensive load.
+- **Write side lifts the selection out of DOM `dataset` into cell state.** The
+  brush/bar interaction previously wrote only to `readout.dataset.*` and
+  evaporated on re-render (the map's key finding). Now `renderTimeline`/
+  `renderDistribution` take `{ selection, onSelect }`: `onSelect` fires on commit
+  (→ new `CellHandlers.onCrossfilter` → `Notebook.applyCrossfilter`), and
+  `selection` restores the brush/bar on every re-render (a silent paint that does
+  NOT re-emit — that would loop through the re-render it triggers).
+- **Re-run = Run-all, guarded.** `applyCrossfilter` persists the selection
+  silently, then Run-alls (topological) — but only if some cell's code actually
+  contains `CROSSFILTER(<name>)`, so brushing an unreferenced Facet cell stays
+  free. Matches how `@param` inputs only take effect on a run; no new
+  dependency-graph machinery.
+- **Verified:** unit tests for the predicate compiler + guard + CROSSFILTER
+  expansion (incl. unknown→TRUE, string/comment safety, coexistence with
+  MEASURE/SEGMENT); a new smoke leg brushes a full vs. a narrow window and
+  asserts the downstream `CROSSFILTER(twin)` COUNT drops (120 → 24). Gates:
+  check clean · **978 vitest** · smoke green · bundle **761.6/768** (the compiler
+  is a small eager core module; the render wiring stays in the lazy facet chunk).
+
 ## 2026-07-09 — Facet Network: Barnes–Hut lifts the layout ceiling
 
 ### Decision CQ — in-house Barnes–Hut quadtree; ceiling 3k → 30k

@@ -8,7 +8,18 @@
 // file is DOM only.
 
 import { type ColumnSummary, summarizeColumn } from '../core/distribution.ts';
+import type { FacetSelection } from '../core/facet-crossfilter.ts';
 import { type TimeHistogram, bucketTime, countInWindow } from '../core/temporal.ts';
+
+/**
+ * Crossfilter wiring passed to the Facet renderers. `selection` restores a
+ * persisted brush/bar on (re-)render; `onSelect` fires when the user commits a
+ * new selection (or `null` to clear) so the cell can persist + propagate it.
+ */
+export interface FacetSelectOptions {
+  selection?: FacetSelection | null;
+  onSelect?: (selection: FacetSelection | null) => void;
+}
 
 const TIMELINE_H = 130;
 const DIST_H = 150;
@@ -22,6 +33,7 @@ export function renderTimeline(
   readout: HTMLElement | null,
   timeCol: string,
   rows: Array<Record<string, unknown>>,
+  opts: FacetSelectOptions = {},
 ): void {
   const values = rows.map((r) => r[timeCol]);
   const hist = bucketTime(values, BIN_COUNT);
@@ -56,7 +68,7 @@ export function renderTimeline(
       <text x="${width - 4}" y="${TIMELINE_H - 4}" font-size="10" fill="var(--text-muted)" text-anchor="end">${fmtDate(hist.max)}</text>
     </svg>`;
 
-  wireBrush(mount, readout, hist, values, padX, plotW);
+  wireBrush(mount, readout, hist, values, padX, plotW, timeCol, opts);
 }
 
 function wireBrush(
@@ -66,6 +78,8 @@ function wireBrush(
   values: readonly unknown[],
   padX: number,
   plotW: number,
+  timeCol: string,
+  opts: FacetSelectOptions,
 ): void {
   const svg = mount.querySelector<SVGSVGElement>('[data-region="temporal-svg"]');
   const brush = mount.querySelector<SVGRectElement>('[data-region="temporal-brush"]');
@@ -90,7 +104,10 @@ function wireBrush(
     brush.setAttribute('width', String(Math.max(0, x1 - x0)));
   };
 
-  const report = (t0: number, t1: number) => {
+  // Paint the readout for a window. `emit` distinguishes a user commit (persist +
+  // propagate downstream) from a silent restore of a persisted brush on render
+  // (paint only — emitting there would loop through the re-render that follows).
+  const paint = (t0: number, t1: number, emit: boolean) => {
     const lo = Math.min(t0, t1);
     const hi = Math.max(t0, t1);
     const count = countInWindow(values, lo, hi);
@@ -100,6 +117,16 @@ function wireBrush(
       readout.dataset.windowCount = String(count);
       readout.textContent = `${fmtDate(lo)} → ${fmtDate(hi)} · ${count.toLocaleString()} of ${hist.total.toLocaleString()} rows — click to clear`;
     }
+    if (emit) opts.onSelect?.({ kind: 'timeRange', col: timeCol, lo, hi });
+  };
+
+  const clear = (emit: boolean) => {
+    brush.setAttribute('width', '0');
+    if (readout) {
+      for (const k of ['windowStart', 'windowEnd', 'windowCount']) delete readout.dataset[k];
+      readout.textContent = '';
+    }
+    if (emit) opts.onSelect?.(null);
   };
 
   svg.addEventListener('pointerdown', (ev) => {
@@ -115,25 +142,29 @@ function wireBrush(
     if (anchorT === null) return;
     const t = xToTime(ev.clientX);
     if (Math.abs(timeToViewX(t) - timeToViewX(anchorT)) < 3) {
-      brush.setAttribute('width', '0');
-      if (readout) {
-        for (const k of ['windowStart', 'windowEnd', 'windowCount']) delete readout.dataset[k];
-        readout.textContent = '';
-      }
+      clear(true);
     } else {
       setBrush(anchorT, t);
-      report(anchorT, t);
+      paint(anchorT, t, true);
     }
     anchorT = null;
   });
+
+  // Restore a persisted window on (re-)render — draw it, don't re-emit.
+  const restore = opts.selection;
+  if (restore && restore.kind === 'timeRange') {
+    setBrush(restore.lo, restore.hi);
+    paint(restore.lo, restore.hi, false);
+  }
 
   // Automation seam — the smoke brushes a window programmatically (CDP pointer
   // coords across the SVG viewBox are fiddly).
   (mount as HTMLElement & { __temporalBrush?: unknown }).__temporalBrush = {
     brushTimeWindow(t0: number, t1: number) {
       setBrush(t0, t1);
-      report(t0, t1);
+      paint(t0, t1, true);
     },
+    clear: () => clear(true),
     range: [hist.min, hist.max] as [number, number],
   };
 }
@@ -143,6 +174,9 @@ function wireBrush(
 interface Bar {
   count: number;
   label: string;
+  /** Underlying selection this bar stands for — a numeric bin range or a
+   *  categorical value — carried so a click can build a real predicate. */
+  sel: { kind: 'numRange'; lo: number; hi: number } | { kind: 'valueSet'; value: string };
 }
 
 /** Render a column's distribution (histogram or category bars) into `mount`. */
@@ -151,6 +185,7 @@ export function renderDistribution(
   readout: HTMLElement | null,
   column: string,
   rows: Array<Record<string, unknown>>,
+  opts: FacetSelectOptions = {},
 ): void {
   const values = rows.map((r) => r[column]);
   const summary = summarizeColumn(values, { binCount: 30, topN: 24 });
@@ -190,7 +225,7 @@ export function renderDistribution(
       <text x="4" y="${DIST_H - 5}" font-size="10" fill="var(--text-muted)">${escapeHtml(kindLabel)}</text>
     </svg>`;
 
-  wireSelect(mount, readout, bars, total);
+  wireSelect(mount, readout, bars, total, column, opts);
 }
 
 function toBars(summary: ColumnSummary): Bar[] {
@@ -198,9 +233,35 @@ function toBars(summary: ColumnSummary): Bar[] {
     return summary.bins.map((b) => ({
       count: b.count,
       label: b.lo === b.hi ? fmtNum(b.lo) : `${fmtNum(b.lo)}–${fmtNum(b.hi)}`,
+      sel: { kind: 'numRange', lo: b.lo, hi: b.hi },
     }));
   }
-  return summary.items.map((it) => ({ count: it.count, label: it.value }));
+  return summary.items.map((it) => ({
+    count: it.count,
+    label: it.value,
+    sel: { kind: 'valueSet', value: it.value },
+  }));
+}
+
+/** Which bar (if any) a persisted selection corresponds to, so a re-render can
+ *  re-highlight it. Matches a numeric bin by its [lo, hi] and a category by value. */
+function selectionToBarIndex(bars: Bar[], selection: FacetSelection | null | undefined): number {
+  if (!selection) return -1;
+  return bars.findIndex((b) => {
+    if (b.sel.kind === 'numRange' && selection.kind === 'numRange') {
+      return b.sel.lo === selection.lo && b.sel.hi === selection.hi;
+    }
+    if (b.sel.kind === 'valueSet' && selection.kind === 'valueSet') {
+      return selection.values.length === 1 && selection.values[0] === b.sel.value;
+    }
+    return false;
+  });
+}
+
+function barToSelection(bar: Bar, column: string): FacetSelection {
+  return bar.sel.kind === 'numRange'
+    ? { kind: 'numRange', col: column, lo: bar.sel.lo, hi: bar.sel.hi }
+    : { kind: 'valueSet', col: column, values: [bar.sel.value] };
 }
 
 function wireSelect(
@@ -208,13 +269,16 @@ function wireSelect(
   readout: HTMLElement | null,
   bars: Bar[],
   total: number,
+  column: string,
+  opts: FacetSelectOptions,
 ): void {
   const svg = mount.querySelector<SVGSVGElement>('[data-region="dist-svg"]');
   if (!svg) return;
   const rects = Array.from(svg.querySelectorAll<SVGRectElement>('[data-bar]'));
   let active: number | null = null;
 
-  const select = (i: number | null) => {
+  // `emit` false = silent restore of a persisted bar on render (paint only).
+  const select = (i: number | null, emit: boolean) => {
     active = i;
     for (const r of rects) {
       const idx = Number(r.dataset.bar);
@@ -233,17 +297,22 @@ function wireSelect(
         readout.textContent = `${b.label} · ${b.count.toLocaleString()} rows (${pct}%) — click again to clear`;
       }
     }
+    if (emit) opts.onSelect?.(i === null ? null : barToSelection(bars[i] as Bar, column));
   };
 
   for (const r of rects) {
     r.addEventListener('click', () => {
       const idx = Number(r.dataset.bar);
-      select(active === idx ? null : idx);
+      select(active === idx ? null : idx, true);
     });
   }
 
+  // Restore a persisted bar selection on (re-)render — highlight it, don't emit.
+  const restoreIdx = selectionToBarIndex(bars, opts.selection);
+  if (restoreIdx >= 0) select(restoreIdx, false);
+
   (mount as HTMLElement & { __distributionSelect?: unknown }).__distributionSelect = {
-    selectBar: (i: number | null) => select(i),
+    selectBar: (i: number | null) => select(i, true),
     barCount: bars.length,
   };
 }

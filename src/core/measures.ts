@@ -230,6 +230,12 @@ export interface MeasureExpansionResult {
   unknownDimensions: string[];
   /** `SEGMENT(name)` references whose name wasn't in the segments map (M2). */
   unknownSegments: string[];
+  /**
+   * `CROSSFILTER(name)` references whose name doesn't match a named Facet
+   * (Temporal/Distribution) cell — a typo. (An existing Facet cell with no
+   * active brush IS "known": its map entry is `TRUE`, a no-op filter.)
+   */
+  unknownCrossfilters: string[];
 }
 
 const MEASURE_CALL_RE = /\bMEASURE\(([a-z_][a-z0-9_]*)\)/g;
@@ -239,6 +245,9 @@ const DIM_CALL_RE = /\bDIM\(([a-z_][a-z0-9_]*)\)/g;
 // Resolve M2 — the segment macro (a named WHERE predicate), expanded in the
 // SAME pass so a segment can reference a DIM/MEASURE and vice-versa.
 const SEGMENT_CALL_RE = /\bSEGMENT\(([a-z_][a-z0-9_]*)\)/g;
+// Facet crossfilter — the boolean-position analog of SEGMENT, but the predicate
+// comes from a Facet cell's live brush/bar selection, not a stored definition.
+const CROSSFILTER_CALL_RE = /\bCROSSFILTER\(([a-z_][a-z0-9_]*)\)/g;
 const MAX_DEPTH = 10;
 
 /**
@@ -330,13 +339,18 @@ export function expandMeasures(
   measures: ReadonlyMap<string, MeasureDefinition>,
   dimensions?: ReadonlyMap<string, { name: string; expression: string }>,
   segments?: ReadonlyMap<string, { name: string; expression: string }>,
+  /** Facet crossfilters: name → ready-made boolean predicate (already a full
+   *  SQL expression — e.g. `"d" BETWEEN … ` or `TRUE` when nothing is brushed). */
+  crossfilters?: ReadonlyMap<string, string>,
 ): MeasureExpansionResult {
   const dims = dimensions ?? new Map<string, { name: string; expression: string }>();
   const segs = segments ?? new Map<string, { name: string; expression: string }>();
+  const xfilters = crossfilters ?? new Map<string, string>();
   const expansions: Array<{ name: string; expression: string }> = [];
   const unknownMeasures: string[] = [];
   const unknownDimensions: string[] = [];
   const unknownSegments: string[] = [];
+  const unknownCrossfilters: string[] = [];
   let current = sql;
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
     // Fresh, non-global regexes for the presence check — a global
@@ -352,8 +366,16 @@ export function expandMeasures(
     const hasMeasure = new RegExp(MEASURE_CALL_RE.source).test(scanText);
     const hasDim = new RegExp(DIM_CALL_RE.source).test(scanText);
     const hasSegment = new RegExp(SEGMENT_CALL_RE.source).test(scanText);
-    if (!hasMeasure && !hasDim && !hasSegment) {
-      return { sql: current, expansions, unknownMeasures, unknownDimensions, unknownSegments };
+    const hasCrossfilter = new RegExp(CROSSFILTER_CALL_RE.source).test(scanText);
+    if (!hasMeasure && !hasDim && !hasSegment && !hasCrossfilter) {
+      return {
+        sql: current,
+        expansions,
+        unknownMeasures,
+        unknownDimensions,
+        unknownSegments,
+        unknownCrossfilters,
+      };
     }
     if (hasMeasure) {
       current = mapCodeSpans(current, (code) =>
@@ -396,6 +418,22 @@ export function expandMeasures(
           }
           expansions.push({ name, expression: def.expression });
           return `(${def.expression})`;
+        }),
+      );
+    }
+    if (hasCrossfilter) {
+      current = mapCodeSpans(current, (code) =>
+        code.replace(CROSSFILTER_CALL_RE, (_match, name: string) => {
+          const predicate = xfilters.get(name);
+          if (predicate === undefined) {
+            if (!unknownCrossfilters.includes(name)) unknownCrossfilters.push(name);
+            // TRUE (not FALSE): a crossfilter reference sits in a WHERE slot, and
+            // an unknown one should never silently zero out results — the
+            // unknown-crossfilters list is the diagnostic the caller surfaces.
+            return 'TRUE';
+          }
+          expansions.push({ name, expression: predicate });
+          return `(${predicate})`;
         }),
       );
     }

@@ -1181,6 +1181,84 @@ async function main() {
     `✓ Facet Distribution cell: ${dist.bars} bars → select bar → ${dist.count} rows ("${dist.text.slice(0, 40)}…")`,
   );
 
+  // 10i. Facet crossfilter propagation — name the Temporal cell, add a downstream
+  // SQL cell that filters on CROSSFILTER(<name>), then brush a full vs. a narrow
+  // window and assert the downstream COUNT tracks the brush (the whole point of
+  // crossfilter). Exercises: cell.selection persistence, buildCrossfilterMap, the
+  // CROSSFILTER macro expansion, and the applyCrossfilter → runAll propagation.
+  await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
+    const nameInput = cell?.querySelector('[data-region="cell-name"]');
+    if (nameInput) {
+      nameInput.value = 'twin';
+      nameInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  const xfSqlBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+    xfSqlBefore,
+    { timeout: 5000 },
+  );
+  const xfCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await xfCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    "SELECT COUNT(*) AS c FROM (SELECT TIMESTAMP '2020-01-01' + INTERVAL (i) DAY AS ts, i AS n FROM range(120) t(i)) sub WHERE CROSSFILTER(twin)",
+  );
+  const xfCellId = await xfCell.evaluate((el) => el.dataset.cellId);
+  // Brush the full range via the seam → onSelect → applyCrossfilter → runAll runs
+  // the downstream cell; CROSSFILTER(twin) should keep (nearly) all 120 rows.
+  await page.evaluate(() => {
+    const seam = document.querySelector('.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]')
+      ?.__temporalBrush;
+    const [lo, hi] = seam.range;
+    seam.brushTimeWindow(lo, hi);
+  });
+  await page.waitForFunction(
+    (id) => {
+      const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
+      return !!td && Number(td.textContent) > 0;
+    },
+    xfCellId,
+    { timeout: 15000 },
+  );
+  const xfCountFull = await page.evaluate((id) => {
+    const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
+    return td ? Number(td.textContent) : null;
+  }, xfCellId);
+  // Now brush a narrow middle window → downstream count must drop.
+  await page.evaluate(() => {
+    const seam = document.querySelector('.cell[data-cell-kind="temporal"] [data-region="temporal-canvas"]')
+      ?.__temporalBrush;
+    const [lo, hi] = seam.range;
+    seam.brushTimeWindow(lo + (hi - lo) * 0.4, lo + (hi - lo) * 0.6);
+  });
+  await page.waitForFunction(
+    (args) => {
+      const [id, full] = args;
+      const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
+      return !!td && Number(td.textContent) < full;
+    },
+    [xfCellId, xfCountFull],
+    { timeout: 15000 },
+  );
+  const xfCountNarrow = await page.evaluate((id) => {
+    const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
+    return td ? Number(td.textContent) : null;
+  }, xfCellId);
+  if (!(xfCountFull > 0 && xfCountNarrow > 0 && xfCountNarrow < xfCountFull)) {
+    throw new Error(
+      `crossfilter: brush did not propagate downstream (full=${xfCountFull}, narrow=${xfCountNarrow})`,
+    );
+  }
+  log(
+    `✓ Facet crossfilter: brush → downstream CROSSFILTER(twin) count ${xfCountFull} → ${xfCountNarrow}`,
+  );
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.

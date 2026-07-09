@@ -12,6 +12,11 @@
 
 import { getDimensionsStore } from '../core/dimensions.ts';
 import type { Engine } from '../core/engine.ts';
+import {
+  type FacetSelection,
+  isFacetSelection,
+  selectionToPredicate,
+} from '../core/facet-crossfilter.ts';
 import { getLineageStore } from '../core/lineage-store.ts';
 import {
   extractInputsFromPlan,
@@ -459,11 +464,19 @@ LIMIT 100`,
       const measuresMap = getMeasuresStore().asMap();
       const dimensionsMap = getDimensionsStore().asMap();
       const segmentsMap = getSegmentsStore().asMap();
-      const measureExpanded = expandMeasures(code, measuresMap, dimensionsMap, segmentsMap);
+      const crossfilterMap = this.buildCrossfilterMap();
+      const measureExpanded = expandMeasures(
+        code,
+        measuresMap,
+        dimensionsMap,
+        segmentsMap,
+        crossfilterMap,
+      );
       const unknownMacros = [
         ...measureExpanded.unknownMeasures.map((m) => `MEASURE(${m})`),
         ...measureExpanded.unknownDimensions.map((d) => `DIM(${d})`),
         ...measureExpanded.unknownSegments.map((s) => `SEGMENT(${s})`),
+        ...measureExpanded.unknownCrossfilters.map((c) => `CROSSFILTER(${c})`),
       ];
       if (unknownMacros.length > 0) {
         this.patchCell(id, {
@@ -549,6 +562,47 @@ LIMIT 100`,
       if (!c.code.trim()) continue;
       await this.runCell(id);
     }
+  }
+
+  /**
+   * Build the name → predicate map for the `CROSSFILTER(name)` macro from the
+   * Facet cells. Every NAMED Temporal/Distribution cell is a "known" crossfilter:
+   * with a valid active selection it contributes that selection's predicate,
+   * otherwise a no-op `TRUE` (so a reference to an un-brushed Facet cell filters
+   * nothing rather than erroring). Malformed persisted selections are ignored.
+   */
+  private buildCrossfilterMap(): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const c of this.state.cells) {
+      if (c.kind !== 'temporal' && c.kind !== 'distribution') continue;
+      const name = c.name?.trim();
+      if (!name) continue;
+      const sel = c.selection ?? null;
+      map.set(name, sel && isFacetSelection(sel) ? selectionToPredicate(sel) : 'TRUE');
+    }
+    return map;
+  }
+
+  /**
+   * Persist a Facet cell's committed selection and re-run the notebook so any
+   * downstream `CROSSFILTER(<name>)` picks up the new predicate. Silent patch —
+   * the SVG already shows the brush; a full re-render would fight the pointer
+   * interaction. Re-run is a Run-all (topological), matching how `@param` inputs
+   * only take effect on a run; skipped entirely when nothing references this
+   * crossfilter, so brushing an unreferenced Facet cell stays free.
+   */
+  applyCrossfilter(id: string, selection: FacetSelection | null): void {
+    this.patchCellSilent(id, { selection });
+    const cell = this.state.cells.find((c) => c.id === id);
+    const name = cell?.name?.trim();
+    if (!name) return;
+    const token = `CROSSFILTER(${name})`;
+    const referenced = this.state.cells.some(
+      (c) =>
+        (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') &&
+        c.code.includes(token),
+    );
+    if (referenced) void this.runAll();
   }
 
   /**
@@ -788,6 +842,9 @@ export function renderNotebook(
     },
     onDelete: (id) => {
       notebook.deleteCell(id);
+    },
+    onCrossfilter: (id, selection) => {
+      notebook.applyCrossfilter(id, selection);
     },
   };
 

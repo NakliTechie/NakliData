@@ -213,6 +213,82 @@ describe('expandMeasures — single-level expansion', () => {
   });
 });
 
+describe('expandMeasures — CROSSFILTER macro (Facet crossfilter)', () => {
+  const noMeasures = new Map();
+  const xf = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it('expands a known crossfilter to its predicate (parenthesised)', () => {
+    const result = expandMeasures(
+      'SELECT * FROM sales WHERE CROSSFILTER(day)',
+      noMeasures,
+      undefined,
+      undefined,
+      xf({
+        day: `"d" BETWEEN TIMESTAMP '2020-01-01 00:00:00' AND TIMESTAMP '2020-02-01 00:00:00'`,
+      }),
+    );
+    expect(result.sql).toBe(
+      `SELECT * FROM sales WHERE ("d" BETWEEN TIMESTAMP '2020-01-01 00:00:00' AND TIMESTAMP '2020-02-01 00:00:00')`,
+    );
+    expect(result.unknownCrossfilters).toEqual([]);
+  });
+
+  it('an active-but-empty facet maps to TRUE (no-op filter)', () => {
+    const result = expandMeasures(
+      'SELECT * FROM sales WHERE CROSSFILTER(day) AND amount > 0',
+      noMeasures,
+      undefined,
+      undefined,
+      xf({ day: 'TRUE' }),
+    );
+    expect(result.sql).toBe('SELECT * FROM sales WHERE (TRUE) AND amount > 0');
+    expect(result.unknownCrossfilters).toEqual([]);
+  });
+
+  it('unknown crossfilter → TRUE (never silently zeroes rows) + name recorded', () => {
+    const result = expandMeasures(
+      'SELECT * FROM sales WHERE CROSSFILTER(ghost)',
+      noMeasures,
+      undefined,
+      undefined,
+      xf({ day: 'TRUE' }),
+    );
+    // Unlike SEGMENT (unknown → FALSE), an unknown crossfilter must not drop all
+    // rows; the caller aborts on the recorded name instead.
+    expect(result.sql).toBe('SELECT * FROM sales WHERE TRUE');
+    expect(result.unknownCrossfilters).toEqual(['ghost']);
+  });
+
+  it('does not expand CROSSFILTER inside a string literal or comment (L16)', () => {
+    const result = expandMeasures(
+      `SELECT 'CROSSFILTER(day)' AS note -- CROSSFILTER(day)\nFROM x`,
+      noMeasures,
+      undefined,
+      undefined,
+      xf({ day: 'TRUE' }),
+    );
+    expect(result.sql).toBe(`SELECT 'CROSSFILTER(day)' AS note -- CROSSFILTER(day)\nFROM x`);
+    expect(result.unknownCrossfilters).toEqual([]);
+  });
+
+  it('coexists with MEASURE + SEGMENT in one statement', () => {
+    const measures = asMap(m('rev', 'SUM(amount)'));
+    const segments = new Map([['big', { name: 'big', expression: 'amount > 100' }]]);
+    const result = expandMeasures(
+      'SELECT MEASURE(rev) FROM sales WHERE SEGMENT(big) AND CROSSFILTER(region)',
+      measures,
+      undefined,
+      segments,
+      xf({ region: `"region" IN ('west')` }),
+    );
+    expect(result.sql).toBe(
+      `SELECT (SUM(amount)) FROM sales WHERE (amount > 100) AND ("region" IN ('west'))`,
+    );
+    expect(result.unknownCrossfilters).toEqual([]);
+    expect(result.unknownSegments).toEqual([]);
+  });
+});
+
 describe('expandMeasures — nested expansion', () => {
   it('expands MEASURE() inside another measure recursively', () => {
     const measures = asMap(
