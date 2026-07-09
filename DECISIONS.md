@@ -115,6 +115,39 @@ Re-enabling Iceberg is gated on a DuckDB-wasm upgrade to a core that
 publishes `iceberg/wasm_eh` (≥ v1.3.1). Track alongside any future
 duckdb-wasm bump; the flag + preserved logic make re-enable a small
 change (drop the two guard calls + re-vendor iceberg + restore tests).
+## 2026-07-09 — SheetJS migrated off the abandoned npm build (forward-pass H5)
+
+### Decision CI — pin `xlsx` to the maintained SheetJS CDN tarball, not the npm registry
+
+Forward-pass H5: `package.json` pinned `xlsx@0.18.5` — the last build SheetJS ever
+published to npm before leaving the registry. That build carries two CVEs against a
+library that parses **untrusted user-supplied `.xlsx` in-page** (`src/lazy/sheetjs.ts`):
+CVE-2023-30533 (prototype pollution on a crafted file, fixed 0.19.3) and CVE-2024-22363
+(ReDoS, fixed 0.20.2). Prototype pollution is an XSS-adjacent primitive in a DOM-rendering
+app, so this is a real exposure, not a theoretical one.
+
+**Fix:** point the dependency at the maintained build SheetJS now distributes only from
+their own CDN — `"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"`. 0.20.3 is
+past both CVE fixes. This is SheetJS's own officially-documented install method since they
+left npm.
+
+**Why the tarball-URL, not a vendoring script (the H5 task's option a):** the
+DuckDB/pyodide/webr vendoring pattern is for **runtime-served wasm assets** fetched over
+the network at runtime; SheetJS is a **build-time dependency bundled into the `sheetjs`
+lazy chunk** by esbuild — it never touches the network at runtime. So the right analogue is
+an npm dependency (like `sql.js`, `apache-arrow`), and npm's lockfile *is* the hash-pin:
+`package-lock.json` now records `integrity: sha512-oLDq3jw7…` for the tarball. Keeping the
+dependency name `xlsx` means the `import * as XLSX from 'xlsx'` in both `src/lazy/sheetjs.ts`
+and `tests/sheetjs.test.ts` is unchanged — zero source edits, only `package.json` +
+`package-lock.json`. `npm audit` no longer flags xlsx.
+
+**Verified:** `tests/sheetjs.test.ts` (3 tests — raw-number emission, empty-sheet skip,
+text passthrough) green on 0.20.3; full suite 956/956; `sheetjs` lazy chunk builds
+(`dist/chunks/sheetjs.js`, 371 KB — chunk-local, not in the shell); `npm run smoke`
+PASSED (bundle/CSP/worker bootstrap unaffected); `npm run check` clean; bundle 750.8/768 KB
+(SheetJS is lazy, doesn't count against the shell budget). The 11 remaining `npm audit`
+findings are pre-existing transitive dev-dep issues (wrangler/webr), unrelated to this
+change.
 
 ## 2026-07-05 — Polyglot-Workbench Fork 2: the R cell SHIPPED (WebR)
 
