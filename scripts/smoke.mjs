@@ -219,6 +219,74 @@ async function main() {
   }
   log(`✓ remote-source modals open + Escape-close cleanly (${REMOTE_MODALS.length} modals)`);
 
+  // 3b. Real remote-mount attempts (M30/SB2, DECISIONS 2026-07-09) — these
+  // exercise the mount *machinery*, not just modal open/close, guarding two
+  // regressions the hygiene leg above cannot see:
+  //   (i)  An S3 mount must LOAD the httpfs extension from the vendored
+  //        offline dir and reach the network layer. Before httpfs was
+  //        vendored into scripts/fetch-duckdb-extensions.mjs, the default
+  //        offline boot pinned the extension repo local, so INSTALL/LOAD
+  //        httpfs 404'd → ExtensionLoadError → every S3 mount died. We
+  //        point the form at an unreachable endpoint and assert the mount
+  //        fails at the *network* stage (some IO error), NOT at extension
+  //        load ("Could not load DuckDB extension"). Reaching the network
+  //        stage proves httpfs loaded.
+  //   (ii) The iceberg mount kinds must fail fast with the honest
+  //        "not available in this build" message — the iceberg extension
+  //        has no wasm_eh build until DuckDB core v1.3.1 (our pin is
+  //        v1.1.1), so the mount is flagged in src/core/mount.ts.
+  const s3Host = new URL(url).host;
+  await page.click('[data-action="mount-s3"]');
+  await page.waitForSelector('.mount-s3-overlay', { timeout: 3000 });
+  await page.fill('.mount-s3-overlay [data-region="endpoint-input"]', s3Host);
+  await page.fill('.mount-s3-overlay [data-region="region-input"]', 'us-east-1');
+  await page.fill('.mount-s3-overlay [data-region="bucket-input"]', 'smoke-bucket');
+  await page.selectOption('.mount-s3-overlay [data-region="url-style-input"]', 'path');
+  await page.fill('.mount-s3-overlay [data-region="path-prefix-input"]', 'data/x.parquet');
+  await page.fill('.mount-s3-overlay [data-region="access-key-input"]', 'AKIAEXAMPLE');
+  await page.fill('.mount-s3-overlay [data-region="secret-key-input"]', 'secretexample123');
+  await page.click('.mount-s3-overlay [data-action="confirm-mount-s3"]');
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector('.mount-s3-overlay [data-region="error"]');
+      return !!el && !el.hidden && (el.textContent ?? '').trim().length > 0;
+    },
+    null,
+    { timeout: 45000 },
+  );
+  const s3Error = await page.evaluate(
+    () => document.querySelector('.mount-s3-overlay [data-region="error"]')?.textContent ?? '',
+  );
+  if (/could not load duckdb extension/i.test(s3Error)) {
+    fail(`S3 mount died at extension load — httpfs not vendored/loadable offline: ${s3Error}`);
+  }
+  log(`✓ S3 mount loaded httpfs from vendored bytes, failed at network as expected`);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('.mount-s3-overlay') === null, null, {
+    timeout: 2000,
+  });
+
+  await page.click('[data-action="mount-iceberg"]');
+  await page.waitForSelector('.mount-iceberg-overlay', { timeout: 3000 });
+  await page.fill(
+    '.mount-iceberg-overlay [data-region="metadata-url-input"]',
+    'https://example.com/warehouse/sales/metadata/v3.metadata.json',
+  );
+  await page.click('.mount-iceberg-overlay [data-action="confirm-mount-iceberg"]');
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector('.mount-iceberg-overlay [data-region="error"]');
+      return !!el && !el.hidden && /not available in this build/i.test(el.textContent ?? '');
+    },
+    null,
+    { timeout: 5000 },
+  );
+  log(`✓ iceberg mount fails fast with the honest "not available in this build" error`);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('.mount-iceberg-overlay') === null, null, {
+    timeout: 2000,
+  });
+
   // 4. Click "Browse example data" to mount the bundled sources.
   await page.click('[data-action="browse-examples"]');
   log('clicked browse-examples');
@@ -1643,6 +1711,10 @@ async function main() {
     // vendored runtime, so the failed cross-origin fetch is expected here.
     /jsdelivr\.net/i,
     /Failed to load resource/i,
+    // The M30 S3-mount leg (step 3b) deliberately points httpfs at an
+    // unreachable/invalid endpoint to prove the extension LOADS and reaches the
+    // network stage — DuckDB-wasm logs the resulting XHR failure. Expected.
+    /Failed to execute 'open' on 'XMLHttpRequest'/i,
   ];
   const realErrors = consoleErrors.filter((e) => !BENIGN_CONSOLE_ERRORS.some((re) => re.test(e)));
   if (realErrors.length > 0) {

@@ -44,6 +44,77 @@ Fixed ~55 findings; deferred these deliberately rather than ship risky half-fixe
   needs an emcc wasm rebuild, not buildable in this environment.
 - **Low/Stray tail:** S11 hardcoded-hex token sweep, L6/L13/L15/L16/L21/L22/L26/L27,
   W2–W9. No runtime risk; batched for a later cleanup pass.
+## 2026-07-09 — M30/SB2: S3 mounts fixed (vendor httpfs), Iceberg flagged unavailable
+
+### Context
+
+Forward-pass finding M30/SB2 flagged that the S3-endpoint and Iceberg
+mount kinds — documented as "shipped 2026-05-24" (spec-amendments
+A6/A7/A8) — were untested against a real engine (`tests/mount.test.ts`
+mocks `configureIceberg`/`registerIcebergTable`; smoke only opened and
+closed the modals). Both mount kinds `INSTALL`/`LOAD` a DuckDB extension
+(`httpfs` for S3, `iceberg` for Iceberg) that was **not** vendored into
+`public/duckdb-extensions/`, and the default boot is `offline:true`
+(`src/main.ts` — only `?cdn=1` opts out), which pins
+`custom_extension_repository` to the local vendored dir. So both loads
+would 404 at runtime → `ExtensionLoadError` → every S3/Iceberg mount
+dies on the shipped deploy.
+
+### Live probe (2026-07-09, against extensions.duckdb.org)
+
+- `v1.1.1/wasm_eh/httpfs.duckdb_extension.wasm` → **200** (547 KB).
+- `v1.1.1/wasm_eh/iceberg.duckdb_extension.wasm` → **404**. Iceberg has
+  no `wasm_eh` build at **any** revision v1.0.0–v1.3.0; it first appears
+  at **v1.3.1** (200). Non-wasm `linux_amd64` iceberg is 200 at v1.1.1,
+  proving it's a wasm-build gap, not a repo gap.
+- `v1.1.1/wasm_eh/aws.duckdb_extension.wasm` → **404** — irrelevant: the
+  `aws` extension only provides automatic credential-chain discovery;
+  `configureS3` passes explicit keys via `SET s3_*`, which httpfs
+  handles alone.
+
+Our pin is DuckDB core **v1.1.1** (duckdb-wasm 1.29.0).
+
+### Decision SB2a — S3: vendor `httpfs` (option c)
+
+httpfs exists at our exact pin, so the fix is to add `{ name: 'httpfs' }`
+to `scripts/fetch-duckdb-extensions.mjs`'s `EXTENSIONS` list and pin its
+sha384 in the checked-in `integrity.json`
+(`sha384-eRdBrLznSdbfYTqIdp61/eIP8cO5XWXiIfjUkduzTwMjw4IJWLOcLNwZUYX/75ab`).
+S3 mounts now load httpfs from the vendored offline bytes and work. A6's
+"shipped" claim is now actually true (it was broken offline before).
+
+### Decision SB2b — Iceberg: flag unavailable (option a, the F3 posture)
+
+Iceberg cannot be vendored (no wasm build until core v1.3.1). Bumping
+the whole DuckDB-wasm bundle to ≥ v1.3.1 is a large, risky, separate
+effort (new bundle + fallback mirror + re-vendored/re-hashed extensions,
+possible API drift) — out of scope for a bug-fix. So both
+`mountIcebergTable` and `mountIcebergCatalog` now fail fast with an
+honest, actionable `MountError` (`ICEBERG_UNAVAILABLE_MESSAGE`) via an
+`assertIcebergMountSupported()` guard, mirroring the F3 stat-format drop
+(DECISIONS CA). The guard is typed `: void` so the mount bodies stay
+statically reachable — the URL-parsing + REST-catalog logic is preserved
+behind the flag, lint-clean, ready to re-enable when the pin bumps. The
+catalog guard fires *before* any REST round-trip, so it also closes the
+incidental SSRF surface of an unusable feature.
+
+### Decision SB2c — regression guard in smoke
+
+`scripts/smoke.mjs` gained a real-mount leg (not modal open/close): it
+drives the S3 modal against an unreachable endpoint and asserts the
+error is *not* `Could not load DuckDB extension` (proving httpfs loaded
+from the vendored bytes and the mount reached the network stage), and
+drives the Iceberg modal and asserts the honest "not available in this
+build" message. `tests/mount.test.ts`'s iceberg suites were rewritten
+from the (masking) happy path to assert the fail-fast behavior + that no
+engine/network call is made.
+
+### Follow-up (queued)
+
+Re-enabling Iceberg is gated on a DuckDB-wasm upgrade to a core that
+publishes `iceberg/wasm_eh` (≥ v1.3.1). Track alongside any future
+duckdb-wasm bump; the flag + preserved logic make re-enable a small
+change (drop the two guard calls + re-vendor iceberg + restore tests).
 
 ## 2026-07-05 — Polyglot-Workbench Fork 2: the R cell SHIPPED (WebR)
 

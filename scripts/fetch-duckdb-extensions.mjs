@@ -51,6 +51,17 @@ const EXTENSIONS = [
   // autoload). Neither needs a LOAD-side alias.
   { name: 'parquet', aliasFrom: [] },
   { name: 'spatial', aliasFrom: [] },
+  // M30/SB2 (DECISIONS 2026-07-09): httpfs backs the S3-endpoint mount
+  // (Engine.configureS3 → ensureExtension('httpfs')). It exists at
+  // extensions.duckdb.org for v1.1.1/wasm_eh (probed 2026-07-09, 547 KB),
+  // but the DEFAULT boot is offline:true (src/main.ts pins
+  // custom_extension_repository local), so without vendoring the bytes
+  // here INSTALL/LOAD httpfs 404s at runtime → ExtensionLoadError → every
+  // S3 mount dies. No LOAD-side alias needed. NOTE: `iceberg` is NOT
+  // vendored — the iceberg extension has no wasm_eh build until DuckDB
+  // core v1.3.1 (our pin is v1.1.1); the iceberg mount kinds are flagged
+  // unavailable in src/core/mount.ts instead. See DECISIONS 2026-07-09.
+  { name: 'httpfs', aliasFrom: [] },
 ];
 
 async function fileExists(p) {

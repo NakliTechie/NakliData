@@ -166,7 +166,20 @@ The Relay was a v1.1 design for browser-incompatible auth (back when DuckDB-wasm
 
 **Why:** A real-world bucket mount needs three things — endpoint config, credential storage, and the engine plumbing. We had none of them shipped; the v1.1 Relay design was over-scoped (a Cloudflare Worker for what DuckDB-wasm can now do itself). Slice 2 ships the focused minimum: connect, authenticate, read. The Relay primitive (spec §4.2) is parked for the harder cases it was actually designed for (GCS / Azure SAS signing, or environments where the user can't share credentials with the browser).
 
-**Status:** Wave 2 slice 2 shipped 2026-05-24 (commit on `main`). Slice 3 (Iceberg REST catalogs) reuses the source-secrets module + the CSP `https:` allowance from slice 1. Full reasoning in [DECISIONS 2026-05-24 15:30 — Wave 2 slice 2](../DECISIONS.md).
+**Status:** Wave 2 slice 2 shipped 2026-05-24 (commit on `main`).
+⚠️ **Fixed 2026-07-09 (M30/SB2):** S3 mounts had been broken on the
+default (offline) boot since 2026-05-24 — `configureS3` loads the
+`httpfs` extension, but httpfs was never vendored into
+`public/duckdb-extensions/`, so `LOAD httpfs` 404'd against the local
+extension repo → `ExtensionLoadError` → every S3 mount died. httpfs
+*is* published for our pin (v1.1.1/wasm_eh, 547 KB), so the fix was to
+add it to `scripts/fetch-duckdb-extensions.mjs`'s vendor list. A smoke
+leg now exercises a real S3 mount and asserts it loads httpfs (fails at
+the network stage, not at extension load). Full reasoning in
+[DECISIONS 2026-07-09](../DECISIONS.md). Slice 3 (Iceberg REST
+catalogs) reuses the source-secrets module + the CSP `https:` allowance
+from slice 1. Full reasoning in
+[DECISIONS 2026-05-24 15:30 — Wave 2 slice 2](../DECISIONS.md).
 
 ---
 
@@ -179,6 +192,18 @@ The Relay was a v1.1 design for browser-incompatible auth (back when DuckDB-wasm
 > Apache Iceberg is not in scope for v1.x. Remote sources are signed-URL only.
 
 DuckDB-wasm gained working Iceberg support in Dec 2025 (`INSTALL iceberg; LOAD iceberg; SELECT * FROM iceberg_scan('<url>')` works in the browser). Closing the gap is now cheap.
+
+> **⚠️ Correction (M30/SB2, 2026-07-09):** the "works in the browser"
+> claim did not hold for the DuckDB-wasm version NakliData actually
+> pins. The `iceberg` extension has **no `wasm_eh` build** at the
+> extension repo until DuckDB core **v1.3.1** (probed 2026-07-09: 404 at
+> v1.0.0 → v1.3.0, 200 at v1.3.1); our pin is core **v1.1.1**
+> (duckdb-wasm 1.29.0). So `INSTALL/LOAD iceberg` 404s at runtime, and
+> the default offline boot (which pins the extension repo to the local
+> vendored dir) makes it 404 unconditionally. **Both iceberg mount kinds
+> are therefore flagged unavailable** — see the corrected status on A7/A8
+> below and [DECISIONS 2026-07-09](../DECISIONS.md). Shipping iceberg for
+> real needs a DuckDB-wasm bump to a core ≥ v1.3.1.
 
 **Amended:**
 
@@ -221,9 +246,14 @@ new code. The REST catalog + OAuth2 + SigV4 surface multiplies that by
 several × — splitting into 3a + 3b lets us ship the common case
 without the OAuth UX burden.
 
-**Status:** Slice 3a shipped 2026-05-24 (commit on `main`). Slice 3b
-queued in [`wave-2-design.md`](./wave-2-design.md). Full reasoning in
-[DECISIONS 2026-05-24 — Wave 2 slice 3a](../DECISIONS.md).
+**Status:** ⚠️ **Flagged unavailable (2026-07-09, M30/SB2).** The UI,
+mount plumbing, persistence round-trip, and REST client all shipped
+2026-05-24, but the `iceberg` extension has no `wasm_eh` build at our
+DuckDB pin (v1.1.1) — see the correction above. `mountIcebergTable`
+now fails fast with an honest "not available in this build" message
+(`ICEBERG_UNAVAILABLE_MESSAGE` in `src/core/mount.ts`); the parsing
+logic stays wired behind the guard for the eventual DuckDB-wasm bump.
+Full reasoning in [DECISIONS 2026-07-09](../DECISIONS.md).
 
 ---
 
@@ -266,9 +296,13 @@ metadata.json URL. Catalog navigation is what users actually expect
 ~100 lines + the modal is ~150 — modest cost for the user-visible
 delta.
 
-**Status:** Slice 3b shipped 2026-05-24 (commit on `main`). The
-OAuth2 + SigV4 surface stays in [`wave-2-design.md`](./wave-2-design.md)
-under "Deferred."
+**Status:** ⚠️ **Flagged unavailable (2026-07-09, M30/SB2)** — shares
+A7's blocker (no `iceberg` wasm build at DuckDB v1.1.1).
+`mountIcebergCatalog` fails fast with the same honest error *before* any
+catalog REST round-trip, so the flag also closes the incidental SSRF
+surface of an unusable feature. The REST client + modal stay in place
+for the DuckDB-wasm bump. The OAuth2 + SigV4 surface stays in
+[`wave-2-design.md`](./wave-2-design.md) under "Deferred."
 
 ---
 

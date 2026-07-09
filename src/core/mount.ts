@@ -287,6 +287,40 @@ export class MountError extends Error {
 }
 
 /**
+ * M30/SB2 (DECISIONS 2026-07-09): the DuckDB `iceberg` extension has NO
+ * wasm_eh build until DuckDB core v1.3.1; our pin is v1.1.1 (duckdb-wasm
+ * 1.29.0). `INSTALL iceberg` / `LOAD iceberg` therefore 404 against the
+ * extension repo — and the default offline boot pins that repo to the
+ * local vendored dir where iceberg is (and cannot be) present. Rather
+ * than let `configureIceberg → ensureExtension('iceberg')` throw a raw
+ * ExtensionLoadError deep in the mount, both iceberg mount kinds fail
+ * fast here with an honest, actionable message — the same F3 posture the
+ * stat-format readers took when `read_stat` proved unpublished for wasm
+ * (DECISIONS CA). Shipping iceberg needs a DuckDB-wasm bump to a core
+ * that publishes iceberg/wasm_eh (≥ v1.3.1) — a separate, larger effort
+ * (new bundle + fallback mirror + re-vendored/re-hashed extensions).
+ */
+export const ICEBERG_UNAVAILABLE_MESSAGE =
+  'Iceberg mounts are not available in this build. The DuckDB iceberg ' +
+  'extension has no browser (wasm) build for the engine version NakliData ' +
+  'currently ships (DuckDB 1.1.1); a wasm build first appears in DuckDB ' +
+  '1.3.1. This is tracked and will land with a DuckDB-wasm upgrade. For ' +
+  'now, export the Iceberg table to Parquet and mount that via Add file ' +
+  'or an S3 bucket.';
+
+/**
+ * Fail-fast guard for the iceberg mount kinds. Declared `: void` (not the
+ * inferred `never`) on purpose: it always throws, but typing it `void`
+ * keeps the mount functions' bodies statically reachable so the parsing +
+ * catalog-navigation logic stays wired and lint-clean, ready to re-enable
+ * the moment the DuckDB-wasm pin gains an iceberg/wasm_eh build. This is
+ * a feature-flag-off, not dead code — see ICEBERG_UNAVAILABLE_MESSAGE.
+ */
+function assertIcebergMountSupported(): void {
+  throw new MountError(ICEBERG_UNAVAILABLE_MESSAGE);
+}
+
+/**
  * Turn a raw File System Access read failure into a message that says what to
  * do about it. Chrome's `NotReadableError` ("…permission problems that have
  * occurred after a reference to a file was acquired") fires when the file
@@ -774,6 +808,9 @@ export async function mountIcebergCatalog(
     fetchImpl?: typeof fetch;
   },
 ): Promise<MountedSource> {
+  // Fail fast before any catalog network round-trip — the engine can't
+  // scan an Iceberg table without the (unavailable) iceberg extension.
+  assertIcebergMountSupported();
   if (!opts.catalogUrl.trim()) throw new MountError('Catalog URL is required.');
   if (!opts.namespace.trim()) throw new MountError('Namespace is required.');
   if (!opts.table.trim()) throw new MountError('Table is required.');
@@ -866,6 +903,8 @@ export async function mountIcebergTable(
     tableName?: string;
   },
 ): Promise<MountedSource> {
+  // Fail fast — see assertIcebergMountSupported / ICEBERG_UNAVAILABLE_MESSAGE.
+  assertIcebergMountSupported();
   const metadataUrl = opts.metadataUrl.trim();
   if (!metadataUrl) throw new MountError('Iceberg metadata URL is required.');
   if (!/^https?:\/\/|^s3:\/\//i.test(metadataUrl)) {
