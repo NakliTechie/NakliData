@@ -267,14 +267,30 @@ export function extractInputsFromSqlRegex(
 
   const inputs = new Map<string, LineageInput>();
 
-  // FROM / JOIN <ident> — without trailing call-paren (`(` means function).
-  const fromRe = /\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)(?!\s*\()/gi;
-  for (const m of stripped.matchAll(fromRe)) {
-    const ident = m[1];
-    if (!ident) continue;
-    if (cteNames.has(ident)) continue;
-    if (knownTables.has(ident)) {
-      inputs.set(`table:${ident}`, { kind: 'table', name: ident });
+  // FROM / JOIN clause scan (L13). The old single-ident regex missed
+  // comma-list FROMs (`FROM a, b` dropped `b`) and mis-captured
+  // schema-qualified names (`FROM main.vendors` → `main`). For each FROM/JOIN,
+  // take the text up to the next clause boundary, split on commas, and for each
+  // ref use the LAST dotted segment (`schema.table` → `table`, matching the bare
+  // mounted names in knownTables). Function calls (`read_parquet(`) are skipped.
+  const CLAUSE_BOUNDARY =
+    /\b(?:WHERE|GROUP|HAVING|ORDER|LIMIT|WINDOW|QUALIFY|USING|ON|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|FULL|NATURAL|UNION|EXCEPT|INTERSECT)\b|[()]|;/i;
+  const kwRe = /\b(?:FROM|JOIN)\b/gi;
+  let km: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex.exec loop pattern.
+  while ((km = kwRe.exec(stripped)) !== null) {
+    const after = stripped.slice(km.index + km[0].length);
+    const boundary = CLAUSE_BOUNDARY.exec(after);
+    const windowText = boundary ? after.slice(0, boundary.index) : after;
+    for (const piece of windowText.split(',')) {
+      const idm = /^\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*(\()?/.exec(piece);
+      if (!idm || idm[2]) continue; // no identifier, or a function call
+      const parts = (idm[1] ?? '').split('.');
+      const ident = parts[parts.length - 1];
+      if (!ident || cteNames.has(ident)) continue;
+      if (knownTables.has(ident)) {
+        inputs.set(`table:${ident}`, { kind: 'table', name: ident });
+      }
     }
   }
 

@@ -235,6 +235,22 @@ describe('extractInputsFromSqlRegex — low-confidence fallback', () => {
     const sql = `SELECT 'FROM ghost' AS s, * FROM vendors`;
     expect(extractInputsFromSqlRegex(sql, known)).toEqual([{ kind: 'table', name: 'vendors' }]);
   });
+
+  it('L13: captures every table in a comma-list FROM', () => {
+    const known = new Set(['vendors', 'orders', 'regions']);
+    const inputs = extractInputsFromSqlRegex('SELECT * FROM vendors, orders, regions', known);
+    expect(inputs).toContainEqual({ kind: 'table', name: 'vendors' });
+    expect(inputs).toContainEqual({ kind: 'table', name: 'orders' });
+    expect(inputs).toContainEqual({ kind: 'table', name: 'regions' });
+  });
+
+  it('L13: schema-qualified name resolves to the table segment', () => {
+    const known = new Set(['vendors']);
+    // `main.vendors` used to capture `main`; now the last dotted segment wins.
+    expect(extractInputsFromSqlRegex('SELECT * FROM main.vendors', known)).toEqual([
+      { kind: 'table', name: 'vendors' },
+    ]);
+  });
 });
 
 describe('LineageStore — graph operations', () => {

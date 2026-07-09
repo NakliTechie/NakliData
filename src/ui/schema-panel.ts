@@ -9,6 +9,7 @@ import type { ColumnProfile } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
+import { Monsoon, Neutral } from '../tokens/colors.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import type { CellState } from './cells/types.ts';
 import { getQuickActions } from './quick-aggregations.ts';
@@ -642,12 +643,12 @@ function renderOverrideMenu(
 }
 
 function confidenceToColor(conf: number): string {
-  // Monsoon sequential ramp (defined in tokens/colors.ts).
-  if (conf >= 0.9) return '#2F6E5A'; // success — strong
-  if (conf >= 0.7) return '#436A8A'; // monsoon[3]
-  if (conf >= 0.5) return '#7E9AB3'; // monsoon[2]
-  if (conf > 0) return '#B7C7D6'; // monsoon[1]
-  return '#6B6358'; // text-muted
+  // S11: sourced from tokens/colors.ts (was hardcoded copies of these values).
+  if (conf >= 0.9) return Neutral.success; // strong
+  if (conf >= 0.7) return Monsoon[3]; // storm
+  if (conf >= 0.5) return Monsoon[2]; // drizzle
+  if (conf > 0) return Monsoon[1]; // mist
+  return Neutral.textMuted;
 }
 
 function escapeHtml(s: string): string {

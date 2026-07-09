@@ -280,7 +280,7 @@ function injectCss(): void {
   margin-right: 6px;
   padding: 0 5px;
   border-radius: 4px;
-  background: var(--accent, #b5371c);
+  background: var(--accent);
   color: #fff;
   font-size: 10px;
   font-weight: 600;

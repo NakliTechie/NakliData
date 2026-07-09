@@ -21,9 +21,16 @@
 //
 // Skip when SKIP_SQL_WASM_VENDOR=1, or when the destination already matches.
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+async function sha384(path) {
+  return createHash('sha384')
+    .update(await readFile(path))
+    .digest('hex');
+}
 
 if (process.env.SKIP_SQL_WASM_VENDOR === '1') {
   console.log('[vendor-sql-wasm] SKIP_SQL_WASM_VENDOR=1 — skipping');
@@ -41,13 +48,17 @@ if (!existsSync(SRC)) {
   process.exit(0);
 }
 
-// Idempotent: if the destination already has the exact same byte length, skip.
+// Idempotent AND tamper-evident: skip only when the destination's CONTENT
+// hash matches the lockfile-verified source (L26). A byte-length-only check
+// let a same-size in-place tamper of the vendored .wasm survive reinstalls;
+// re-copying from the npm-verified source on any mismatch closes that.
 if (existsSync(DEST)) {
-  const [s, d] = await Promise.all([stat(SRC), stat(DEST)]);
-  if (s.size === d.size) {
-    console.log('[vendor-sql-wasm] up to date');
+  const [srcHash, destHash] = await Promise.all([sha384(SRC), sha384(DEST)]);
+  if (srcHash === destHash) {
+    console.log('[vendor-sql-wasm] up to date (hash match)');
     process.exit(0);
   }
+  console.warn('[vendor-sql-wasm] destination hash differs from source — re-vendoring');
 }
 
 await mkdir(DEST_DIR, { recursive: true });

@@ -287,7 +287,7 @@ function renderListBody(): string {
     return `<p style="font-size:12px;color:var(--text-muted);">Computing clusters…</p>`;
   }
   if (_tooMany) {
-    return `<p style="font-size:12px;color:var(--warning,#b45309);">Too many distinct values for nearest-neighbour — switch to key collision.</p>`;
+    return `<p style="font-size:12px;color:var(--warning);">Too many distinct values for nearest-neighbour — switch to key collision.</p>`;
   }
   if (_rows.length === 0) {
     const hint =
