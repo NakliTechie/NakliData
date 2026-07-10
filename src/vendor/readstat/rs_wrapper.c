@@ -73,27 +73,41 @@ static void sb_json_str(strbuf *sb, const char *s) {
   sb_putc(sb, '"');
 }
 
-// Stata date decoding. Stata stores dates as numeric offsets from 1960-01-01
-// with a display format (%td = whole days, %tc = milliseconds). Without decoding
+// Date decoding. All three families store dates as numeric offsets from a
+// format-family epoch, tagged by a per-variable display format. Without decoding
 // a date column mounts as a meaningless number (21915 for 2020-01-01); we convert
-// %td/%tc to an ISO string so DuckDB's read_json_auto types it as DATE/TIMESTAMP.
-// Only applied to Stata (.dta) — SPSS/SAS use different formats + epochs and are
-// left as raw numeric (README "Known limitations").
-enum { DATE_NONE = 0, DATE_DAILY = 1, DATE_DATETIME = 2 };
+// recognized formats to an ISO string so DuckDB's read_json_auto types the column
+// as DATE/TIMESTAMP/TIME.
+//   Stata (%td/%tc):   days / milliseconds since 1960-01-01
+//   SPSS  (DATE… etc): seconds since 1582-10-14 (dates land on midnight)
+//   SAS   (DATE… etc): days since 1960-01-01; DATETIME seconds since 1960-01-01
+//   TIME  (SPSS+SAS):  seconds since midnight (a duration — may exceed 24h)
+// Unrecognized formats stay raw numeric (README "Known limitations").
+enum {
+  DATE_NONE = 0,
+  DATE_DAILY = 1,      // days since 1960-01-01 → DATE (Stata %td, SAS DATE…)
+  DATE_DATETIME = 2,   // ms since 1960-01-01 → TIMESTAMP (Stata %tc)
+  DATE_SPSS_DATE = 3,  // seconds since 1582-10-14 → DATE (SPSS DATE/ADATE/…)
+  DATE_SPSS_DT = 4,    // seconds since 1582-10-14 → TIMESTAMP (SPSS DATETIME)
+  DATE_SAS_DT = 5,     // seconds since 1960-01-01 → TIMESTAMP (SAS DATETIME)
+  DATE_TIME_SECS = 6,  // seconds since midnight → TIME (SPSS/SAS TIME)
+};
 
-// Days from 1960-01-01 (Stata epoch) to 1970-01-01 (the civil algorithm's epoch).
+// Days from 1960-01-01 (Stata/SAS epoch) to 1970-01-01 (the civil algorithm's epoch).
 #define STATA_EPOCH_DAYS 3653
+// Days from 1582-10-14 (SPSS epoch) to 1970-01-01 (= 12219379200 s / 86400).
+#define SPSS_EPOCH_DAYS 141428
 
 typedef struct {
   strbuf out;   // NDJSON rows
   strbuf cols;  // JSON array of column names
   char **names;
-  int *datekind;  // per-variable Stata date kind (DATE_NONE/DAILY/DATETIME)
+  int *datekind;  // per-variable date kind (DATE_NONE / DATE_* above)
   int var_count;
   int cur_obs;
   int started_row;
   int row_count;
-  int fmt;  // file format code (0=dta) — date decoding is Stata-only
+  int fmt;  // file format code (0=dta 1=sav 2=por 3=sas7bdat 4=xport)
   int oom;  // M28: a calloc/strdup failed — rs_read reports it as a distinct code
 } rs_ctx;
 
@@ -110,6 +124,53 @@ static int stata_date_kind(const char *fmt) {
     return DATE_NONE;
   }
   if (fmt[1] == 'd') return DATE_DAILY;  // legacy %d…
+  return DATE_NONE;
+}
+
+// Extract the leading alphabetic token of an SPSS/SAS format string, uppercased
+// ("DATETIME20" → "DATETIME", "MMDDYY10." → "MMDDYY"). Returns its length.
+static size_t fmt_token(const char *fmt, char *tok, size_t cap) {
+  size_t n = 0;
+  for (; fmt && fmt[n] && n + 1 < cap; n++) {
+    char c = fmt[n];
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    if (c < 'A' || c > 'Z') break;
+    tok[n] = c;
+  }
+  tok[n] = 0;
+  return n;
+}
+
+// SPSS print formats → date kind. Day formats (values are seconds since
+// 1582-10-14, midnight-aligned): DATE, ADATE, EDATE, JDATE, SDATE. Datetimes:
+// DATETIME, YMDHMS. TIME is a seconds-since-midnight duration. Period/interval
+// formats (MOYR, QYR, WKYR, DTIME, MTIME…) are not a single instant → raw.
+static int spss_date_kind(const char *fmt) {
+  char tok[16];
+  if (!fmt_token(fmt, tok, sizeof tok)) return DATE_NONE;
+  if (!strcmp(tok, "DATE") || !strcmp(tok, "ADATE") || !strcmp(tok, "EDATE") ||
+      !strcmp(tok, "JDATE") || !strcmp(tok, "SDATE"))
+    return DATE_SPSS_DATE;
+  if (!strcmp(tok, "DATETIME") || !strcmp(tok, "YMDHMS")) return DATE_SPSS_DT;
+  if (!strcmp(tok, "TIME")) return DATE_TIME_SECS;
+  return DATE_NONE;
+}
+
+// SAS formats → date kind. A SAS date value is days since 1960-01-01 whatever
+// day-level format displays it (DATE, MMDDYY, DDMMYY, YYMMDD, JULIAN, MONYY,
+// WEEKDATE, WORDDATE). DATETIME values are seconds since 1960-01-01; TIME/HHMM/
+// MMSS are seconds since midnight. Anything else (incl. TOD, ISO 8601 variants)
+// stays raw.
+static int sas_date_kind(const char *fmt) {
+  char tok[16];
+  if (!fmt_token(fmt, tok, sizeof tok)) return DATE_NONE;
+  if (!strcmp(tok, "DATE") || !strcmp(tok, "MMDDYY") || !strcmp(tok, "DDMMYY") ||
+      !strcmp(tok, "YYMMDD") || !strcmp(tok, "JULIAN") || !strcmp(tok, "MONYY") ||
+      !strcmp(tok, "WEEKDATE") || !strcmp(tok, "WORDDATE"))
+    return DATE_DAILY;
+  if (!strcmp(tok, "DATETIME")) return DATE_SAS_DT;
+  if (!strcmp(tok, "TIME") || !strcmp(tok, "HHMM") || !strcmp(tok, "MMSS"))
+    return DATE_TIME_SECS;
   return DATE_NONE;
 }
 
@@ -130,29 +191,57 @@ static void civil_from_days(long z, int *yy, int *mm, int *dd) {
   *dd = (int)d;
 }
 
-// Emit a numeric Stata date value as a quoted ISO string. daily → the offset is
-// in days; datetime → in milliseconds. Uses floored division so pre-1960 (negative
-// offset) dates decode correctly.
-static void sb_stata_date(strbuf *sb, int kind, double value) {
-  long days;
-  long tod = 0;  // seconds within the day (datetime only)
-  if (kind == DATE_DATETIME) {
-    long secs = (long)(value / 1000.0);  // ms → s (truncate sub-second)
-    days = secs / 86400;
-    tod = secs - days * 86400;
-    if (tod < 0) {  // floor toward negative infinity
-      tod += 86400;
-      days -= 1;
+// Emit a numeric date/datetime/time value as a quoted ISO string per its kind.
+// All arithmetic in int64_t — SPSS second-counts (~1.4e10 for modern dates) and
+// Stata/SAS post-2038 second/ms counts overflow wasm32's 32-bit long. Uses
+// floored division so pre-epoch (negative offset) values decode correctly.
+static void sb_date_value(strbuf *sb, int kind, double value) {
+  char tmp[48];
+  if (kind == DATE_TIME_SECS) {
+    // A duration since midnight, not a calendar instant. May be negative or
+    // exceed 24h (SAS/SPSS times are durations); DuckDB types the in-range
+    // common case as TIME, out-of-range columns fall back to VARCHAR.
+    int64_t secs = (int64_t)value;  // truncate sub-second
+    const char *sign = secs < 0 ? "-" : "";
+    if (secs < 0) secs = -secs;
+    snprintf(tmp, sizeof tmp, "\"%s%02d:%02d:%02d\"", sign, (int)(secs / 3600),
+             (int)((secs / 60) % 60), (int)(secs % 60));
+    sb_puts(sb, tmp);
+    return;
+  }
+  int64_t days;
+  int64_t tod = 0;      // seconds within the day (datetime kinds only)
+  int64_t epoch_days;   // family epoch → 1970-01-01, in days
+  int is_dt = 0;
+  switch (kind) {
+    case DATE_DATETIME:  // Stata %tc: ms since 1960
+    case DATE_SAS_DT:    // SAS DATETIME: s since 1960
+    case DATE_SPSS_DT: { // SPSS DATETIME: s since 1582
+      int64_t secs = kind == DATE_DATETIME ? (int64_t)(value / 1000.0)  // ms → s
+                                           : (int64_t)value;
+      days = secs / 86400;
+      tod = secs - days * 86400;
+      if (tod < 0) {  // floor toward negative infinity
+        tod += 86400;
+        days -= 1;
+      }
+      epoch_days = kind == DATE_SPSS_DT ? SPSS_EPOCH_DAYS : STATA_EPOCH_DAYS;
+      is_dt = 1;
+      break;
     }
-  } else {
-    days = (long)value;
+    case DATE_SPSS_DATE:  // SPSS day formats: s since 1582, midnight-aligned
+      days = (int64_t)(value / 86400.0);
+      epoch_days = SPSS_EPOCH_DAYS;
+      break;
+    default:  // DATE_DAILY — Stata %td / SAS day formats: days since 1960
+      days = (int64_t)value;
+      epoch_days = STATA_EPOCH_DAYS;
   }
   int y, m, d;
-  civil_from_days(days - STATA_EPOCH_DAYS, &y, &m, &d);
-  char tmp[40];
-  if (kind == DATE_DATETIME) {
-    int hh = (int)(tod / 3600), mi = (int)((tod % 3600) / 60), ss = (int)(tod % 60);
-    snprintf(tmp, sizeof tmp, "\"%04d-%02d-%02d %02d:%02d:%02d\"", y, m, d, hh, mi, ss);
+  civil_from_days((long)(days - epoch_days), &y, &m, &d);
+  if (is_dt) {
+    snprintf(tmp, sizeof tmp, "\"%04d-%02d-%02d %02d:%02d:%02d\"", y, m, d,
+             (int)(tod / 3600), (int)((tod % 3600) / 60), (int)(tod % 60));
   } else {
     snprintf(tmp, sizeof tmp, "\"%04d-%02d-%02d\"", y, m, d);
   }
@@ -189,9 +278,13 @@ static int var_handler(int index, readstat_variable_t *var, const char *labels, 
       return READSTAT_HANDLER_ABORT;
     }
     g.names[index] = dup;
-    // Stata-only: remember which columns carry a %td/%tc date format so
-    // value_handler can decode their numeric offset to an ISO string.
-    if (g.fmt == 0) g.datekind[index] = stata_date_kind(readstat_variable_get_format(var));
+    // Remember which columns carry a recognized date/time display format so
+    // value_handler can decode their numeric offset to an ISO string. The
+    // classifier is per format family: 0=dta 1=sav 2=por 3=sas7bdat 4=xport.
+    const char *vfmt = readstat_variable_get_format(var);
+    if (g.fmt == 0) g.datekind[index] = stata_date_kind(vfmt);
+    else if (g.fmt == 1 || g.fmt == 2) g.datekind[index] = spss_date_kind(vfmt);
+    else if (g.fmt == 3 || g.fmt == 4) g.datekind[index] = sas_date_kind(vfmt);
   }
   return READSTAT_HANDLER_OK;
 }
@@ -227,8 +320,8 @@ static int value_handler(int obs_index, readstat_variable_t *var, readstat_value
     sb_puts(&g.out, "null");
     return READSTAT_HANDLER_OK;
   }
-  // Stata date column: decode the numeric offset (days for %td, ms for %tc) to
-  // an ISO string. Falls through to normal emission for a non-numeric/NaN value.
+  // Date/time column: decode the numeric offset to an ISO string. Falls
+  // through to normal emission for a non-numeric/NaN value.
   int dk = (vindex >= 0 && vindex < g.var_count) ? g.datekind[vindex] : DATE_NONE;
   if (dk != DATE_NONE) {
     int isnum = 1;
@@ -244,7 +337,7 @@ static int value_handler(int obs_index, readstat_variable_t *var, readstat_value
         num = 0;
     }
     if (isnum && !isnan(num) && !isinf(num)) {
-      sb_stata_date(&g.out, dk, num);
+      sb_date_value(&g.out, dk, num);
       return READSTAT_HANDLER_OK;
     }
   }
@@ -314,7 +407,7 @@ void rs_free(void) {
 // readstat_error_t code.
 int rs_read(const uint8_t *data, int len, int format) {
   rs_free();  // free any prior run
-  g.fmt = format;  // gates Stata-only date decoding (rs_free memset cleared it)
+  g.fmt = format;  // selects the date-format classifier (rs_free memset cleared it)
 
   FILE *f = fopen("/rs_input", "wb");
   if (!f) return -1;

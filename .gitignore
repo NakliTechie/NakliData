@@ -64,3 +64,9 @@ public/webr/
 
 # session scratch — local test data (real-data format audit), never commit
 scratchpad/
+
+# ReadStat wasm rebuild workspace — the upstream clone + emcc output. Only the
+# vendored artifacts (public/readstat-wasm/readstat.wasm + readstat-glue.js) are
+# committed; these are re-created by src/vendor/readstat/build.sh on demand.
+src/vendor/readstat/ReadStat/
+src/vendor/readstat/out/

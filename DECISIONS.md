@@ -2,6 +2,50 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-10 — SPSS + SAS date decoding (extend CW)
+
+### Decision CX — decode SPSS/SAS dates too, now that a fixture exists
+
+CW deferred SPSS/SAS date decoding for one reason: no writer on the machine to
+generate a fixture, so an epoch decoder would ship unverified. That blocker is
+gone — `uv run --with pyreadstat` writes real `.sav`/`.xpt` files. So the wrapper
+now decodes all three families, gated per format code in `var_handler`
+(0/1/2/3/4 = dta/sav/por/sas7bdat/xport):
+
+- **SPSS** (`spss_date_kind`): DATE/ADATE/EDATE/JDATE/SDATE → DATE; DATETIME/
+  YMDHMS → TIMESTAMP; TIME → TIME. Epoch is **seconds since 1582-10-14**
+  (`SPSS_EPOCH_DAYS 141428`); day formats divide by 86400.
+- **SAS** (`sas_date_kind`): DATE/MMDDYY/DDMMYY/YYMMDD/JULIAN/MONYY/WEEKDATE/
+  WORDDATE → DATE (days since 1960); DATETIME → TIMESTAMP (seconds since 1960);
+  TIME/HHMM/MMSS → TIME. Shares Stata's 1960 epoch.
+- **TIME** is emitted as a `HH:MM:SS` duration (may be negative or exceed 24h —
+  SAS/SPSS times are durations, not instants); DuckDB types the common in-range
+  case as TIME, out-of-range columns fall back to VARCHAR.
+
+Mechanics: `sb_stata_date` generalized to **`sb_date_value`** (a per-kind switch);
+`int64_t` throughout because SPSS second-counts (~1.4e10) and post-2038 Stata/SAS
+counts overflow wasm32's 32-bit `long`. Format tokens are matched by their leading
+alpha run (`fmt_token`), uppercased, so `DATETIME20`/`MMDDYY10.` classify cleanly.
+Unrecognized tokens (SAS `TOD`, SPSS `MOYR`/`QYR` intervals, Stata `%tw…%ty`) stay
+raw — a single instant only.
+
+- **Fixtures:** `spss_dates.sav` + `sas_dates.xpt` (pyreadstat), each with DATE/
+  DATETIME/TIME columns, a modern row, a **pre-1960 row** (negative SAS day/second
+  offset — a wrong sign or epoch can't silently pass), and a null row. Renamed off
+  the `stat_dates` base so they don't collide with the Stata fixture's table name
+  (single-file `mountFile` doesn't uniquify).
+- **Verified:** direct node check of the rebuilt wasm decoded all three fixtures
+  exactly (matches pyreadstat's readback); new smoke leg mounts `spss_dates.sav`
+  and asserts the pre-1960 row (`DATE → 1959-06-15`, `DATETIME → 1959-06-15
+  23:59:59`, `TIME → 00:00:01`). SAS shares the same decoder path (node-verified);
+  a second browser mount would add no coverage the `.sav` leg doesn't.
+- **Rebuilt** the wasm (emcc 6.0.1, ReadStat @`3c68974`), re-vendored; glue
+  byte-identical (loader is independent of the C logic). Added the rebuild
+  workspace (`ReadStat/`, `out/`) to `.gitignore` **and** `biome.json`'s ignore
+  list — biome has no `vcs` config so it doesn't honor `.gitignore`, and scanning
+  the upstream clone was surfacing 22 phantom formatter "errors". Gates: check
+  clean · **978 vitest** · smoke green (+SPSS-date leg) · bundle 762.9/768.
+
 ## 2026-07-09 — Stata date decoding (%td / %tc)
 
 ### Decision CW — decode Stata daily/datetime dates in the wrapper

@@ -10,7 +10,9 @@
       "eval/m0/results.json",
       "eval/m0/results-*.json",
       "eval/spikes",
-      "src/vendor/readstat/readstat-glue.js"
+      "src/vendor/readstat/readstat-glue.js",
+      "src/vendor/readstat/ReadStat",
+      "src/vendor/readstat/out"
     ]
   },
   "organizeImports": { "enabled": true },

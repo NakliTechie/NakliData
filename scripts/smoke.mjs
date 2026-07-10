@@ -1723,6 +1723,72 @@ async function main() {
   }
   log('✓ Stata date decoding: %td → 2020-01-01, %tc → 2020-01-01 13:30:00 (not raw offsets)');
 
+  // 12j-3. SPSS date decoding — the .sav fixture carries DATE/ADATE/EDATE (day),
+  //        DATETIME (instant), and TIME (duration) columns on the SPSS
+  //        seconds-since-1582 epoch. They must decode to ISO strings, not the
+  //        raw ~1.38e10 second offsets. Query the pre-1960 row (id=2) so a wrong
+  //        epoch/sign can't accidentally pass. (SAS .xpt shares the decoder path;
+  //        node-verified in the same build — a second browser mount adds no
+  //        coverage the .sav leg doesn't already give.)
+  const savDates = await readFile('tests/e2e/fixtures/sample-data/spss_dates.sav');
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'spss_dates.sav', { type: 'application/octet-stream' });
+    window.showOpenFilePicker = async () => [{ getFile: async () => file }];
+  }, savDates.toString('base64'));
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('.add-source-overlay', { timeout: 3000 });
+  await page.click('.add-source-overlay [data-action="mount-file"]');
+  await page.waitForFunction(
+    () =>
+      /\bspss_dates\b/.test(
+        document.querySelector('aside[aria-label="Sources"]')?.textContent ?? '',
+      ),
+    null,
+    { timeout: 20000 },
+  );
+  const savBefore = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  await page.click('[data-nb-action="add-sql"]');
+  await page.waitForFunction(
+    (b) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > b,
+    savBefore,
+    { timeout: 5000 },
+  );
+  const sCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await sCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText(
+    'SELECT d::VARCHAR AS d, ts::VARCHAR AS ts, tm::VARCHAR AS tm ' +
+      'FROM spss_dates WHERE id = 2',
+  );
+  await sCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const c = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')].at(-1);
+      return c && !c.classList.contains('errored') && c.querySelector('table td');
+    },
+    null,
+    { timeout: 15000 },
+  );
+  const sCells = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')].at(-1);
+    return [...c.querySelectorAll('table td')].map((td) => td.textContent);
+  });
+  if (!sCells.includes('1959-06-15')) {
+    fail(`SPSS DATE not decoded (expected 1959-06-15, got ${JSON.stringify(sCells)})`);
+  }
+  if (!sCells.some((v) => /^1959-06-15 23:59:59/.test(v ?? ''))) {
+    fail(`SPSS DATETIME not decoded (expected 1959-06-15 23:59:59, got ${JSON.stringify(sCells)})`);
+  }
+  if (!sCells.some((v) => /^0?0:00:01/.test(v ?? ''))) {
+    fail(`SPSS TIME not decoded (expected 00:00:01, got ${JSON.stringify(sCells)})`);
+  }
+  log('✓ SPSS date decoding: DATE → 1959-06-15, DATETIME → 1959-06-15 23:59:59, TIME → 00:00:01');
+
   // 12k. Python cell (Polyglot-Workbench Fork 2). Add a SQL cell that yields a
   //      tiny table, then a Python cell bound to it: pandas doubles a column.
   //      Exercises the full path — table → Parquet → Pyodide (vendored,
