@@ -26,6 +26,24 @@
       "label": "Product analytics",
       "description": "Event-stream columns from Mixpanel / Amplitude / PostHog exports: event names, user/session IDs, properties, UTM attribution.",
       "domain_file": "domains/product-analytics.json"
+    },
+    {
+      "id": "geography",
+      "label": "Geography and location",
+      "description": "Latitude/longitude, city, state/region, district, postal code, address.",
+      "domain_file": "domains/geography.json"
+    },
+    {
+      "id": "marketplace",
+      "label": "Marketplace and listings",
+      "description": "Listing/host IDs, room type, availability, reviews, minimum stay \u2014 Airbnb-style short-let and marketplace exports.",
+      "domain_file": "domains/marketplace.json"
+    },
+    {
+      "id": "sample-datasets",
+      "label": "Public sample datasets",
+      "description": "Outcome/demographic roles from common teaching datasets (Titanic): survival, passenger class, sex, age, fare, embarkation.",
+      "domain_file": "domains/sample-datasets.json"
     }
   ],
   "types_file": "types.jsonl",

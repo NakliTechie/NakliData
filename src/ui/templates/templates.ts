@@ -639,6 +639,122 @@ ORDER BY conversion_pct DESC`,
   },
 };
 
+// --- Tier-1 domain templates (geography / marketplace / sample datasets) --
+
+export const MARKETPLACE_SUPPLY: Template = {
+  id: 'marketplace_supply',
+  name: 'Marketplace supply and price brief',
+  description:
+    'Supply and average price by listing/room type, with an optional geography cut. Fits Airbnb-style listing exports.',
+  requiredTypes: ['room_type', 'amount'],
+  optionalTypes: ['state_region', 'availability_days', 'review_count'],
+  instantiate(m) {
+    const rt = m.room_type!;
+    const price = m.amount!;
+    const region = m.state_region;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Marketplace supply and price brief\n\nListings and average price by room type.'),
+      sql(
+        'supply_by_type',
+        `SELECT ${q(rt.column)} AS room_type,
+       COUNT(*) AS listings,
+       ROUND(AVG(${q(price.column)}), 2) AS avg_price
+FROM ${q(rt.table)}
+GROUP BY 1
+ORDER BY listings DESC`,
+      ),
+      chart('bar', 'supply_by_type', 'room_type', 'listings'),
+    ];
+    if (region) {
+      cells.push(
+        sql(
+          'supply_by_region',
+          `SELECT ${q(region.column)} AS region,
+       COUNT(*) AS listings,
+       ROUND(AVG(${q(price.column)}), 2) AS avg_price
+FROM ${q(region.table)}
+GROUP BY 1
+ORDER BY listings DESC
+LIMIT 20`,
+        ),
+        chart('bar', 'supply_by_region', 'region', 'listings'),
+      );
+    }
+    return cells;
+  },
+};
+
+export const OUTCOME_COMPARISON: Template = {
+  id: 'outcome_comparison',
+  name: 'Outcome comparison brief',
+  description:
+    'Compare an outcome rate across a categorical group (e.g. survival by passenger class). Fits Titanic-style datasets.',
+  requiredTypes: ['survival_flag', 'passenger_class'],
+  optionalTypes: ['sex_gender'],
+  instantiate(m) {
+    const outcome = m.survival_flag!;
+    const group = m.passenger_class!;
+    const sex = m.sex_gender;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Outcome comparison brief\n\nOutcome rate by group.'),
+      sql(
+        'outcome_by_group',
+        `SELECT ${q(group.column)} AS grp,
+       COUNT(*) AS n,
+       ROUND(AVG(CAST(${q(outcome.column)} AS DOUBLE)), 3) AS outcome_rate
+FROM ${q(group.table)}
+GROUP BY 1
+ORDER BY 1`,
+      ),
+      chart('bar', 'outcome_by_group', 'grp', 'outcome_rate'),
+    ];
+    if (sex) {
+      cells.push(
+        sql(
+          'outcome_by_group_sex',
+          `SELECT ${q(group.column)} AS grp,
+       ${q(sex.column)} AS sex,
+       COUNT(*) AS n,
+       ROUND(AVG(CAST(${q(outcome.column)} AS DOUBLE)), 3) AS outcome_rate
+FROM ${q(group.table)}
+GROUP BY 1, 2
+ORDER BY 1, 2`,
+        ),
+      );
+    }
+    return cells;
+  },
+};
+
+export const GEO_DISTRIBUTION: Template = {
+  id: 'geo_distribution',
+  name: 'Geography distribution brief',
+  description:
+    'Record counts (and total amount, if present) by state/region. Fits any dataset with a geography column.',
+  requiredTypes: ['state_region'],
+  optionalTypes: ['amount', 'room_type'],
+  instantiate(m) {
+    const region = m.state_region!;
+    const amount = m.amount;
+    const amountSelect = amount
+      ? `,\n       ROUND(SUM(${q(amount.column)}), 2) AS total_amount`
+      : '';
+    return [
+      md('# Geography distribution brief\n\nRecords by region.'),
+      sql(
+        'by_region',
+        `SELECT ${q(region.column)} AS region,
+       COUNT(*) AS records${amountSelect}
+FROM ${q(region.table)}
+GROUP BY 1
+ORDER BY records DESC
+LIMIT 25`,
+      ),
+      chart('bar', 'by_region', 'region', 'records'),
+    ];
+  },
+};
+
 /**
  * Legacy "always applicable" fallback template. Kept exported (the
  * recommend-reports eval fixture still references the id), but NOT
@@ -680,4 +796,7 @@ export const ALL_TEMPLATES: Template[] = [
   RETENTION_30D,
   CONVERSION_BY_SOURCE,
   TOP_PATHS,
+  MARKETPLACE_SUPPLY,
+  OUTCOME_COMPARISON,
+  GEO_DISTRIBUTION,
 ];

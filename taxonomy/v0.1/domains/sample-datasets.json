@@ -1,0 +1,13 @@
+{
+  "domain": "sample-datasets",
+  "label": "Public sample datasets (outcome / demographic)",
+  "types": [
+    "survival_flag",
+    "passenger_class",
+    "sex_gender",
+    "age_years",
+    "fare_amount",
+    "embarkation_port"
+  ],
+  "report_templates": ["outcome_comparison"]
+}

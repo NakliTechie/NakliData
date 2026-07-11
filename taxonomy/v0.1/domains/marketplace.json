@@ -1,0 +1,16 @@
+{
+  "domain": "marketplace",
+  "label": "Marketplace and listings",
+  "types": [
+    "listing_id",
+    "host_id",
+    "host_name",
+    "room_type",
+    "availability_days",
+    "minimum_stay",
+    "review_count",
+    "reviews_per_period",
+    "last_review_date"
+  ],
+  "report_templates": ["marketplace_supply"]
+}

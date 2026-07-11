@@ -2,6 +2,38 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-11 — Tier-1 taxonomy slice: geography / marketplace / sample-dataset roles
+
+### Decision CZ — expand the taxonomy for non-finance real-data (data-driven, no engine change)
+
+The `plan/codex-suggestions/` real-data pass (2026-07-05) found the recurring gap:
+*readers work, the semantic layer is the bottleneck.* Airbnb (geography/marketplace) and
+Titanic (outcome/demographic) mount + query fine but get zero column semantics and zero
+suggested reports for lack of types. Shipped the doc's "suggested immediate slice."
+
+- **Taxonomy 48 → 70 types, 4 → 7 domains**, all as data in `taxonomy/v0.1/` (a type is a
+  JSONL line + a domain file + an index entry — no code change; no bundle-hash gate exists).
+  New domains: **geography** (lat/long header+range-gated, city, state_region, district,
+  postal_code, address_line[pii]), **marketplace** (listing/host ids, room_type[value-set],
+  availability, min_stay, review counts, last_review), **sample-datasets** (survival_flag,
+  passenger_class, sex_gender[pii], age_years, fare_amount, embarkation_port).
+- **3 report templates** in `templates.ts` (marketplace_supply / outcome_comparison /
+  geo_distribution) so non-finance data surfaces a suggested report. `amount` already covers
+  `price`/`fare`/`total`, so no separate price type. `pin_code` already claims
+  `postal_code`/`postcode` headers — the generic `postal_code` uses zip-focused patterns +
+  a loose regex to coexist.
+- **Collision guard:** lat/long and the outcome/demographic value-sets are header-gated
+  (a bare `lat` full of 0..1000 is NOT latitude; `1/2/3` is only passenger_class with a
+  `pclass`/`class` header) — verified by a negative test. Demo finance classification is
+  unchanged (smoke: typed=20, unknown=0).
+- Tests: `tests/taxonomy-tier1.test.ts` loads the REAL bundle (validates the JSONL parses)
+  and classifies Airbnb/Titanic columns + asserts template eligibility.
+
+Compounds with CY: a richer catalog for Job 9 `assign-type` to classify into and Job 10
+`nl-to-schema` to map to. **Deferred to increment 2:** generic-role fallback template (needs
+OR-semantics or table-plumbing) + deterministic no-BYOK chart shortcuts. Gates: check clean ·
+**1003 vitest** (+12) · smoke green · bundle **766.9/768**.
+
 ## 2026-07-11 — Forward-port the bigset ontology jobs (assign-type + nl-to-schema)
 
 ### Decision CY — forward-port the un-merged `claude/bigset-ontology-layer` branch, renumber its jobs, and split them off-shell
