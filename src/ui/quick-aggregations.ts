@@ -78,7 +78,32 @@ const LOW_CARD_CATEGORICAL = new Set([
   'iso_country_code',
   'gst_state_code',
   'currency_iso',
+  // Tier-1 (geography / marketplace / sample-datasets). City/district can be
+  // higher-cardinality, but "count by … LIMIT 20" stays a useful top-N cut.
+  'room_type',
+  'state_region',
+  'city',
+  'district_neighbourhood',
+  'sex_gender',
+  'passenger_class',
+  'embarkation_port',
 ]);
+
+// Numeric measures that support "sum by category" + a distribution histogram.
+const NUMERIC_METRIC = new Set([
+  'amount',
+  'duration_ms',
+  'percentage',
+  'fare_amount',
+  'age_years',
+  'availability_days',
+  'review_count',
+  'reviews_per_period',
+  'minimum_stay',
+]);
+
+// Date-like types that support "count over time (daily)".
+const DATE_LIKE = new Set(['iso_datetime', 'iso_date', 'last_review_date']);
 
 /**
  * Compute the list of quick actions applicable to `target` given the
@@ -96,7 +121,7 @@ export function getQuickActions(
   if (!typeId) return out;
 
   // ── Numeric / monetary: sum + optional group-by partner ──────────
-  if (typeId === 'amount' || typeId === 'duration_ms' || typeId === 'percentage') {
+  if (NUMERIC_METRIC.has(typeId)) {
     const partner = partnersInTable.find((p) => p.typeId && LOW_CARD_CATEGORICAL.has(p.typeId));
     if (partner) {
       out.push({
@@ -154,8 +179,32 @@ LIMIT 20`,
     });
   }
 
+  // ── Outcome flag: rate by categorical partner ────────────────────
+  if (typeId === 'survival_flag') {
+    const partner = partnersInTable.find((p) => p.typeId && LOW_CARD_CATEGORICAL.has(p.typeId));
+    if (partner) {
+      out.push({
+        id: `rate_${col}_by_${partner.column}`,
+        label: `${col} rate by ${partner.column}`,
+        generate: () => [
+          md(`# ${col} rate by ${partner.column}\n\nMean outcome (0..1) per ${partner.column}.`),
+          sql(
+            `rate_${col}_by_${partner.column}`,
+            `SELECT ${q(partner.column)} AS category,
+       ROUND(AVG(CAST(${q(col)} AS DOUBLE)), 3) AS rate,
+       COUNT(*) AS n
+FROM ${q(tableName)}
+GROUP BY 1
+ORDER BY rate DESC`,
+          ),
+          chart('bar', 'category', 'rate'),
+        ],
+      });
+    }
+  }
+
   // ── Datetime: count over time ────────────────────────────────────
-  if (typeId === 'iso_datetime' || typeId === 'iso_date') {
+  if (DATE_LIKE.has(typeId)) {
     out.push({
       id: `count_over_time_${col}`,
       label: 'Count over time (daily)',

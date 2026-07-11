@@ -756,6 +756,50 @@ LIMIT 25`,
 };
 
 /**
+ * Generic-role fallback. Surfaces for ANY dataset with a recognised amount /
+ * metric column — the doc's "broader suggested reports" gap (non-finance data
+ * showed nothing). Produces a monthly total trend when a date column is
+ * present, else a compact totals row (per-column quick-charts already offer
+ * the amount histogram, so this stays lean to hold the shell budget). Broad by
+ * design (requires only `amount`), so it complements the domain templates.
+ */
+export const AMOUNT_SUMMARY: Template = {
+  id: 'amount_summary',
+  name: 'Amount summary',
+  description:
+    'Total of the main amount/metric column — as a monthly trend when a date column is present.',
+  requiredTypes: ['amount'],
+  optionalTypes: ['iso_datetime', 'iso_date'],
+  instantiate(m) {
+    const a = m.amount!;
+    const date = m.iso_datetime ?? m.iso_date;
+    if (date) {
+      return [
+        md('# Amount over time\n\nMonthly total of the main amount column.'),
+        sql(
+          'amount_over_time',
+          `SELECT DATE_TRUNC('month', CAST(${q(date.column)} AS TIMESTAMP)) AS month,
+       SUM(${q(a.column)}) AS total, COUNT(*) AS records
+FROM ${q(a.table)}
+GROUP BY 1
+ORDER BY 1`,
+        ),
+        chart('line', 'amount_over_time', 'month', 'total'),
+      ];
+    }
+    return [
+      md('# Amount summary\n\nTotal and average of the main amount column.'),
+      sql(
+        'amount_totals',
+        `SELECT COUNT(*) AS records, ROUND(SUM(${q(a.column)}), 2) AS total,
+       ROUND(AVG(${q(a.column)}), 2) AS average
+FROM ${q(a.table)}`,
+      ),
+    ];
+  },
+};
+
+/**
  * Legacy "always applicable" fallback template. Kept exported (the
  * recommend-reports eval fixture still references the id), but NOT
  * registered in ALL_TEMPLATES — its body shipped a `SELECT * FROM
@@ -799,4 +843,5 @@ export const ALL_TEMPLATES: Template[] = [
   MARKETPLACE_SUPPLY,
   OUTCOME_COMPARISON,
   GEO_DISTRIBUTION,
+  AMOUNT_SUMMARY,
 ];

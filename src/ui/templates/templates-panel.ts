@@ -1,16 +1,19 @@
 // "Suggested reports" — type-gated list of templates that surfaces when
 // the required types are present in the workbook.
 
+import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellState } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
-import {
-  ALL_TEMPLATES,
-  type ColumnRef,
-  type Template,
-  findApplicableTemplates,
-  indexByTypeWithCandidates,
-} from './templates.ts';
+// Type-only imports (erased at build) — the runtime values (ALL_TEMPLATES +
+// helpers) come from the lazy `report-templates` chunk so the templates module
+// stays off the shell budget.
+import type { ColumnRef, Template } from './templates.ts';
+
+// Cached once the lazy chunk resolves; subsequent renders are synchronous.
+type ReportTemplatesModule = typeof import('../../lazy/report-templates.ts');
+let _tpl: ReportTemplatesModule | null = null;
+let _tplLoading: Promise<void> | null = null;
 
 export interface TemplatePanelState {
   sources: Array<{ tables: Array<{ id: string; name: string }> }>;
@@ -44,6 +47,23 @@ export function renderTemplatePanel(
   injectCss();
   const region = root.querySelector<HTMLElement>('[data-region="templates-panel"]');
   if (!region) return;
+
+  // Templates live in a lazy chunk (off the shell budget). On the first render
+  // show a light placeholder, load the chunk, then re-render; the module is
+  // cached so every subsequent render is synchronous.
+  if (!_tpl) {
+    region.innerHTML = `<p style="color: var(--text-muted); font-size: 12px; margin: 0;">
+      Loading suggested reports…
+    </p>`;
+    if (!_tplLoading) {
+      _tplLoading = loadChunk('report-templates').then((m) => {
+        _tpl = m;
+      });
+    }
+    void _tplLoading.then(() => renderTemplatePanel(root, state, handlers));
+    return;
+  }
+  const { ALL_TEMPLATES, findApplicableTemplates, indexByTypeWithCandidates } = _tpl;
   region.innerHTML = '';
 
   const { byType, perType } = indexByTypeWithCandidates(state.assignments, state.sources);

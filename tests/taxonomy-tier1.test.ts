@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyColumn } from '../src/taxonomy/classify.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
+import { getQuickActions } from '../src/ui/quick-aggregations.ts';
+import type { ColumnAssignment } from '../src/ui/schema-panel.ts';
 import {
   ALL_TEMPLATES,
   type ColumnRef,
@@ -112,5 +114,48 @@ describe('Tier-1 report templates surface for matching roles', () => {
     expect(got).not.toContain('marketplace_supply');
     expect(got).not.toContain('outcome_comparison');
     expect(got).not.toContain('geo_distribution');
+  });
+  it('amount_summary (generic fallback) surfaces for any amount-bearing dataset', () => {
+    expect(ids(['amount'])).toContain('amount_summary');
+    expect(ids(['room_type'])).not.toContain('amount_summary');
+  });
+});
+
+describe('Tier-1 deterministic quick charts (no BYOK)', () => {
+  const assign = (columnName: string, typeId: string): ColumnAssignment => ({
+    columnName,
+    sqlType: 'VARCHAR',
+    candidates: [],
+    resolution: { kind: 'auto_accept' },
+    assigned: { typeId, origin: 'detector', confidence: 1 },
+    status: 'classified',
+  });
+  const labels = (target: ColumnAssignment, partners: Array<{ column: string; typeId: string }>) =>
+    getQuickActions(
+      target,
+      't',
+      partners.map((p) => ({ column: p.column, typeId: p.typeId })),
+    ).map((a) => a.label);
+
+  it('numeric metrics (fare_amount) get sum-by-category + distribution', () => {
+    const got = labels(assign('fare', 'fare_amount'), [
+      { column: 'pclass', typeId: 'passenger_class' },
+    ]);
+    expect(got).toContain('Sum fare by pclass');
+    expect(got.some((l) => l.includes('Distribution'))).toBe(true);
+  });
+  it('new categoricals (room_type) get count-by', () => {
+    expect(labels(assign('room_type', 'room_type'), [])).toContain('Count by room_type');
+  });
+  it('survival_flag gets an outcome-rate-by-category action', () => {
+    const got = labels(assign('survived', 'survival_flag'), [
+      { column: 'sex', typeId: 'sex_gender' },
+    ]);
+    expect(got).toContain('survived rate by sex');
+  });
+  it('last_review_date gets count-over-time', () => {
+    expect(labels(assign('last_review', 'last_review_date'), [])).toContain(
+      'Count over time (daily)',
+    );
   });
 });

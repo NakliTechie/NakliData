@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-11 — Tier-1 slice increment 2: deterministic quick-charts + generic fallback + lazy templates
+
+### Decision DA — wire new types into the no-BYOK quick-chart engine; add a generic amount template; move report templates off-shell
+
+Completes the Tier-1 slice (CZ was increment 1: types + domain templates).
+
+- **Deterministic quick-charts (no BYOK).** The per-column quick-chart engine
+  (`quick-aggregations.ts`, driven by typeId + partner types) already existed — the doc's
+  "add deterministic chart shortcuts" was really *wire the new types in*. Added the Tier-1
+  numerics (`fare_amount`/`age_years`/`availability_days`/`review_count`/…) to the sum+histogram
+  branch, the new categoricals (`room_type`/`state_region`/`sex_gender`/…) to count-by,
+  `last_review_date` to count-over-time, and a dedicated **outcome-rate-by-category** action for
+  `survival_flag` (AVG, not SUM). All no-BYOK.
+- **Generic-role fallback template** `amount_summary` — requires only `amount`, so it surfaces
+  for ANY amount-bearing dataset (the doc's "broader suggested reports" gap): monthly trend when
+  a date is present, else a compact totals row. Kept lean (no histogram cell — per-column
+  quick-charts already offer it) to respect the budget.
+- **Correction + structural fix: report templates are now a lazy chunk.** CZ's commit
+  (`0f1def0`) claimed bundle 766.9/768 but that reading was **stale** — the smoke rebuilds but
+  skips the size gate, so CZ's 3 templates actually pushed the shell to **769.3 (1.3 KB OVER)**,
+  and increment 2 to 770.8. Root fix: only `templates-panel.ts` consumes the templates at
+  runtime (2 call sites), so moved `ALL_TEMPLATES` + the matching helpers into the lazy
+  `report-templates` chunk (templates-panel keeps type-only imports + hydrates on first render,
+  caching the module). The whole ~16 KB templates module left the shell → **755.5/768, 12.5 KB
+  headroom** (also relieving the forward-port's tight 1.1 KB). Verified the panel still surfaces
+  + instantiates in the smoke.
+
+Gates: check clean · **1008 vitest** (+5) · smoke green (templates async-hydrate confirmed) ·
+bundle **755.5/768**.
+
 ## 2026-07-11 — Tier-1 taxonomy slice: geography / marketplace / sample-dataset roles
 
 ### Decision CZ — expand the taxonomy for non-finance real-data (data-driven, no engine change)

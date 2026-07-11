@@ -80,6 +80,14 @@ export interface LazyChunkRegistry {
    * returns DDL via an `onInsert` callback the shell handles.
    */
   'sidecar-ontology': typeof import('../lazy/sidecar-ontology.ts');
+  /**
+   * Report-template definitions (ALL_TEMPLATES) + matching helpers. Only the
+   * "Suggested reports" panel needs them, and only when it renders — so the
+   * whole templates module (SQL generators for every domain) ships off the
+   * inlined shell budget (spec §7.1 / A35). The panel hydrates on first render
+   * and caches the module for subsequent synchronous re-renders.
+   */
+  'report-templates': typeof import('../lazy/report-templates.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly
