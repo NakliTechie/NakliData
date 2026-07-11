@@ -71,6 +71,15 @@ export interface LazyChunkRegistry {
   'webr-runtime': typeof import('../lazy/webr-runtime.ts');
   /** W3.2 slice B — Transformers.js for local-model inference. */
   transformers: typeof import('../lazy/transformers.ts');
+  /**
+   * Wave 7 (Jobs 9 & 10) — the ontology sidecar jobs (assign-type +
+   * nl-to-schema) and the NL→schema modal. Loaded on the schema-panel
+   * "Ask AI to classify" / notebook "Infer schema" clicks, so their
+   * prompts/parsers + the modal stay off the inlined shell budget
+   * (spec §7.1 / A35). Safe to split: no store singletons — the modal
+   * returns DDL via an `onInsert` callback the shell handles.
+   */
+  'sidecar-ontology': typeof import('../lazy/sidecar-ontology.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly

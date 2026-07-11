@@ -913,6 +913,7 @@ export function renderNotebook(
     <button class="btn" data-nb-action="add-r" title="Run R over a cell's result; the result becomes a queryable table.">${iconSvg('plus', 12)} R</button>
     <button class="btn" data-nb-action="add-report" title="Paginated report: KPI tiles + cell embeds. Print to PDF via the browser.">${iconSvg('plus', 12)} Report</button>
     <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-sql" title="Ask the sidecar to write a SQL cell from a plain-English question. Never auto-executed.">${iconSvg('info', 12)} Ask in plain English</button>
+    <button class="btn cell-sidecar-trigger" data-action="ask-nl-to-schema" title="Describe a dataset in plain English; the sidecar infers a typed schema and drops an un-run CREATE TABLE cell.">${iconSvg('plus', 12)} Infer schema</button>
   `;
   addRow
     .querySelector('[data-nb-action="add-sql"]')

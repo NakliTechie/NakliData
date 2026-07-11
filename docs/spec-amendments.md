@@ -38,6 +38,7 @@ The original spec stays authoritative for everything not listed here.
 | [A28](#a28--sidecar-job-7-propose-chart-v12-m4-amends-spec-43) | §4.3 | 7th sidecar job `propose-chart` — input: SQL + result columns + 10 sample rows; output: strict JSON `ChartProposal` (chartType from an 8-value allowlist + xColumn/yColumn/groupColumn from the input columns + title ≤ 80 chars). No prose narration. New "Suggest chart" chip on SQL cell results materialises the proposal as a chart cell. |
 | [A29](#a29--visual-query-builder-v12-m5-amends-spec-33--38) | §3.3 + §3.8 | New "Build query" header button opens a form-based query builder: source table + optional single JOIN + AND-joined filters + LIMIT + GROUP BY + aggregates. Pure SQL emitter routes every identifier through `quoteIdent` + every literal through a TYPE-VALIDATED emitter (numeric / string / date / boolean). NO multi-join, NO nested subqueries, NO window functions. Output → new SQL cell (user clicks Run). |
 | [A30](#a30--shell-bundle-budget-raised-to-750-kb-v13-prior-art-amends-spec-71) | §7.1 | Shell bundle budget raised 600 KB → 750 KB for v1.3's six notebook-native surfaces (M1–M6). Lazy-load stays the default for heavy libraries; the raised cap covers accumulated shared-shell surface, not a license to dump deps. No trust boundary moves. |
+| [A31](#a31--sidecar-jobs-9--10-assign-type--nl-to-schema-wave-7-amends-spec-43) | §4.3 | Two new sidecar jobs. Job 9 `assign-type`: column → semantic type from the full taxonomy vocabulary (complements Job 1, covers `unknown` columns; per-column + bulk surfaces). Job 10 `nl-to-schema`: NL dataset description → typed schema, inserted as an un-run CREATE TABLE cell. Both structured-output-only with parser-side hallucination guards. |
 
 ---
 
@@ -1526,6 +1527,22 @@ lazy chunk; the cap covers the shell's accumulated surface, not a license to dum
 
 **Status: adopted 2026-07-05.** `check-bundle-size.mjs` `BUDGET_BYTES = 768 * 1024`; shell
 at 750.8/768. DECISIONS CH + A35.
+
+---
+
+## A31 — Sidecar Jobs 9 & 10: assign-type + nl-to-schema (Wave 7, amends spec §4.3)
+
+**Amends:** §4.3 (sidecar jobs). The spec's v1.1 sidecar defined three jobs; subsequent waves added Jobs 4–6 (recommend-reports, summarise-result, nl-to-sql) and Jobs 7–8 (propose-chart, propose-merge). This adds Jobs 9 and 10. (Originally authored as "Jobs 7 & 8" on the source branch, before Jobs 7–8 were claimed by propose-chart/propose-merge on main; renumbered on forward-port 2026-07-11.)
+
+**Origin:** evaluating `tinyfish-io/bigset` for the taxonomy/ontology layer. Bigset itself is declined as a dependency (server-side, SaaS-dependent, AGPL, background polling, no semantic-typing concept — see DECISIONS 2026-06-05 Decision D). Two of its ideas — "infer a schema from a description" and "place a column into a type system" — port into the browser-native sidecar as narrow, structured, user-in-the-loop jobs.
+
+**Job 9 — `assign-type`.** Input: column header + SQL type + ≤20 samples + the full type catalog (bundle types + workbook user types, each `{typeId, displayName, domain}`). Output: a single `typeId` from the catalog, or `null`. Distinct from Job 1 `disambiguate-type`, which only ranks a column's *existing detector candidates* (confidence ∈ [0.5, 0.9)); Job 9 handles the `unknown` columns the detectors couldn't place at all, choosing from the whole vocabulary. Same parser-side hallucination guard: an id outside the catalog (or `unknown`/empty) coerces to `null`. Surfaces: a per-column "Ask AI to classify" button on `unknown` columns, plus a schema-toolbar "Classify N unknowns with AI" bulk action (sequential; the bulk path skips the per-override "Remember rule?" prompt to avoid toast spam). Both gated behind `.app-sidecar-enabled`.
+
+**Job 10 — `nl-to-schema`.** Input: a plain-English dataset description + optional table-name hint + the known semantic-type vocabulary (`{typeId, displayName}`). Output: `{tableName, columns: [{name, sqlType, semanticTypeId, description}]}`. The modal (`src/ui/nl-to-schema-modal.ts`) renders a reviewable spec table + a CREATE TABLE preview; "Insert as CREATE TABLE cell" drops the DDL into an **un-run** SQL cell (Hard NOT #4 — the user clicks Run; identical posture to Job 5). Entry via an "Infer schema" toolbar button beside "Ask in plain English". Parser safety: column/table names sanitised to snake_case identifiers (bad → dropped/defaulted), `sqlType` validated against a DuckDB type allowlist (unknown → VARCHAR), `semanticTypeId` validated against the known vocabulary (else null), and an empty surviving column set signals rejection. `buildCreateTableDdl` is pure + exported (shared by modal + tests).
+
+**Note on parser asymmetry vs Job 5:** Job 5 (NL→SQL) *rejects* CREATE/DDL; Job 10 *produces* it on purpose. Different job contracts — both safe because neither auto-executes.
+
+**Status:** Forward-ported from branch `claude/bigset-ontology-layer-u5Cm7` on 2026-07-11. Eval coverage: `eval/fixtures/assign-type.json` (6 cases) + `eval/fixtures/nl-to-schema.json` (4 cases); unit coverage in `tests/sidecar-client.test.ts`.
 
 ---
 

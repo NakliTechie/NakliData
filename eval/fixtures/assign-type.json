@@ -1,0 +1,96 @@
+{
+  "job": "assign-type",
+  "_note": "Held-out cases for the full-vocabulary type-assignment job (Job 7). `recordedResponse` is a single token used by --dry-run. Cases include an out-of-catalog id (must coerce to null) and a genuine-unknown to exercise the FAIL/null path. Grow toward 20-50 cases.",
+  "cases": [
+    {
+      "id": "email-from-catalog",
+      "input": {
+        "columnName": "contact_email",
+        "sqlType": "VARCHAR",
+        "samples": ["ravi@sharma-trading.co.in", "accounts@gupta-textiles.com", "ops@nakli.io"],
+        "catalog": [
+          { "typeId": "email", "displayName": "Email", "domain": "contact" },
+          { "typeId": "vendor_name", "displayName": "Vendor name", "domain": "finance" },
+          { "typeId": "url", "displayName": "URL", "domain": "web" },
+          { "typeId": "phone_e164", "displayName": "Phone (E.164)", "domain": "contact" }
+        ]
+      },
+      "expected": { "typeId": "email" },
+      "recordedResponse": "email"
+    },
+    {
+      "id": "gstin-from-catalog",
+      "input": {
+        "columnName": "supplier_tax",
+        "sqlType": "VARCHAR",
+        "samples": ["27AAPFU0939F1ZV", "29AAGCB7383J1Z4"],
+        "catalog": [
+          { "typeId": "gstin", "displayName": "GSTIN", "domain": "finance-in" },
+          { "typeId": "pan", "displayName": "PAN", "domain": "finance-in" },
+          { "typeId": "email", "displayName": "Email", "domain": "contact" }
+        ]
+      },
+      "expected": { "typeId": "gstin" },
+      "recordedResponse": "gstin"
+    },
+    {
+      "id": "iso-date-from-catalog",
+      "input": {
+        "columnName": "booked_on",
+        "sqlType": "DATE",
+        "samples": ["2026-01-04", "2026-02-19", "2026-03-30"],
+        "catalog": [
+          { "typeId": "iso_date", "displayName": "ISO date", "domain": "temporal" },
+          { "typeId": "iso_datetime", "displayName": "ISO datetime", "domain": "temporal" },
+          { "typeId": "amount", "displayName": "Amount", "domain": "finance" }
+        ]
+      },
+      "expected": { "typeId": "iso_date" },
+      "recordedResponse": "iso_date"
+    },
+    {
+      "id": "ipv4-from-catalog",
+      "input": {
+        "columnName": "client_addr",
+        "sqlType": "VARCHAR",
+        "samples": ["10.0.4.12", "192.168.1.1", "172.16.255.3"],
+        "catalog": [
+          { "typeId": "ip_v4", "displayName": "IPv4 address", "domain": "web" },
+          { "typeId": "uuid", "displayName": "UUID", "domain": "identifier" },
+          { "typeId": "phone_e164", "displayName": "Phone (E.164)", "domain": "contact" }
+        ]
+      },
+      "expected": { "typeId": "ip_v4" },
+      "recordedResponse": "ip_v4"
+    },
+    {
+      "id": "out-of-catalog-id-coerces-null",
+      "input": {
+        "columnName": "weird",
+        "sqlType": "VARCHAR",
+        "samples": ["a", "b", "c"],
+        "catalog": [
+          { "typeId": "email", "displayName": "Email", "domain": "contact" },
+          { "typeId": "url", "displayName": "URL", "domain": "web" }
+        ]
+      },
+      "expected": { "typeId": null },
+      "recordedResponse": "made_up_type"
+    },
+    {
+      "id": "genuine-unknown",
+      "input": {
+        "columnName": "misc",
+        "sqlType": "VARCHAR",
+        "samples": ["x12", "qq", "n/a", "—"],
+        "catalog": [
+          { "typeId": "email", "displayName": "Email", "domain": "contact" },
+          { "typeId": "amount", "displayName": "Amount", "domain": "finance" },
+          { "typeId": "iso_date", "displayName": "ISO date", "domain": "temporal" }
+        ]
+      },
+      "expected": { "typeId": null },
+      "recordedResponse": "unknown"
+    }
+  ]
+}

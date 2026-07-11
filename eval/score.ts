@@ -7,9 +7,11 @@
 // which is what a prompted-base-vs-prompted+LoRA comparison needs.
 
 import type {
+  AssignTypeResponse,
   DefineTypeResponse,
   DisambiguateTypeResponse,
   ExplainErrorResponse,
+  NlToSchemaResponse,
   NlToSqlResponse,
   RecommendReportsResponse,
   SummariseResultResponse,
@@ -275,6 +277,81 @@ export function scoreNlToSql(parsed: NlToSqlResponse, expected: NlToSqlExpected)
     pass,
     score,
     detail: `len=${sql.length} · starts=${startsRight ? 'SELECT/WITH ✓' : '✗'} · keywords ${hits.length}/${keywords.length}${nonEmpty ? '' : ' · empty'}`,
+  };
+}
+
+// ---- assign-type: exact typeId match (full-vocabulary pick) ---------
+
+export interface AssignTypeExpected {
+  /** Expected chosen typeId, or null when the right answer is "unknown". */
+  typeId: string | null;
+}
+
+export function scoreAssignType(
+  parsed: AssignTypeResponse,
+  expected: AssignTypeExpected,
+): ScoreResult {
+  const got = parsed.typeId;
+  const pass = got === expected.typeId;
+  return {
+    pass,
+    score: pass ? 1 : 0,
+    detail: pass ? `chose ${fmt(got)} ✓` : `chose ${fmt(got)}, expected ${fmt(expected.typeId)}`,
+  };
+}
+
+// ---- nl-to-schema: column coverage + semantic-mapping coverage ------
+
+export interface NlToSchemaExpected {
+  /**
+   * When `true`, the parser is expected to have rejected the response
+   * (no usable columns). `parsed.columns` must be empty to pass.
+   */
+  expectRejected?: boolean;
+  /** Column names (sanitised, snake_case) that must appear in the schema. */
+  mustHaveColumns?: string[];
+  /**
+   * Required column → semantic-type-id mappings. Each entry passes when
+   * the column exists AND its semanticTypeId equals the expected id.
+   */
+  mustMap?: Record<string, string>;
+}
+
+export function scoreNlToSchema(
+  parsed: NlToSchemaResponse,
+  expected: NlToSchemaExpected,
+): ScoreResult {
+  if (expected.expectRejected) {
+    const pass = parsed.columns.length === 0;
+    return {
+      pass,
+      score: pass ? 1 : 0,
+      detail: pass
+        ? 'response correctly rejected'
+        : `expected rejection, got ${parsed.columns.length} cols`,
+    };
+  }
+
+  const names = new Set(parsed.columns.map((c) => c.name.toLowerCase()));
+  const must = expected.mustHaveColumns ?? [];
+  const colHits = must.filter((m) => names.has(m.toLowerCase()));
+  const colCoverage =
+    must.length === 0 ? (parsed.columns.length > 0 ? 1 : 0) : colHits.length / must.length;
+
+  const mapEntries = Object.entries(expected.mustMap ?? {});
+  const mapHits = mapEntries.filter(([col, typeId]) => {
+    const found = parsed.columns.find((c) => c.name.toLowerCase() === col.toLowerCase());
+    return found?.semanticTypeId === typeId;
+  });
+  const mapCoverage = mapEntries.length === 0 ? 1 : mapHits.length / mapEntries.length;
+
+  // 60% column coverage, 40% mapping coverage.
+  const score = colCoverage * 0.6 + mapCoverage * 0.4;
+  const pass = colCoverage === 1 && mapCoverage >= 0.5;
+  return {
+    pass,
+    score,
+    detail: `cols ${colHits.length}/${must.length} · map ${mapHits.length}/${mapEntries.length}`,
   };
 }
 

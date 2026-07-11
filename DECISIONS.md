@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-11 — Forward-port the bigset ontology jobs (assign-type + nl-to-schema)
+
+### Decision CY — forward-port the un-merged `claude/bigset-ontology-layer` branch, renumber its jobs, and split them off-shell
+
+The Wave-7 sidecar jobs from the `claude/bigset-ontology-layer-u5Cm7` branch
+(authored 2026-06-05, never merged; DECISIONS 2026-06-05 A–D) were still valid and
+not superseded — main's sidecar grew to 8 jobs since but has neither `assign-type`
+(full-vocabulary column classification) nor `nl-to-schema` (NL → typed CREATE TABLE).
+Forward-ported onto main (136 commits ahead). Three load-bearing choices:
+
+- **Renumber 7/8 → 9/10.** The branch labelled them Jobs 7 & 8, but main claimed those
+  numbers for `propose-chart` (7) and `propose-merge` (8) in the interim. Renumbered
+  the incoming jobs to 9 & 10 across types/client/UI/tests/docs; the `kind` strings
+  (`assign-type`, `nl-to-schema`) are unchanged, so it's a pure doc/label fix.
+- **Split both jobs off the inlined shell (spec §7.1 / A35).** Merging as-authored put
+  the shell at **780 KB, 12 KB over the 768 KB budget** — the new modal + two prompts +
+  parsers landed in the always-loaded shell. Moved the builders/parsers/prompts into a
+  new `src/core/sidecar/ontology-jobs.ts` and the modal into the lazy `sidecar-ontology`
+  chunk, loaded only on the schema-panel "Ask AI to classify" / notebook "Infer schema"
+  clicks. Safe to split: no store singletons cross the boundary (the modal returns DDL
+  via an `onInsert` callback the shell handles; dispatch is a pure request→response).
+  Shell back to **766.9/768**.
+- **Extract a shared `sendPrompt(system, user, opts)` in client.ts.** The off-shell
+  `dispatchOntologyJob` needed the same key-resolution + transport plumbing as the
+  in-shell `dispatchJob`. Extracting it into one exported helper both let the chunk
+  reuse it AND deduped the 10 identical transport blocks in dispatchJob — reclaiming
+  ~1 KB of shell headroom as a bonus. dispatchJob no longer handles the two ontology
+  kinds (throws `unsupported`); no caller routes them through it.
+
+Gates: `npm run check` clean · **991 vitest** (+13) · **70 eval** (+10) · `npm run smoke`
+green · bundle **766.9/768** (1.1 KB headroom). Amendment A31. The branch's original
+2026-06-05 decision entry (A–D) is preserved below as historical record.
+
 ## 2026-07-10 — SPSS + SAS date decoding (extend CW)
 
 ### Decision CX — decode SPSS/SAS dates too, now that a fixture exists
@@ -3303,6 +3336,35 @@ The validation is ~30-60 min of clicking through. The reward is a
 v1.3.0 that genuinely closes the v1.1-era local-runtime promise.
 
 ---
+## 2026-06-05 — Wave 7: two new sidecar jobs from the bigset evaluation
+
+**Context:** Asked to evaluate `tinyfish-io/bigset` (an AGPL, server-side, agentic web-scraping dataset builder: Next.js + Convex + Fastify + Mastra, TinyFish/OpenRouter/Clerk SaaS, scheduled refresh) for use at NakliData's "ontology layer" (= the `src/taxonomy/` semantic-type classification layer). Bigset as a dependency is a non-starter — it collides with every relevant Hard NOT (browser-native/zero-backend, BYOK-only/no-accounts, no background polling, single ≤600 KB bundle) and has no ontology/semantic-typing component at all (its "schema inference" is one-shot per-dataset column guessing, not a reusable vocabulary). But two of its *ideas* port cleanly into the existing sidecar as structured, user-in-the-loop jobs. The user explicitly asked for both.
+
+### Decision A — `assign-type` (Job 7) is a NEW job, not an extension of `disambiguate-type` (Job 1)
+
+Job 1 only picks among the detector-produced candidates a column already has (confidence in [0.5, 0.9), ≥2 candidates). That leaves the `unknown` columns — where the deterministic detectors found nothing — with no AI path. Job 7 fills exactly that gap: hand the model the WHOLE taxonomy vocabulary (bundle types + workbook user types) and ask it to place the column, or return `unknown`.
+
+**Chosen:** a distinct `assign-type` job + parser, reusing Job 1's one-token / hallucination-guard contract (chosen id must be in the catalog or coerces to null). Per-column trigger renders on `assigned.typeId === null` columns (`isUnknownColumn`), complementary to Job 1's `isAmbiguous` trigger.
+
+**Why not extend Job 1:** the input shapes differ (candidate list vs full catalog) and the trigger conditions are disjoint (ambiguous-with-candidates vs unknown-with-none). Folding them would muddy both prompts and the eval rubric.
+
+### Decision B — bulk "Classify all unknowns" applies WITHOUT the per-override "Remember rule?" toast
+
+A single per-column override offers to promote the pick to a persistent column-name rule (`offerRememberRule`). At bulk scale that's one toast per column — spam. The bulk path (`applyAiAssignment`) writes the assignment directly (origin `user_override`, confidence 1) and ends with a single summary toast. The single-column path keeps the remember offer (consistent with the disambiguate single-click).
+
+**Reversibility:** trivial — both paths are small helpers in `src/main.ts`.
+
+### Decision C — NL→schema (Job 8) emits an UN-RUN CREATE TABLE cell, and that does NOT violate Hard NOT #4
+
+Hard NOT #4 forbids *auto-executing* LLM-generated SQL. Job 8 deliberately generates DDL (CREATE TABLE) — but it lands as the body of a new SQL cell that the user must click Run on, identical to how Job 5 (NL→SQL) handles its SELECTs. The user reviews the spec table + DDL preview in the modal first, then optionally inserts. No auto-execution anywhere.
+
+**Note on the parser asymmetry:** Job 5's parser *rejects* CREATE/DDL (a write statement from a "write me a query" job is a trap). Job 8's parser *produces* CREATE on purpose (it's a "design me a table" job). Different jobs, different contracts — both safe because neither auto-runs.
+
+**Output surface (per user choice):** both a reviewable spec panel AND an "Insert as CREATE TABLE" action (the fuller of the two options offered). Column/table names are sanitised to safe snake_case identifiers, SQL types are allowlisted (unknown → VARCHAR), and `semantic_type_id` is validated against the known vocabulary (hallucination guard) — same posture as every other typed job. `buildCreateTableDdl` is pure + exported so the modal and unit tests share one source of truth.
+
+### Decision D — bigset declined as a dependency; logged as evaluated-not-adopted
+
+For the record: bigset is a good reference for *agentic dataset generation / web enrichment*, which is adjacent to NakliData's remote-sources/ingestion roadmap (`plan/remote-sources.md`), NOT the ontology layer. If web-enrichment ever ships it belongs as an *external producer* (run bigset elsewhere, mount its CSV/Parquet output) — never bundled. No further action.
 
 ## 2026-06-02 — Forward-pass audit + v1.2.2 — load-bearing decisions
 

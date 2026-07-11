@@ -42,7 +42,9 @@ export type SidecarJob =
   | SummariseResultJob
   | NlToSqlJob
   | ProposeChartJob
-  | ProposeMergeJob;
+  | ProposeMergeJob
+  | AssignTypeJob
+  | NlToSchemaJob;
 
 export interface ExplainErrorJob {
   kind: 'explain-error';
@@ -156,6 +158,65 @@ export interface NlToSqlJob {
   dialect?: 'duckdb';
 }
 
+/**
+ * Job 9 (Wave 7 / W7.1) — column → semantic type assignment from the
+ * FULL taxonomy vocabulary. Distinct from `disambiguate-type` (Job 1):
+ * disambiguation only picks among the detector-produced candidates a
+ * column already has (confidence in [0.5, 0.9)). This job is the
+ * `unknown`-column case — the deterministic detectors found nothing, so
+ * we hand the model the whole catalog and ask it to place the column.
+ *
+ * Hallucination guard (same shape as Job 1): the chosen typeId must be
+ * in `catalog`; anything else coerces to `null` (= leave unknown).
+ *
+ * Inspired by the schema-inference posture of agentic dataset tools
+ * (bigset), narrowed to NakliData's deterministic, curatable taxonomy
+ * contract — the model proposes, the user remains in the loop, and the
+ * answer is a single id from a fixed vocabulary, never free text.
+ */
+export interface AssignTypeJob {
+  kind: 'assign-type';
+  /** Column header name. */
+  columnName: string;
+  /** DuckDB SQL type for the column (e.g., 'VARCHAR', 'BIGINT'). */
+  sqlType: string;
+  /** Up to 20 non-null sample values, stringified. */
+  samples: string[];
+  /**
+   * The vocabulary the model may choose from — bundle types plus the
+   * workbook's user-defined types. The parser rejects any id not here.
+   */
+  catalog: Array<{ typeId: string; displayName: string; domain: string }>;
+}
+
+/**
+ * Job 10 (Wave 7 / W7.2) — plain-English dataset description → a
+ * structured schema (column names + DuckDB SQL types + mapped semantic
+ * type ids). The bigset "describe a dataset, infer its schema" idea,
+ * reshaped for NakliData: no web scraping, no population — just the
+ * schema scaffold. The UI renders it as a reviewable spec and, on
+ * request, drops a CREATE TABLE DDL into an UN-RUN SQL cell (Hard NOT
+ * #4 — the user clicks Run).
+ *
+ * Hallucination guard (parser): each column's `semanticTypeId` must be
+ * in `knownTypes` or it coerces to null; `sqlType` is validated against
+ * a DuckDB type allowlist (unknown → VARCHAR); column + table names are
+ * sanitised to safe identifiers; an empty surviving column set means the
+ * response was rejected.
+ */
+export interface NlToSchemaJob {
+  kind: 'nl-to-schema';
+  /** The user's plain-English description of the dataset they want. */
+  description: string;
+  /** Optional table-name hint; the model may override, the parser sanitises. */
+  tableName?: string;
+  /**
+   * Semantic types the model may map columns to (bundle + user types).
+   * Mapping is best-effort; unmapped columns get `semanticTypeId: null`.
+   */
+  knownTypes: Array<{ typeId: string; displayName: string }>;
+}
+
 /** A sidecar response is a tagged structured output. */
 export type SidecarResponse =
   | ExplainErrorResponse
@@ -165,7 +226,9 @@ export type SidecarResponse =
   | SummariseResultResponse
   | NlToSqlResponse
   | ProposeChartResponse
-  | ProposeMergeResponse;
+  | ProposeMergeResponse
+  | AssignTypeResponse
+  | NlToSchemaResponse;
 
 export interface ExplainErrorResponse {
   kind: 'explain-error';
@@ -298,6 +361,37 @@ export interface ProposeMergeResponse {
    * `merge` is true, else ''. Pairs that fail the guard are dropped.
    */
   pairs: Array<{ a: string; b: string; merge: boolean; canonical: string }>;
+}
+
+export interface AssignTypeResponse {
+  kind: 'assign-type';
+  /**
+   * Chosen typeId from the catalog, or `null` when the model picks
+   * `unknown` / returns an id outside the catalog (coerced to null).
+   */
+  typeId: string | null;
+}
+
+export interface NlToSchemaColumn {
+  /** Sanitised snake_case column name. */
+  name: string;
+  /** DuckDB SQL type (validated against the allowlist; unknown → VARCHAR). */
+  sqlType: string;
+  /** Mapped taxonomy type id, or null when the model didn't map it. */
+  semanticTypeId: string | null;
+  /** Short plain-text note about the column; '' when absent. */
+  description: string;
+}
+
+export interface NlToSchemaResponse {
+  kind: 'nl-to-schema';
+  /**
+   * Sanitised table name for the CREATE TABLE scaffold. Empty string
+   * (together with an empty `columns`) means the parser rejected the
+   * response — the caller shows the "no schema produced" state.
+   */
+  tableName: string;
+  columns: NlToSchemaColumn[];
 }
 
 export class SidecarError extends Error {

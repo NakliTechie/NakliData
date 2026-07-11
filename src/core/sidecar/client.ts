@@ -121,11 +121,72 @@ export async function dispatchJob(
   job: SidecarJob,
   opts: SidecarDispatchOpts,
 ): Promise<SidecarResponse> {
-  // The 'local' provider runs in-browser — no API key. W6: the 'custom'
-  // (OpenAI-compatible) provider may point at an UNAUTHENTICATED endpoint
-  // (self-hosted Ollama / vLLM / LM Studio), so its key is optional — an empty
-  // key means "send no Authorization header" rather than forcing the user to
-  // store a junk placeholder. Anthropic/OpenAI still require a real key.
+  // All jobs share the same key-resolution + transport plumbing via
+  // `sendPrompt` (below) — each branch just builds its prompt and parses
+  // the raw string into its structured shape.
+  if (job.kind === 'explain-error') {
+    const { system, user } = buildExplainErrorPrompt(job);
+    return parseExplainErrorResponse(await sendPrompt(system, user, opts));
+  }
+  if (job.kind === 'disambiguate-type') {
+    const { system, user } = buildDisambiguateTypePrompt(job);
+    return parseDisambiguateTypeResponse(await sendPrompt(system, user, opts), job.candidates);
+  }
+  if (job.kind === 'define-type') {
+    const { system, user } = buildDefineTypePrompt(job);
+    return parseDefineTypeResponse(await sendPrompt(system, user, opts));
+  }
+  if (job.kind === 'recommend-reports') {
+    const { system, user } = buildRecommendReportsPrompt(job);
+    return parseRecommendReportsResponse(
+      await sendPrompt(system, user, opts),
+      job.candidates.map((c) => c.templateId),
+    );
+  }
+  if (job.kind === 'summarise-result') {
+    const { system, user } = buildSummariseResultPrompt(job);
+    return parseSummariseResultResponse(await sendPrompt(system, user, opts), job.columns);
+  }
+  if (job.kind === 'nl-to-sql') {
+    const { system, user } = buildNlToSqlPrompt(job);
+    return parseNlToSqlResponse(
+      await sendPrompt(system, user, opts),
+      job.tables.map((t) => t.name),
+    );
+  }
+  if (job.kind === 'propose-chart') {
+    const { system, user } = buildProposeChartPrompt(job);
+    return parseProposeChartResponse(
+      await sendPrompt(system, user, opts),
+      job.columns.map((c) => c.name),
+    );
+  }
+  if (job.kind === 'propose-merge') {
+    const { system, user } = buildProposeMergePrompt(job);
+    return parseProposeMergeResponse(await sendPrompt(system, user, opts), job.pairs);
+  }
+  // 'assign-type' + 'nl-to-schema' (Jobs 9 & 10) are handled off-shell by
+  // `dispatchOntologyJob` in ./ontology-jobs.ts — they're user-triggered
+  // (schema-panel "Ask AI to classify" / notebook "Infer schema") and their
+  // prompts/parsers ship in the lazy `sidecar-ontology` chunk, not the
+  // inlined shell (spec §7.1 / A35). dispatchJob throwing here is fine: no
+  // caller routes those kinds through it (see main.ts + the modal).
+  throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
+}
+
+/**
+ * Resolve the provider key and run one prompt through the transport.
+ * Shared plumbing so the lazily-loaded ontology jobs (./ontology-jobs.ts)
+ * reuse dispatchJob's exact key-resolution + transport contract instead of
+ * duplicating it. Anthropic/OpenAI require a real key; 'custom' may point at
+ * an unauthenticated endpoint (empty key → no Authorization header); 'local'
+ * runs in-browser with no key.
+ */
+export async function sendPrompt(
+  system: string,
+  user: string,
+  opts: SidecarDispatchOpts,
+): Promise<string> {
   let key = '';
   if (opts.provider !== 'local') {
     const loaded = await loadKey(opts.provider);
@@ -138,120 +199,15 @@ export async function dispatchJob(
     key = loaded ?? '';
   }
   const transport = opts.transport ?? defaultTransport;
-  if (job.kind === 'explain-error') {
-    const { system, user } = buildExplainErrorPrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseExplainErrorResponse(raw);
-  }
-  if (job.kind === 'disambiguate-type') {
-    const { system, user } = buildDisambiguateTypePrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseDisambiguateTypeResponse(raw, job.candidates);
-  }
-  if (job.kind === 'define-type') {
-    const { system, user } = buildDefineTypePrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseDefineTypeResponse(raw);
-  }
-  if (job.kind === 'recommend-reports') {
-    const { system, user } = buildRecommendReportsPrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseRecommendReportsResponse(
-      raw,
-      job.candidates.map((c) => c.templateId),
-    );
-  }
-  if (job.kind === 'summarise-result') {
-    const { system, user } = buildSummariseResultPrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseSummariseResultResponse(raw, job.columns);
-  }
-  if (job.kind === 'nl-to-sql') {
-    const { system, user } = buildNlToSqlPrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseNlToSqlResponse(
-      raw,
-      job.tables.map((t) => t.name),
-    );
-  }
-  if (job.kind === 'propose-chart') {
-    const { system, user } = buildProposeChartPrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseProposeChartResponse(
-      raw,
-      job.columns.map((c) => c.name),
-    );
-  }
-  if (job.kind === 'propose-merge') {
-    const { system, user } = buildProposeMergePrompt(job);
-    const raw = await transport({
-      provider: opts.provider,
-      model: opts.model,
-      system,
-      user,
-      apiKey: key,
-      ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
-    return parseProposeMergeResponse(raw, job.pairs);
-  }
-  throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
+  return transport({
+    provider: opts.provider,
+    model: opts.model,
+    system,
+    user,
+    apiKey: key,
+    ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  });
 }
 
 // ---- explain-error prompt + parser ----------------------------------
