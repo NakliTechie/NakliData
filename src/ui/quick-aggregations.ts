@@ -11,6 +11,7 @@
 // panel.ts) drops them into the notebook via the same path templates
 // use.
 
+import { dateCastExpr } from '../core/sql-date.ts';
 import type { CellState, ChartCellState, MarkdownCellState, SqlCellState } from './cells/types.ts';
 import type { ColumnAssignment } from './schema-panel.ts';
 
@@ -212,9 +213,10 @@ ORDER BY rate DESC`,
         md('# Activity per day'),
         sql(
           `count_over_time_${col}`,
-          `SELECT DATE_TRUNC('day', CAST(${q(col)} AS TIMESTAMP)) AS day,
+          `SELECT DATE_TRUNC('day', ${dateCastExpr(q(col))}) AS day,
        COUNT(*) AS n
 FROM ${q(tableName)}
+WHERE ${dateCastExpr(q(col))} IS NOT NULL
 GROUP BY 1
 ORDER BY 1`,
         ),

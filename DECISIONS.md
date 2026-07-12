@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Flexible date detection + tolerant parsing (Kaggle pass #1)
+
+### Decision DH — broaden date DETECTION and make date-consuming SQL parse tolerantly
+
+The real-data pass's highest-value gap: non-ISO dates dropped to unknown, blocking every time-series
+report. Root cause wasn't missing regexes (the datetime regex already matched "12/1/2010 8:26") but two
+things — fixed here:
+
+- **Detection.** `iso_datetime` gained date-column HEADER patterns (date, invoice_date, order_date,
+  date_added, …) so a datetime-VALUED column with a "date" header co-signals to auto-accept instead of
+  sitting at regex-only 0.6. `iso_date` gained a textual-month regex branch (`[A-Za-z]{3,9} \d{1,2}, \d{4}`
+  + the "D Month YYYY" variant) for "September 25, 2021" (Netflix `date_added`), plus date-added-ish
+  headers. Date-only columns still win `iso_date`; datetime columns win `iso_datetime` (regex disjoint).
+- **Usability.** New pure `src/core/sql-date.ts` `dateCastExpr(col)` = `COALESCE(TRY_CAST(col AS
+  TIMESTAMP), try_strptime(col, [ '%m/%d/%Y %H:%M', '%B %d, %Y', … ]))` — routed into the `amount_summary`
+  "amount over time" template + the "count over time" quick-chart (with a `WHERE … IS NOT NULL` so
+  unparseable rows drop rather than error). A detected non-ISO date now actually charts.
+
+Verified in-browser on the real UK-retail data: `InvoiceDate` ("12/1/2010 8:26") → Datetime @86% (was
+unknown) with a Count-over-time quick chart that renders end-to-end; `Country` → Country name @100%.
+Demo classification unchanged (typed=20, unknown=0). Gates: check clean · **1036 vitest** (+5) · smoke
+green · bundle **762.1/768**.
+
 ## 2026-07-12 — Bugfix: result-snapshot DataCloneError (Tier-2 DC regression)
 
 ### Decision DGa — JSON-normalise snapshot rows so IDB put() never DataCloneErrors

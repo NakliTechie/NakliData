@@ -88,6 +88,24 @@ describe('Tier-1 fixes — country names + numeric-code noise', () => {
   });
 });
 
+describe('Tier-1 fixes — flexible date detection', () => {
+  it('classifies a US datetime column (InvoiceDate → iso_datetime)', () => {
+    // "12/1/2010 8:26" matched the datetime regex, but the header now co-signals.
+    expect(top('InvoiceDate', ['12/1/2010 8:26', '12/1/2010 8:28', '12/1/2010 8:34'])).toBe(
+      'iso_datetime',
+    );
+  });
+  it('classifies a textual-month date column (date_added → iso_date)', () => {
+    expect(top('date_added', ['September 25, 2021', 'August 24, 2021', 'March 1, 2020'])).toBe(
+      'iso_date',
+    );
+  });
+  it('still classifies plain slash dates + ISO datetimes', () => {
+    expect(top('order_date', ['12/1/2010', '1/3/2011', '5/9/2011'])).toBe('iso_date');
+    expect(top('created_at', ['2010-12-01T08:26:00', '2011-01-03T09:00:00'])).toBe('iso_datetime');
+  });
+});
+
 describe('Tier-1 taxonomy — marketplace (Airbnb)', () => {
   it('classifies room_type by value set', () => {
     expect(top('room_type', ['Entire home/apt', 'Private room', 'Shared room'])).toBe('room_type');

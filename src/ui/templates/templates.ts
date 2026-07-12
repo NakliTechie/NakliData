@@ -4,6 +4,7 @@
 //
 // Each template renders to a small set of cells (SQL + chart + markdown).
 
+import { dateCastExpr } from '../../core/sql-date.ts';
 import type { CellState, ChartCellState, MarkdownCellState, SqlCellState } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 
@@ -778,9 +779,10 @@ export const AMOUNT_SUMMARY: Template = {
         md('# Amount over time\n\nMonthly total of the main amount column.'),
         sql(
           'amount_over_time',
-          `SELECT DATE_TRUNC('month', CAST(${q(date.column)} AS TIMESTAMP)) AS month,
+          `SELECT DATE_TRUNC('month', ${dateCastExpr(q(date.column))}) AS month,
        SUM(${q(a.column)}) AS total, COUNT(*) AS records
 FROM ${q(a.table)}
+WHERE ${dateCastExpr(q(date.column))} IS NOT NULL
 GROUP BY 1
 ORDER BY 1`,
         ),
