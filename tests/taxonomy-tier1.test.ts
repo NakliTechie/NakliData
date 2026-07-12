@@ -133,6 +133,18 @@ describe('Tier-1 taxonomy — sample datasets (Titanic)', () => {
   });
 });
 
+describe('Retail domain pack (e-commerce)', () => {
+  it('classifies sku / quantity / customer_id / order_id', () => {
+    expect(top('StockCode', ['85123A', '71053', '84406B'])).toBe('sku');
+    expect(top('Quantity', ['6', '8', '2', '32'], 'INTEGER')).toBe('quantity');
+    expect(top('CustomerID', ['17850', '13047', '12583'], 'INTEGER')).toBe('customer_id');
+    expect(top('order_no', ['536365', '536366', '536367'])).toBe('order_id');
+  });
+  it('customer_id is flagged PII', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'customer_id')?.sensitivity).toBe('pii');
+  });
+});
+
 describe('Tier-1 report templates surface for matching roles', () => {
   const byType = (ids: string[]): Record<string, ColumnRef> =>
     Object.fromEntries(ids.map((id) => [id, { table: 'listings', column: id }]));
@@ -147,6 +159,9 @@ describe('Tier-1 report templates surface for matching roles', () => {
   });
   it('geo_distribution surfaces when state_region present', () => {
     expect(ids(['state_region', 'amount'])).toContain('geo_distribution');
+  });
+  it('retail_sales surfaces when quantity + amount present', () => {
+    expect(ids(['quantity', 'amount', 'country_name'])).toContain('retail_sales');
   });
   it('none of the Tier-1 templates surface for a bare finance workbook', () => {
     const got = ids(['gstin', 'amount']);

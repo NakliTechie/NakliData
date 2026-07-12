@@ -44,6 +44,12 @@
       "label": "Public sample datasets",
       "description": "Outcome/demographic roles from common teaching datasets (Titanic): survival, passenger class, sex, age, fare, embarkation.",
       "domain_file": "domains/sample-datasets.json"
+    },
+    {
+      "id": "retail",
+      "label": "Retail and transactions",
+      "description": "Order/invoice IDs, SKU/product codes, quantity, customer IDs \u2014 retail & e-commerce transaction exports.",
+      "domain_file": "domains/retail.json"
     }
   ],
   "types_file": "types.jsonl",

@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Retail domain pack (Kaggle pass follow-up)
+
+### Decision DI — retail/transactions types + a retail-sales template
+
+The e-commerce dataset's remaining unknowns (StockCode, Quantity, CustomerID, order/invoice ids) needed a
+retail pack. Added domain `retail` (75 types total): `order_id` (header + high-cardinality; co-classifies
+InvoiceNo alongside the india `invoice_number`), `sku` (stockcode/product_code/barcode/upc/ean/…),
+`quantity` (qty/units/…), `customer_id` (header + high-card, sensitivity **pii**). `amount` already
+covers UnitPrice, `country_name`/`iso_datetime` from the earlier passes cover Country/InvoiceDate — so
+the pack completes the schema. New **`retail_sales`** template: requires `quantity` + `amount` → revenue
+(qty × price), units, lines, broken out by country when present. Skipped a product-`description` type —
+"description" is collision-prone (Netflix synopsis) and free-text has no clean detector.
+
+Gates: check clean · **1039 vitest** (+3) · classification unchanged (smoke: typed=20, unknown=0; the run
+flaked at the known WebGL-context leg, unrelated) · bundle **762.4/768**.
+
 ## 2026-07-12 — Flexible date detection + tolerant parsing (Kaggle pass #1)
 
 ### Decision DH — broaden date DETECTION and make date-consuming SQL parse tolerantly

@@ -801,6 +801,50 @@ FROM ${q(a.table)}`,
   },
 };
 
+export const RETAIL_SALES: Template = {
+  id: 'retail_sales',
+  name: 'Retail sales brief',
+  description:
+    'Revenue (quantity × price), units, and order lines — broken out by country when present. Fits retail / e-commerce transaction exports.',
+  requiredTypes: ['quantity', 'amount'],
+  optionalTypes: ['country_name', 'sku'],
+  instantiate(m) {
+    const qty = m.quantity!;
+    const price = m.amount!;
+    const country = m.country_name;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Retail sales brief\n\nRevenue = quantity × price.'),
+    ];
+    if (country) {
+      cells.push(
+        sql(
+          'revenue_by_country',
+          `SELECT ${q(country.column)} AS country,
+       ROUND(SUM(${q(qty.column)} * ${q(price.column)}), 2) AS revenue,
+       SUM(${q(qty.column)}) AS units,
+       COUNT(*) AS lines
+FROM ${q(qty.table)}
+GROUP BY 1
+ORDER BY revenue DESC
+LIMIT 20`,
+        ),
+        chart('bar', 'revenue_by_country', 'country', 'revenue'),
+      );
+    } else {
+      cells.push(
+        sql(
+          'revenue_totals',
+          `SELECT ROUND(SUM(${q(qty.column)} * ${q(price.column)}), 2) AS revenue,
+       SUM(${q(qty.column)}) AS units,
+       COUNT(*) AS lines
+FROM ${q(qty.table)}`,
+        ),
+      );
+    }
+    return cells;
+  },
+};
+
 /**
  * Legacy "always applicable" fallback template. Kept exported (the
  * recommend-reports eval fixture still references the id), but NOT
@@ -846,4 +890,5 @@ export const ALL_TEMPLATES: Template[] = [
   OUTCOME_COMPARISON,
   GEO_DISTRIBUTION,
   AMOUNT_SUMMARY,
+  RETAIL_SALES,
 ];
