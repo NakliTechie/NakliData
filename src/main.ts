@@ -2082,7 +2082,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       try {
         const title = _activeSession?.name?.trim() || 'NakliData notebook';
-        const html = buildStandaloneHtml({ notebookRoot: notebookEl, title });
+        const html = buildStandaloneHtml({ notebookRoot: notebookEl, title, sources: wb.sources });
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const fileName = `${
           title
@@ -2112,7 +2112,9 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       try {
         const title = _activeSession?.name?.trim() || 'NakliData notebook';
-        openEmbedModal(buildStandaloneHtml({ notebookRoot: notebookEl, title }));
+        openEmbedModal(
+          buildStandaloneHtml({ notebookRoot: notebookEl, title, sources: workbook.get().sources }),
+        );
       } catch (err) {
         toast(`Embed failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
       }

@@ -16,6 +16,8 @@
 // the shell.css.ts bundle — most of it is editor chrome that's
 // pointless without the engine.
 
+import type { MountedSource } from '../core/mount.ts';
+import { describeSource } from '../core/source-provenance.ts';
 import { renderMarkdownToHtml } from './cells/markdown-cell.ts';
 
 export interface ExportOpts {
@@ -25,6 +27,26 @@ export interface ExportOpts {
   title?: string;
   /** ISO timestamp string for the "Exported on" footer. Default: now. */
   exportedAt?: string;
+  /** Mounted sources — rendered as a "Sources" provenance block (Tier-2 #11). */
+  sources?: MountedSource[];
+}
+
+/** A "Sources" provenance section for the leadership-packet header. */
+function buildSourcesHtml(sources: MountedSource[] | undefined): string {
+  if (!sources || sources.length === 0) return '';
+  const items = sources
+    .map((src) => {
+      const p = describeSource(src);
+      const loc = p.location ? ` — <code>${esc(p.location)}</code>` : '';
+      const tables = p.tables
+        .map(
+          (t) => `<li>${esc(t.name)} · ${esc(t.format)} · ${t.rowCount.toLocaleString()} rows</li>`,
+        )
+        .join('');
+      return `<li><strong>${esc(p.label)}</strong> <span class="src-kind">${esc(p.kindLabel)}</span>${loc}<ul>${tables}</ul></li>`;
+    })
+    .join('');
+  return `<section class="provenance"><h2>Sources</h2><ul class="src-list">${items}</ul></section>`;
 }
 
 export function buildStandaloneHtml(opts: ExportOpts): string {
@@ -233,6 +255,13 @@ header .meta{color:var(--muted);font-size:13px}
 .cell.sql .result-table{margin:8px 0 12px;font-size:12.5px}
 footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;text-align:center}
 footer a{color:var(--accent);text-decoration:none}
+.provenance{margin:0 0 32px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px}
+.provenance h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.provenance .src-list{margin:0;padding-left:18px;font-size:13px}
+.provenance .src-list>li{margin:4px 0}
+.provenance .src-kind{color:var(--muted);font-size:12px}
+.provenance code{background:#fff;padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;word-break:break-all}
+.provenance ul ul{margin:2px 0;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -241,8 +270,9 @@ footer a{color:var(--accent);text-decoration:none}
 <h1>${esc(title)}</h1>
 <div class="meta">${esc(summaryLine || 'Empty notebook')} · Exported ${esc(exportedAt.slice(0, 19).replace('T', ' '))}</div>
 </header>
+${buildSourcesHtml(opts.sources)}
 ${cellHtml.join('\n')}
-<footer>Exported from NakliData — browser-native data workbench. Your data never left the tab.</footer>
+<footer>Prepared in NakliData — browser-native data workbench. Data processed locally; it never left the tab.</footer>
 </main>
 </body>
 </html>

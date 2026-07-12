@@ -2,6 +2,30 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Tier-2 #5: Senior-staff export mode
+
+### Decision DF — extend the existing Export HTML with a source-provenance block (not a new export path)
+
+Fifth Tier-2 mechanic (reporting-improvements #11). The static-HTML export (`export-html.ts`) already
+delivered most of the "leadership packet" ask: it strips editor chrome, has a title + "Exported <date>"
+meta line, page-safe full-width tables, and a data-stays-local footer. So the decision was to *extend*
+it rather than build a parallel export mode. The one real gap was **source provenance**.
+
+- Added a "Sources" `<section class="provenance">` (label · kind · URL · each table name·format·rows),
+  built from the same DE `describeSource` — injected right below the export header. `ExportOpts.sources`
+  is new; both the Export-HTML and the Embed-snippet call sites now pass `wb.sources`.
+- Footer reworded to the doc's ask: "Prepared in NakliData — … Data processed locally; it never left the
+  tab." (was "Exported from NakliData … Your data never left the tab").
+- No new test: `describeSource` is unit-tested and `buildSourcesHtml` is a thin HTML wrapper over it; the
+  export is DOM-dependent (node test env has no DOM), so verified in-browser instead.
+
+Browser-verified: intercepted the export write — the HTML carried `<section class="provenance">` with
+`visits.csv · Local file · visits · csv · 3 rows`, the new footer, and the title/timestamp. **Tier-2's
+standalone mechanics are now all shipped** (create-report · snapshot-persistence · report-refresh ·
+provenance · export-mode); the deferred follow-ups (KPI tiles, auto-chart embed, executive report
+templates, scoped refresh, mountedAt) remain in `plan/pending.md`. Gates: check clean · **1025 vitest** ·
+smoke green · bundle **760.9/768**.
+
 ## 2026-07-12 — Tier-2 #4: Dataset-provenance block
 
 ### Decision DE — a pure source-provenance describer, wired into report notes + a source-card tooltip
