@@ -845,6 +845,56 @@ FROM ${q(qty.table)}`,
   },
 };
 
+export const CONTENT_CATALOG: Template = {
+  id: 'content_catalog',
+  name: 'Content catalog brief',
+  description:
+    'Title counts by release year, with media-type and content-rating breakdowns when present. Fits streaming / catalog exports.',
+  requiredTypes: ['release_year'],
+  optionalTypes: ['media_type', 'content_rating'],
+  instantiate(m) {
+    const yr = m.release_year!;
+    const type = m.media_type;
+    const rating = m.content_rating;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Content catalog brief\n\nTitles by release year.'),
+      sql(
+        'titles_by_year',
+        `SELECT ${q(yr.column)} AS release_year, COUNT(*) AS titles
+FROM ${q(yr.table)}
+GROUP BY 1
+ORDER BY 1`,
+      ),
+      chart('bar', 'titles_by_year', 'release_year', 'titles'),
+    ];
+    if (type) {
+      cells.push(
+        sql(
+          'titles_by_type',
+          `SELECT ${q(type.column)} AS media_type, COUNT(*) AS titles
+FROM ${q(type.table)}
+GROUP BY 1
+ORDER BY titles DESC`,
+        ),
+        chart('bar', 'titles_by_type', 'media_type', 'titles'),
+      );
+    }
+    if (rating) {
+      cells.push(
+        sql(
+          'titles_by_rating',
+          `SELECT ${q(rating.column)} AS rating, COUNT(*) AS titles
+FROM ${q(rating.table)}
+GROUP BY 1
+ORDER BY titles DESC
+LIMIT 20`,
+        ),
+      );
+    }
+    return cells;
+  },
+};
+
 /**
  * Legacy "always applicable" fallback template. Kept exported (the
  * recommend-reports eval fixture still references the id), but NOT
@@ -891,4 +941,5 @@ export const ALL_TEMPLATES: Template[] = [
   GEO_DISTRIBUTION,
   AMOUNT_SUMMARY,
   RETAIL_SALES,
+  CONTENT_CATALOG,
 ];

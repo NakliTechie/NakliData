@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Media/content domain pack (Kaggle pass follow-up)
+
+### Decision DJ — media types + a content-catalog template
+
+Netflix (the "gap" dataset in the real-data pass) got a media domain (81 types total): `content_title`,
+`credited_person` (director/cast/writer/…), `content_rating` (header 0.35 + a TV-MA/PG-13 **value_set**
+0.65 — value-set-gated so a numeric 1–5 rating doesn't match), `genre` (genre/listed_in/…), `release_year`
+(header + range 1870–2100), `media_type` (header 0.35 + a Movie/TV-Show **value_set** 0.65 — so a generic
+"type" column of non-media values stays unknown). New **`content_catalog`** template: requires
+`release_year` → titles per year + media-type / content-rating breakdowns when present. Skipped a
+`duration` type ("90 min" / "2 Seasons" — format-specific, low value).
+
+Browser-verified on real Netflix: title/director/rating/genre/type/release_year all @100%, Content-catalog
+template surfaces — 9/12 columns now classify (was ~0, no reports). Retail pack (DI) also re-confirmed live
+on e-commerce (StockCode→SKU, Quantity, CustomerID→PII, InvoiceNo→Order ID; Retail-sales surfaces). Gates:
+check clean · **1043 vitest** (+4) · bundle **762.4/768**. The real-data pass is complete: every gap it
+surfaced (country names, numeric-code noise, flexible dates, snapshot clone-safety, retail, media) is shipped.
+
 ## 2026-07-12 — Retail domain pack (Kaggle pass follow-up)
 
 ### Decision DI — retail/transactions types + a retail-sales template

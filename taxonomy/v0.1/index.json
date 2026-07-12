@@ -50,6 +50,12 @@
       "label": "Retail and transactions",
       "description": "Order/invoice IDs, SKU/product codes, quantity, customer IDs \u2014 retail & e-commerce transaction exports.",
       "domain_file": "domains/retail.json"
+    },
+    {
+      "id": "media",
+      "label": "Media and content",
+      "description": "Titles, credits (director/cast), content rating, genre, release year, media type \u2014 catalog / streaming exports.",
+      "domain_file": "domains/media.json"
     }
   ],
   "types_file": "types.jsonl",

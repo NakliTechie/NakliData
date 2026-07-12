@@ -145,6 +145,25 @@ describe('Retail domain pack (e-commerce)', () => {
   });
 });
 
+describe('Media domain pack (Netflix)', () => {
+  it('classifies title / director / genre / release_year', () => {
+    expect(top('title', ['Blood & Water', 'Ganglands', 'Midnight Mass'])).toBe('content_title');
+    expect(top('director', ['Julien Leclercq', 'Mike Flanagan', 'Kate Herron'])).toBe(
+      'credited_person',
+    );
+    expect(top('listed_in', ['Dramas, Thrillers', 'Crime TV Shows', 'TV Horror'])).toBe('genre');
+    expect(top('release_year', ['2021', '2020', '1993'], 'INTEGER')).toBe('release_year');
+  });
+  it('classifies content_rating + media_type by value set (not by header alone)', () => {
+    expect(top('rating', ['TV-MA', 'TV-14', 'PG-13', 'R'])).toBe('content_rating');
+    expect(top('type', ['Movie', 'TV Show', 'Movie', 'TV Show'])).toBe('media_type');
+  });
+  it('does NOT call a numeric 1-5 rating a content_rating, nor a generic type column media_type', () => {
+    expect(top('rating', ['4', '5', '3', '2'], 'INTEGER')).not.toBe('content_rating');
+    expect(top('type', ['premium', 'basic', 'trial'])).not.toBe('media_type');
+  });
+});
+
 describe('Tier-1 report templates surface for matching roles', () => {
   const byType = (ids: string[]): Record<string, ColumnRef> =>
     Object.fromEntries(ids.map((id) => [id, { table: 'listings', column: id }]));
@@ -162,6 +181,9 @@ describe('Tier-1 report templates surface for matching roles', () => {
   });
   it('retail_sales surfaces when quantity + amount present', () => {
     expect(ids(['quantity', 'amount', 'country_name'])).toContain('retail_sales');
+  });
+  it('content_catalog surfaces when release_year present', () => {
+    expect(ids(['release_year', 'media_type', 'content_rating'])).toContain('content_catalog');
   });
   it('none of the Tier-1 templates surface for a bare finance workbook', () => {
     const got = ids(['gstin', 'amount']);
