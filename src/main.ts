@@ -46,6 +46,7 @@ import {
   clearResultSnapshots,
   loadResultSnapshots,
   saveResultSnapshots,
+  toCloneSafeRows,
 } from './core/result-snapshots.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import { getSegmentsStore } from './core/segments.ts';
@@ -1654,7 +1655,9 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       const r = c.lastResult;
       snaps[c.id] = {
         columns: r.columns,
-        rows: r.rows.slice(0, SNAPSHOT_ROW_CAP),
+        // toCloneSafeRows: DuckDB rows can carry non-cloneable values that make
+        // IDB put() throw DataCloneError (found 2026-07-12) — normalise first.
+        rows: toCloneSafeRows(r.rows.slice(0, SNAPSHOT_ROW_CAP)),
         rowCount: r.rowCount,
         elapsedMs: r.elapsedMs,
         ranAt: c.resultMeta.ranAt,

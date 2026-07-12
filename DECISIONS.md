@@ -2,6 +2,20 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Bugfix: result-snapshot DataCloneError (Tier-2 DC regression)
+
+### Decision DGa — JSON-normalise snapshot rows so IDB put() never DataCloneErrors
+
+The Kaggle-pass smoke surfaced a latent bug in DC (result-snapshot persistence): every autosave logged
+`snapshot save failed DataCloneError … could not be cloned`. DuckDB-wasm returns rows carrying
+non-structured-cloneable values (method-bearing objects / bigints) on some column types, and
+`IDBObjectStore.put` clones via structuredClone → it threw, so snapshots **silently never saved** for
+real results (my toy-data verification used plain values, so it missed this). Fix: `toCloneSafeRows`
+round-trips rows through JSON (drops functions/prototypes, stringifies bigints) before capture — the
+values are display-only on reload, so lossy JSON coercion is fine. Applied in `buildResultSnapshot` +
+the main.ts autosave capture. Smoke: the DataCloneError warnings are gone. Gates: check clean · **1031
+vitest** (+2) · smoke green · bundle **762.0/768**.
+
 ## 2026-07-12 — Real-data taxonomy fixes (Kaggle pass): country names + numeric-code noise
 
 ### Decision DG — from the live Kaggle test (real-data-test-2026-07-12.md)

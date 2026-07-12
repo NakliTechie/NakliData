@@ -4,6 +4,7 @@ import {
   buildResultSnapshot,
   hashSql,
   isSnapshotStale,
+  toCloneSafeRows,
 } from '../src/core/result-snapshots.ts';
 
 describe('hashSql', () => {
@@ -36,6 +37,22 @@ describe('buildResultSnapshot', () => {
     const s = buildResultSnapshot('SELECT x', small, 5);
     expect(s.rows.length).toBe(2);
     expect(s.rowCount).toBe(2);
+  });
+});
+
+describe('toCloneSafeRows (IDB DataCloneError guard)', () => {
+  it('drops function-valued fields and stringifies bigints so rows structured-clone', () => {
+    const rows = [{ a: 1, fn: () => 42, big: 10n, s: 'x', nested: { m() {}, v: 2 } }] as Array<
+      Record<string, unknown>
+    >;
+    const safe = toCloneSafeRows(rows);
+    expect(safe[0]).toEqual({ a: 1, big: '10', s: 'x', nested: { v: 2 } });
+    // The output must survive structuredClone (what IDB put uses).
+    expect(() => structuredClone(safe)).not.toThrow();
+  });
+  it('is a no-op for plain rows', () => {
+    const rows = [{ region: 'West', total: 550 }];
+    expect(toCloneSafeRows(rows)).toEqual(rows);
   });
 });
 

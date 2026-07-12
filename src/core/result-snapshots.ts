@@ -60,6 +60,27 @@ export function hashSql(code: string): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+/**
+ * JSON-normalise result rows so they are ALWAYS structured-cloneable for IDB.
+ * DuckDB-wasm hands back class instances / method-bearing objects (and bigints)
+ * on some column types; `structuredClone` (which `IDBObjectStore.put` uses)
+ * rejects those with a DataCloneError, so the snapshot would silently fail to
+ * save (found in the 2026-07-12 real-data pass). Round-tripping through JSON
+ * drops functions/prototypes and stringifies bigints — the values are only
+ * used for display on reload, so lossy coercion to JSON primitives is fine.
+ */
+export function toCloneSafeRows(
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  try {
+    return JSON.parse(
+      JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    ) as Array<Record<string, unknown>>;
+  } catch {
+    return [];
+  }
+}
+
 /** Build a capped snapshot from a fresh result + the code that produced it. */
 export function buildResultSnapshot(
   code: string,
@@ -68,7 +89,7 @@ export function buildResultSnapshot(
 ): ResultSnapshot {
   return {
     columns: result.columns,
-    rows: result.rows.slice(0, SNAPSHOT_ROW_CAP),
+    rows: toCloneSafeRows(result.rows.slice(0, SNAPSHOT_ROW_CAP)),
     rowCount: result.rowCount,
     elapsedMs: result.elapsedMs,
     ranAt: now,
