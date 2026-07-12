@@ -8,7 +8,10 @@
     "state_region",
     "district_neighbourhood",
     "postal_code",
-    "address_line"
+    "address_line",
+    "country_name"
   ],
-  "report_templates": ["geo_distribution"]
+  "report_templates": [
+    "geo_distribution"
+  ]
 }

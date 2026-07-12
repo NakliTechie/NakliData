@@ -67,6 +67,27 @@ describe('Tier-1 taxonomy — geography', () => {
   });
 });
 
+// Real-data fixes from the 2026-07-12 Kaggle pass.
+describe('Tier-1 fixes — country names + numeric-code noise', () => {
+  it('classifies full country NAMES as country_name', () => {
+    expect(top('country', ['United Kingdom', 'France', 'Germany', 'EIRE'])).toBe('country_name');
+  });
+  it('still classifies 2-letter country CODES as iso_country_code', () => {
+    expect(top('country', ['US', 'GB', 'IN', 'DE'])).toBe('iso_country_code');
+  });
+  it('does NOT mislabel a headerless 6-digit code column (invoice no) as postal/pin', () => {
+    // A 6-digit VARCHAR with no postal/pin header: regex-only weight (0.4) is
+    // now below the floor, so the numeric-code types no longer fire on it.
+    const t = top('invoice_no', ['536365', '536366', '536367', '536389']);
+    expect(t).not.toBe('postal_code');
+    expect(t).not.toBe('pin_code');
+    expect(t).not.toBe('hsn_code');
+  });
+  it('still classifies a real postal_code column (zip header + 5-digit values)', () => {
+    expect(top('zipcode', ['10001', '11201', '10453'])).toBe('postal_code');
+  });
+});
+
 describe('Tier-1 taxonomy — marketplace (Airbnb)', () => {
   it('classifies room_type by value set', () => {
     expect(top('room_type', ['Entire home/apt', 'Private room', 'Shared room'])).toBe('room_type');

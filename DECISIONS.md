@@ -2,6 +2,26 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Real-data taxonomy fixes (Kaggle pass): country names + numeric-code noise
+
+### Decision DG — from the live Kaggle test (real-data-test-2026-07-12.md)
+
+Testing NYC-Airbnb / Netflix / UK-Online-Retail (541k rows) surfaced two data-only taxonomy fixes:
+
+- **`country_name` (new geography type).** Full country NAMES ("United Kingdom", "France", "EIRE")
+  never classified — `iso_country_code` only value-matches 2-letter codes, so a "Country" column of
+  names stayed header-only (0.4 < floor). Added `country_name` (header + value_set of ~65 common
+  names). A codes column still wins iso_country_code; a names column wins country_name.
+- **Numeric-code regexes now require a header co-signal.** 6-digit `InvoiceNo` values weakly matched
+  `pin_code` / `hsn_code` / the new `postal_code` (regex-only cleared the floor → noise/ambiguity).
+  Rebalanced all three to header-weight 0.6 / regex-weight 0.4 so regex-alone (0.4) < floor — a real
+  postal/pin column (with a matching header) still classifies, but arbitrary numbers don't. `postal_code`
+  regex also tightened to `^[0-9]{5,9}(-[0-9]{4})?$` (was `{4,10}`).
+
+Demo-finance classification unchanged (smoke: typed=20, unknown=0 — pin/hsn columns have real headers).
+Gates: check clean · **1029 vitest** (+4) · smoke green · bundle **762.0/768**. Follow-ups still open:
+flexible date detection (DH) + a snapshot clone-safety bug the same pass surfaced.
+
 ## 2026-07-12 — Tier-2 #5: Senior-staff export mode
 
 ### Decision DF — extend the existing Export HTML with a source-provenance block (not a new export path)
