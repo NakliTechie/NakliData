@@ -43,6 +43,8 @@ export function buildReportScaffold(args: {
   rowCount: number;
   /** ISO date (YYYY-MM-DD), injected by the caller (no Date() in pure code). */
   today: string;
+  /** Optional "Sources" provenance markdown block (Tier-2 #10). */
+  sourcesBlock?: string;
 }): ReportScaffold {
   const named = args.sqlName?.trim() || '';
   const sqlName = named || `result_${args.cellId}`;
@@ -51,6 +53,7 @@ export function buildReportScaffold(args: {
   const rows = `${args.rowCount.toLocaleString()} row${args.rowCount === 1 ? '' : 's'}`;
 
   const query = args.sqlCode.trim();
+  const provenance = args.sourcesBlock?.trim() ? [args.sourcesBlock.trim(), ''] : [];
   const notesMarkdown = [
     `**${rows}** · generated ${args.today}`,
     '',
@@ -60,6 +63,7 @@ export function buildReportScaffold(args: {
     query,
     '```',
     '',
+    ...provenance,
     '### Key notes',
     '',
     '_Add your notes here._',

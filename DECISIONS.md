@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Tier-2 #4: Dataset-provenance block
+
+### Decision DE — a pure source-provenance describer, wired into report notes + a source-card tooltip
+
+Fourth Tier-2 mechanic (reporting-improvements #10): capture + display where a dataset came from, so
+reports carry provenance footnotes automatically. Mounted sources already hold everything needed —
+`ref` is the URL for `http` sources, the kind-specific configs (s3/iceberg/bridge) hold their URLs, and
+each table has format + rowCount — so this is a *display* problem, not a capture one (no new mount-time
+plumbing; `mountedAt` deferred as a nice-to-have).
+
+- **Pure `src/core/source-provenance.ts`** (no DOM/engine): `describeSource(src)` → `{label, kindLabel,
+  location, host, tables[]}` (location per kind: URL / `s3://bucket/prefix` / iceberg metadata URL /
+  catalog `url · ns.table` / bridge URL; local sources have no remote location — the per-table origin
+  carries the path). `provenanceSummary(src)` (one-line tooltip) + `provenanceMarkdown(sources)` (a
+  "### Sources" block). Unit-tested.
+- **Report integration:** `buildReportScaffold` gained an optional `sourcesBlock`; `handleCreateReport`
+  passes `provenanceMarkdown(sources)` so the generated notes now carry a Sources footnote (source label,
+  kind, URL, and each table's name · format · rows) between the query and the Key-notes area.
+- **Source-card tooltip:** the Sources panel `<strong>` label gets a `title=provenanceSummary(src)`
+  (demo-mode masked via `maskLabel('origin', …)` so screenshots don't leak URLs).
+
+Browser-verified: a report's notes showed the "### Sources" block (`teams.csv (Local file) — teams · csv
+· 3 rows`), and the source card tooltip read "Local file". Gates: check clean · **1025 vitest** (+6) ·
+smoke green · bundle **759.4/768**.
+
 ## 2026-07-12 — Tier-2 #3: One-click report refresh
 
 ### Decision DD — a "Refresh data" button on the report cell that re-runs cells in dependency order

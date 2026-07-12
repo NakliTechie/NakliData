@@ -67,6 +67,7 @@ import { loadKey } from './core/sidecar/byok.ts';
 import { dispatchJob } from './core/sidecar/client.ts';
 import { getLocalGenerator, registerLocalGenerator } from './core/sidecar/local-runtime.ts';
 import { SidecarError } from './core/sidecar/types.ts';
+import { provenanceMarkdown } from './core/source-provenance.ts';
 import type { StatsColumnSpec } from './core/stats.ts';
 import {
   buildShareUrl,
@@ -1374,6 +1375,9 @@ function handleCreateReport(cellId: string): void {
     sqlCode: cell.code,
     rowCount: cell.lastResult.rowCount,
     today: new Date().toISOString().slice(0, 10),
+    // Tier-2 #10 — a "Sources" provenance block so the report records where its
+    // data came from (URLs, formats, row counts).
+    sourcesBlock: provenanceMarkdown(getWorkbook().get().sources),
   });
   // Ensure the source cell carries the name the report cell-refs.
   if (cell.name?.trim() !== scaffold.sqlName) {

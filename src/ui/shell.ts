@@ -1,6 +1,7 @@
 import { maskLabel } from '../core/demo-mode.ts';
 import type { MountedSource } from '../core/mount.ts';
 import type { SessionsIndex } from '../core/sessions.ts';
+import { provenanceSummary } from '../core/source-provenance.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { shellCss } from './shell.css.ts';
 
@@ -374,7 +375,7 @@ function renderSourceCard(src: MountedSource): HTMLElement {
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
       <span aria-hidden="true" style="color: var(--text-muted);">${iconSvg(src.kind === 'example-bundle' ? 'database' : src.kind === 'fsa-folder' ? 'folder' : 'file', 14)}</span>
-      <strong style="font-size: 12px;">${escapeHtml(sourceLabel)}</strong>
+      <strong style="font-size: 12px;" title="${escapeHtml(maskLabel('origin', provenanceSummary(src)))}">${escapeHtml(sourceLabel)}</strong>
       <button class="btn btn-ghost" data-action="remove-source" data-source-id="${src.id}" title="Remove source" style="margin-left:auto;padding:2px 4px;">${iconSvg('x', 12)}</button>
     </div>
     ${tableRows}
