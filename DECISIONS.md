@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Tier-2 #3: One-click report refresh
+
+### Decision DD — a "Refresh data" button on the report cell that re-runs cells in dependency order
+
+Third Tier-2 mechanic (reporting-improvements #4): reopen a draft whose snapshots are stale, click one
+button, get fresh evidence. The report cell embeds live cells at print (cell-ref), so the durable fix is
+to re-run the cells that feed it.
+
+- **Scope = `notebook.runAll()`** (topo/dependency order via `topoOrderRunnableCells`). Re-running the
+  whole notebook is a superset of "the report's upstream cells" and is the simplest correct thing for a
+  user-initiated action; per-cell errors surface on the cells (runAll already does this). A precisely-
+  scoped "only this report's dependency subgraph" refresh is a possible follow-up but wasn't worth the
+  lineage traversal for v1.
+- Wired like `report-print`: `data-action="report-refresh"` on the report header → main.ts dispatch →
+  `runAll()` with start/end toasts. Icon `play` (honest — it re-runs; there's no `refresh` glyph and the
+  header's own Refresh button misuses `download`).
+- Closes the loop with DC: re-running a cell sets fresh `resultMeta` (fromSnapshot:false, current
+  sqlHash) → the `⚠ stale` / `⟳ snapshot` badges clear, and the next autosave re-captures the snapshot.
+
+Browser-verified: a report's feed cell showing a stale 5-row result (query edited to `LIMIT 2`) → click
+"Refresh data" → cell re-ran to 2 rows, badges gone. Gates: check clean · 1019 vitest · smoke green ·
+bundle 758.9/768.
+
 ## 2026-07-12 — Tier-2 #2: Result-snapshot persistence
 
 ### Decision DC — persist capped result snapshots to a SEPARATE per-session IDB store (not the shared file)

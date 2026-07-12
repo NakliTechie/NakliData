@@ -2018,6 +2018,19 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       if (cellId) triggerReportPrint(cellId);
       return;
     }
+    case 'report-refresh': {
+      // Tier-2 — one-click report refresh: re-run all cells in dependency
+      // (topo) order so the report's embedded results (and their snapshots +
+      // staleness badges) refresh. Per-cell errors surface on the cells.
+      toast('Refreshing report data — re-running cells…');
+      void getNotebook(engine)
+        .runAll()
+        .then(() => toast('Report data refreshed.'))
+        .catch((err) =>
+          toast(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`, 'error'),
+        );
+      return;
+    }
     case 'open-settings': {
       void openSettingsModal();
       return;

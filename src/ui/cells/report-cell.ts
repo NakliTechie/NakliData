@@ -25,6 +25,7 @@ export function renderReportCell(cell: ReportCellState, handlers: CellHandlers):
       <span class="cell-kind">${iconSvg('file', 12)} report</span>
       <input class="cell-name-input" placeholder="name (optional)" value="${cell.name ? escapeAttr(cell.name) : ''}" data-action="cell-name-edit" />
       <span style="flex:1;"></span>
+      <button class="btn btn-ghost" data-action="report-refresh" data-cell-id="${cell.id}" title="Re-run all cells (in dependency order) so this report's embedded results are fresh">${iconSvg('play', 12)} <span>Refresh data</span></button>
       <button class="btn btn-primary" data-action="report-print" data-cell-id="${cell.id}" title="Open the browser's print dialog → Save as PDF">${iconSvg('download', 12)} <span>Print to PDF</span></button>
       <button class="btn btn-ghost" data-action="cell-delete" data-cell-id="${cell.id}" aria-label="Delete cell">${iconSvg('x', 12)}</button>
     </div>
