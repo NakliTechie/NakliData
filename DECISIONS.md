@@ -2,6 +2,27 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — PII/secret detector pack (activates the `secret` sensitivity tier)
+
+### Decision DK — sensitive-data domain from the Purview/GCP/Presidio families
+
+The codex universal-ontology doc's "biggest gap." Added domain `sensitive-data` (93 types total), 12
+credential/sensitive-identifier types, each carrying a sensitivity that drives the anonymize sink:
+
+- **secret → redact:** `credential_secret` (password/token/secret headers), `api_key`, `jwt` (regex
+  `^eyJ…\.…\.…$`), `private_key_pem` (`-----BEGIN … PRIVATE KEY-----`), `aws_access_key_id` (`^(AKIA|ASIA)…`).
+- **financial → bucket:** `credit_card_number` (Visa/MC/Amex/Discover regex + card headers).
+- **pii → hash:** `ssn`, `date_of_birth`, `passport_number`, `national_id`, `mac_address`,
+  `crypto_wallet_address` (ETH `^0x[0-9a-f]{40}$`).
+
+**Why it matters:** `TypeSensitivity` reserved `'secret'` but nothing in v0.1 used it — this pack
+activates the dormant path. Verified the full chain in code: `sinks.ts` builds the anonymize plan as
+`sensitivityOf(typeId) → defaultStrategyForSensitivity` (anonymize.ts: secret→redact, pii→hash,
+financial→bucket), so a classified secret column now redacts by default on export. Value-pattern types
+are regex-gated so plain data doesn't false-positive (a 16-digit order ref is NOT a card; a phone is NOT
+an SSN — both negative-tested). New `tests/sensitive-data.test.ts` (13). Demo classification unchanged
+(smoke: typed=20, unknown=0). Gates: check clean · **1056 vitest** (+13) · bundle **762.4/768**.
+
 ## 2026-07-12 — Media/content domain pack (Kaggle pass follow-up)
 
 ### Decision DJ — media types + a content-catalog template

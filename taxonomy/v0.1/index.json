@@ -56,6 +56,12 @@
       "label": "Media and content",
       "description": "Titles, credits (director/cast), content rating, genre, release year, media type \u2014 catalog / streaming exports.",
       "domain_file": "domains/media.json"
+    },
+    {
+      "id": "sensitive-data",
+      "label": "Sensitive data (PII / secrets)",
+      "description": "Credentials + sensitive identifiers (API keys, tokens, private keys, AWS keys, credit cards, SSN, passport, national ID, DOB, MAC, crypto wallets) \u2014 from Purview/GCP/Presidio detector families. Drives sensitivity badges + anonymize-sink defaults (secret\u2192redact, pii\u2192hash, financial\u2192bucket).",
+      "domain_file": "domains/sensitive-data.json"
     }
   ],
   "types_file": "types.jsonl",
