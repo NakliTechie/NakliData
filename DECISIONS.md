@@ -2,6 +2,34 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Tier-2 #1: Create report from result
+
+### Decision DB — a "Create report" action on SQL results, built on the existing report cell + cell-ref embed
+
+First Tier-2 mechanic from `plan/codex-suggestions/real-data-reporting-improvements.md` (the doc's
+#1 + implementation-order priority): bridge a run SQL result to a staff-ready artifact. The report
+cell (`cell-ref` embed at print, Print-to-PDF) already existed but was blank — users had to hand-build
+the `ReportDefinition`. Added a **"Create report"** button on the SQL result-actions row (next to
+X-Ray) that scaffolds one automatically.
+
+- **Pure builder** `src/core/report-from-result.ts` (`buildReportScaffold`) — no DOM/engine/store; unit-
+  tested. Given the SQL cell's name + query + row count it returns: the name to ensure on the SQL cell,
+  an editable notes/provenance markdown cell (row count · date · the query in a ```sql fence · a "Key
+  notes" area), and a `ReportDefinition` (title from the humanised cell name, subtitle `N rows · date`,
+  items = `[cell-ref notes, cell-ref result]`). Date injected by the caller (no `Date()` in pure code).
+- **Handler** `handleCreateReport` (mirrors `handleXRay`) — names the source cell if unnamed (so the
+  `cell-ref` resolves — a report can only embed a *named* cell), adds the markdown + report cells.
+  Nothing auto-runs; the report prints via the existing path.
+- **Why cell-ref over inlining the table:** reuse the proven H11 print-embed (clones the live cell's
+  rendered output at `beforeprint`, restores after) — no duplicate render logic, and edits to the
+  result/notes flow through automatically.
+- **Deferred:** KPI tiles (the report's `kpi-row` needs named *measures* — auto-generating those is a
+  follow-up) and an auto-chart embed (cat+num → bar). Noted in `plan/pending.md`.
+
+Browser-verified end-to-end: button → report cell (title/subtitle/provenance), and a `beforeprint`
+dispatch confirmed both refs resolve — notes embed the provenance, the result ref embeds the actual
+`<table>`. Gates: check clean · **1012 vitest** (+4) · smoke green · bundle **755.5/768**.
+
 ## 2026-07-11 — Tier-1 slice increment 2: deterministic quick-charts + generic fallback + lazy templates
 
 ### Decision DA — wire new types into the no-BYOK quick-chart engine; add a generic amount template; move report templates off-shell

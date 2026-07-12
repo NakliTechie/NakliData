@@ -39,6 +39,7 @@ import {
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
+import { buildReportScaffold } from './core/report-from-result.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import { getSegmentsStore } from './core/segments.ts';
 import { getSelectionsStore } from './core/selections.ts';
@@ -1304,6 +1305,39 @@ function handleXRay(cellId: string): void {
   toast('X-Ray inserted — descriptive stats + correlations.');
 }
 
+/**
+ * Tier-2 "Create report from result" — turn a run SQL result into a
+ * staff-ready report cell: names the source cell (so `cell-ref` resolves
+ * it), inserts an editable notes/provenance markdown cell, and a report
+ * cell that embeds both. Nothing auto-runs; the report prints via the
+ * existing Print-to-PDF path.
+ */
+function handleCreateReport(cellId: string): void {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first — a report embeds a result.');
+    return;
+  }
+  const scaffold = buildReportScaffold({
+    cellId: cell.id,
+    sqlName: cell.name,
+    sqlCode: cell.code,
+    rowCount: cell.lastResult.rowCount,
+    today: new Date().toISOString().slice(0, 10),
+  });
+  // Ensure the source cell carries the name the report cell-refs.
+  if (cell.name?.trim() !== scaffold.sqlName) {
+    nb.patchCell(cell.id, { name: scaffold.sqlName });
+  }
+  const notes = nb.addCell('markdown');
+  nb.patchCell(notes.id, { name: scaffold.notesName, code: scaffold.notesMarkdown });
+  const report = nb.addCell('report');
+  nb.patchCell(report.id, { definition: scaffold.definition });
+  toast('Report created — embeds the result + provenance. Edit the notes, then Print to PDF.');
+}
+
 // ── Resolve M1 — clustering / fuzzy-merge entry points ──────────────────
 
 /** "Cluster" chip under a SQL result — cluster a result column. */
@@ -1876,6 +1910,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'xray': {
       const cellId = el?.dataset.cellId;
       if (cellId) handleXRay(cellId);
+      return;
+    }
+    case 'create-report': {
+      const cellId = el?.dataset.cellId;
+      if (cellId) handleCreateReport(cellId);
       return;
     }
     case 'selections-clear': {
