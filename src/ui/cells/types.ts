@@ -13,6 +13,13 @@ export interface SqlCellState {
   status: 'idle' | 'running' | 'success' | 'error';
   lastError: string | null;
   lastResult: SqlResult | null;
+  /**
+   * Provenance of `lastResult` — when it ran, the query hash (for staleness),
+   * whether the rows are a capped head, and whether it was rehydrated from a
+   * persisted snapshot on reload. Absent until the cell has run once. Not
+   * written to the shared `.naklidata` (stripped alongside lastResult).
+   */
+  resultMeta?: import('../../core/result-snapshots.ts').SqlResultMeta | null;
 }
 
 export interface MarkdownCellState {

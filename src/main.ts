@@ -40,6 +40,13 @@ import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import { buildReportScaffold } from './core/report-from-result.ts';
+import {
+  type ResultSnapshot,
+  SNAPSHOT_ROW_CAP,
+  clearResultSnapshots,
+  loadResultSnapshots,
+  saveResultSnapshots,
+} from './core/result-snapshots.ts';
 import { forgetSource, loadSecret, saveSecret } from './core/secrets/source-secrets.ts';
 import { getSegmentsStore } from './core/segments.ts';
 import { getSelectionsStore } from './core/selections.ts';
@@ -910,10 +917,51 @@ async function restoreFromActiveSession(engine: Engine): Promise<void> {
     const snapshot = await loadSnapshot(getActiveSessionId());
     if (snapshot) {
       await applyLoadedFile(engine, snapshot, { silent: true });
+      // Tier-2: rehydrate SQL results from the per-session snapshot store so
+      // the notebook reopens with evidence (not "Run to see results"). Runs
+      // before auto-save is installed, so this doesn't re-persist.
+      await hydrateResultSnapshots(engine, getActiveSessionId());
     }
   } catch (err) {
     console.warn('[naklidata] snapshot restore failed', err);
   }
+}
+
+/**
+ * Tier-2 — rehydrate each SQL cell's `lastResult` from the per-session result-
+ * snapshot store. Marks the result `fromSnapshot` so the cell shows a snapshot
+ * banner (+ a staleness note when the query changed since). One `nb.load` after
+ * merging keeps it to a single render.
+ */
+async function hydrateResultSnapshots(engine: Engine, sessionId: string): Promise<void> {
+  const snaps = await loadResultSnapshots(sessionId);
+  if (Object.keys(snaps).length === 0) return;
+  const nb = getNotebook(engine);
+  let changed = false;
+  const cells = nb.get().cells.map((c) => {
+    if (c.kind !== 'sql') return c;
+    const snap = snaps[c.id];
+    if (!snap) return c;
+    changed = true;
+    return {
+      ...c,
+      status: 'success' as const,
+      lastError: null,
+      lastResult: {
+        columns: snap.columns,
+        rows: snap.rows,
+        rowCount: snap.rowCount,
+        elapsedMs: snap.elapsedMs,
+      },
+      resultMeta: {
+        ranAt: snap.ranAt,
+        sqlHash: snap.sqlHash,
+        capped: snap.rows.length < snap.rowCount,
+        fromSnapshot: true,
+      },
+    };
+  });
+  if (changed) nb.load(cells);
 }
 
 let _autoSaveTimer: number | null = null;
@@ -1580,6 +1628,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       _sessionWasNonEmpty = false;
       try {
         await clearSnapshot(getActiveSessionId());
+        await clearResultSnapshots(getActiveSessionId());
       } catch (err) {
         console.warn('[naklidata] snapshot clear failed', err);
       }
@@ -1591,6 +1640,24 @@ async function persistSnapshot(engine: Engine): Promise<void> {
     const sessionName = _activeSession?.name ?? 'Untitled';
     const file = serialize(fullSerializeInput(engine, sessionName));
     await saveSnapshot(getActiveSessionId(), file);
+    // Tier-2: persist capped result snapshots to the SEPARATE per-session store
+    // (never the shared file) so SQL cells reopen with evidence. Provenance
+    // (ranAt/sqlHash) is read from each cell's resultMeta so a restored-but-
+    // unchanged result keeps its original run time + hash.
+    const snaps: Record<string, ResultSnapshot> = {};
+    for (const c of getNotebook(engine).get().cells) {
+      if (c.kind !== 'sql' || !c.lastResult || !c.resultMeta) continue;
+      const r = c.lastResult;
+      snaps[c.id] = {
+        columns: r.columns,
+        rows: r.rows.slice(0, SNAPSHOT_ROW_CAP),
+        rowCount: r.rowCount,
+        elapsedMs: r.elapsedMs,
+        ranAt: c.resultMeta.ranAt,
+        sqlHash: c.resultMeta.sqlHash,
+      };
+    }
+    await saveResultSnapshots(getActiveSessionId(), snaps);
   } catch (err) {
     console.warn('[naklidata] snapshot save failed', err);
   }

@@ -2,6 +2,37 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-12 — Tier-2 #2: Result-snapshot persistence
+
+### Decision DC — persist capped result snapshots to a SEPARATE per-session IDB store (not the shared file)
+
+Second Tier-2 mechanic (reporting-improvements #3): on reload the notebook restored cells but every
+SQL cell showed "Run to see results" — the durable `.naklidata` deliberately strips result rows (lean
+file, no data leak; `persistence.ts cellWithoutResults`). Drafts should reopen with EVIDENCE.
+
+- **Where snapshots live — key decision:** a **separate per-session IDB store** (`result-snapshots/<sessionId>`),
+  NEVER the `.naklidata` file. The exported/shared file must stay data-free (forward-pass H1); a snapshot
+  is result *data*. So `serialize()` still strips results (and now omits `resultMeta` entirely — not
+  `null`, to keep the file byte-identical to pre-snapshot files), and snapshots ride a parallel store the
+  file/share/export path never touches.
+- **Capture** on the autosave beat (piggybacks `persistSnapshot`): for each SQL cell with a `lastResult`,
+  cap rows to `SNAPSHOT_ROW_CAP` (100), keep the full `rowCount`, and carry `ranAt`/`sqlHash` from the
+  cell's `resultMeta` — so a restored-but-unchanged result preserves its ORIGINAL run time + hash instead
+  of being re-stamped.
+- **`resultMeta` on SqlCellState** (new optional field, in-memory + IDB, stripped from the file): `{ranAt,
+  sqlHash, capped, fromSnapshot}`. Set on every live run (notebook.ts) with `capped:false, fromSnapshot:false`.
+- **Restore** on boot (`hydrateResultSnapshots`, before autosave installs so it doesn't re-persist):
+  merge snapshots into SQL cells' `lastResult` + mark `fromSnapshot:true`, one `nb.load` for a single render.
+- **Staleness** = `sqlHash !== hashSql(currentCode)` (FNV-1a, non-crypto). The SQL cell shows a `⟳ snapshot`
+  pill (+ head-sample note) and a `⚠ stale` pill. Computed at render time — silent per-keystroke edits
+  (the C1 editor-focus design) don't re-render, so the stale pill updates at the next render boundary
+  (reload/run), not live-on-keystroke. Acceptable: the badge is always correct when the cell renders.
+
+Browser-verified end-to-end: ran a query → snapshot persisted to the separate store (confirmed in IDB) →
+reload reopened the cell WITH the result + `⟳ snapshot` badge (no "Run to see results") → editing the query
++ reload showed the `⚠ stale` badge. Gates: check clean · **1019 vitest** (+7) · smoke green · bundle
+**757.1/768**.
+
 ## 2026-07-12 — Tier-2 #1: Create report from result
 
 ### Decision DB — a "Create report" action on SQL results, built on the existing report cell + cell-ref embed

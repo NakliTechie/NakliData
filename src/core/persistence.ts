@@ -263,7 +263,14 @@ export function serialize(input: SerializeInput): NakliDataFile {
 
 /** Strip transient runtime state (results, errors) before persisting. */
 function cellWithoutResults(c: CellState): CellState {
-  if (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') {
+  if (c.kind === 'sql') {
+    // Tier-2 result snapshots live in a separate per-session IDB store, never
+    // the shared/exported file — omit `resultMeta` entirely (not set to null,
+    // to keep the file lean + byte-identical to pre-snapshot files).
+    const { resultMeta: _drop, ...rest } = c;
+    return { ...rest, status: 'idle', lastError: null, lastResult: null };
+  }
+  if (c.kind === 'cohort' || c.kind === 'assertion') {
     return {
       ...c,
       status: 'idle',

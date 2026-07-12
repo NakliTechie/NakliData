@@ -26,6 +26,7 @@ import {
 import { getMeasuresStore } from '../core/measures-store.ts';
 import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
+import { hashSql } from '../core/result-snapshots.ts';
 import { getSegmentsStore } from '../core/segments.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
@@ -531,6 +532,14 @@ LIMIT 100`,
           rows,
           rowCount: rows.length,
           elapsedMs: elapsed,
+        },
+        // Tier-2 snapshot provenance: a live run holds the full rows in memory
+        // (not capped) and is authoritative for staleness (sqlHash of `code`).
+        resultMeta: {
+          ranAt: Date.now(),
+          sqlHash: hashSql(code),
+          capped: false,
+          fromSnapshot: false,
         },
       });
     } catch (err) {

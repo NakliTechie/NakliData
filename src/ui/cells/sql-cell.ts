@@ -9,6 +9,7 @@ import {
 } from '../../core/associations.ts';
 import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { SNAPSHOT_ROW_CAP, isSnapshotStale } from '../../core/result-snapshots.ts';
 import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
@@ -319,6 +320,7 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     <span>${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'}</span>
     <span>${elapsedMs.toFixed(0)} ms</span>
     ${rows.length > 50 ? '<span>showing first 50</span>' : ''}
+    ${renderResultBadges(cell)}
     <button class="btn btn-ghost cell-sidecar-trigger" data-action="summarise-result" data-cell-id="${cell.id}" title="Ask the sidecar for a one-line observation about this result">
       ${iconSvg('info', 12)} <span>Summarise</span>
     </button>
@@ -422,6 +424,34 @@ function formatCell(v: unknown): { text: string; numeric: boolean } {
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/**
+ * Tier-2 snapshot/staleness badges for the result-meta row. Shows a "snapshot"
+ * pill when the result was rehydrated from IDB on reload, and a "stale" pill
+ * whenever the cell's query no longer matches the query that produced the
+ * result (edited since running, or a restored snapshot whose SQL changed).
+ */
+function renderResultBadges(cell: SqlCellState): string {
+  const meta = cell.resultMeta;
+  if (!meta) return '';
+  const out: string[] = [];
+  if (meta.fromSnapshot) {
+    const when = new Date(meta.ranAt).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+    const head = meta.capped ? ' (head sample)' : '';
+    out.push(
+      `<span style="color:var(--text-muted);" title="Restored from a saved snapshot on reload${meta.capped ? ` — first ${SNAPSHOT_ROW_CAP} rows only` : ''}. Click Run to recompute.">⟳ snapshot · ${when}${head}</span>`,
+    );
+  }
+  if (isSnapshotStale(meta.sqlHash, cell.code)) {
+    out.push(
+      `<span style="color:var(--warning);" title="The query changed since this result was produced — re-run to refresh.">⚠ stale</span>`,
+    );
+  }
+  return out.join('\n');
 }
 
 function makeTextarea(
