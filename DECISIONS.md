@@ -2,6 +2,45 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-13 — Smoke stabilization: two landed background fixes (DL + DM)
+
+Both spun off the "WebGL flake" investigation and were integrated onto main together (zero code-file
+overlap: DM = deck.gl/Facet cells/notebook; DL = main.ts). Combined effect: the smoke's SPSS-date leg
+is now deterministically green and the Facet GL cells no longer leak contexts.
+
+### Decision DL — background classification no longer wipes a live SQL editor (the real smoke root cause)
+
+The SPSS `.sav` smoke leg intermittently failed with `Parser Error: syntax error at end of input` — the
+typed query never landed in the editor. Root cause (confirmed, NOT the WebGL leak): mounting a source
+fires `classifyMountedSources()`, which calls `workbook.setAssignment()` once per column async; each
+`setAssignment` → `notify()` → the `main.ts` `workbook.subscribe` handler, which called `renderNotebook`
+unconditionally, and `renderNotebook` does `mount.innerHTML = ''`. A classification notify landing during
+the type window (click editor → Ctrl+A → insertText → run) wiped the freshly-added SQL cell's live
+CodeMirror editor + unsaved query → empty statement → parser error → the cell went `errored`, so the
+smoke's `!errored && table td` wait never satisfied (the "15s timeout" was masking an errored cell).
+**Fix:** the `workbook.subscribe` handler now re-renders the notebook only when the **mount set** changes
+(a `id:tableIds` signature), never on assignment-only notifies. Schema/template/sources panels still
+refresh on every notify (outside the guard), so the live schema surface is unaffected; `assignmentsFor`
+reads assignments lazily so result badges still see fresh types. This is a real correctness bug beyond the
+smoke — any background source-load notify could nuke a user's in-progress SQL. Verified: smoke green **3×
+consecutively**; browser-verified the editor text survives a live `setAssignment` (Accept-type) notify.
+
+### Decision DM — Facet GL cells finalize + release their WebGL context (resource-hygiene, was labeled DK on-branch)
+
+Separately, the Facet deck.gl/MapLibre cells leaked WebGL contexts: `renderNotebook` re-mounts each visual
+cell on every notify, creating a context, and nothing disposed the old ones — the browser caps ~16 live
+contexts and GC lags, so they piled up (console flooded "Too many active WebGL contexts" + GPU stalls; a
+repro measured **165** context-lost warnings). Three-part fix (→ **0** warnings): (1) new
+`src/ui/cells/gl-surface.ts`, a cell-id-keyed dispose registry (`registerGlSurface`/`disposeGlSurface`/
+`disposeAllGlSurfaces` — keyed by cell id, not a DOM walk, because the Deck attaches a microtask+ after
+`renderNotebook` returns, by which point the mount may be detached); `renderNotebook` disposes-all before
+the DOM wipe, `deleteCell` disposes one. (2) `if (!mount.isConnected) return` guards in the embedding/
+network/map async mount paths so a stale render never builds an orphan Deck (165→42). (3) `deckgl.ts`
+`destroy()` now calls `WEBGL_lose_context.loseContext()` after `deck.finalize()` — finalize frees GL
+*resources* but not the *context* (only lagging GC does), so this releases it deterministically (42→0).
+Map cells register a combined disposer (MapLibre `map.remove()` + deck.gl overlay). Do NOT bump the smoke
+timeout — that hides the leak. (Renumbered DK→DM on integration; DK is the PII/secret pack.)
+
 ## 2026-07-12 — PII/secret detector pack (activates the `secret` sensitivity tier)
 
 ### Decision DK — sensitive-data domain from the Purview/GCP/Presidio families

@@ -50,6 +50,23 @@ function maxOf(a: readonly number[]): number {
   return m;
 }
 
+// `deck.finalize()` (→ luma.gl `device.destroy()`) frees GL *resources* but does
+// NOT release the canvas's WebGL *context* — the browser only reclaims that on
+// GC, which lags far behind the notebook's create-on-every-re-render churn and
+// lets contexts pile up past the ~16 cap ("Too many active WebGL contexts.
+// Oldest context will be lost." + GPU stalls). Force the release deterministically
+// via WEBGL_lose_context after finalize, so a disposed cell frees its context now.
+function releaseGlContext(canvas: HTMLCanvasElement): void {
+  try {
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    (gl as WebGL2RenderingContext | WebGLRenderingContext | null)
+      ?.getExtension('WEBGL_lose_context')
+      ?.loseContext();
+  } catch {
+    // Context already lost / never created — nothing to release.
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Embedding scatter — standalone Deck on an OrthographicView (abstract 2-D
 // plane, no geography) for precomputed (x, y) embedding coordinates.
@@ -209,6 +226,7 @@ export function mountEmbeddingScatter(opts: EmbeddingScatterOpts): EmbeddingScat
       } catch {
         /* already finalized */
       }
+      releaseGlContext(canvas);
       canvas.remove();
     },
   };
@@ -433,6 +451,7 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
       } catch {
         /* already finalized */
       }
+      releaseGlContext(canvas);
       canvas.remove();
     },
   };

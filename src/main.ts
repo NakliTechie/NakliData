@@ -297,6 +297,18 @@ async function boot(): Promise<void> {
   getAssociationsStore().subscribe(() => repaintSelectionStates(root, engine));
 
   const workbook = getWorkbook();
+  // Signature of the mounted-source set (ids + their table ids). The notebook
+  // only needs a full re-render when this changes — i.e. a source is added or
+  // removed. Assignment-only workbook notifies (async taxonomy classification
+  // fires one `setAssignment` per column) must NOT re-render the notebook: a
+  // full `renderNotebook` does `mount.innerHTML = ''`, and if one lands while
+  // the user is mid-typing into a freshly-added SQL cell it wipes the live
+  // CodeMirror editor and the unsaved query text (DECISIONS DL — the SPSS smoke
+  // leg's intermittent "Parser Error: syntax error at end of input"). The
+  // schema/template/sources panels below still refresh on every notify, so the
+  // spec's key schema surface stays live; `sqlExtra().assignmentsFor` reads
+  // assignments lazily, so the notebook sees fresh types without re-rendering.
+  let lastMountSig: string | null = null;
   workbook.subscribe((wb) => {
     renderSourcesList(root, wb.sources);
     setHasMounts(root, wb.sources.length > 0);
@@ -306,14 +318,21 @@ async function boot(): Promise<void> {
     _reportRanking = null;
     renderTemplatePanelWithCurrentState(root, wb, engine);
     // Mount and re-render the notebook into the center region whenever the
-    // mount state changes (so the notebook appears on first mount).
-    const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
-    if (notebookMount) {
-      const nb = getNotebook(engine);
-      if (nb.get().cells.length === 0 && wb.sources.length > 0) {
-        nb.addCell('sql'); // seed with one empty SQL cell
+    // mount set changes (so the notebook appears on first mount, and picks up
+    // added/removed sources). Skip the re-render on assignment-only notifies.
+    const mountSig = wb.sources
+      .map((s) => `${s.id}:${s.tables.map((t) => t.id).join(',')}`)
+      .join('|');
+    if (mountSig !== lastMountSig) {
+      lastMountSig = mountSig;
+      const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
+      if (notebookMount) {
+        const nb = getNotebook(engine);
+        if (nb.get().cells.length === 0 && wb.sources.length > 0) {
+          nb.addCell('sql'); // seed with one empty SQL cell
+        }
+        renderNotebook(notebookMount, nb, sqlExtra());
       }
-      renderNotebook(notebookMount, nb, sqlExtra());
     }
   });
 

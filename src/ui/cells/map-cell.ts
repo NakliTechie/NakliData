@@ -10,6 +10,7 @@
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { loadSettings } from '../../core/settings.ts';
 import { iconSvg } from '../../tokens/icons.ts';
+import { registerGlSurface } from './gl-surface.ts';
 import type { CellHandlers, MapCellState, ResultRefCell } from './types.ts';
 
 export function renderMapCell(
@@ -174,12 +175,25 @@ async function renderMap(
     // map cell render (we don't watch the change live).
     const { mapBasemap } = await loadSettings();
     const mod = await loadChunk('maplibre-map');
+    // A fast follow-up re-render may already have replaced the notebook DOM
+    // while we awaited settings + the chunk; mounting a map on the now-detached
+    // container would leak an unreachable WebGL context. Bail — the live render
+    // mounts it.
+    if (!mount.isConnected) return;
     const handle = mod.mountMap({
       container: mount,
       data: { type: 'FeatureCollection', features },
       colorBy: cell.colorBy ?? null,
       basemap: mapBasemap,
       skipNativePoints: useDeckGl,
+    });
+    // Release the MapLibre (and any deck.gl overlay) WebGL context when the
+    // notebook re-renders or this cell is deleted (gl-surface.ts). The overlay
+    // handle is captured below once it attaches; both are torn down here.
+    let overlayDestroy: (() => void) | null = null;
+    registerGlSurface(cell.id, () => {
+      overlayDestroy?.();
+      handle.destroy();
     });
     if (useDeckGl) {
       // Defer deck.gl until the map's GL context is alive — otherwise
@@ -188,7 +202,7 @@ async function renderMap(
       handle.map.on('load', () => {
         void loadChunk('deckgl')
           .then((deck) => {
-            deck.mountDeckGlPoints({
+            const overlay = deck.mountDeckGlPoints({
               map: handle.map as unknown as {
                 addControl: (c: unknown) => unknown;
                 removeControl: (c: unknown) => unknown;
@@ -196,6 +210,7 @@ async function renderMap(
               features,
               colorBy: cell.colorBy ?? null,
             });
+            overlayDestroy = () => overlay.destroy();
           })
           .catch((err) => {
             console.warn(

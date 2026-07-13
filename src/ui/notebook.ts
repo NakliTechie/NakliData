@@ -36,6 +36,7 @@ import { renderCohortCell } from './cells/cohort-cell.ts';
 import { renderDashboardCell } from './cells/dashboard-cell.ts';
 import { renderDistributionCell } from './cells/distribution-cell.ts';
 import { renderEmbeddingCell } from './cells/embedding-cell.ts';
+import { disposeAllGlSurfaces, disposeGlSurface } from './cells/gl-surface.ts';
 import { inputAsSqlLiteral, renderInputCell } from './cells/input-cell.ts';
 import { renderLanguageCell } from './cells/language-cell.ts';
 import { renderMapCell } from './cells/map-cell.ts';
@@ -381,6 +382,9 @@ LIMIT 100`,
     disposeSqlCellEditor(id);
     // L27: drop any cached network-cell force layout for this id.
     disposeNetworkCell(id);
+    // Finalize this cell's WebGL surface (deck.gl / MapLibre) if it has one, so
+    // its context is released immediately rather than orphaned (gl-surface.ts).
+    disposeGlSurface(id);
     // M2 — drop the cell's lineage entry so the lineage panel doesn't
     // surface orphaned references. Downstream edges (cells that read
     // FROM this cell) clean up when those cells re-run.
@@ -860,6 +864,12 @@ export function renderNotebook(
     },
   };
 
+  // Finalize any live WebGL surfaces (deck.gl / MapLibre cells) BEFORE wiping
+  // the DOM — orphaning their canvases leaks contexts (the browser caps ~16 and
+  // won't promptly GC them), which floods "Too many active WebGL contexts" and
+  // GPU-stalls the main thread. Still-present cells recreate theirs as they
+  // re-render below. See gl-surface.ts.
+  disposeAllGlSurfaces();
   mount.innerHTML = '';
   const root = document.createElement('div');
   root.className = 'notebook';

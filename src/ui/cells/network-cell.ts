@@ -22,6 +22,7 @@ import {
 } from '../../core/force-layout.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
+import { registerGlSurface } from './gl-surface.ts';
 import type { CellHandlers, NetworkCellState, ResultRefCell } from './types.ts';
 
 /** Structural subset of the deck.gl network handle the legend needs. */
@@ -296,6 +297,10 @@ async function renderGraph(
     mount.innerHTML = `<div class="cell-output-empty">Couldn't load the graph renderer: ${escapeHtml(errMsg(err))}</div>`;
     return;
   }
+  // A fast follow-up re-render may already have replaced the notebook DOM while
+  // we awaited layout + the chunk; building a Deck on the now-detached mount
+  // would leak an unreachable WebGL context. Bail — the live render mounts it.
+  if (!mount.isConnected) return;
 
   // Render lists. `renderNodes` index === node index (used for highlight +
   // neighbour lookup); `idIndex` maps id → that index.
@@ -348,6 +353,8 @@ async function renderGraph(
       },
     });
     (mount as HTMLElement & { __networkGraph?: unknown }).__networkGraph = handle;
+    // Release the deck.gl WebGL context on re-render / delete (gl-surface.ts).
+    registerGlSurface(cell.id, () => handle.destroy());
     // Legend for the categorical edge-type colouring (Knowledge-graph view).
     // Lives in the cell's [data-region="net-legend"] sibling of the canvas.
     const legendEl = mount.parentElement?.querySelector<HTMLElement>('[data-region="net-legend"]');

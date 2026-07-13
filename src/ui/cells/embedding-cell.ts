@@ -15,6 +15,7 @@ import { rankBySimilarity } from '../../core/embed-search.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { coerceVector, pcaProject2D } from '../../core/project2d.ts';
 import { iconSvg } from '../../tokens/icons.ts';
+import { registerGlSurface } from './gl-surface.ts';
 import type { CellHandlers, EmbeddingCellState, ResultRefCell } from './types.ts';
 
 /** Neighbours highlighted per find-similar click (excluding the clicked point). */
@@ -236,6 +237,10 @@ async function renderScatter(
   mount.style.height = '420px';
   try {
     const mod = await loadChunk('deckgl');
+    // A fast follow-up re-render may already have replaced the notebook DOM
+    // while we awaited the chunk; building a Deck on the now-detached mount
+    // would leak an unreachable WebGL context. Bail — the live render mounts it.
+    if (!mount.isConnected) return;
     type MountWithSeam = HTMLElement & { __embedScatter?: unknown };
     const handle = mod.mountEmbeddingScatter({
       container: mount,
@@ -280,6 +285,9 @@ async function renderScatter(
     // find-similar through handle.simulateClick, since synthetic pointer
     // events can't reach deck.gl's input manager.
     (mount as MountWithSeam).__embedScatter = handle;
+    // Release the deck.gl WebGL context when the notebook re-renders or this
+    // cell is deleted — otherwise every re-render leaks a context (gl-surface.ts).
+    registerGlSurface(cell.id, () => handle.destroy());
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     mount.innerHTML = `<div class="cell-output-empty">Couldn't render embedding map: ${escapeHtml(msg)}</div>`;
