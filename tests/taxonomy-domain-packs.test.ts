@@ -123,3 +123,24 @@ describe('G3 — healthcare / clinical domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('clinical_claims');
   });
 });
+
+describe('G4 — public-sector / demographics domain pack', () => {
+  it('classifies population / households / median_income / unemployment_rate / age_band', () => {
+    expect(top('population', ['81000', '120500', '43000'], 'BIGINT')).toBe('population');
+    expect(top('households', ['32000', '48000', '17000'], 'BIGINT')).toBe('households');
+    expect(top('median_income', ['52000', '61000', '38000'], 'INTEGER')).toBe('median_income');
+    expect(top('unemployment_rate', ['4.2', '6.1', '3.8'], 'DOUBLE')).toBe('unemployment_rate');
+    expect(top('age_band', ['18-24', '25-34', '35-44'])).toBe('age_band');
+  });
+  it('age_band does NOT hijack a bare "age" column (owned by age_years)', () => {
+    expect(top('age', ['34', '28', '52'], 'INTEGER')).not.toBe('age_band');
+  });
+  it('demographic_summary surfaces when state_region + population present', () => {
+    expect(templateIds(['state_region', 'population', 'median_income'])).toContain(
+      'demographic_summary',
+    );
+  });
+  it('demographic_summary does NOT surface without a geography role', () => {
+    expect(templateIds(['population', 'median_income'])).not.toContain('demographic_summary');
+  });
+});

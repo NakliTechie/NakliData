@@ -86,6 +86,12 @@
       "label": "Healthcare and clinical",
       "description": "Patient / encounter IDs, diagnosis codes, length of stay and claim amounts \u2014 clinical, claims and EHR exports. Sensitivity-marked (secret/financial).",
       "domain_file": "domains/healthcare.json"
+    },
+    {
+      "id": "public-sector",
+      "label": "Public sector and demographics",
+      "description": "Population, households, median income, unemployment rate and age bands \u2014 census / civic / open-data aggregates.",
+      "domain_file": "domains/public-sector.json"
     }
   ],
   "types_file": "types.jsonl",

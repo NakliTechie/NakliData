@@ -1057,6 +1057,38 @@ LIMIT 30`,
   },
 };
 
+// G4 — Public-sector / demographics domain pack (population brief).
+export const DEMOGRAPHIC_SUMMARY: Template = {
+  id: 'demographic_summary',
+  name: 'Population and income brief',
+  description:
+    'Total population by region — with average median income when present. Fits census / civic / open-data aggregates.',
+  requiredTypes: ['state_region', 'population'],
+  optionalTypes: ['median_income'],
+  instantiate(m) {
+    const region = m.state_region!;
+    const pop = m.population!;
+    const income = m.median_income;
+    const incomeSelect = income
+      ? `,\n       ROUND(AVG(${q(income.column)}), 0) AS avg_median_income`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Population and income brief\n\nTotal population by region.'),
+      sql(
+        'population_by_region',
+        `SELECT ${q(region.column)} AS region,
+       SUM(${q(pop.column)}) AS total_population${incomeSelect}
+FROM ${q(region.table)}
+GROUP BY 1
+ORDER BY total_population DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'population_by_region', 'region', 'total_population'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1079,6 +1111,7 @@ export const ALL_TEMPLATES: Template[] = [
   REAL_ESTATE_INVENTORY,
   EDUCATION_PERFORMANCE,
   CLINICAL_CLAIMS,
+  DEMOGRAPHIC_SUMMARY,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

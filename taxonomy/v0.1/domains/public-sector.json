@@ -1,0 +1,12 @@
+{
+  "domain": "public-sector",
+  "label": "Public sector and demographics",
+  "types": [
+    "population",
+    "households",
+    "median_income",
+    "unemployment_rate",
+    "age_band"
+  ],
+  "report_templates": ["demographic_summary"]
+}
