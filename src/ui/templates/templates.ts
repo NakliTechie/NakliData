@@ -1089,6 +1089,39 @@ LIMIT 30`,
   },
 };
 
+// G5 — Scientific / measurements domain pack (sensor readings brief).
+export const SENSOR_READINGS: Template = {
+  id: 'sensor_readings',
+  name: 'Sensor readings brief',
+  description:
+    'Reading count and average temperature by sensor — with average humidity when present. Fits IoT / environmental / lab sensor exports.',
+  requiredTypes: ['sensor_id', 'temperature'],
+  optionalTypes: ['humidity'],
+  instantiate(m) {
+    const sensor = m.sensor_id!;
+    const temp = m.temperature!;
+    const humidity = m.humidity;
+    const humiditySelect = humidity
+      ? `,\n       ROUND(AVG(${q(humidity.column)}), 1) AS avg_humidity`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Sensor readings brief\n\nReading count and average temperature by sensor.'),
+      sql(
+        'readings_by_sensor',
+        `SELECT ${q(sensor.column)} AS sensor,
+       COUNT(*) AS readings,
+       ROUND(AVG(${q(temp.column)}), 1) AS avg_temperature${humiditySelect}
+FROM ${q(sensor.table)}
+GROUP BY 1
+ORDER BY readings DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'readings_by_sensor', 'sensor', 'avg_temperature'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1112,6 +1145,7 @@ export const ALL_TEMPLATES: Template[] = [
   EDUCATION_PERFORMANCE,
   CLINICAL_CLAIMS,
   DEMOGRAPHIC_SUMMARY,
+  SENSOR_READINGS,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

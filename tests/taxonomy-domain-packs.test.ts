@@ -144,3 +144,25 @@ describe('G4 — public-sector / demographics domain pack', () => {
     expect(templateIds(['population', 'median_income'])).not.toContain('demographic_summary');
   });
 });
+
+describe('G5 — scientific / measurements domain pack', () => {
+  it('classifies sensor_id / temperature / humidity / pressure / measurement_unit', () => {
+    expect(top('sensor_id', ['S-01', 'S-02', 'S-03'])).toBe('sensor_id');
+    expect(top('temp_c', ['21.5', '19.8', '23.1'], 'DOUBLE')).toBe('temperature');
+    expect(top('humidity', ['45', '52', '38'], 'INTEGER')).toBe('humidity');
+    expect(top('barometric_pressure', ['1013', '1009', '1015'], 'INTEGER')).toBe('pressure');
+    expect(top('uom', ['C', 'hPa', '%'])).toBe('measurement_unit');
+  });
+  it('measurement_unit does NOT hijack unit_price / unit_cost / business_unit', () => {
+    // measurement_unit uses uom-specific patterns only — bare "unit" would token-match these.
+    expect(top('unit_price', ['12.5', '9.0', '15.0'], 'DOUBLE')).not.toBe('measurement_unit');
+    expect(top('unit_cost', ['8.2', '6.1', '10.0'], 'DOUBLE')).not.toBe('measurement_unit');
+    expect(top('business_unit', ['Retail', 'Wholesale', 'Online'])).not.toBe('measurement_unit');
+  });
+  it('sensor_readings surfaces when sensor_id + temperature present', () => {
+    expect(templateIds(['sensor_id', 'temperature', 'humidity'])).toContain('sensor_readings');
+  });
+  it('sensor_readings does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('sensor_readings');
+  });
+});

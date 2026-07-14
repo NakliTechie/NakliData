@@ -92,6 +92,12 @@
       "label": "Public sector and demographics",
       "description": "Population, households, median income, unemployment rate and age bands \u2014 census / civic / open-data aggregates.",
       "domain_file": "domains/public-sector.json"
+    },
+    {
+      "id": "scientific",
+      "label": "Scientific and measurements",
+      "description": "Sensor IDs, temperature, humidity, pressure and measurement units \u2014 IoT / environmental / lab sensor exports.",
+      "domain_file": "domains/scientific.json"
     }
   ],
   "types_file": "types.jsonl",
