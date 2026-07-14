@@ -1089,6 +1089,171 @@ LIMIT 30`,
   },
 };
 
+// G5 — Scientific / measurements domain pack (sensor readings brief).
+export const SENSOR_READINGS: Template = {
+  id: 'sensor_readings',
+  name: 'Sensor readings brief',
+  description:
+    'Reading count and average temperature by sensor — with average humidity when present. Fits IoT / environmental / lab sensor exports.',
+  requiredTypes: ['sensor_id', 'temperature'],
+  optionalTypes: ['humidity'],
+  instantiate(m) {
+    const sensor = m.sensor_id!;
+    const temp = m.temperature!;
+    const humidity = m.humidity;
+    const humiditySelect = humidity
+      ? `,\n       ROUND(AVG(${q(humidity.column)}), 1) AS avg_humidity`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Sensor readings brief\n\nReading count and average temperature by sensor.'),
+      sql(
+        'readings_by_sensor',
+        `SELECT ${q(sensor.column)} AS sensor,
+       COUNT(*) AS readings,
+       ROUND(AVG(${q(temp.column)}), 1) AS avg_temperature${humiditySelect}
+FROM ${q(sensor.table)}
+GROUP BY 1
+ORDER BY readings DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'readings_by_sensor', 'sensor', 'avg_temperature'),
+    ];
+    return cells;
+  },
+};
+
+// G6 — Risk / fraud / security domain pack (authorization review brief).
+export const FRAUD_REVIEW: Template = {
+  id: 'fraud_review',
+  name: 'Authorization review brief',
+  description:
+    'Transaction count and average risk score by authorization result — with fraud rate when present. Fits fraud / payments-risk exports.',
+  requiredTypes: ['auth_result', 'risk_score'],
+  optionalTypes: ['fraud_flag'],
+  instantiate(m) {
+    const auth = m.auth_result!;
+    const risk = m.risk_score!;
+    const fraud = m.fraud_flag;
+    const fraudSelect = fraud
+      ? `,\n       ROUND(AVG(CASE WHEN CAST(${q(fraud.column)} AS VARCHAR) IN ('1', 'true', 'True', 'yes') THEN 1 ELSE 0 END), 3) AS fraud_rate`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md(
+        '# Authorization review brief\n\nTransaction count and average risk score by authorization result.',
+      ),
+      sql(
+        'review_by_auth_result',
+        `SELECT ${q(auth.column)} AS auth_result,
+       COUNT(*) AS transactions,
+       ROUND(AVG(${q(risk.column)}), 1) AS avg_risk_score${fraudSelect}
+FROM ${q(auth.table)}
+GROUP BY 1
+ORDER BY transactions DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'review_by_auth_result', 'auth_result', 'transactions'),
+    ];
+    return cells;
+  },
+};
+
+// G7 — Banking / payments / lending domain pack (transaction flows brief).
+export const BANKING_FLOWS: Template = {
+  id: 'banking_flows',
+  name: 'Transaction flows brief',
+  description:
+    'Transaction count and total amount by debit/credit direction — with total fees when present. Fits payments / banking exports.',
+  requiredTypes: ['debit_credit', 'transaction_amount'],
+  optionalTypes: ['transaction_fee'],
+  instantiate(m) {
+    const drcr = m.debit_credit!;
+    const amount = m.transaction_amount!;
+    const fee = m.transaction_fee;
+    const feeSelect = fee ? `,\n       ROUND(SUM(${q(fee.column)}), 0) AS total_fees` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md(
+        '# Transaction flows brief\n\nTransaction count and total amount by debit/credit direction.',
+      ),
+      sql(
+        'flows_by_direction',
+        `SELECT ${q(drcr.column)} AS direction,
+       COUNT(*) AS transactions,
+       ROUND(SUM(${q(amount.column)}), 0) AS total_amount${feeSelect}
+FROM ${q(drcr.table)}
+GROUP BY 1
+ORDER BY total_amount DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'flows_by_direction', 'direction', 'total_amount'),
+    ];
+    return cells;
+  },
+};
+
+// G8 — Insurance domain pack (policy book brief).
+export const INSURANCE_BOOK: Template = {
+  id: 'insurance_book',
+  name: 'Policy book brief',
+  description:
+    'Policy count and total premium by line of business — with total sum insured when present. Fits insurance policy / claims exports.',
+  requiredTypes: ['line_of_business', 'premium_amount'],
+  optionalTypes: ['sum_insured'],
+  instantiate(m) {
+    const lob = m.line_of_business!;
+    const premium = m.premium_amount!;
+    const insured = m.sum_insured;
+    const insuredSelect = insured
+      ? `,\n       ROUND(SUM(${q(insured.column)}), 0) AS total_sum_insured`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Policy book brief\n\nPolicy count and total premium by line of business.'),
+      sql(
+        'book_by_line_of_business',
+        `SELECT ${q(lob.column)} AS line_of_business,
+       COUNT(*) AS policies,
+       ROUND(SUM(${q(premium.column)}), 0) AS total_premium${insuredSelect}
+FROM ${q(lob.table)}
+GROUP BY 1
+ORDER BY total_premium DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'book_by_line_of_business', 'line_of_business', 'total_premium'),
+    ];
+    return cells;
+  },
+};
+
+// G9 — Customer support / success domain pack (SLA brief).
+export const SUPPORT_SLA: Template = {
+  id: 'support_sla',
+  name: 'Support SLA brief',
+  description:
+    'Ticket count and average first-response time by priority — with average CSAT when present. Fits helpdesk / support exports.',
+  requiredTypes: ['support_priority', 'first_response_minutes'],
+  optionalTypes: ['csat_score'],
+  instantiate(m) {
+    const priority = m.support_priority!;
+    const frt = m.first_response_minutes!;
+    const csat = m.csat_score;
+    const csatSelect = csat ? `,\n       ROUND(AVG(${q(csat.column)}), 2) AS avg_csat` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Support SLA brief\n\nTicket count and average first-response time by priority.'),
+      sql(
+        'sla_by_priority',
+        `SELECT ${q(priority.column)} AS priority,
+       COUNT(*) AS tickets,
+       ROUND(AVG(${q(frt.column)}), 1) AS avg_first_response_minutes${csatSelect}
+FROM ${q(priority.table)}
+GROUP BY 1
+ORDER BY tickets DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'sla_by_priority', 'priority', 'tickets'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1112,6 +1277,11 @@ export const ALL_TEMPLATES: Template[] = [
   EDUCATION_PERFORMANCE,
   CLINICAL_CLAIMS,
   DEMOGRAPHIC_SUMMARY,
+  SENSOR_READINGS,
+  FRAUD_REVIEW,
+  BANKING_FLOWS,
+  INSURANCE_BOOK,
+  SUPPORT_SLA,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────
