@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-15 — C1 · >2k-node Facet render CLOSED (live-verified on the deploy) (EA)
+
+### Decision EA — the last owed live verification, closed against the production deploy
+
+- **Context.** C1/C2/C3 were the three verifications that need a real (non-sandboxed) browser, because
+  the in-app Browser pane sandbox never finishes booting DuckDB-wasm. C2 (nl-to-schema → BYOK gate) and
+  C3 (R + Python cells) closed 2026-07-14 in real Chrome against `naklidata.naklitechie.com`. C1 stayed
+  PARTIAL: the Facet/Network render *infrastructure* was verified, but a true >2k-node WebGL scale-test
+  needs an actual ≥2k-node graph dataset, which the demo workspace lacks (its tables aren't edge lists).
+- **Decision / action.** Sourced a **real public graph CSV** and mounted it live via Paste URL:
+  the **MUSAE Facebook page-page network** edge list
+  (`raw.githubusercontent.com/benedekrozemberczki/MUSAE/master/input/edges/facebook_edges.csv`) —
+  ~1.88 MB, 171,002 edges / 22,470 nodes, chosen because it is genuinely >2k-node, small enough to mount
+  fast, headered (`id_1,id_2`), and CORS-open (`access-control-allow-origin: *`). Added a SQL cell
+  `SELECT id_1 AS source, id_2 AS target FROM facebook_edges LIMIT 8000`, then bound a Network/GRAPH cell
+  to it (source=source, target=target).
+- **Verification (real Chrome, `?verify=1`, against the deploy).** The graph canvas renders as **deck.gl
+  WebGL2** — `canvas.getContext('webgl2')` returns a context and the canvas parent is
+  `cell-output cell-output-map deck-widget-container` (confirms the GPU path, not a 2D fallback). A DuckDB
+  count over the *exact* edge set feeding the render (`WITH e AS (SELECT id_1,id_2 FROM facebook_edges
+  LIMIT 8000) SELECT COUNT(*) rendered_edges, (COUNT DISTINCT over the union of both endpoints)
+  rendered_nodes`) returned **rendered_edges = 8000 / rendered_nodes = 5950** — ~3× the 2k threshold. The
+  force layout settled into a hub-and-halo structure (high-degree red/yellow core + ~5.9k blue peripheral
+  nodes); screenshot captured.
+- **Why the LIMIT 8000.** The full 171k-edge / 22k-node graph is unit-covered (5k/30k), but 8000 edges
+  already yields 5,950 distinct nodes — comfortably over the bar — while keeping the live force layout
+  responsive for the screenshot. The scale claim is about the *node* count the WebGL layer draws, and 5.9k
+  ≫ 2k settles it.
+- **Scope.** Verification only — no code change. This ran against the deploy's demo workspace in the user's
+  real Chrome; the test cells auto-persist to that browser's IDB (harmless; clear/reload to reset).
+  **All C1/C2/C3 live-deploy verifications are now closed — no owed live work remains.**
+
+**Gate:** N/A (no code change; docs-only: STATUS · DECISIONS · plan/pending updated).
+
 ## 2026-07-14 — H6 cross-origin CLOSED (live-verified) + breadth G17/G18 + success (DZ) [autopilot run 7]
 
 ### Decision DZ — H6 fully shipped (mirror default-on, verified live) + final breadth
