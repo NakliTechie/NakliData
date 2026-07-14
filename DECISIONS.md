@@ -2,6 +2,27 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — E2 (partial) · dead-export cleanup (DT) [autopilot]
+
+### Decision DT — do the safe surface reduction (S18), park the judgment-call deletions (S6/S7)
+
+E2 = the forward-pass's low-value tail (S6/S7/S18 "dead test-only exports"). On re-inspection (the findings
+are from 2026-07-09):
+
+- **S18 — done.** `indexByType` (templates.ts) and `presentTypeIds` (gating.ts) are *used internally* (they're
+  not dead — `indexByTypeWithCandidates` and the gating flow call them) but have **zero external/test
+  importers**, so the `export` keyword was unnecessary surface. Dropped it. Pure hygiene, no logic/behavior
+  change.
+- **S6 / S7 — parked (not deleted).** `embed-search.ts` (embedSearch/buildVssSql/formatVector/
+  embedSearchInMemory) and `applicableMeasures` (measures.ts) *are* exported-but-test-only. But each has a
+  full passing test suite and reads as deliberate scaffolding — semantic vector-search, and the never-built
+  "this file supports N measures" synergy panel. **Deleting tested, plausibly-future code unattended is a
+  product-intent judgment call, not mechanical cleanup**, so per the autopilot stop-rule ("ambiguous → park")
+  it goes to a supervised session (pending.md Open questions: delete module+tests, or wire to a surface).
+
+No smoke — un-exporting internally-used functions has no runtime-observable surface; tsc + vitest + biome are
+complete coverage. Gates: tsc clean · 1100 vitest · check clean. Commit `b2edddd`.
+
 ## 2026-07-14 — B2 · HR/people domain pack (DS) [autopilot]
 
 ### Decision DS — the vertical pack is HR/people; five types + a workforce template
