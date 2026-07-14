@@ -121,6 +121,17 @@ describe('pageRank', () => {
     const b = pageRank(path3.nodes, path3.edges);
     expect([...a.entries()]).toEqual([...b.entries()]);
   });
+
+  it('handles a dangling (degree-0) node: mass redistributes, sum stays 1', () => {
+    // Triangle + an isolated node — the isolated node is a dangling sink.
+    const nodes = N('a', 'b', 'c', 'iso');
+    const pr = pageRank(nodes, triangle.edges);
+    const sum = [...pr.values()].reduce((x, y) => x + y, 0);
+    expect(sum).toBeCloseTo(1, 6);
+    // Every node keeps positive mass; the isolated node ranks below the triangle.
+    for (const v of ['a', 'b', 'c', 'iso']) expect(pr.get(v) as number).toBeGreaterThan(0);
+    expect(pr.get('iso') as number).toBeLessThan(pr.get('a') as number);
+  });
 });
 
 describe('betweennessCentrality', () => {
@@ -146,6 +157,15 @@ describe('betweennessCentrality', () => {
     const bc = betweennessCentrality(N('a', 'b'), E(['a', 'b']));
     expect(bc.get('a')).toBe(0);
     expect(bc.get('b')).toBe(0);
+  });
+
+  it('C4 (two equal shortest paths per opposite pair, σ=2) → all nodes 1/6', () => {
+    // 4-cycle: each opposite pair has two shortest paths, exercising σ>1 in the
+    // Brandes accumulation. By symmetry every node has normalized betweenness 1/6.
+    const nodes = N('a', 'b', 'c', 'd');
+    const edges = E(['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'a']);
+    const bc = betweennessCentrality(nodes, edges);
+    for (const v of ['a', 'b', 'c', 'd']) expect(bc.get(v)).toBeCloseTo(1 / 6, 10);
   });
 });
 
