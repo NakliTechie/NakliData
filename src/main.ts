@@ -1854,13 +1854,19 @@ function wireActions(root: HTMLElement): void {
     const action = actionEl.dataset.action;
     if (!action) return;
     // Some sub-components attach their own click handlers; let those bubble
-    // through without our default dispatch.
+    // through without our default dispatch. Includes the schema-panel's
+    // locally-wired buttons (schema-panel.ts) — without this they'd fall through
+    // to the switch's default and log a spurious "unknown action".
     if (
       [
         'accept',
         'evidence',
         'threshold-slider',
         'bulk-accept',
+        'reclassify',
+        'manage-override-rules',
+        'compare-tables',
+        'classify-all-unknowns',
         'instantiate',
         'cell-run',
         'cell-delete',
