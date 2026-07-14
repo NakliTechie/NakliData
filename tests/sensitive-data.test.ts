@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyColumn } from '../src/taxonomy/classify.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
+import { parseUniversalLayer, sensitivityForType } from '../src/taxonomy/universal.ts';
 
 const types: TypeSpec[] = readFileSync(
   join(process.cwd(), 'taxonomy', 'v0.1', 'types.jsonl'),
@@ -16,7 +17,18 @@ const types: TypeSpec[] = readFileSync(
   .map((l) => l.trim())
   .filter(Boolean)
   .map((l) => JSON.parse(l) as TypeSpec);
-const BUNDLE: TaxonomyBundle = { version: '0.1', released: '2026-05-15', domains: [], types };
+const BASE = join(process.cwd(), 'taxonomy', 'v0.1');
+const universal = parseUniversalLayer(
+  readFileSync(join(BASE, 'universal', 'universal-terms.jsonl'), 'utf8'),
+  readFileSync(join(BASE, 'universal', 'crosswalk.jsonl'), 'utf8'),
+);
+const BUNDLE: TaxonomyBundle = {
+  version: '0.1',
+  released: '2026-05-15',
+  domains: [],
+  types,
+  universal,
+};
 
 function sample(columnName: string, values: string[], sqlType = 'VARCHAR'): ColumnSample {
   return {
@@ -31,7 +43,7 @@ function sample(columnName: string, values: string[], sqlType = 'VARCHAR'): Colu
 }
 const top = (name: string, values: string[]): string | null =>
   classifyColumn(BUNDLE, sample(name, values)).candidates[0]?.typeId ?? null;
-const sens = (id: string) => BUNDLE.types.find((t) => t.id === id)?.sensitivity;
+const sens = (id: string) => sensitivityForType(BUNDLE, id);
 
 describe('sensitive-data — secrets classify by value pattern', () => {
   it('JWT (by value — neutral header so it does not tie with credential_secret)', () => {

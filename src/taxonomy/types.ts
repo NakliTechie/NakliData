@@ -58,8 +58,9 @@ export interface TypeSpec {
   detectors: DetectorSpec[];
   confidence_floor: number;
   seed_origin?: string;
-  /** Sensitivity classification — see {@link TypeSensitivity}. Optional; defaults to `'public'`. */
-  sensitivity?: TypeSensitivity;
+  // Sensitivity is NO LONGER on the type (decision #4, 2026-07-14): it migrated
+  // to the Tier-3 universal layer. Resolve it with `sensitivityForType(bundle,
+  // typeId)` from `./universal.ts`, never off this spec.
 }
 
 export interface DomainSpec {
@@ -69,6 +70,49 @@ export interface DomainSpec {
   report_templates?: string[];
 }
 
+/**
+ * Tier-3 analytical function of a universal_term — dbt semantic-layer style.
+ * `entity` (identity/grain), `dimension` (group/filter by), `measure`
+ * (additive quantity), `metric` (derived ratio). The report engine reads this
+ * to place columns (decision #5: report_slot lives with the engine, not here).
+ */
+export type RoleFamily = 'entity' | 'dimension' | 'measure' | 'metric';
+
+/**
+ * A UniversalTerm (Tier-3) — an abstract SKOS concept above the flat `typeId`s.
+ * Carries the canonical `sensitivity` (migrated off {@link TypeSpec}, decision
+ * #4), the `roleFamily`, `skos:broader` ladder, and cross-vocabulary
+ * `exactMatch` links (schema/fhir/ocds/dbt). See `universal-terms/SPEC.md`.
+ */
+export interface UniversalTerm {
+  /** `ut:`-prefixed id (decision #6). */
+  id: string;
+  prefLabel: string;
+  /** `skos:broader` parents — must resolve within the scheme, acyclic. */
+  broader?: string[];
+  roleFamily: RoleFamily;
+  /** Canonical sensitivity home. */
+  sensitivity: TypeSensitivity;
+  /** Cross-vocabulary links, e.g. `schema:MonetaryAmount`, `fhir:Patient`. */
+  exactMatch?: string[];
+}
+
+/** One `naklidata_role (typeId) → universal_term` crosswalk mapping. */
+export interface CrosswalkEntry {
+  role: string;
+  universalTerm: string;
+  /** Per-role override of the concept's default sensitivity (edge cases). */
+  sensitivity?: TypeSensitivity;
+  /** Per-role override of the concept's default roleFamily (edge cases). */
+  roleFamily?: RoleFamily;
+}
+
+/** The Tier-3 layer: the concept scheme + the role→concept crosswalk. */
+export interface UniversalLayer {
+  terms: UniversalTerm[];
+  crosswalk: CrosswalkEntry[];
+}
+
 export interface TaxonomyBundle {
   version: string;
   released: string;
@@ -76,6 +120,8 @@ export interface TaxonomyBundle {
   types: TypeSpec[];
   /** Optional. Present when the bundle ships `relationships.json`. */
   relationships?: TypeRelationship[];
+  /** Tier-3 UniversalTerm layer. Present when the bundle ships `universal/`. */
+  universal?: UniversalLayer;
 }
 
 /** Edge in the taxonomy's type-relationship graph. */

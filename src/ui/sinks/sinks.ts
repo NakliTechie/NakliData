@@ -19,6 +19,7 @@ import type { Engine } from '../../core/engine.ts';
 import { buildGoldenSql } from '../../core/golden.ts';
 import { getTaxonomyClient } from '../../taxonomy/client.ts';
 import type { TypeSensitivity } from '../../taxonomy/types.ts';
+import { hasSensitivityLayer, sensitivityForType } from '../../taxonomy/universal.ts';
 import type { SqlResult } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { openAnonymizeModal } from './anonymize-modal.ts';
@@ -164,14 +165,28 @@ export const ANONYMIZE_SINK: SinkDescriptor = {
     // as the schema-panel restore fix.)
     await getTaxonomyClient().ensureReady();
     const bundle = getTaxonomyClient().getBundle();
+    // FAIL-CLOSED. Sensitivity moved into the Tier-3 universal layer (decision
+    // #4), which is a SEPARATE fetch from types.jsonl and can fail on its own
+    // (partial deploy, a service-worker cache serving index.json but not the
+    // universal/ subdir, a malformed crosswalk line). If it's absent,
+    // sensitivityForType() silently returns 'public' for every column →
+    // strategy 'keep' → a plaintext copy exported under an "-anonymized-" name.
+    // ensureReady() only guarantees the type bundle loaded, NOT the universal
+    // layer — so refuse the export rather than leak. (Amends the pre-migration
+    // null-bundle guard, which no longer covers the real failure mode.)
+    if (!hasSensitivityLayer(bundle)) {
+      throw new SinkError(
+        'Anonymized export unavailable: the sensitivity layer failed to load. ' +
+          'Nothing was written (refusing to export data in the clear). Reload and retry.',
+      );
+    }
     const sensitivityOf = (typeId: string | null): TypeSensitivity | null => {
       if (!typeId) return null;
-      const fromBundle = bundle?.types.find((t) => t.id === typeId);
-      if (fromBundle) return fromBundle.sensitivity ?? 'public';
-      // UserType (per-workspace taxonomy extension) doesn't carry a
-      // sensitivity badge today — they default to unbadged. If a future
-      // workbook starts saving sensitivity on UserType, extend here.
-      return null;
+      // Only known bundle types carry sensitivity; a UserType (per-workspace
+      // taxonomy extension) has no crosswalk entry and stays unbadged (null →
+      // 'keep'), exactly as before the migration.
+      const isBundleType = bundle.types.some((t) => t.id === typeId);
+      return isBundleType ? sensitivityForType(bundle, typeId) : null;
     };
     const assignByCol = new Map(columnAssignments.map((a) => [a.columnName, a]));
     const initialPlan: AnonColumnPlan[] = result.columns.map((col) => {

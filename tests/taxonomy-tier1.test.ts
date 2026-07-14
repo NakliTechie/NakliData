@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyColumn } from '../src/taxonomy/classify.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
+import { parseUniversalLayer, sensitivityForType } from '../src/taxonomy/universal.ts';
 import { getQuickActions } from '../src/ui/quick-aggregations.ts';
 import type { ColumnAssignment } from '../src/ui/schema-panel.ts';
 import {
@@ -25,7 +26,11 @@ function loadBundle(): TaxonomyBundle {
     .map((l) => l.trim())
     .filter(Boolean)
     .map((l) => JSON.parse(l) as TypeSpec);
-  return { version: '0.1', released: '2026-05-15', domains: [], types };
+  const universal = parseUniversalLayer(
+    readFileSync(join(BASE, 'universal', 'universal-terms.jsonl'), 'utf8'),
+    readFileSync(join(BASE, 'universal', 'crosswalk.jsonl'), 'utf8'),
+  );
+  return { version: '0.1', released: '2026-05-15', domains: [], types, universal };
 }
 const BUNDLE = loadBundle();
 
@@ -62,8 +67,7 @@ describe('Tier-1 taxonomy — geography', () => {
     expect(top('address', ['12 Main St', '9 Elm Ave', '77 Oak Rd'])).toBe('address_line');
   });
   it('address_line is flagged PII', () => {
-    const addr = BUNDLE.types.find((t) => t.id === 'address_line');
-    expect(addr?.sensitivity).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'address_line')).toBe('pii');
   });
 });
 
@@ -129,7 +133,7 @@ describe('Tier-1 taxonomy — sample datasets (Titanic)', () => {
     expect(top('embarked', ['S', 'C', 'Q', 'S'])).toBe('embarkation_port');
   });
   it('sex_gender is flagged PII', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'sex_gender')?.sensitivity).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'sex_gender')).toBe('pii');
   });
 });
 
@@ -186,7 +190,7 @@ describe('Retail domain pack (e-commerce)', () => {
     expect(top('order_no', ['536365', '536366', '536367'])).toBe('order_id');
   });
   it('customer_id is flagged PII', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'customer_id')?.sensitivity).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'customer_id')).toBe('pii');
   });
 });
 
@@ -221,8 +225,8 @@ describe('HR / people domain pack', () => {
     expect(top('YearsAtCompany', ['6', '10', '0', '8'], 'INTEGER')).toBe('tenure_years');
   });
   it('employee_id is flagged PII and compensation is flagged financial', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'employee_id')?.sensitivity).toBe('pii');
-    expect(BUNDLE.types.find((t) => t.id === 'compensation')?.sensitivity).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'employee_id')).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'compensation')).toBe('financial');
   });
   it('does NOT mislabel a bare "title"/"role" column as job_title (avoids media/generic collisions)', () => {
     // job_title deliberately omits bare "title" (→ content_title) and "role".
