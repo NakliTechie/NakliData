@@ -20,10 +20,25 @@ import {
   NetworkTooLargeError,
   forceLayout,
 } from '../../core/force-layout.ts';
+import { betweennessCentrality, louvainCommunities, pageRank } from '../../core/graph-metrics.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import { registerGlSurface } from './gl-surface.ts';
-import type { CellHandlers, NetworkCellState, ResultRefCell } from './types.ts';
+import type { CellHandlers, NetworkCellState, NodeMetric, ResultRefCell } from './types.ts';
+
+// Node-count guards for the pricier metrics (computed synchronously after
+// layout). Betweenness is O(n·m) — capped low; Louvain is near-linear but
+// iterative. PageRank/degree are cheap and run to the layout ceiling. Above a
+// cap the cell falls back to degree with a note rather than jank the tab.
+const BETWEENNESS_MAX_NODES = 3000;
+const COMMUNITY_MAX_NODES = 20000;
+
+const METRIC_LABELS: Record<NodeMetric, string> = {
+  degree: 'degree',
+  pagerank: 'PageRank',
+  betweenness: 'betweenness',
+  community: 'community',
+};
 
 /** Structural subset of the deck.gl network handle the legend needs. */
 interface LegendHandle {
@@ -42,6 +57,16 @@ interface CacheEntry {
   positions: LayoutPositions;
 }
 const _layoutCache = new Map<string, CacheEntry>();
+
+// Parallel cache for the (pricier) node metrics, so an unrelated re-render
+// doesn't recompute betweenness/Louvain — keyed by the layout sig + the chosen
+// metric (metrics depend only on the graph, not on positions).
+interface MetricCacheEntry {
+  key: string;
+  values: Map<string, number> | null;
+  community: Map<string, number> | null;
+}
+const _metricCache = new Map<string, MetricCacheEntry>();
 
 /** L27: cheap order-sensitive hash of node ids, folded into the layout cache
  *  signature so a re-run with the same count but different nodes re-lays out. */
@@ -62,6 +87,7 @@ function hashNodeIds(nodes: ReadonlyArray<{ id: string }>): string {
  *  tab's lifetime. Called from Notebook.deleteCell. */
 export function disposeNetworkCell(id: string): void {
   _layoutCache.delete(id);
+  _metricCache.delete(id);
 }
 
 export function renderNetworkCell(
@@ -131,6 +157,9 @@ export function renderNetworkCell(
         case 'net-edge-width':
           patch.edgeWidthCol = sel.value || null;
           break;
+        case 'net-metric':
+          patch.nodeMetric = (sel.value || 'degree') as NodeMetric;
+          break;
       }
       handlers.onChange(cell.id, patch);
     });
@@ -168,11 +197,25 @@ function renderPickers(cell: NetworkCellState, cols: string[]): string {
           .join('')}
       </select>
     </label>`;
+  const metric = cell.nodeMetric ?? 'degree';
+  const metricPick = `
+    <label style="font-size:11px;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px;">
+      color/size by
+      <select data-action="net-metric" style="font-size:12px;">
+        ${(['degree', 'pagerank', 'betweenness', 'community'] as NodeMetric[])
+          .map(
+            (m) =>
+              `<option value="${m}" ${metric === m ? 'selected' : ''}>${METRIC_LABELS[m]}</option>`,
+          )
+          .join('')}
+      </select>
+    </label>`;
   return (
     pick('source', 'net-source', cell.sourceCol) +
     pick('target', 'net-target', cell.targetCol) +
     pick('edge color', 'net-edge-color', cell.edgeColorCol ?? null) +
-    pick('edge width', 'net-edge-width', cell.edgeWidthCol ?? null)
+    pick('edge width', 'net-edge-width', cell.edgeWidthCol ?? null) +
+    metricPick
   );
 }
 
@@ -302,12 +345,54 @@ async function renderGraph(
   // would leak an unreachable WebGL context. Bail — the live render mounts it.
   if (!mount.isConnected) return;
 
+  // Selected node metric → per-node colour/size. Degree is free (already on the
+  // node); the others are computed natively (core/graph-metrics.ts), guarded by
+  // node-count caps so a huge graph falls back to degree instead of janking.
+  const metric = cell.nodeMetric ?? 'degree';
+  let metricValues: Map<string, number> | null = null;
+  let communityOf: Map<string, number> | null = null;
+  let metricNote: string | null = null;
+  const metricKey = `${sig}|${metric}`;
+  const cachedMetric = _metricCache.get(cell.id);
+  if (cachedMetric?.key === metricKey) {
+    metricValues = cachedMetric.values;
+    communityOf = cachedMetric.community;
+  } else {
+    if (metric === 'pagerank') {
+      metricValues = pageRank(nodes, edges);
+    } else if (metric === 'betweenness') {
+      if (nodes.length <= BETWEENNESS_MAX_NODES) metricValues = betweennessCentrality(nodes, edges);
+      else
+        metricNote = `betweenness is limited to ${BETWEENNESS_MAX_NODES.toLocaleString()} nodes — showing degree`;
+    } else if (metric === 'community') {
+      if (nodes.length <= COMMUNITY_MAX_NODES) communityOf = louvainCommunities(nodes, edges);
+      else
+        metricNote = `communities are limited to ${COMMUNITY_MAX_NODES.toLocaleString()} nodes — showing degree`;
+    }
+    _metricCache.set(cell.id, { key: metricKey, values: metricValues, community: communityOf });
+  }
+
   // Render lists. `renderNodes` index === node index (used for highlight +
   // neighbour lookup); `idIndex` maps id → that index.
   const renderNodes = nodes.map((n) => {
     const p = positions.get(n.id) ?? [0, 0];
-    return { id: n.id, position: p as [number, number], degree: n.degree };
+    const base = { id: n.id, position: p as [number, number], degree: n.degree };
+    if (communityOf) {
+      // Categorical colour by community; size stays degree-driven.
+      return { ...base, community: communityOf.get(n.id) ?? 0, metricValue: n.degree };
+    }
+    if (metricValues) {
+      const v = metricValues.get(n.id) ?? 0;
+      const digits = metric === 'degree' ? 0 : 3;
+      return {
+        ...base,
+        metricValue: v,
+        metricLabel: `${METRIC_LABELS[metric]} ${v.toFixed(digits)}`,
+      };
+    }
+    return base;
   });
+  if (tip && metricNote) tip.textContent = metricNote;
   const idIndex = new Map<string, number>();
   renderNodes.forEach((n, i) => idIndex.set(n.id, i));
   const renderEdges = edges.flatMap((e) => {
