@@ -2,6 +2,58 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — Taxonomy breadth batch 2 · five more vertical packs, worktree-isolated (DV) [autopilot]
+
+### Decision DV — five more data-only vertical packs (G5–G9) on an isolated branch, fresh-eyes verified
+
+Third autopilot run of the day (worktree-isolated variant). Chunk 1 (Tier-3 ratification) is a
+supervised design call — its scope is downstream of 6 product decisions the draft reserves for the
+human — so autopilot correctly **parked** it rather than autofill and pre-empt the `/dev-process`
+session. Chunk 2 (C1–C3) is live-only. That left Chunk 3 (taxonomy breadth) as the autopilot-native
+scope. Shipped five packs in the proven G1–G4 shape, each fresh-eyes verified by a subagent that
+never saw the maker's reasoning:
+
+- **G5 · scientific/measurements** (`6919ce3`) — sensor_id, temperature, humidity, pressure,
+  measurement_unit + `sensor_readings`.
+- **G6 · risk/fraud/security** (`88dc455`) — fraud_flag, risk_score, auth_result, device_id,
+  card_last4 + `fraud_review` (risk_score/card_last4 secret, device_id pii).
+- **G7 · banking/payments/lending** (`8de68f4`) — transaction_amount, transaction_fee, debit_credit,
+  interest_rate, principal_amount + `banking_flows`.
+- **G8 · insurance** (`dfcfb42`) — policy_id, premium_amount, sum_insured, claim_status,
+  line_of_business + `insurance_book`.
+- **G9 · customer-support/success** (`46a3b23`) — ticket_id, ticket_status, support_priority,
+  first_response_minutes, csat_score + `support_sla`.
+
+Taxonomy **120 → 145 types / 15 → 20 domains**. Final whole-project gate on the branch: **1140 vitest ·
+check exit 0 · SMOKE PASSED · bundle 766.7/768 unchanged** (templates stay lazy).
+
+**The fresh-eyes verification earned its keep — it caught 3 real latent hijacks the maker missed**
+(all instances of the token-set matcher claiming a common generic column), each fixed + regression-tested
+before commit:
+- **G5:** `measurement_unit`'s bare `unit`/`units` would token-hijack `unit_price`/`unit_cost`/
+  `business_unit` → retightened to uom-specific patterns.
+- **G8:** `line_of_business`'s `product_line` (common retail column) + `sum_insured`'s `limit_amount`
+  (banking) → both retightened to domain-specific patterns.
+
+**Reversible calls (default-decision policy):**
+- Every pack routes its role IDs and patterns around existing owners (`sku` taken by retail →
+  supply-chain deferred; `account_id`→customer_id, `transaction_id`→order_id, bare `amount`/`balance`→
+  amount, `case_id`→encounter_id all avoided). Confirmed by collision-grep before authoring + the
+  fresh-eyes audits.
+- **G9 `support_priority` keeps bare `priority`/`severity`/`urgency`** — a bug-tracker `priority`
+  column would classify here outside a support context, but that's semantically adjacent (a priority
+  is a priority) and matches the codex role's canonical aliases. Accepted, not tightened.
+- **Stopped at 5 packs** (G10 supply-chain + the remaining verticals deferred) — a clean, fully-verified
+  increment within the run's budget; the fresh-eyes cadence is deliberate and takes real time.
+
+### Note — worktree isolation
+
+Ran on branch `autopilot/2026-07-14` in `.worktrees/autopilot-2026-07-14` (gitignored via a one-line
+setup commit on main, `baed6eb`, local/unpushed). `plan/` symlinked back to the canonical checkout.
+Pre-existing quirk surfaced: three `plan/codex-suggestions/*.md` files are still git-tracked (committed
+before `plan/` was gitignored) and show as deletions in the worktree; **never staged** (all commits are
+by explicit path). Worth untracking them in a future cleanup, but out of scope tonight.
+
 ## 2026-07-14 — G-series taxonomy breadth · four vertical domain packs (DU) [autopilot]
 
 ### Decision DU — expand taxonomy breadth with four data-only vertical packs (G1–G4)
