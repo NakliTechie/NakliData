@@ -1,0 +1,12 @@
+{
+  "domain": "healthcare",
+  "label": "Healthcare and clinical",
+  "types": [
+    "patient_id",
+    "diagnosis_code",
+    "encounter_id",
+    "length_of_stay",
+    "claim_amount"
+  ],
+  "report_templates": ["clinical_claims"]
+}

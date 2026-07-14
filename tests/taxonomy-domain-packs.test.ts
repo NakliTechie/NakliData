@@ -97,3 +97,29 @@ describe('G2 — education domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('education_performance');
   });
 });
+
+describe('G3 — healthcare / clinical domain pack', () => {
+  it('classifies patient_id / diagnosis_code / encounter_id / length_of_stay / claim_amount', () => {
+    expect(top('patient_id', ['P0001', 'P0002', 'P0003'])).toBe('patient_id');
+    expect(top('icd10', ['E11.9', 'I10', 'J45.909'])).toBe('diagnosis_code');
+    expect(top('encounter_id', ['E1', 'E2', 'E3'])).toBe('encounter_id');
+    expect(top('length_of_stay', ['3', '5', '2'], 'INTEGER')).toBe('length_of_stay');
+    expect(top('claim_amount', ['1200', '4500', '890'], 'DOUBLE')).toBe('claim_amount');
+  });
+  it('clinical identifiers are sensitivity-marked (secret / financial)', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'patient_id')?.sensitivity).toBe('secret');
+    expect(BUNDLE.types.find((t) => t.id === 'diagnosis_code')?.sensitivity).toBe('secret');
+    expect(BUNDLE.types.find((t) => t.id === 'claim_amount')?.sensitivity).toBe('financial');
+  });
+  it('claim_amount does NOT hijack a bare "amount" column', () => {
+    expect(top('amount', ['10', '20', '30'], 'INTEGER')).not.toBe('claim_amount');
+  });
+  it('clinical_claims surfaces when diagnosis_code + claim_amount present', () => {
+    expect(templateIds(['diagnosis_code', 'claim_amount', 'length_of_stay'])).toContain(
+      'clinical_claims',
+    );
+  });
+  it('clinical_claims does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('clinical_claims');
+  });
+});

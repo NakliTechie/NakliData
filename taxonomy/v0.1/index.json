@@ -80,6 +80,12 @@
       "label": "Education",
       "description": "Student IDs, grade level, course, score and completion status \u2014 school / LMS / assessment exports.",
       "domain_file": "domains/education.json"
+    },
+    {
+      "id": "healthcare",
+      "label": "Healthcare and clinical",
+      "description": "Patient / encounter IDs, diagnosis codes, length of stay and claim amounts \u2014 clinical, claims and EHR exports. Sensitivity-marked (secret/financial).",
+      "domain_file": "domains/healthcare.json"
     }
   ],
   "types_file": "types.jsonl",

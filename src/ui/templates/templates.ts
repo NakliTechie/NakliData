@@ -1026,6 +1026,37 @@ LIMIT 30`,
   },
 };
 
+// G3 — Healthcare / clinical domain pack (claims brief).
+export const CLINICAL_CLAIMS: Template = {
+  id: 'clinical_claims',
+  name: 'Clinical claims brief',
+  description:
+    'Encounter count and total claim amount by diagnosis — with average length of stay when present. Fits claims / EHR exports.',
+  requiredTypes: ['diagnosis_code', 'claim_amount'],
+  optionalTypes: ['length_of_stay'],
+  instantiate(m) {
+    const dx = m.diagnosis_code!;
+    const amount = m.claim_amount!;
+    const los = m.length_of_stay;
+    const losSelect = los ? `,\n       ROUND(AVG(${q(los.column)}), 1) AS avg_length_of_stay` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Clinical claims brief\n\nEncounter count and total claim amount by diagnosis.'),
+      sql(
+        'claims_by_diagnosis',
+        `SELECT ${q(dx.column)} AS diagnosis,
+       COUNT(*) AS encounters,
+       ROUND(SUM(${q(amount.column)}), 0) AS total_claim_amount${losSelect}
+FROM ${q(dx.table)}
+GROUP BY 1
+ORDER BY total_claim_amount DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'claims_by_diagnosis', 'diagnosis', 'total_claim_amount'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1047,6 +1078,7 @@ export const ALL_TEMPLATES: Template[] = [
   HR_WORKFORCE,
   REAL_ESTATE_INVENTORY,
   EDUCATION_PERFORMANCE,
+  CLINICAL_CLAIMS,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────
