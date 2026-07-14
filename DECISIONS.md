@@ -2,6 +2,25 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — B2 · HR/people domain pack (DS) [autopilot]
+
+### Decision DS — the vertical pack is HR/people; five types + a workforce template
+
+B2 = "one vertical domain pack, highest-value of HR/people · healthcare/FHIR · contracting/OCDS." **Assumption
+(default-decision policy, unattended):** picked **HR/people** — the most universal of the three (nearly every
+org has an HRIS; FHIR and OCDS are domain-specialist), and the closest in shape to the retail/media packs
+already shipped, so it's the lowest-risk data-only add. FHIR/OCDS remain open for a later, supervised pass
+(they carry richer nested structures worth a design discussion).
+
+New `hr-people` domain (5 types, header-matched, mirroring retail): `employee_id` (sensitivity **pii** →
+anonymize hashes it), `job_title`, `department`, `compensation` (sensitivity **financial** → anonymize
+**buckets** it), `tenure_years`. One report template `hr_workforce` (headcount + avg compensation by
+department, + avg tenure when present). Collision guards: `job_title` deliberately omits bare `title`
+(→ `content_title`, media) and bare `role`; `compensation` is salary-specific (not bare `income`), so it
+doesn't shadow the generic `amount`. Fixtures mirror the IBM HR Attrition dataset. Demo classification
+unchanged (typed=20 / unknown=0). Taxonomy 95 → 100 types / 11 domains. Gates: check clean · 1100 vitest ·
+smoke green. Commit `00a919f`.
+
 ## 2026-07-14 — A4 · Scoped report-refresh (DR) [autopilot]
 
 ### Decision DR — refresh a report's dependency subgraph, not the whole notebook
