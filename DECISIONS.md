@@ -2,6 +2,52 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — G-series taxonomy breadth · four vertical domain packs (DU) [autopilot]
+
+### Decision DU — expand taxonomy breadth with four data-only vertical packs (G1–G4)
+
+Second autopilot run of the day. The open workplan was blocked on live-only (C1/C2/C3, E1) and
+design-call (D1 ratify) / product-call (E2 S6/S7) items — none safely autonomous. The one category
+with real value **and** full headless verification is taxonomy breadth: data-only vertical packs in
+the proven B2/retail/media shape (`types.jsonl` + `domains/*.json` + `index.json` + a report template
++ classification tests + smoke). The codex backlog's own implementation-order step 7 names the
+remaining batch: *"real estate, HR, healthcare, education, public sector, scientific"* (HR shipped as
+B2). Shipped four of them:
+
+- **G1 · real-estate** (`4fb675c`) — property_type, bedrooms, bathrooms, square_feet, sale_price +
+  `real_estate_inventory`.
+- **G2 · education** (`ff50d51`) — student_id, grade_level, course_name, score_percent,
+  completion_status + `education_performance`.
+- **G3 · healthcare/clinical** (`a23fe7f`) — patient_id, diagnosis_code, encounter_id,
+  length_of_stay, claim_amount + `clinical_claims`.
+- **G4 · public-sector/demographics** (`67c8cc3`) — population, households, median_income,
+  unemployment_rate, age_band + `demographic_summary` (cross-links geography's `state_region`).
+
+Taxonomy **100 → 120 types / 11 → 15 domains**. 1119 vitest, check clean, **smoke PASSED**, bundle
+**766.7/768 unchanged** (report templates ride the lazy `report-templates` chunk, so new templates
+never touch the shell budget — the same posture A3 established).
+
+**Reversible calls made (all logged here so a supervised session can revisit):**
+- **Anti-hijack: specific-alias-only, never bare generic headers.** Every new type that risked
+  colliding with an existing generic type deliberately omits the bare word: `sale_price` omits
+  `price` (marketplace/retail), `score_percent` omits `score`/`percentage` (owned by
+  `probability`/`percentage`), `claim_amount` omits `amount`, `age_band` omits `age` (owned by
+  `age_years`). Each has a regression test asserting the non-collision. Same design as B1's 0.9
+  confidence-floor guard.
+- **Sensitivity marking follows the field, not the dataset.** Marked only fields that are themselves
+  sensitive: student_id/score_percent (pii); patient_id/diagnosis_code/encounter_id (secret);
+  sale_price/claim_amount/median_income (financial). Status/outcome columns (completion_status,
+  length_of_stay) left public even in a sensitive dataset — matches how retail/media status fields
+  are handled and keeps demo-masking targeted.
+- **G4 deferred race/gender aggregates.** The codex public-sector list includes `race_ethnicity` and
+  `gender_aggregate` (sensitive aggregates). Left out this round — the PII-vs-aggregate sensitivity
+  nuance is a judgment call better made supervised; the five demographic aggregates shipped are
+  unambiguously public/financial.
+- **Scope: stopped at four packs.** Codex step-7 also lists scientific/measurements (and the doc has
+  many more verticals: risk/fraud, banking, insurance, energy, manufacturing, legal, nonprofit,
+  agriculture, sports, research). Left for a future breadth batch — four is a clean, fully-verified
+  increment; more would grow the run without new verification value.
+
 ## 2026-07-14 — E2 (partial) · dead-export cleanup (DT) [autopilot]
 
 ### Decision DT — do the safe surface reduction (S18), park the judgment-call deletions (S6/S7)
