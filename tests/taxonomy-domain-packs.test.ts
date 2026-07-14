@@ -210,3 +210,30 @@ describe('G7 — banking / payments / lending domain pack', () => {
     );
   });
 });
+
+describe('G8 — insurance domain pack', () => {
+  it('classifies policy_id / premium_amount / sum_insured / claim_status / line_of_business', () => {
+    expect(top('policy_number', ['PN-1', 'PN-2', 'PN-3'])).toBe('policy_id');
+    expect(top('gross_premium', ['1200', '4500', '890'], 'DOUBLE')).toBe('premium_amount');
+    expect(top('coverage_amount', ['500000', '250000', '80000'], 'BIGINT')).toBe('sum_insured');
+    expect(top('claim_status', ['open', 'settled', 'rejected'])).toBe('claim_status');
+    expect(top('line_of_business', ['Motor', 'Health', 'Life'])).toBe('line_of_business');
+  });
+  it('policy_id + premium/sum are marked financial', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'policy_id')?.sensitivity).toBe('financial');
+    expect(BUNDLE.types.find((t) => t.id === 'premium_amount')?.sensitivity).toBe('financial');
+  });
+  it('insurance_book surfaces when line_of_business + premium_amount present', () => {
+    expect(templateIds(['line_of_business', 'premium_amount', 'sum_insured'])).toContain(
+      'insurance_book',
+    );
+  });
+  it('does NOT hijack a retail "product_line" or a banking "limit_amount" column', () => {
+    // line_of_business drops bare product_line/business_line; sum_insured drops limit_amount.
+    expect(top('product_line', ['Shoes', 'Bags', 'Hats'])).not.toBe('line_of_business');
+    expect(top('limit_amount', ['50000', '100000', '25000'], 'BIGINT')).not.toBe('sum_insured');
+  });
+  it('insurance_book does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('insurance_book');
+  });
+});

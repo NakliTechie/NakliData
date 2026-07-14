@@ -110,6 +110,12 @@
       "label": "Banking, payments and lending",
       "description": "Transaction amounts/fees, debit-credit indicator, interest rate and loan principal \u2014 payments, banking and lending exports.",
       "domain_file": "domains/banking.json"
+    },
+    {
+      "id": "insurance",
+      "label": "Insurance",
+      "description": "Policy IDs, premium, sum insured, claim status and line of business \u2014 insurance policy / claims book exports.",
+      "domain_file": "domains/insurance.json"
     }
   ],
   "types_file": "types.jsonl",

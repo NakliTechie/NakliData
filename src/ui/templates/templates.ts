@@ -1190,6 +1190,39 @@ LIMIT 30`,
   },
 };
 
+// G8 — Insurance domain pack (policy book brief).
+export const INSURANCE_BOOK: Template = {
+  id: 'insurance_book',
+  name: 'Policy book brief',
+  description:
+    'Policy count and total premium by line of business — with total sum insured when present. Fits insurance policy / claims exports.',
+  requiredTypes: ['line_of_business', 'premium_amount'],
+  optionalTypes: ['sum_insured'],
+  instantiate(m) {
+    const lob = m.line_of_business!;
+    const premium = m.premium_amount!;
+    const insured = m.sum_insured;
+    const insuredSelect = insured
+      ? `,\n       ROUND(SUM(${q(insured.column)}), 0) AS total_sum_insured`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Policy book brief\n\nPolicy count and total premium by line of business.'),
+      sql(
+        'book_by_line_of_business',
+        `SELECT ${q(lob.column)} AS line_of_business,
+       COUNT(*) AS policies,
+       ROUND(SUM(${q(premium.column)}), 0) AS total_premium${insuredSelect}
+FROM ${q(lob.table)}
+GROUP BY 1
+ORDER BY total_premium DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'book_by_line_of_business', 'line_of_business', 'total_premium'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1216,6 +1249,7 @@ export const ALL_TEMPLATES: Template[] = [
   SENSOR_READINGS,
   FRAUD_REVIEW,
   BANKING_FLOWS,
+  INSURANCE_BOOK,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

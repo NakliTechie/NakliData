@@ -1,0 +1,14 @@
+{
+  "domain": "insurance",
+  "label": "Insurance",
+  "types": [
+    "policy_id",
+    "premium_amount",
+    "sum_insured",
+    "claim_status",
+    "line_of_business"
+  ],
+  "report_templates": [
+    "insurance_book"
+  ]
+}
