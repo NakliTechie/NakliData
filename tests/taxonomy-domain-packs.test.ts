@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyColumn } from '../src/taxonomy/classify.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
+import { parseUniversalLayer, sensitivityForType } from '../src/taxonomy/universal.ts';
 import {
   ALL_TEMPLATES,
   type ColumnRef,
@@ -22,7 +23,11 @@ function loadBundle(): TaxonomyBundle {
     .map((l) => l.trim())
     .filter(Boolean)
     .map((l) => JSON.parse(l) as TypeSpec);
-  return { version: '0.1', released: '2026-05-15', domains: [], types };
+  const universal = parseUniversalLayer(
+    readFileSync(join(BASE, 'universal', 'universal-terms.jsonl'), 'utf8'),
+    readFileSync(join(BASE, 'universal', 'crosswalk.jsonl'), 'utf8'),
+  );
+  return { version: '0.1', released: '2026-05-15', domains: [], types, universal };
 }
 const BUNDLE = loadBundle();
 
@@ -54,7 +59,7 @@ describe('G1 — real-estate domain pack', () => {
     expect(top('sale_price', ['450000', '620000', '310000'], 'BIGINT')).toBe('sale_price');
   });
   it('sale_price is marked financial', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'sale_price')?.sensitivity).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'sale_price')).toBe('financial');
   });
   it('does NOT hijack a bare "price" column as sale_price', () => {
     // sale_price deliberately omits bare "price" to avoid marketplace/retail collisions.
@@ -81,8 +86,8 @@ describe('G2 — education domain pack', () => {
     );
   });
   it('student_id + score_percent are marked pii', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'student_id')?.sensitivity).toBe('pii');
-    expect(BUNDLE.types.find((t) => t.id === 'score_percent')?.sensitivity).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'student_id')).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'score_percent')).toBe('pii');
   });
   it('score_percent does NOT hijack a bare "score"/"percentage" column (owned by probability/percentage)', () => {
     expect(top('score', ['0.8', '0.6', '0.9'], 'DOUBLE')).not.toBe('score_percent');
@@ -107,9 +112,9 @@ describe('G3 — healthcare / clinical domain pack', () => {
     expect(top('claim_amount', ['1200', '4500', '890'], 'DOUBLE')).toBe('claim_amount');
   });
   it('clinical identifiers are sensitivity-marked (secret / financial)', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'patient_id')?.sensitivity).toBe('secret');
-    expect(BUNDLE.types.find((t) => t.id === 'diagnosis_code')?.sensitivity).toBe('secret');
-    expect(BUNDLE.types.find((t) => t.id === 'claim_amount')?.sensitivity).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'patient_id')).toBe('secret');
+    expect(sensitivityForType(BUNDLE, 'diagnosis_code')).toBe('secret');
+    expect(sensitivityForType(BUNDLE, 'claim_amount')).toBe('financial');
   });
   it('claim_amount does NOT hijack a bare "amount" column', () => {
     expect(top('amount', ['10', '20', '30'], 'INTEGER')).not.toBe('claim_amount');
@@ -176,9 +181,9 @@ describe('G6 — risk / fraud / security domain pack', () => {
     expect(top('card_last4', ['4242', '1881', '0002'])).toBe('card_last4');
   });
   it('risk-fraud identifiers are sensitivity-marked (secret / pii)', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'risk_score')?.sensitivity).toBe('secret');
-    expect(BUNDLE.types.find((t) => t.id === 'card_last4')?.sensitivity).toBe('secret');
-    expect(BUNDLE.types.find((t) => t.id === 'device_id')?.sensitivity).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'risk_score')).toBe('secret');
+    expect(sensitivityForType(BUNDLE, 'card_last4')).toBe('secret');
+    expect(sensitivityForType(BUNDLE, 'device_id')).toBe('pii');
   });
   it('risk_score does NOT hijack a bare "score" column (owned by probability)', () => {
     expect(top('score', ['0.8', '0.6', '0.9'], 'DOUBLE')).not.toBe('risk_score');
@@ -197,8 +202,8 @@ describe('G7 — banking / payments / lending domain pack', () => {
     expect(top('loan_amount', ['500000', '250000', '80000'], 'BIGINT')).toBe('principal_amount');
   });
   it('banking amounts are marked financial', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'transaction_amount')?.sensitivity).toBe('financial');
-    expect(BUNDLE.types.find((t) => t.id === 'principal_amount')?.sensitivity).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'transaction_amount')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'principal_amount')).toBe('financial');
   });
   it('transaction_amount does NOT hijack a bare "amount"/"balance" column', () => {
     expect(top('amount', ['10', '20', '30'], 'INTEGER')).not.toBe('transaction_amount');
@@ -220,8 +225,8 @@ describe('G8 — insurance domain pack', () => {
     expect(top('line_of_business', ['Motor', 'Health', 'Life'])).toBe('line_of_business');
   });
   it('policy_id + premium/sum are marked financial', () => {
-    expect(BUNDLE.types.find((t) => t.id === 'policy_id')?.sensitivity).toBe('financial');
-    expect(BUNDLE.types.find((t) => t.id === 'premium_amount')?.sensitivity).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'policy_id')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'premium_amount')).toBe('financial');
   });
   it('insurance_book surfaces when line_of_business + premium_amount present', () => {
     expect(templateIds(['line_of_business', 'premium_amount', 'sum_insured'])).toContain(

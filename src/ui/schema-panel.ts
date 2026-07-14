@@ -9,6 +9,7 @@ import type { ColumnProfile } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
+import { sensitivityForType } from '../taxonomy/universal.ts';
 import { Monsoon, Neutral } from '../tokens/colors.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import type { CellState } from './cells/types.ts';
@@ -284,9 +285,11 @@ function renderColumnRow(
   // W5.4 — Sensitivity label badge. Renders only for non-public types.
   // PII / financial / secret each get their own muted-color chip; the
   // title attribute carries the long-form explanation for hover.
-  const assignedSensitivity = a.assigned.typeId
-    ? (bundle?.types.find((t) => t.id === a.assigned.typeId)?.sensitivity ?? null)
-    : null;
+  // Sensitivity is resolved via the Tier-3 crosswalk (universal layer), not
+  // off the type spec — decision #4 migrated it there. Public/unmapped → the
+  // badge renderer hides it, matching the pre-migration behaviour.
+  const assignedSensitivity =
+    a.assigned.typeId && bundle ? sensitivityForType(bundle, a.assigned.typeId) : null;
   const sensitivityBadge = renderSensitivityBadge(assignedSensitivity);
   const confidencePct = (a.assigned.confidence * 100).toFixed(0);
   const confidenceColor = confidenceToColor(a.assigned.confidence);

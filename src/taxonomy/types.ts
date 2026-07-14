@@ -58,8 +58,9 @@ export interface TypeSpec {
   detectors: DetectorSpec[];
   confidence_floor: number;
   seed_origin?: string;
-  /** Sensitivity classification — see {@link TypeSensitivity}. Optional; defaults to `'public'`. */
-  sensitivity?: TypeSensitivity;
+  // Sensitivity is NO LONGER on the type (decision #4, 2026-07-14): it migrated
+  // to the Tier-3 universal layer. Resolve it with `sensitivityForType(bundle,
+  // typeId)` from `./universal.ts`, never off this spec.
 }
 
 export interface DomainSpec {

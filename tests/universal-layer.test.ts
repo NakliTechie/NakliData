@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { defaultStrategyForSensitivity } from '../src/core/anonymize.ts';
 import type { TaxonomyBundle, TypeSensitivity, TypeSpec } from '../src/taxonomy/types.ts';
 import {
   parseUniversalLayer,
@@ -128,5 +129,28 @@ describe('universal layer — SENSITIVITY PARITY CONTRACT (decision #4)', () => 
       if (got !== want) mismatches.push(`${t.id}: got ${got}, want ${want}`);
     }
     expect(mismatches).toEqual([]);
+  });
+
+  it('the anonymize STRATEGY is unchanged for every type (crosswalk → default strategy)', () => {
+    // The anonymize sink now resolves sensitivity via sensitivityForType (the
+    // migrated seam). Prove the strategy each column gets is identical to what
+    // the pre-migration sensitivity produced — the real risk of decision #4.
+    const mismatches: string[] = [];
+    for (const t of types) {
+      const migrated = defaultStrategyForSensitivity(sensitivityForType(bundle, t.id));
+      const pre = defaultStrategyForSensitivity(golden[t.id] ?? 'public');
+      if (migrated !== pre) mismatches.push(`${t.id}: ${migrated} != ${pre}`);
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it('exemplar sensitive columns still drive the right anonymize strategy', () => {
+    // secret→redact, pii→hash, financial→bucket, public→keep — end to end.
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'api_key'))).toBe('redact');
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'patient_id'))).toBe('redact');
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'email'))).toBe('hash');
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'amount'))).toBe('bucket');
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'card_last4'))).toBe('redact');
+    expect(defaultStrategyForSensitivity(sensitivityForType(bundle, 'room_type'))).toBe('keep');
   });
 });
