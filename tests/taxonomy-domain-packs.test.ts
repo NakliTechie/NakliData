@@ -353,3 +353,21 @@ describe('Tier-3 (A36) — generic role-family template (metric_by_dimension)', 
     expect(sqlCell?.code).toContain('compensation'); // the measure column
   });
 });
+
+describe('G12 — manufacturing / quality domain pack', () => {
+  it('classifies work_order_id / produced_quantity / defect_count / yield_rate / quality_result', () => {
+    expect(top('work_order', ['WO-1', 'WO-2', 'WO-3'])).toBe('work_order_id');
+    expect(top('output_qty', ['1200', '980', '1500'], 'INTEGER')).toBe('produced_quantity');
+    expect(top('defects', ['3', '0', '7'], 'INTEGER')).toBe('defect_count');
+    expect(top('first_pass_yield', ['0.98', '0.91', '0.99'], 'DOUBLE')).toBe('yield_rate');
+    expect(top('inspection_result', ['pass', 'fail', 'pass'])).toBe('quality_result');
+  });
+  it('produced_quantity does NOT hijack the retail bare "quantity" (owned by quantity)', () => {
+    expect(top('quantity', ['2', '5', '1'], 'INTEGER')).not.toBe('produced_quantity');
+  });
+  it('production_quality surfaces when quality_result + produced_quantity present', () => {
+    expect(templateIds(['quality_result', 'produced_quantity', 'defect_count'])).toContain(
+      'production_quality',
+    );
+  });
+});

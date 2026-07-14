@@ -153,3 +153,8 @@
 {"role":"demand_kw","universalTerm":"ut:physical_measurement"}
 {"role":"tariff_code","universalTerm":"ut:category","sensitivity":"financial"}
 {"role":"outage_minutes","universalTerm":"ut:duration"}
+{"role":"work_order_id","universalTerm":"ut:record_identifier"}
+{"role":"produced_quantity","universalTerm":"ut:count"}
+{"role":"defect_count","universalTerm":"ut:count"}
+{"role":"yield_rate","universalTerm":"ut:percentage"}
+{"role":"quality_result","universalTerm":"ut:status"}

@@ -1361,6 +1361,36 @@ LIMIT 30`,
   },
 };
 
+// G12 — Manufacturing / quality domain pack (production quality brief).
+export const PRODUCTION_QUALITY: Template = {
+  id: 'production_quality',
+  name: 'Production quality brief',
+  description:
+    'Total produced quantity by quality result — with total defects when present. Fits manufacturing / production / QC exports.',
+  requiredTypes: ['quality_result', 'produced_quantity'],
+  optionalTypes: ['defect_count'],
+  instantiate(m) {
+    const qr = m.quality_result!;
+    const qty = m.produced_quantity!;
+    const defect = m.defect_count;
+    const defectSelect = defect ? `,\n       SUM(${q(defect.column)}) AS total_defects` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Production quality brief\n\nTotal produced quantity by quality result.'),
+      sql(
+        'output_by_quality_result',
+        `SELECT ${q(qr.column)} AS quality_result,
+       SUM(${q(qty.column)}) AS total_produced${defectSelect}
+FROM ${q(qr.table)}
+GROUP BY 1
+ORDER BY total_produced DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'output_by_quality_result', 'quality_result', 'total_produced'),
+    ];
+    return cells;
+  },
+};
+
 // Tier-3 (A36) — the generic role-family template. Surfaces for ANY workbook
 // with a measure-family column and a dimension-family column (from one table),
 // even when no vertical template matches — e.g. a `compensation`/`usage_kwh`/
@@ -1424,6 +1454,7 @@ export const ALL_TEMPLATES: Template[] = [
   SUPPORT_SLA,
   INVENTORY_HEALTH,
   CONSUMPTION_SUMMARY,
+  PRODUCTION_QUALITY,
   METRIC_BY_DIMENSION,
 ];
 
