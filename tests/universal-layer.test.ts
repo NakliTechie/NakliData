@@ -157,25 +157,29 @@ describe('anonymize FAIL-CLOSED guard (security — no plaintext leak on missing
 });
 
 describe('universal layer — SENSITIVITY PARITY CONTRACT (decision #4)', () => {
-  it('sensitivityForType matches the pre-migration types.jsonl value for ALL 145 types', () => {
+  // Scope: the contract is that the MIGRATION preserved every type that existed
+  // at migration time — i.e. the golden snapshot's 145 types. Types added to
+  // later packs were never in types.jsonl-with-sensitivity, so they're out of
+  // this contract's scope (covered by their own pack tests) — iterate golden.
+  const goldenIds = Object.keys(golden);
+  it('sensitivityForType matches the pre-migration types.jsonl value for all 145 golden types', () => {
     const mismatches: string[] = [];
-    for (const t of types) {
-      const got = sensitivityForType(bundle, t.id);
-      const want = golden[t.id] ?? 'public';
-      if (got !== want) mismatches.push(`${t.id}: got ${got}, want ${want}`);
+    for (const id of goldenIds) {
+      const got = sensitivityForType(bundle, id);
+      if (got !== golden[id]) mismatches.push(`${id}: got ${got}, want ${golden[id]}`);
     }
     expect(mismatches).toEqual([]);
   });
 
-  it('the anonymize STRATEGY is unchanged for every type (crosswalk → default strategy)', () => {
+  it('the anonymize STRATEGY is unchanged for every golden type (crosswalk → default strategy)', () => {
     // The anonymize sink now resolves sensitivity via sensitivityForType (the
     // migrated seam). Prove the strategy each column gets is identical to what
     // the pre-migration sensitivity produced — the real risk of decision #4.
     const mismatches: string[] = [];
-    for (const t of types) {
-      const migrated = defaultStrategyForSensitivity(sensitivityForType(bundle, t.id));
-      const pre = defaultStrategyForSensitivity(golden[t.id] ?? 'public');
-      if (migrated !== pre) mismatches.push(`${t.id}: ${migrated} != ${pre}`);
+    for (const id of goldenIds) {
+      const migrated = defaultStrategyForSensitivity(sensitivityForType(bundle, id));
+      const pre = defaultStrategyForSensitivity(golden[id] ?? 'public');
+      if (migrated !== pre) mismatches.push(`${id}: ${migrated} != ${pre}`);
     }
     expect(mismatches).toEqual([]);
   });

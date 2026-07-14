@@ -1254,6 +1254,38 @@ LIMIT 30`,
   },
 };
 
+// G10 — Supply chain / procurement domain pack (inventory health brief).
+export const INVENTORY_HEALTH: Template = {
+  id: 'inventory_health',
+  name: 'Inventory health brief',
+  description:
+    'Total on-hand inventory by warehouse — with average lead time when present. Fits procurement / inventory / logistics exports.',
+  requiredTypes: ['warehouse_id', 'inventory_quantity'],
+  optionalTypes: ['lead_time_days'],
+  instantiate(m) {
+    const wh = m.warehouse_id!;
+    const inv = m.inventory_quantity!;
+    const lead = m.lead_time_days;
+    const leadSelect = lead
+      ? `,\n       ROUND(AVG(${q(lead.column)}), 1) AS avg_lead_time_days`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Inventory health brief\n\nTotal on-hand inventory by warehouse.'),
+      sql(
+        'inventory_by_warehouse',
+        `SELECT ${q(wh.column)} AS warehouse,
+       SUM(${q(inv.column)}) AS total_inventory${leadSelect}
+FROM ${q(wh.table)}
+GROUP BY 1
+ORDER BY total_inventory DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'inventory_by_warehouse', 'warehouse', 'total_inventory'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1282,6 +1314,7 @@ export const ALL_TEMPLATES: Template[] = [
   BANKING_FLOWS,
   INSURANCE_BOOK,
   SUPPORT_SLA,
+  INVENTORY_HEALTH,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

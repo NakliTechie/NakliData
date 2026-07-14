@@ -264,3 +264,28 @@ describe('G9 — customer support / success domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('support_sla');
   });
 });
+
+describe('G10 — supply-chain / procurement domain pack', () => {
+  it('classifies purchase_order_id / warehouse_id / inventory_quantity / lead_time_days / unit_cost', () => {
+    expect(top('po_number', ['PO-1', 'PO-2', 'PO-3'])).toBe('purchase_order_id');
+    expect(top('warehouse_id', ['W1', 'W2', 'W3'])).toBe('warehouse_id');
+    expect(top('stock_on_hand', ['120', '45', '600'], 'INTEGER')).toBe('inventory_quantity');
+    expect(top('lead_time_days', ['7', '14', '3'], 'INTEGER')).toBe('lead_time_days');
+    expect(top('unit_cost', ['12.5', '9.0', '15.0'], 'DOUBLE')).toBe('unit_cost');
+  });
+  it('sensitivity resolves via the crosswalk (unit_cost + PO are financial)', () => {
+    expect(sensitivityForType(BUNDLE, 'unit_cost')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'purchase_order_id')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'warehouse_id')).toBe('public');
+  });
+  it('does NOT redefine the retail "sku" or hijack finance "supplier" (routed around owners)', () => {
+    // supply-chain deliberately omits sku (retail owns it) and supplier (vendor_name owns it).
+    expect(top('sku', ['A1', 'B2', 'C3'])).toBe('sku'); // still the retail type, not a supply-chain one
+    expect(top('supplier_name', ['Acme', 'Globex', 'Initech'])).toBe('vendor_name');
+  });
+  it('inventory_health surfaces when warehouse_id + inventory_quantity present', () => {
+    expect(templateIds(['warehouse_id', 'inventory_quantity', 'lead_time_days'])).toContain(
+      'inventory_health',
+    );
+  });
+});
