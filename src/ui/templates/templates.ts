@@ -1157,6 +1157,39 @@ LIMIT 30`,
   },
 };
 
+// G7 — Banking / payments / lending domain pack (transaction flows brief).
+export const BANKING_FLOWS: Template = {
+  id: 'banking_flows',
+  name: 'Transaction flows brief',
+  description:
+    'Transaction count and total amount by debit/credit direction — with total fees when present. Fits payments / banking exports.',
+  requiredTypes: ['debit_credit', 'transaction_amount'],
+  optionalTypes: ['transaction_fee'],
+  instantiate(m) {
+    const drcr = m.debit_credit!;
+    const amount = m.transaction_amount!;
+    const fee = m.transaction_fee;
+    const feeSelect = fee ? `,\n       ROUND(SUM(${q(fee.column)}), 0) AS total_fees` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md(
+        '# Transaction flows brief\n\nTransaction count and total amount by debit/credit direction.',
+      ),
+      sql(
+        'flows_by_direction',
+        `SELECT ${q(drcr.column)} AS direction,
+       COUNT(*) AS transactions,
+       ROUND(SUM(${q(amount.column)}), 0) AS total_amount${feeSelect}
+FROM ${q(drcr.table)}
+GROUP BY 1
+ORDER BY total_amount DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'flows_by_direction', 'direction', 'total_amount'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1182,6 +1215,7 @@ export const ALL_TEMPLATES: Template[] = [
   DEMOGRAPHIC_SUMMARY,
   SENSOR_READINGS,
   FRAUD_REVIEW,
+  BANKING_FLOWS,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

@@ -187,3 +187,26 @@ describe('G6 — risk / fraud / security domain pack', () => {
     expect(templateIds(['auth_result', 'risk_score', 'fraud_flag'])).toContain('fraud_review');
   });
 });
+
+describe('G7 — banking / payments / lending domain pack', () => {
+  it('classifies transaction_amount / transaction_fee / debit_credit / interest_rate / principal_amount', () => {
+    expect(top('txn_amount', ['1200', '450', '89'], 'DOUBLE')).toBe('transaction_amount');
+    expect(top('processing_fee', ['2.5', '1.0', '3.2'], 'DOUBLE')).toBe('transaction_fee');
+    expect(top('dr_cr', ['DR', 'CR', 'DR'])).toBe('debit_credit');
+    expect(top('interest_rate', ['7.5', '9.2', '6.0'], 'DOUBLE')).toBe('interest_rate');
+    expect(top('loan_amount', ['500000', '250000', '80000'], 'BIGINT')).toBe('principal_amount');
+  });
+  it('banking amounts are marked financial', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'transaction_amount')?.sensitivity).toBe('financial');
+    expect(BUNDLE.types.find((t) => t.id === 'principal_amount')?.sensitivity).toBe('financial');
+  });
+  it('transaction_amount does NOT hijack a bare "amount"/"balance" column', () => {
+    expect(top('amount', ['10', '20', '30'], 'INTEGER')).not.toBe('transaction_amount');
+    expect(top('balance', ['100', '200', '300'], 'INTEGER')).not.toBe('transaction_amount');
+  });
+  it('banking_flows surfaces when debit_credit + transaction_amount present', () => {
+    expect(templateIds(['debit_credit', 'transaction_amount', 'transaction_fee'])).toContain(
+      'banking_flows',
+    );
+  });
+});
