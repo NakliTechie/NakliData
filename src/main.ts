@@ -390,11 +390,23 @@ async function boot(): Promise<void> {
     }
     bootOpts = sameOrigin ? { offline: true } : { offline: true, fallbackBase: FALLBACK_MIRROR };
   }
-  // H6 (spike, opt-in): `?verify=1` turns on the preflight SHA-384 integrity
-  // check of the DuckDB worker + wasm bytes before instantiate. Off by default
-  // — promoting it (esp. for the cross-origin mirror) needs live-browser
-  // verification first (see DECISIONS 2026-07-09 / plan forward-pass report).
-  if (params.has('verify')) bootOpts.verifyIntegrity = true;
+  // H6 (ratified 2026-07-14, DECISIONS DY): preflight SHA-384 integrity check of
+  // the DuckDB worker + wasm bytes before instantiate. Fail-closed, additive
+  // (no blob-worker change). Promotion policy:
+  //   - `?verify=0`            → OFF (escape hatch if the check ever regresses boot).
+  //   - `?verify` / `?verify=1`→ ON, including the cross-origin mirror path.
+  //   - default (no param)     → ON for the SAME-ORIGIN vendored path only; the
+  //     cross-origin mirror stays opt-in because its preflight is TOCTOU-sensitive
+  //     and can't be verified without a live cross-origin (GH-Pages) browser test
+  //     (owed — same wall as C1/C3). The same-origin default is smoke-verified.
+  const verifyParam = params.get('verify');
+  if (verifyParam === '0') {
+    bootOpts.verifyIntegrity = false;
+  } else if (params.has('verify')) {
+    bootOpts.verifyIntegrity = true;
+  } else {
+    bootOpts.verifyIntegrity = !bootOpts.fallbackBase;
+  }
   try {
     await engine.boot(bootOpts);
   } catch (err) {

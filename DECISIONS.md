@@ -2,6 +2,40 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — Decision-clearout: E2 delete · H6 default · S11 exemption · breadth G14–16 (DY) [autopilot run 6]
+
+### Decision DY — six ratified decisions executed (four with work, three resolved no-work)
+
+Ran the six open questions to ground, then autopilot executed the work-bearing ones (worktree-isolated,
+ships-on-green). User ratifications:
+
+- **E2 · delete the dead exports** — removed the never-wired DuckDB-VSS SQL path from `embed-search.ts`
+  (`embedSearch`/`buildVssSql`/`formatVector` + the `QueryRunner`/`VssSqlOptions` types + internal
+  `quoteIdent`) and `applicableMeasures` from `measures.ts`. **KEPT the live surface** — `rankBySimilarity`
+  + `cosineSimilarity` (embedding cell) and `embedSearchInMemory` (M0 eval runner
+  `eval/m0/runner/harness.ts`, which tsc caught as a consumer the pending.md's "test-only" list had
+  missed). So a *surgical* delete, not the whole-module delete a literal reading implied.
+- **H6 · SRI preflight ON BY DEFAULT** — for the **same-origin vendored path only** (smoke-verified via a
+  new success marker + smoke assertion: the preflight provably runs + passes + boot survives). The
+  **cross-origin GH-Pages mirror stays opt-in** (`?verify=1`) — its preflight is TOCTOU-sensitive and can't
+  be verified without a live cross-origin browser test (**OWED**, same wall as C1/C3). `?verify=0` opts out.
+  Fail-closed preserved; CDN path still excluded.
+- **S11 · log a tokens-only exemption** — the anonymize-modal sensitivity-badge palette + the lineage-graph
+  node colors stay inline (not promoted to `tokens/colors.ts`); explicit exemption comments added at both
+  sites citing this decision.
+- **Breadth · G14–G16** — nonprofit/fundraising, research/scholarly, government-operations packs. Taxonomy
+  **165 → 180 types / 24 → 27 domains**.
+
+**Resolved NO-WORK (cleared from pending):**
+- **roleFamily A1/A2 bridging → leave as-is** (source layer only). The additive template slice shipped run
+  5 IS the roleFamily payoff; the chart-picker/auto-measures keep their proven heuristic on result columns
+  (which genuinely have no typeId). No lineage work.
+- **G4 race/gender aggregates → skip** (the PII-vs-aggregate risk isn't worth it on ambiguous columns).
+- **L15 macro-cycle validator → rely on the runtime depth-cap** (YAGNI; the cap already catches cycles).
+
+**Gate:** full test + check + smoke green (H6 preflight + the earlier compare-tables leg both assert live).
+Auto-shipped on green. **Owed:** the cross-origin mirror SRI verification (H6) needs a live GH-Pages test.
+
 ## 2026-07-14 — Shell headroom + roleFamily wiring + breadth G12/G13 (DX) [autopilot run 5, auto-shipped]
 
 ### Decision DX — four workstreams, auto-shipped on a green gate

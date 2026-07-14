@@ -455,23 +455,3 @@ export function findReferencedMeasures(sql: string): string[] {
   }
   return Array.from(found);
 }
-
-/**
- * Filter the measures applicable to a given set of available
- * taxonomy types — used by the "this file supports..." synergy
- * panel.
- *
- * A measure is applicable when every typeId in its `requiredTypes`
- * list is present in `availableTypes`. Measures with no
- * `requiredTypes` are always applicable.
- */
-export function applicableMeasures(
-  measures: ReadonlyArray<MeasureDefinition>,
-  availableTypes: ReadonlyArray<string>,
-): MeasureDefinition[] {
-  const avail = new Set(availableTypes);
-  return measures.filter((m) => {
-    if (!m.requiredTypes || m.requiredTypes.length === 0) return true;
-    return m.requiredTypes.every((t) => avail.has(t));
-  });
-}

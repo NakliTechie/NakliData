@@ -1464,6 +1464,9 @@ async function verifyDuckdbBundle(bundle: {
       throw new EngineError(`DuckDB integrity mismatch for "${name}" — refusing to boot`);
     }
   }
+  // H6 (DECISIONS DY): a quiet success marker so the smoke gate can assert the
+  // now-default preflight actually ran (it's otherwise silent on success).
+  console.info(`[naklidata] DuckDB integrity verified (${targets.length} files)`);
 }
 
 function bundlesFor(opts: EngineBootOptions): duckdb.DuckDBBundles {

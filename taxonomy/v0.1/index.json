@@ -146,6 +146,24 @@
       "label": "Legal, contracts and compliance",
       "description": "Contract IDs/types/values, renewal and compliance status \u2014 legal / contract-management / GRC exports.",
       "domain_file": "domains/legal.json"
+    },
+    {
+      "id": "nonprofit",
+      "label": "Nonprofit and fundraising",
+      "description": "Donor IDs, donation amounts, campaigns, funds and recurring flags \u2014 nonprofit / fundraising / CRM exports.",
+      "domain_file": "domains/nonprofit.json"
+    },
+    {
+      "id": "research",
+      "label": "Research and scholarly",
+      "description": "Paper IDs/titles, publication year, citation counts and venues \u2014 scholarly / bibliometric / knowledge-graph exports.",
+      "domain_file": "domains/research.json"
+    },
+    {
+      "id": "government",
+      "label": "Government operations",
+      "description": "Agencies, programs, application status, processing time and benefit amounts \u2014 public-service / benefits / civic exports.",
+      "domain_file": "domains/government.json"
     }
   ],
   "types_file": "types.jsonl",

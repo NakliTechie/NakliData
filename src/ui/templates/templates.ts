@@ -1453,6 +1453,92 @@ LIMIT 30`,
   },
 };
 
+// G14 — Nonprofit / fundraising domain pack (giving brief).
+export const NONPROFIT_GIVING: Template = {
+  id: 'nonprofit_giving',
+  name: 'Giving brief',
+  description:
+    'Gift count and total donations by campaign — with the restricted fund when present. Fits nonprofit / fundraising / CRM exports.',
+  requiredTypes: ['campaign_name', 'donation_amount'],
+  optionalTypes: ['fund_name'],
+  instantiate(m) {
+    const camp = m.campaign_name!;
+    const amt = m.donation_amount!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Giving brief\n\nGift count and total donations by campaign.'),
+      sql(
+        'giving_by_campaign',
+        `SELECT ${q(camp.column)} AS campaign,
+       COUNT(*) AS gifts,
+       ROUND(SUM(${q(amt.column)}), 0) AS total_donations
+FROM ${q(camp.table)}
+GROUP BY 1
+ORDER BY total_donations DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'giving_by_campaign', 'campaign', 'total_donations'),
+    ];
+    return cells;
+  },
+};
+
+// G15 — Research / scholarly domain pack (output brief).
+export const RESEARCH_OUTPUT: Template = {
+  id: 'research_output',
+  name: 'Research output brief',
+  description: 'Paper count and total citations by venue. Fits scholarly / bibliometric exports.',
+  requiredTypes: ['venue_name', 'citation_count'],
+  optionalTypes: ['publication_year'],
+  instantiate(m) {
+    const venue = m.venue_name!;
+    const cites = m.citation_count!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Research output brief\n\nPaper count and total citations by venue.'),
+      sql(
+        'output_by_venue',
+        `SELECT ${q(venue.column)} AS venue,
+       COUNT(*) AS papers,
+       SUM(${q(cites.column)}) AS total_citations
+FROM ${q(venue.table)}
+GROUP BY 1
+ORDER BY total_citations DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'output_by_venue', 'venue', 'total_citations'),
+    ];
+    return cells;
+  },
+};
+
+// G16 — Government operations domain pack (services brief).
+export const GOV_SERVICES: Template = {
+  id: 'gov_services',
+  name: 'Public services brief',
+  description:
+    'Case count and total benefit by program. Fits public-service / benefits / civic exports.',
+  requiredTypes: ['program_name', 'benefit_amount'],
+  optionalTypes: ['application_status'],
+  instantiate(m) {
+    const prog = m.program_name!;
+    const ben = m.benefit_amount!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Public services brief\n\nCase count and total benefit by program.'),
+      sql(
+        'benefit_by_program',
+        `SELECT ${q(prog.column)} AS program,
+       COUNT(*) AS cases,
+       ROUND(SUM(${q(ben.column)}), 0) AS total_benefit
+FROM ${q(prog.table)}
+GROUP BY 1
+ORDER BY total_benefit DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'benefit_by_program', 'program', 'total_benefit'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1485,6 +1571,9 @@ export const ALL_TEMPLATES: Template[] = [
   CONSUMPTION_SUMMARY,
   PRODUCTION_QUALITY,
   CONTRACT_PIPELINE,
+  NONPROFIT_GIVING,
+  RESEARCH_OUTPUT,
+  GOV_SERVICES,
   METRIC_BY_DIMENSION,
 ];
 

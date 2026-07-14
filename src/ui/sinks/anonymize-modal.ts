@@ -207,8 +207,11 @@ function renderModal(plan: AnonColumnPlan[], salt: string): HTMLElement {
 }
 
 function sensitivityBadge(s: NonNullable<AnonColumnPlan['sensitivity']>): string {
-  // Badge colours match the schema-panel convention; not theming-aware
-  // here to keep the modal CSS-self-contained.
+  // Badge colours match the schema-panel convention; not theming-aware here to
+  // keep the modal CSS-self-contained.
+  // TOKENS-ONLY EXEMPTION (S11, ratified 2026-07-14, DECISIONS DY): this small
+  // sensitivity-badge palette stays inline rather than moving into
+  // `src/tokens/colors.ts`. Deliberate — not a stray hardcode.
   const map: Record<typeof s, { bg: string; fg: string; label: string }> = {
     pii: { bg: '#fee2e2', fg: '#991b1b', label: 'PII' },
     financial: { bg: '#fef3c7', fg: '#92400e', label: 'Financial' },
