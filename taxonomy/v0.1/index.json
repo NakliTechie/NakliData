@@ -125,5 +125,7 @@
     }
   ],
   "types_file": "types.jsonl",
-  "relationships_file": "relationships.json"
+  "relationships_file": "relationships.json",
+  "universal_file": "universal/universal-terms.jsonl",
+  "crosswalk_file": "universal/crosswalk.jsonl"
 }
