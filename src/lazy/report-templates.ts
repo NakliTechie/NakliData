@@ -8,4 +8,21 @@ export {
   ALL_TEMPLATES,
   findApplicableTemplates,
   indexByTypeWithCandidates,
+  // A3 — executive report-cell templates (briefing memo / operating review /
+  // dataset audit). Bodies stay off-shell; the report cell's picker holds only
+  // the id/name.
+  buildExecutiveReport,
 } from '../ui/templates/templates.ts';
+export type { ExecutiveReportScaffold } from '../ui/templates/templates.ts';
+// A1/A2 — the "Create report from result" builder + KPI-measure helpers. Only
+// the create-report + report-refresh handlers consume them, so they ride this
+// lazy chunk too (keeps the shell ≤ 768 KB — A35).
+export { buildReportScaffold } from '../core/report-from-result.ts';
+export type { ReportScaffold } from '../core/report-from-result.ts';
+export {
+  buildKpiTiles,
+  computeKpiValues,
+  deriveResultMeasures,
+  recomputeKpiTiles,
+  sanitizeMeasureBase,
+} from '../core/report-measures.ts';

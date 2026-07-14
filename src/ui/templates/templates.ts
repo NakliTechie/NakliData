@@ -4,6 +4,11 @@
 //
 // Each template renders to a small set of cells (SQL + chart + markdown).
 
+import {
+  DEFAULT_MARGINS_MM,
+  type ReportDefinition,
+  type ReportItem,
+} from '../../core/report-layout.ts';
 import { dateCastExpr } from '../../core/sql-date.ts';
 import type { CellState, ChartCellState, MarkdownCellState, SqlCellState } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
@@ -943,3 +948,126 @@ export const ALL_TEMPLATES: Template[] = [
   RETAIL_SALES,
   CONTENT_CATALOG,
 ];
+
+// ── A3 — Executive report-cell templates ────────────────────────────────────
+// Pre-built REPORT layouts (distinct from the analysis Templates above): a
+// titled ReportDefinition + named markdown scaffold cells the user fills in.
+// Lives in this lazy chunk so the bodies stay off the shell budget; the report
+// cell's empty-state picker carries only the id/name (shell). A "seed" (the
+// report cell id) namespaces the markdown cell names so multiple reports don't
+// collide.
+
+interface ExecSection {
+  /** Appended to the seed for the markdown cell name. */
+  suffix: string;
+  /** Markdown body. */
+  body: string;
+  /** Insert a page-break before this section. */
+  pageBreakBefore?: boolean;
+}
+interface ExecTemplate {
+  id: string;
+  name: string;
+  title: string;
+  sections: ExecSection[];
+}
+
+const EXEC_TEMPLATES: ExecTemplate[] = [
+  {
+    id: 'briefing_memo',
+    name: 'Briefing memo',
+    title: 'Executive briefing',
+    sections: [
+      {
+        suffix: 'summary',
+        body: '## Summary\n\n_One-paragraph TL;DR: what this covers and the single most important takeaway._',
+      },
+      { suffix: 'findings', body: '## Key findings\n\n- \n- \n- ' },
+      {
+        suffix: 'recommendation',
+        body: '## Recommendation\n\n_What should happen next, and why._',
+      },
+    ],
+  },
+  {
+    id: 'operating_review',
+    name: 'Operating review',
+    title: 'Operating review',
+    sections: [
+      {
+        suffix: 'period',
+        body: '## Period summary\n\n_Reporting period and the headline movement vs. the prior period._',
+      },
+      {
+        suffix: 'metrics',
+        body: '## Metrics\n\n_Add a KPI row or chart cell, then reference it here and call out the drivers._',
+      },
+      {
+        suffix: 'segments',
+        body: '## By segment\n\n_Where performance concentrated — the top and bottom segments._',
+        pageBreakBefore: true,
+      },
+      { suffix: 'actions', body: '## Risks & actions\n\n- Risk: \n- Action: ' },
+    ],
+  },
+  {
+    id: 'dataset_audit',
+    name: 'Dataset audit',
+    title: 'Dataset audit',
+    sections: [
+      {
+        suffix: 'overview',
+        body: '## Overview\n\n_What this dataset is, its source, and the period it covers._',
+      },
+      {
+        suffix: 'schema',
+        body: '## Schema & coverage\n\n_Columns, semantic types, row count, and null / coverage notes._',
+      },
+      { suffix: 'quality', body: '## Quality notes\n\n- \n- ' },
+      {
+        suffix: 'provenance',
+        body: '## Provenance\n\n_Where the data came from, how it was mounted, and any transforms applied._',
+      },
+    ],
+  },
+];
+
+export interface ExecutiveReportScaffold {
+  /** Named markdown cells to create (before the report cell-refs them). */
+  markdownCells: Array<{ name: string; code: string }>;
+  /** The report definition referencing those cells in order. */
+  definition: ReportDefinition;
+}
+
+/**
+ * Build an executive report scaffold, or null for an unknown id. `seed`
+ * (the report cell id) namespaces the markdown cell names; `today` is injected
+ * (no `Date()` in this pure builder).
+ */
+export function buildExecutiveReport(
+  templateId: string,
+  seed: string,
+  today: string,
+): ExecutiveReportScaffold | null {
+  const tpl = EXEC_TEMPLATES.find((t) => t.id === templateId);
+  if (!tpl) return null;
+  const markdownCells = tpl.sections.map((s) => ({
+    name: `${seed}_${s.suffix}`,
+    code: s.body,
+  }));
+  const items: ReportItem[] = [];
+  for (const s of tpl.sections) {
+    if (s.pageBreakBefore) items.push({ kind: 'page-break' });
+    items.push({ kind: 'cell-ref', cellName: `${seed}_${s.suffix}` });
+  }
+  return {
+    markdownCells,
+    definition: {
+      title: tpl.title,
+      pageSize: 'A4',
+      margins: DEFAULT_MARGINS_MM,
+      subtitle: `Prepared ${today}`,
+      items,
+    },
+  };
+}

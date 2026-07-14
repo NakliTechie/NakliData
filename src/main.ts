@@ -1,4 +1,5 @@
 import { getAssociationsStore } from './core/associations.ts';
+import { pickChartColumns } from './core/chart-columns.ts';
 import type { ValueCount } from './core/clustering.ts';
 import { setDemoMode } from './core/demo-mode.ts';
 import { getDimensionsStore } from './core/dimensions.ts';
@@ -39,7 +40,7 @@ import {
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
-import { buildReportScaffold } from './core/report-from-result.ts';
+import type { KpiTile } from './core/report-measures.ts';
 import {
   type ResultSnapshot,
   SNAPSHOT_ROW_CAP,
@@ -1381,13 +1382,38 @@ function handleXRay(cellId: string): void {
  * cell that embeds both. Nothing auto-runs; the report prints via the
  * existing Print-to-PDF path.
  */
-function handleCreateReport(cellId: string): void {
+async function handleCreateReport(cellId: string): Promise<void> {
   const engine = getEngine();
   const nb = getNotebook(engine);
   const cell = nb.get().cells.find((c) => c.id === cellId);
   if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
     toast('Run the cell first — a report embeds a result.');
     return;
+  }
+  // The scaffold builder + KPI-measure helpers ride the lazy `report-templates`
+  // chunk (keeps the shell ≤ 768 KB — A35). Loaded on first Create-report.
+  const {
+    buildReportScaffold,
+    sanitizeMeasureBase,
+    deriveResultMeasures,
+    computeKpiValues,
+    buildKpiTiles,
+  } = await loadChunk('report-templates');
+  // A1 — if the result has a categorical label + a numeric measure, auto-embed
+  // a bar chart. `pickChartColumns` reconstructs DuckDB's Int128 limb objects
+  // (SUM/AVG aggregates), so a GROUP BY … SUM result charts correctly.
+  const chart = pickChartColumns(cell.lastResult.columns, cell.lastResult.rows);
+  // A2 — when there's a numeric measure column (the chart's `value`), derive
+  // total/average/count measures, register them in the store (reusable, shown
+  // in the Measures panel), and cache their computed values onto KPI tiles.
+  let kpis: { tiles: KpiTile[]; valueColumn: string } | null = null;
+  if (chart) {
+    const base = sanitizeMeasureBase(cell.name?.trim() || cell.id);
+    const derived = deriveResultMeasures(base, chart.value);
+    const store = getMeasuresStore();
+    for (const m of derived.measures) store.set(m);
+    const values = computeKpiValues(cell.lastResult.rows, chart.value);
+    kpis = { tiles: buildKpiTiles(derived.bindings, values), valueColumn: chart.value };
   }
   const scaffold = buildReportScaffold({
     cellId: cell.id,
@@ -1398,6 +1424,8 @@ function handleCreateReport(cellId: string): void {
     // Tier-2 #10 — a "Sources" provenance block so the report records where its
     // data came from (URLs, formats, row counts).
     sourcesBlock: provenanceMarkdown(getWorkbook().get().sources),
+    ...(chart ? { chart } : {}),
+    ...(kpis ? { kpis } : {}),
   });
   // Ensure the source cell carries the name the report cell-refs.
   if (cell.name?.trim() !== scaffold.sqlName) {
@@ -1405,9 +1433,87 @@ function handleCreateReport(cellId: string): void {
   }
   const notes = nb.addCell('markdown');
   nb.patchCell(notes.id, { name: scaffold.notesName, code: scaffold.notesMarkdown });
+  // The chart cell must exist (and carry the name the report cell-refs) BEFORE
+  // the report cell — the report resolves cell-refs by name.
+  if (chart && scaffold.chartName) {
+    const chartCell = nb.addCell('chart');
+    nb.patchCell(chartCell.id, {
+      name: scaffold.chartName,
+      inputCell: cell.id,
+      chartType: 'bar',
+      x: chart.category,
+      y: chart.value,
+    });
+  }
   const report = nb.addCell('report');
   nb.patchCell(report.id, { definition: scaffold.definition });
-  toast('Report created — embeds the result + provenance. Edit the notes, then Print to PDF.');
+  toast(
+    kpis
+      ? 'Report created — KPI tiles, a bar chart, the result, and provenance. Edit the notes, then Print to PDF.'
+      : 'Report created — embeds the result + provenance. Edit the notes, then Print to PDF.',
+  );
+}
+
+/**
+ * A2 — after a report-refresh (runAll), recompute the cached KPI tile values
+ * from each report's re-run source result. Reads the `sourceCell` + `valueColumn`
+ * recorded on the kpi-row; skips reports whose source cell has no fresh result.
+ * The KPI helpers ride the lazy `report-templates` chunk (A35), so this loads
+ * the chunk only when a report actually carries a KPI row.
+ */
+async function refreshReportKpis(engine: Engine): Promise<void> {
+  const nb = getNotebook(engine);
+  const cells = nb.get().cells;
+  // Do any reports even have a KPI row? Avoid loading the chunk if not.
+  const hasKpis = cells.some(
+    (c) => c.kind === 'report' && c.definition.items.some((i) => i.kind === 'kpi-row'),
+  );
+  if (!hasKpis) return;
+  const { computeKpiValues, recomputeKpiTiles } = await loadChunk('report-templates');
+  const store = getMeasuresStore();
+  for (const rc of cells) {
+    if (rc.kind !== 'report') continue;
+    let changed = false;
+    const items = rc.definition.items.map((item) => {
+      if (item.kind !== 'kpi-row' || !item.sourceCell || !item.valueColumn) return item;
+      const src = cells.find((c) => c.kind === 'sql' && c.name?.trim() === item.sourceCell);
+      if (!src || src.kind !== 'sql' || !src.lastResult) return item;
+      const values = computeKpiValues(src.lastResult.rows, item.valueColumn);
+      changed = true;
+      return {
+        ...item,
+        tiles: recomputeKpiTiles(item.tiles, values, (m) => store.get(m)?.format ?? 'number'),
+      };
+    });
+    if (changed) nb.patchCell(rc.id, { definition: { ...rc.definition, items } });
+  }
+}
+
+/**
+ * A3 — apply an executive report-cell template (briefing memo / operating
+ * review / dataset audit) to an empty report cell. Lazy-loads the scaffold
+ * builder from the `report-templates` chunk, creates the named markdown section
+ * cells (so the report's cell-refs resolve), then patches the report definition.
+ */
+async function handleReportTemplate(cellId: string, templateId: string): Promise<void> {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'report') return;
+  const { buildExecutiveReport } = await loadChunk('report-templates');
+  const today = new Date().toISOString().slice(0, 10);
+  const scaffold = buildExecutiveReport(templateId, cell.id, today);
+  if (!scaffold) {
+    toast('Unknown report template.', 'error');
+    return;
+  }
+  // Named markdown section cells first — the report cell-refs resolve by name.
+  for (const md of scaffold.markdownCells) {
+    const c = nb.addCell('markdown');
+    nb.patchCell(c.id, { name: md.name, code: md.code });
+  }
+  nb.patchCell(cell.id, { definition: scaffold.definition });
+  toast('Report template applied — fill in the sections, then Print to PDF.');
 }
 
 // ── Resolve M1 — clustering / fuzzy-merge entry points ──────────────────
@@ -2007,7 +2113,13 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'create-report': {
       const cellId = el?.dataset.cellId;
-      if (cellId) handleCreateReport(cellId);
+      if (cellId) void handleCreateReport(cellId);
+      return;
+    }
+    case 'report-template': {
+      const cellId = el?.dataset.cellId;
+      const templateId = el?.dataset.templateId;
+      if (cellId && templateId) void handleReportTemplate(cellId, templateId);
       return;
     }
     case 'selections-clear': {
@@ -2051,7 +2163,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       toast('Refreshing report data — re-running cells…');
       void getNotebook(engine)
         .runAll()
-        .then(() => toast('Report data refreshed.'))
+        .then(async () => {
+          // A2 — recompute cached KPI values from the re-run source results.
+          await refreshReportKpis(engine);
+          toast('Report data refreshed.');
+        })
         .catch((err) =>
           toast(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`, 'error'),
         );

@@ -1484,6 +1484,157 @@ async function main() {
   );
   log('✓ SHOW TABLES runs directly (not view-wrapped) and returns the table list');
 
+  // 12f-bis. A1 (auto-chart embed / bigint-limb numeric detection). A
+  //   `GROUP BY … SUM` over integers promotes to HUGEINT/Int128, which
+  //   apache-arrow serialises as a little-endian limb object (`{"0":30,…}`),
+  //   NOT a number or a bigint. Two things must hold: (a) the result table
+  //   renders those aggregates as plain numbers (formatCell → coerceNumeric),
+  //   and (b) "Create report" auto-embeds a bar chart cell wired to the
+  //   categorical column × the numeric measure. A regression in the limb
+  //   reconstruction fails here rather than silently mis-charting a report.
+  {
+    const sqlBeforeSum = await page.evaluate(
+      () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+    );
+    await page.click('[data-nb-action="add-sql"]');
+    await page.waitForFunction(
+      (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+      sqlBeforeSum,
+      { timeout: 5000 },
+    );
+    const sumCell = page.locator('.cell[data-cell-kind="sql"]').last();
+    await sumCell.locator('.cm-content, textarea').first().click();
+    await page.keyboard.insertText(
+      "SELECT k, SUM(n) AS total FROM (VALUES ('east', 30), ('west', 10), ('west', 20)) t(k, n) GROUP BY k ORDER BY k",
+    );
+    await sumCell.locator('[data-action="cell-run"]').click();
+    await page.waitForFunction(
+      () => {
+        const cells = document.querySelectorAll('.cell[data-cell-kind="sql"]');
+        const last = cells[cells.length - 1];
+        if (!last || last.classList.contains('errored')) return false;
+        return last.querySelectorAll('table td').length >= 4; // 2 rows × 2 cols
+      },
+      null,
+      { timeout: 8000 },
+    );
+    const sumTds = await sumCell.evaluate((el) =>
+      [...el.querySelectorAll('table td')].map((td) => td.textContent ?? ''),
+    );
+    // Both group totals are 30; they must render as plain numbers, never a
+    // limb object like `{"0":30,...}`.
+    if (!sumTds.includes('30') || sumTds.some((t) => t.includes('{'))) {
+      fail(
+        `A1: HUGEINT SUM rendered wrong — cells=${JSON.stringify(sumTds)} (expected plain 30s, no arrow limb objects)`,
+      );
+    }
+    log('✓ A1: GROUP BY … SUM (HUGEINT/Int128) renders as numbers, not arrow limb objects');
+
+    const chartBefore = await page.evaluate(
+      () => document.querySelectorAll('.cell[data-cell-kind="chart"]').length,
+    );
+    await sumCell.locator('[data-action="create-report"]').click();
+    await page.waitForFunction(
+      (before) => document.querySelectorAll('.cell[data-cell-kind="chart"]').length > before,
+      chartBefore,
+      { timeout: 8000 },
+    );
+    const chartWiring = await page.evaluate(() => {
+      const charts = document.querySelectorAll('.cell[data-cell-kind="chart"]');
+      const last = charts[charts.length - 1];
+      if (!last) return null;
+      const val = (a) => last.querySelector(`[data-action="${a}"]`)?.value ?? null;
+      return { x: val('chart-x'), y: val('chart-y'), type: val('chart-type') };
+    });
+    if (
+      !chartWiring ||
+      chartWiring.x !== 'k' ||
+      chartWiring.y !== 'total' ||
+      chartWiring.type !== 'bar'
+    ) {
+      fail(`A1: Create-report auto-chart not wired to bar/k/total — ${JSON.stringify(chartWiring)}`);
+    }
+    log('✓ A1: Create-report auto-embeds a bar chart cell wired to category × measure');
+
+    // A2 — the same Create-report leads with a KPI row: total / average / count
+    // tiles bound to auto-generated named measures, with values COMPUTED from
+    // the HUGEINT result (Total 60, Rows 2 — east=30, west=10+20=30). Verifies
+    // the measures step end-to-end: derive → cache value → render (not "…").
+    const kpis = await page.evaluate(() => {
+      // Read the LAST report cell — the smoke seeds an earlier empty one.
+      const reports = document.querySelectorAll('.cell[data-cell-kind="report"]');
+      const report = reports[reports.length - 1];
+      if (!report) return null;
+      return [...report.querySelectorAll('.report-kpi-tile')].map((tile) => ({
+        measure: tile.querySelector('[data-measure]')?.getAttribute('data-measure') ?? null,
+        value: tile.querySelector('[data-measure]')?.textContent?.trim() ?? null,
+      }));
+    });
+    const total = kpis?.find((k) => k.measure?.endsWith('_total'));
+    const rows = kpis?.find((k) => k.measure?.endsWith('_count'));
+    if (!kpis || kpis.length < 3 || total?.value !== '60' || rows?.value !== '2') {
+      fail(`A2: report KPI tiles wrong — ${JSON.stringify(kpis)} (expected Total 60, Rows 2)`);
+    }
+    if (kpis.some((k) => k.value === '…' || k.value === '')) {
+      fail(`A2: a KPI tile rendered empty/placeholder — ${JSON.stringify(kpis)}`);
+    }
+    log('✓ A2: Create-report leads with computed KPI tiles (total 60 / rows 2) bound to named measures');
+  }
+
+  // 12f-ter. A3 — executive report-cell templates. Add an empty report, pick
+  //   "Briefing memo" from its empty-state picker (which lazy-loads the
+  //   report-templates chunk), and assert the scaffold lands: the report
+  //   cell-refs the three seeded markdown sections, and those markdown cells
+  //   were created.
+  {
+    const reportsBefore = await page.evaluate(
+      () => document.querySelectorAll('.cell[data-cell-kind="report"]').length,
+    );
+    await page.click('[data-nb-action="add-report"]');
+    await page.waitForFunction(
+      (b) => document.querySelectorAll('.cell[data-cell-kind="report"]').length > b,
+      reportsBefore,
+      { timeout: 5000 },
+    );
+    // The new (last) empty report shows the template picker.
+    await page.waitForFunction(
+      () => {
+        const rs = document.querySelectorAll('.cell[data-cell-kind="report"]');
+        const last = rs[rs.length - 1];
+        return !!last?.querySelector(
+          '[data-action="report-template"][data-template-id="briefing_memo"]',
+        );
+      },
+      null,
+      { timeout: 5000 },
+    );
+    await page.evaluate(() => {
+      const rs = document.querySelectorAll('.cell[data-cell-kind="report"]');
+      const last = rs[rs.length - 1];
+      last
+        ?.querySelector('[data-action="report-template"][data-template-id="briefing_memo"]')
+        ?.click();
+    });
+    // Scaffold lands: the report now cell-refs the three seeded markdown sections.
+    await page.waitForFunction(
+      () => {
+        const rs = document.querySelectorAll('.cell[data-cell-kind="report"]');
+        const last = rs[rs.length - 1];
+        const t = last?.textContent ?? '';
+        return /_summary/.test(t) && /_findings/.test(t) && /_recommendation/.test(t);
+      },
+      null,
+      { timeout: 8000 },
+    );
+    const mdOk = await page.evaluate(() =>
+      [...document.querySelectorAll('.cell[data-cell-kind="markdown"]')].some((c) =>
+        /Key findings/.test(c.textContent ?? ''),
+      ),
+    );
+    if (!mdOk) fail('A3: briefing-memo markdown section cells not created');
+    log('✓ A3: executive report template (briefing memo) scaffolds sections + markdown cells');
+  }
+
   // 12g. Parquet + spatial mount OFFLINE (F1 / DECISIONS BX). Both formats
   //      autoload their DuckDB extension from the repo, not the wasm bundle;
   //      an offline boot pins `custom_extension_repository` local, so this

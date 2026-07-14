@@ -16,7 +16,10 @@ export function renderReportCell(cell: ReportCellState, handlers: CellHandlers):
   wrap.dataset.cellId = cell.id;
   wrap.dataset.cellKind = 'report';
 
-  const itemsHtml = cell.definition.items.map(renderItem).join('');
+  const itemsHtml =
+    cell.definition.items.length === 0
+      ? renderTemplatePicker(cell.id)
+      : cell.definition.items.map(renderItem).join('');
   const today = new Date().toISOString().slice(0, 10);
 
   wrap.innerHTML = `
@@ -54,6 +57,27 @@ export function renderReportCell(cell: ReportCellState, handlers: CellHandlers):
   return wrap;
 }
 
+// A3 — the empty-report picker. Only the id/name live in the shell; picking one
+// lazy-loads the `report-templates` chunk to build the scaffold (main.ts).
+const EXEC_TEMPLATE_PICKER: ReadonlyArray<{ id: string; name: string }> = [
+  { id: 'briefing_memo', name: 'Briefing memo' },
+  { id: 'operating_review', name: 'Operating review' },
+  { id: 'dataset_audit', name: 'Dataset audit' },
+];
+
+function renderTemplatePicker(cellId: string): string {
+  const btns = EXEC_TEMPLATE_PICKER.map(
+    (t) =>
+      `<button class="btn btn-ghost" data-action="report-template" data-cell-id="${escapeAttr(cellId)}" data-template-id="${t.id}" style="border:1px solid #d1d5db;background:#fff;color:#374151;">${escapeHtml(t.name)}</button>`,
+  ).join('');
+  return `
+    <div class="report-item report-empty-picker" style="text-align:center;color:#6b7280;padding:14mm 0;">
+      <p style="margin:0 0 10px 0;font-size:13px;">Empty report — add cells from the toolbar, or start from an executive template:</p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">${btns}</div>
+    </div>
+  `;
+}
+
 function renderItem(item: ReportItem): string {
   if (item.kind === 'page-break') {
     return `<div class="report-page-break"></div>`;
@@ -70,7 +94,7 @@ function renderItem(item: ReportItem): string {
         (t) => `
           <div class="report-kpi-tile" style="flex:1;padding:12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;text-align:center;">
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;font-weight:600;margin-bottom:6px;">${escapeHtml(t.label)}</div>
-            <div style="font-size:24px;font-weight:700;color:#111;" data-measure="${escapeAttr(t.measure)}">…</div>
+            <div style="font-size:24px;font-weight:700;color:#111;" data-measure="${escapeAttr(t.measure)}">${t.value ? escapeHtml(t.value) : '…'}</div>
           </div>
         `,
       )
