@@ -6,7 +6,10 @@
     "ticket_status",
     "support_priority",
     "first_response_minutes",
-    "csat_score"
+    "csat_score",
+    "nps_score",
+    "resolution_minutes",
+    "topic_label"
   ],
   "report_templates": [
     "support_sla"

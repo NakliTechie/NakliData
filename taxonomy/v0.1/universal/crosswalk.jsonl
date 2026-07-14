@@ -178,3 +178,16 @@
 {"role":"application_status","universalTerm":"ut:status"}
 {"role":"processing_days","universalTerm":"ut:count"}
 {"role":"benefit_amount","universalTerm":"ut:monetary_amount"}
+{"role":"farm_id","universalTerm":"ut:facility_identifier"}
+{"role":"crop_type","universalTerm":"ut:category"}
+{"role":"yield_amount","universalTerm":"ut:count"}
+{"role":"acreage","universalTerm":"ut:spatial_dimension"}
+{"role":"market_price","universalTerm":"ut:monetary_amount"}
+{"role":"match_id","universalTerm":"ut:record_identifier"}
+{"role":"team_name","universalTerm":"ut:category"}
+{"role":"score_for","universalTerm":"ut:count"}
+{"role":"attendance_count","universalTerm":"ut:count"}
+{"role":"win_loss_result","universalTerm":"ut:status"}
+{"role":"nps_score","universalTerm":"ut:score"}
+{"role":"resolution_minutes","universalTerm":"ut:count"}
+{"role":"topic_label","universalTerm":"ut:category"}
