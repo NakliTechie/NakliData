@@ -963,6 +963,37 @@ LIMIT 30`,
   },
 };
 
+// G1 — Real-estate domain pack (inventory and price brief).
+export const REAL_ESTATE_INVENTORY: Template = {
+  id: 'real_estate_inventory',
+  name: 'Inventory and price brief',
+  description:
+    'Listing count and average sale price by property type — with average size when present. Fits real-estate listing / transaction exports.',
+  requiredTypes: ['property_type', 'sale_price'],
+  optionalTypes: ['square_feet'],
+  instantiate(m) {
+    const ptype = m.property_type!;
+    const price = m.sale_price!;
+    const sqft = m.square_feet;
+    const sqftSelect = sqft ? `,\n       ROUND(AVG(${q(sqft.column)}), 0) AS avg_square_feet` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Inventory and price brief\n\nListing count and average sale price by property type.'),
+      sql(
+        'inventory_by_property_type',
+        `SELECT ${q(ptype.column)} AS property_type,
+       COUNT(*) AS listings,
+       ROUND(AVG(${q(price.column)}), 0) AS avg_sale_price${sqftSelect}
+FROM ${q(ptype.table)}
+GROUP BY 1
+ORDER BY listings DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'inventory_by_property_type', 'property_type', 'listings'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -982,6 +1013,7 @@ export const ALL_TEMPLATES: Template[] = [
   RETAIL_SALES,
   CONTENT_CATALOG,
   HR_WORKFORCE,
+  REAL_ESTATE_INVENTORY,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

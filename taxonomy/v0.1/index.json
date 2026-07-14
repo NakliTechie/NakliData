@@ -60,7 +60,7 @@
     {
       "id": "hr-people",
       "label": "HR and people",
-      "description": "Employee ID, job title, department, compensation, and tenure — HRIS / people-analytics exports (e.g. IBM HR Attrition).",
+      "description": "Employee ID, job title, department, compensation, and tenure \u2014 HRIS / people-analytics exports (e.g. IBM HR Attrition).",
       "domain_file": "domains/hr-people.json"
     },
     {
@@ -68,6 +68,12 @@
       "label": "Sensitive data (PII / secrets)",
       "description": "Credentials + sensitive identifiers (API keys, tokens, private keys, AWS keys, credit cards, SSN, passport, national ID, DOB, MAC, crypto wallets) \u2014 from Purview/GCP/Presidio detector families. Drives sensitivity badges + anonymize-sink defaults (secret\u2192redact, pii\u2192hash, financial\u2192bucket).",
       "domain_file": "domains/sensitive-data.json"
+    },
+    {
+      "id": "real-estate",
+      "label": "Real estate",
+      "description": "Property type, bedrooms/bathrooms, square footage and sale price \u2014 real-estate listing and transaction exports.",
+      "domain_file": "domains/real-estate.json"
     }
   ],
   "types_file": "types.jsonl",
