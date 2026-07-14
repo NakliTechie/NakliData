@@ -14,7 +14,8 @@
     "duration_ms",
     "request_id",
     "service_name",
-    "endpoint"
+    "endpoint",
+    "record_id"
   ],
   "report_templates": ["error_frequency", "p95_p99_latency"]
 }

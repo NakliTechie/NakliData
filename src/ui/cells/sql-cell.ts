@@ -7,6 +7,7 @@ import {
   getAssociationsStore,
   resolveEffectiveSelectionsForTable,
 } from '../../core/associations.ts';
+import { coerceNumeric } from '../../core/chart-columns.ts';
 import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { SNAPSHOT_ROW_CAP, isSnapshotStale } from '../../core/result-snapshots.ts';
@@ -413,6 +414,11 @@ function formatCell(v: unknown): { text: string; numeric: boolean } {
   if (typeof v === 'bigint') return { text: v.toString(), numeric: true };
   if (typeof v === 'boolean') return { text: v ? '✓' : '×', numeric: false };
   if (typeof v === 'object') {
+    // DuckDB-wasm hands back HUGEINT/Int128 aggregates (SUM/AVG of ints) as an
+    // apache-arrow limb object (`{"0":550,…}`), not a number — coerce it back
+    // so the cell shows `550`, right-aligns, and reads as numeric downstream.
+    const n = coerceNumeric(v);
+    if (n !== null) return { text: String(n), numeric: true };
     try {
       return { text: JSON.stringify(v), numeric: false };
     } catch {

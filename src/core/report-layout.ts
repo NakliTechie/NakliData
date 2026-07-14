@@ -19,7 +19,16 @@ export type ReportPageSize = 'A4' | 'Letter';
  * by name (the cell's normal renderer paints it into the report flow).
  */
 export type ReportItem =
-  | { kind: 'kpi-row'; tiles: ReadonlyArray<{ measure: string; label: string }> }
+  | {
+      kind: 'kpi-row';
+      /** Each tile binds to a named measure; `value` is the cached, formatted
+       *  display value (A2) — recomputed by the Refresh-data path. */
+      tiles: ReadonlyArray<{ measure: string; label: string; value?: string }>;
+      /** The SQL cell (by name) + numeric column the tiles summarise, so Refresh
+       *  can recompute the cached values from the re-run result (A2). */
+      sourceCell?: string;
+      valueColumn?: string;
+    }
   | { kind: 'cell-ref'; cellName: string }
   | { kind: 'page-break' }
   | { kind: 'spacer'; height: number };

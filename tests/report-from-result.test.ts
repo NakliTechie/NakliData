@@ -49,6 +49,69 @@ describe('buildReportScaffold', () => {
     expect(s.definition.title).toBe('Report');
   });
 
+  it('no chart by default — chartName is null, items are notes + result only', () => {
+    const s = buildReportScaffold({
+      cellId: 'c_1',
+      sqlName: 'q',
+      sqlCode: 'SELECT 1',
+      rowCount: 5,
+      today: '2026-07-11',
+    });
+    expect(s.chartName).toBeNull();
+    expect(s.definition.items).toHaveLength(2);
+  });
+
+  it('A1 — a chartable result cell-refs an auto chart cell after the table', () => {
+    const s = buildReportScaffold({
+      cellId: 'c_abc',
+      sqlName: 'invoice_totals',
+      sqlCode: 'SELECT vendor, SUM(amount) AS total FROM invoices GROUP BY 1',
+      rowCount: 12,
+      today: '2026-07-11',
+      chart: { category: 'vendor', value: 'total' },
+    });
+    expect(s.chartName).toBe('invoice_totals_chart');
+    expect(s.definition.items).toEqual([
+      { kind: 'cell-ref', cellName: 'invoice_totals_notes' },
+      { kind: 'cell-ref', cellName: 'invoice_totals' },
+      { kind: 'cell-ref', cellName: 'invoice_totals_chart' },
+    ]);
+  });
+
+  it('A2 — a KPI row leads the report when kpis are supplied', () => {
+    const s = buildReportScaffold({
+      cellId: 'c_abc',
+      sqlName: 'invoice_totals',
+      sqlCode: 'SELECT vendor, SUM(amount) AS total FROM invoices GROUP BY 1',
+      rowCount: 3,
+      today: '2026-07-11',
+      chart: { category: 'vendor', value: 'total' },
+      kpis: {
+        valueColumn: 'total',
+        tiles: [
+          { measure: 'invoice_totals_total', label: 'Total', value: '65,000' },
+          { measure: 'invoice_totals_count', label: 'Rows', value: '3' },
+        ],
+      },
+    });
+    // KPI row is FIRST, then notes, result, chart.
+    expect(s.definition.items[0]).toEqual({
+      kind: 'kpi-row',
+      sourceCell: 'invoice_totals',
+      valueColumn: 'total',
+      tiles: [
+        { measure: 'invoice_totals_total', label: 'Total', value: '65,000' },
+        { measure: 'invoice_totals_count', label: 'Rows', value: '3' },
+      ],
+    });
+    expect(s.definition.items.map((i) => i.kind)).toEqual([
+      'kpi-row',
+      'cell-ref',
+      'cell-ref',
+      'cell-ref',
+    ]);
+  });
+
   it('pluralises row count correctly (1 row)', () => {
     const s = buildReportScaffold({
       cellId: 'c_1',

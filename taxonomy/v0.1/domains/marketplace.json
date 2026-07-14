@@ -3,6 +3,7 @@
   "label": "Marketplace and listings",
   "types": [
     "listing_id",
+    "listing_name",
     "host_id",
     "host_name",
     "room_type",
