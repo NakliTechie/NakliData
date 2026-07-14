@@ -1454,6 +1454,23 @@ async function main() {
     `✓ SQLite mount via Add-source modal: demo__regions (3) + demo__reps (2) mounted through sql.js`,
   );
 
+  // 12e-bis. Compare-tables modal is now LAZY (loadChunk('compare-tables')) —
+  //   the shell headroom pass moved it off the inlined budget (~10 KB). With 2
+  //   tables mounted the schema panel exposes the compare button; clicking it
+  //   must dynamically load the chunk and open the modal. This is the runtime
+  //   proof that the lazy-move didn't break the open path (unit tests + build
+  //   can't see the dynamic import resolving).
+  await page.waitForSelector('[data-action="compare-tables"]', { timeout: 8000 });
+  await page.click('[data-action="compare-tables"]');
+  await page.waitForSelector('.compare-tables-overlay [data-region="compare-tables-modal"]', {
+    timeout: 8000,
+  });
+  log('✓ Compare-tables modal opens via lazy chunk (loadChunk("compare-tables"))');
+  await page.click('[data-action="close-compare-tables"]');
+  await page.waitForFunction(() => !document.querySelector('.compare-tables-overlay'), null, {
+    timeout: 4000,
+  });
+
   // 12f. Introspection statements run directly instead of being wrapped in
   //      `CREATE VIEW AS …` (real-data test fix #4). `SHOW TABLES` used to
   //      surface a baffling "syntax error at or near SHOW".

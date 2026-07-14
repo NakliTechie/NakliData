@@ -8,7 +8,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyColumn } from '../src/taxonomy/classify.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
-import { parseUniversalLayer, sensitivityForType } from '../src/taxonomy/universal.ts';
+import {
+  parseUniversalLayer,
+  roleFamilyForType,
+  sensitivityForType,
+} from '../src/taxonomy/universal.ts';
 import {
   ALL_TEMPLATES,
   type ColumnRef,
@@ -49,6 +53,10 @@ const byType = (ids: string[]): Record<string, ColumnRef> =>
   Object.fromEntries(ids.map((id) => [id, { table: 'listings', column: id }]));
 const templateIds = (present: string[]): string[] =>
   findApplicableTemplates(ALL_TEMPLATES, byType(present)).map((a) => a.template.id);
+// Tier-3 (A36): role-family-aware matching — passes the crosswalk resolver.
+const rf = (id: string) => roleFamilyForType(BUNDLE, id);
+const templateIdsRF = (present: string[]): string[] =>
+  findApplicableTemplates(ALL_TEMPLATES, byType(present), undefined, rf).map((a) => a.template.id);
 
 describe('G1 — real-estate domain pack', () => {
   it('classifies property_type / bedrooms / bathrooms / square_feet / sale_price', () => {
@@ -307,5 +315,81 @@ describe('G11 — energy / utilities domain pack', () => {
   });
   it('consumption_summary does NOT surface for a bare finance workbook', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('consumption_summary');
+  });
+});
+
+describe('Tier-3 (A36) — generic role-family template (metric_by_dimension)', () => {
+  it('surfaces for any dimension + measure workbook (role-family aware)', () => {
+    // department → dimension (ut:org_unit); compensation → measure (ut:monetary_amount)
+    expect(rf('department')).toBe('dimension');
+    expect(rf('compensation')).toBe('measure');
+    expect(templateIdsRF(['department', 'compensation'])).toContain('metric_by_dimension');
+  });
+  it('generalizes beyond the literal "amount" type — a kWh measure works', () => {
+    // usage_kwh → measure (ut:physical_measurement); tariff_code → dimension (ut:category)
+    expect(rf('usage_kwh')).toBe('measure');
+    expect(templateIdsRF(['tariff_code', 'usage_kwh'])).toContain('metric_by_dimension');
+  });
+  it('does NOT surface without the roleFamily resolver (back-compat with the old call)', () => {
+    expect(templateIds(['department', 'compensation'])).not.toContain('metric_by_dimension');
+  });
+  it('does NOT surface with a measure but no dimension (entity + measure only)', () => {
+    // customer_id → entity, not dimension
+    expect(rf('customer_id')).toBe('entity');
+    expect(templateIdsRF(['customer_id', 'compensation'])).not.toContain('metric_by_dimension');
+  });
+  it('binds dimension + measure and instantiates a GROUP BY (single FROM)', () => {
+    const app = findApplicableTemplates(
+      ALL_TEMPLATES,
+      byType(['department', 'compensation']),
+      undefined,
+      rf,
+    ).find((a) => a.template.id === 'metric_by_dimension');
+    expect(app).toBeDefined();
+    const cells = app?.template.instantiate(app.matched) ?? [];
+    const sqlCell = cells.find((c) => c.kind === 'sql') as { code: string } | undefined;
+    expect(sqlCell?.code).toContain('GROUP BY');
+    expect(sqlCell?.code).toContain('department'); // the dimension column
+    expect(sqlCell?.code).toContain('compensation'); // the measure column
+  });
+});
+
+describe('G12 — manufacturing / quality domain pack', () => {
+  it('classifies work_order_id / produced_quantity / defect_count / yield_rate / quality_result', () => {
+    expect(top('work_order', ['WO-1', 'WO-2', 'WO-3'])).toBe('work_order_id');
+    expect(top('output_qty', ['1200', '980', '1500'], 'INTEGER')).toBe('produced_quantity');
+    expect(top('defects', ['3', '0', '7'], 'INTEGER')).toBe('defect_count');
+    expect(top('first_pass_yield', ['0.98', '0.91', '0.99'], 'DOUBLE')).toBe('yield_rate');
+    expect(top('inspection_result', ['pass', 'fail', 'pass'])).toBe('quality_result');
+  });
+  it('produced_quantity does NOT hijack the retail bare "quantity" (owned by quantity)', () => {
+    expect(top('quantity', ['2', '5', '1'], 'INTEGER')).not.toBe('produced_quantity');
+  });
+  it('production_quality surfaces when quality_result + produced_quantity present', () => {
+    expect(templateIds(['quality_result', 'produced_quantity', 'defect_count'])).toContain(
+      'production_quality',
+    );
+  });
+});
+
+describe('G13 — legal / contracts / compliance domain pack', () => {
+  it('classifies contract_id / contract_type / contract_value / renewal_status / compliance_status', () => {
+    expect(top('agreement_id', ['C-1', 'C-2', 'C-3'])).toBe('contract_id');
+    expect(top('contract_type', ['MSA', 'NDA', 'SOW'])).toBe('contract_type');
+    expect(top('total_contract_value', ['500000', '120000', '80000'], 'BIGINT')).toBe(
+      'contract_value',
+    );
+    expect(top('renewal_status', ['auto', 'manual', 'expired'])).toBe('renewal_status');
+    expect(top('compliance_status', ['compliant', 'open', 'remediated'])).toBe('compliance_status');
+  });
+  it('crosswalk overrides: contract_type/value financial, compliance_status secret', () => {
+    expect(sensitivityForType(BUNDLE, 'contract_type')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'contract_value')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'compliance_status')).toBe('secret');
+  });
+  it('contract_pipeline surfaces when contract_type + contract_value present', () => {
+    expect(templateIds(['contract_type', 'contract_value', 'renewal_status'])).toContain(
+      'contract_pipeline',
+    );
   });
 });

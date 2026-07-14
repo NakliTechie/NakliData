@@ -134,6 +134,18 @@
       "label": "Energy and utilities",
       "description": "Meter IDs, kWh usage, kW demand, tariff codes and outage minutes \u2014 utility metering / grid / energy exports.",
       "domain_file": "domains/energy.json"
+    },
+    {
+      "id": "manufacturing",
+      "label": "Manufacturing and quality",
+      "description": "Work orders, produced quantity, defect counts, yield rate and quality result \u2014 manufacturing / production / QC exports.",
+      "domain_file": "domains/manufacturing.json"
+    },
+    {
+      "id": "legal",
+      "label": "Legal, contracts and compliance",
+      "description": "Contract IDs/types/values, renewal and compliance status \u2014 legal / contract-management / GRC exports.",
+      "domain_file": "domains/legal.json"
     }
   ],
   "types_file": "types.jsonl",

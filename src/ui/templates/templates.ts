@@ -10,6 +10,7 @@ import {
   type ReportItem,
 } from '../../core/report-layout.ts';
 import { dateCastExpr } from '../../core/sql-date.ts';
+import type { RoleFamily } from '../../taxonomy/types.ts';
 import type { CellState, ChartCellState, MarkdownCellState, SqlCellState } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 
@@ -22,7 +23,17 @@ export interface Template {
   /** Optional typeIds — passed in if present. */
   optionalTypes?: string[];
   /**
-   * Generate cell states. `matched` maps typeId -> (table, column).
+   * Tier-3 (A36): analytical role-families that must be present, resolved from
+   * any mounted column's typeId via the crosswalk — not specific typeIds. Lets
+   * a template surface for *any* `measure`+`dimension` workbook (e.g. a
+   * measure column that isn't the literal `amount` type). When set, the matched
+   * map is keyed by the family name (`matched.dimension` / `matched.measure`),
+   * bound to the first column resolving to that family.
+   */
+  requiredRoleFamilies?: RoleFamily[];
+  /**
+   * Generate cell states. `matched` maps typeId -> (table, column). For
+   * role-family templates the keys are family names instead.
    * Tables for required types are guaranteed; optionals may be undefined.
    */
   instantiate: (matched: Record<string, ColumnRef | undefined>) => Omit<CellState, 'order'>[];
@@ -101,9 +112,41 @@ export function findApplicableTemplates(
   templates: Template[],
   byType: Record<string, ColumnRef>,
   perType?: Record<string, Array<{ table: string; column: string; score: number }>>,
+  roleFamilyOf?: (typeId: string) => RoleFamily | null,
 ): Array<{ template: Template; matched: Record<string, ColumnRef | undefined> }> {
   const out: Array<{ template: Template; matched: Record<string, ColumnRef | undefined> }> = [];
   for (const t of templates) {
+    // Tier-3 (A36): role-family templates match on analytical family, not
+    // specific typeIds. Bind the first column resolving to each required family
+    // under the family key (matched.dimension / matched.measure). Needs the
+    // roleFamilyOf resolver (the crosswalk); without it, skip silently.
+    if (t.requiredRoleFamilies && t.requiredRoleFamilies.length > 0) {
+      if (!roleFamilyOf) continue;
+      // Collect the candidate columns per required family, then pick ONE table
+      // that covers every family (so the generated GROUP BY has a single FROM).
+      const familyCols: Record<string, ColumnRef[]> = {};
+      for (const fam of t.requiredRoleFamilies) familyCols[fam] = [];
+      for (const [typeId, ref] of Object.entries(byType)) {
+        const fam = roleFamilyOf(typeId);
+        if (fam && familyCols[fam]) familyCols[fam].push(ref);
+      }
+      const tablesFor = (fam: string): Set<string> =>
+        new Set((familyCols[fam] ?? []).map((r) => r.table));
+      let chosenTable: string | null = null;
+      for (const cand of tablesFor(t.requiredRoleFamilies[0] as string)) {
+        if (t.requiredRoleFamilies.every((fam) => tablesFor(fam).has(cand))) {
+          chosenTable = cand;
+          break;
+        }
+      }
+      if (!chosenTable) continue;
+      const matched: Record<string, ColumnRef | undefined> = {};
+      for (const fam of t.requiredRoleFamilies)
+        matched[fam] = (familyCols[fam] ?? []).find((r) => r.table === chosenTable);
+      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      out.push({ template: t, matched });
+      continue;
+    }
     if (t.requiredTypes.length === 0) {
       // No required types — pass through with whatever optionals are present.
       const matched: Record<string, ColumnRef | undefined> = {};
@@ -1318,6 +1361,98 @@ LIMIT 30`,
   },
 };
 
+// G13 — Legal / contracts / compliance domain pack (contract pipeline brief).
+export const CONTRACT_PIPELINE: Template = {
+  id: 'contract_pipeline',
+  name: 'Contract pipeline brief',
+  description:
+    'Contract count and total value by contract type — with renewal status when present. Fits legal / contract-management / GRC exports.',
+  requiredTypes: ['contract_type', 'contract_value'],
+  optionalTypes: ['renewal_status'],
+  instantiate(m) {
+    const ctype = m.contract_type!;
+    const cvalue = m.contract_value!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Contract pipeline brief\n\nContract count and total value by contract type.'),
+      sql(
+        'value_by_contract_type',
+        `SELECT ${q(ctype.column)} AS contract_type,
+       COUNT(*) AS contracts,
+       ROUND(SUM(${q(cvalue.column)}), 0) AS total_value
+FROM ${q(ctype.table)}
+GROUP BY 1
+ORDER BY total_value DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'value_by_contract_type', 'contract_type', 'total_value'),
+    ];
+    return cells;
+  },
+};
+
+// G12 — Manufacturing / quality domain pack (production quality brief).
+export const PRODUCTION_QUALITY: Template = {
+  id: 'production_quality',
+  name: 'Production quality brief',
+  description:
+    'Total produced quantity by quality result — with total defects when present. Fits manufacturing / production / QC exports.',
+  requiredTypes: ['quality_result', 'produced_quantity'],
+  optionalTypes: ['defect_count'],
+  instantiate(m) {
+    const qr = m.quality_result!;
+    const qty = m.produced_quantity!;
+    const defect = m.defect_count;
+    const defectSelect = defect ? `,\n       SUM(${q(defect.column)}) AS total_defects` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Production quality brief\n\nTotal produced quantity by quality result.'),
+      sql(
+        'output_by_quality_result',
+        `SELECT ${q(qr.column)} AS quality_result,
+       SUM(${q(qty.column)}) AS total_produced${defectSelect}
+FROM ${q(qr.table)}
+GROUP BY 1
+ORDER BY total_produced DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'output_by_quality_result', 'quality_result', 'total_produced'),
+    ];
+    return cells;
+  },
+};
+
+// Tier-3 (A36) — the generic role-family template. Surfaces for ANY workbook
+// with a measure-family column and a dimension-family column (from one table),
+// even when no vertical template matches — e.g. a `compensation`/`usage_kwh`/
+// `transaction_amount` measure that isn't the literal `amount` type. This is
+// how the report engine consumes `roleFamily`: x = a dimension, y = a measure.
+export const METRIC_BY_DIMENSION: Template = {
+  id: 'metric_by_dimension',
+  name: 'Metric by category',
+  description:
+    'Total of a measure column grouped by a category column — a generic breakdown when no domain-specific report fits. Uses the Tier-3 role families.',
+  requiredTypes: [],
+  requiredRoleFamilies: ['dimension', 'measure'],
+  instantiate(m) {
+    const dim = m.dimension!;
+    const meas = m.measure!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Metric by category\n\nTotal of the measure grouped by the category.'),
+      sql(
+        'metric_by_category',
+        `SELECT ${q(dim.column)} AS category,
+       COUNT(*) AS rows,
+       ROUND(SUM(TRY_CAST(${q(meas.column)} AS DOUBLE)), 2) AS total
+FROM ${q(dim.table)}
+GROUP BY 1
+ORDER BY total DESC NULLS LAST
+LIMIT 30`,
+      ),
+      chart('bar', 'metric_by_category', 'category', 'total'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1348,6 +1483,9 @@ export const ALL_TEMPLATES: Template[] = [
   SUPPORT_SLA,
   INVENTORY_HEALTH,
   CONSUMPTION_SUMMARY,
+  PRODUCTION_QUALITY,
+  CONTRACT_PIPELINE,
+  METRIC_BY_DIMENSION,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

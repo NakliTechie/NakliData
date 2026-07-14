@@ -88,6 +88,13 @@ export interface LazyChunkRegistry {
    * and caches the module for subsequent synchronous re-renders.
    */
   'report-templates': typeof import('../lazy/report-templates.ts');
+  /**
+   * The "Compare tables" modal — opened on demand from the schema panel's
+   * compare action, idle otherwise. Self-contained (takes sources/assignments/
+   * engine as input, no store singleton), so its render + join-key inference
+   * ship off the inlined shell budget (spec §7.1 / A35).
+   */
+  'compare-tables': typeof import('../lazy/compare-tables.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly

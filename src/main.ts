@@ -86,7 +86,8 @@ import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
 import { computeStats } from './ui/cells/stats-cell.ts';
 import type { CellState, SqlCellState } from './ui/cells/types.ts';
 import { type AiMergeDecision, openClusterModal } from './ui/cluster-modal.ts';
-import { openCompareTablesModal } from './ui/compare-tables-modal.ts';
+// openCompareTablesModal is loaded lazily (loadChunk('compare-tables')) at its
+// schema-panel open site — keeps the modal off the inlined shell budget.
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openEmbedModal } from './ui/embed-modal.ts';
 import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
@@ -789,12 +790,15 @@ function renderSchemaPanelWithCurrentState(
         void reclassifyAllSources(engine);
       },
       onManageOverrideRules: () => openManageOverrideRules(),
-      onCompareTables: () =>
-        openCompareTablesModal({
-          sources: wb.sources,
-          assignments: wb.assignments,
-          engine,
-        }),
+      onCompareTables: () => {
+        void loadChunk('compare-tables').then(({ openCompareTablesModal }) =>
+          openCompareTablesModal({
+            sources: wb.sources,
+            assignments: wb.assignments,
+            engine,
+          }),
+        );
+      },
       onClassifyAllUnknowns: () => {
         void runClassifyAllUnknowns(engine);
       },

@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — Shell headroom + roleFamily wiring + breadth G12/G13 (DX) [autopilot run 5, auto-shipped]
+
+### Decision DX — four workstreams, auto-shipped on a green gate
+
+Autopilot run 5 (worktree-isolated, ships-on-green variant). Four workstreams the user queued:
+
+- **Shell headroom pass** — lazy-loaded the Compare-tables modal (`src/lazy/compare-tables.ts` +
+  loadChunk at its single schema-panel call site). Self-contained (no store singleton), same proven
+  mechanism as 15+ chunks. Shell **786185 → 776019 B** (767.8 → **757.8 KB**, 0.2 → 10.2 KB headroom).
+  A smoke leg proves the lazy modal opens live in real Chromium.
+- **roleFamily wiring (additive slice)** — the report engine now consumes the Tier-3 `roleFamily`:
+  `Template.requiredRoleFamilies`, `findApplicableTemplates` gains an optional `roleFamilyOf` resolver
+  (picks one cohesive table covering all families), and a generic `METRIC_BY_DIMENSION` template that
+  surfaces for ANY measure+dimension workbook — e.g. a `compensation`/`usage_kwh` measure that isn't the
+  literal `amount` type. Fully back-compatible (4th param optional; existing callers untouched, asserted).
+  **PARKED (structural fork):** rewiring A1 `pickChartColumns` / A2 `deriveResultMeasures` to roleFamily —
+  they run on post-aggregation result columns that have no typeId, so bridging needs lineage that doesn't
+  exist. Needs a supervised design session; not auto-shipped.
+- **Breadth G12 + G13** — manufacturing/quality + legal/contracts packs (proven post-Tier-3 shape:
+  types + crosswalk rows + template + tests). Taxonomy **155 → 165 types / 22 → 24 domains**.
+- **Live verifications (C1/C2/C3)** — attempted via the in-app Browser pane; **BLOCKED** by the sandbox
+  DuckDB-wasm boot hang (the `duckdb-fallback` worker fetches but the engine never readies — the same
+  environmental wall that makes these "live-only, can't run headless"). The Browser pane is a real
+  browser but still in the sandboxed env. Verified live only that the **app boots + renders clean** (no
+  console errors — confirms the shell/wiring/pack changes don't break the runtime boot). C1/C2/C3 remain
+  owed; they need a real deploy or a non-sandboxed browser. The compare-tables + classification paths that
+  DO run in Chromium are covered by the smoke gate instead.
+
+**Reversible calls:** METRIC_BY_DIMENSION uses first-cohesive-table + `TRY_CAST(... AS DOUBLE)` for the
+measure (tolerates non-numeric); tariff_code/contract_type financial + compliance_status secret crosswalk
+overrides; new concept ut:facility_identifier (G10 earlier). **Gate:** 1175 vitest · check exit 0 ·
+SMOKE PASSED (incl. the new compare-tables leg) · bundle 757.8/768. Auto-shipped to main on green.
+
 ## 2026-07-14 — Tier-3 UniversalTerm meta-model ratified + shipped (DW) [/dev-process]
 
 ### Decision DW — a semantic layer above the 145 flat types; sensitivity migrated in

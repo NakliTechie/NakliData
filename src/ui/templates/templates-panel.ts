@@ -2,6 +2,8 @@
 // the required types are present in the workbook.
 
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { getTaxonomyClient } from '../../taxonomy/client.ts';
+import { roleFamilyForType } from '../../taxonomy/universal.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellState } from '../cells/types.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
@@ -67,7 +69,11 @@ export function renderTemplatePanel(
   region.innerHTML = '';
 
   const { byType, perType } = indexByTypeWithCandidates(state.assignments, state.sources);
-  const applicable = findApplicableTemplates(ALL_TEMPLATES, byType, perType);
+  // Tier-3 (A36): resolve a typeId's analytical role-family via the crosswalk so
+  // role-family templates (e.g. the generic "Metric by category") can surface.
+  const bundle = getTaxonomyClient().getBundle();
+  const roleFamilyOf = (typeId: string) => (bundle ? roleFamilyForType(bundle, typeId) : null);
+  const applicable = findApplicableTemplates(ALL_TEMPLATES, byType, perType, roleFamilyOf);
 
   if (applicable.length === 0) {
     region.innerHTML = `<p style="color: var(--text-muted); font-size: 12px; margin: 0;">
