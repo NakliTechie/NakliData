@@ -1286,6 +1286,38 @@ LIMIT 30`,
   },
 };
 
+// G11 — Energy / utilities domain pack (consumption brief).
+export const CONSUMPTION_SUMMARY: Template = {
+  id: 'consumption_summary',
+  name: 'Consumption brief',
+  description:
+    'Total kWh usage by meter — with peak kW demand when present. Fits utility metering / grid exports.',
+  requiredTypes: ['meter_id', 'usage_kwh'],
+  optionalTypes: ['demand_kw'],
+  instantiate(m) {
+    const meter = m.meter_id!;
+    const usage = m.usage_kwh!;
+    const demand = m.demand_kw;
+    const demandSelect = demand
+      ? `,\n       ROUND(MAX(${q(demand.column)}), 1) AS peak_demand_kw`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Consumption brief\n\nTotal kWh usage by meter.'),
+      sql(
+        'usage_by_meter',
+        `SELECT ${q(meter.column)} AS meter,
+       ROUND(SUM(${q(usage.column)}), 1) AS total_usage_kwh${demandSelect}
+FROM ${q(meter.table)}
+GROUP BY 1
+ORDER BY total_usage_kwh DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'usage_by_meter', 'meter', 'total_usage_kwh'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1315,6 +1347,7 @@ export const ALL_TEMPLATES: Template[] = [
   INSURANCE_BOOK,
   SUPPORT_SLA,
   INVENTORY_HEALTH,
+  CONSUMPTION_SUMMARY,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

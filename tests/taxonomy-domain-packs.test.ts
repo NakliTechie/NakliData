@@ -289,3 +289,23 @@ describe('G10 — supply-chain / procurement domain pack', () => {
     );
   });
 });
+
+describe('G11 — energy / utilities domain pack', () => {
+  it('classifies meter_id / usage_kwh / demand_kw / tariff_code / outage_minutes', () => {
+    expect(top('meter_id', ['M1', 'M2', 'M3'])).toBe('meter_id');
+    expect(top('consumption_kwh', ['320', '145', '600'], 'DOUBLE')).toBe('usage_kwh');
+    expect(top('peak_kw', ['4.2', '6.1', '3.8'], 'DOUBLE')).toBe('demand_kw');
+    expect(top('rate_plan', ['TOU-A', 'FLAT', 'TOU-B'])).toBe('tariff_code');
+    expect(top('outage_minutes', ['12', '0', '45'], 'INTEGER')).toBe('outage_minutes');
+  });
+  it('tariff_code carries a financial sensitivity override (concept default is public)', () => {
+    expect(sensitivityForType(BUNDLE, 'tariff_code')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'meter_id')).toBe('pii');
+  });
+  it('consumption_summary surfaces when meter_id + usage_kwh present', () => {
+    expect(templateIds(['meter_id', 'usage_kwh', 'demand_kw'])).toContain('consumption_summary');
+  });
+  it('consumption_summary does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('consumption_summary');
+  });
+});

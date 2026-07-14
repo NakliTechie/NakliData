@@ -148,3 +148,8 @@
 {"role":"inventory_quantity","universalTerm":"ut:count"}
 {"role":"lead_time_days","universalTerm":"ut:duration"}
 {"role":"unit_cost","universalTerm":"ut:monetary_amount"}
+{"role":"meter_id","universalTerm":"ut:device_identifier"}
+{"role":"usage_kwh","universalTerm":"ut:physical_measurement"}
+{"role":"demand_kw","universalTerm":"ut:physical_measurement"}
+{"role":"tariff_code","universalTerm":"ut:category","sensitivity":"financial"}
+{"role":"outage_minutes","universalTerm":"ut:duration"}
