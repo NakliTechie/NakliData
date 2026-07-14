@@ -70,3 +70,6 @@ scratchpad/
 # committed; these are re-created by src/vendor/readstat/build.sh on demand.
 src/vendor/readstat/ReadStat/
 src/vendor/readstat/out/
+
+# autopilot worktrees (local, never pushed)
+.worktrees/
