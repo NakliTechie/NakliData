@@ -393,3 +393,63 @@ describe('G13 — legal / contracts / compliance domain pack', () => {
     );
   });
 });
+
+describe('G14 — nonprofit / fundraising domain pack', () => {
+  it('classifies donor_id / donation_amount / campaign_name / fund_name / recurring_flag', () => {
+    expect(top('supporter_id', ['D1', 'D2', 'D3'])).toBe('donor_id');
+    expect(top('gift_amount', ['50', '250', '100'], 'INTEGER')).toBe('donation_amount');
+    expect(top('appeal', ['Spring', 'GivingTuesday', 'Gala'])).toBe('campaign_name');
+    expect(top('restricted_fund', ['Scholarship', 'General', 'Building'])).toBe('fund_name');
+    expect(top('is_recurring', ['1', '0', '1'], 'INTEGER')).toBe('recurring_flag');
+  });
+  it('donor_id pii; donation_amount + fund_name financial (fund via override)', () => {
+    expect(sensitivityForType(BUNDLE, 'donor_id')).toBe('pii');
+    expect(sensitivityForType(BUNDLE, 'donation_amount')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'fund_name')).toBe('financial');
+  });
+  it('campaign_name does NOT hijack utm_campaign', () => {
+    expect(top('utm_campaign', ['spring_sale', 'q4', 'launch'])).toBe('utm_campaign');
+  });
+  it('nonprofit_giving surfaces when campaign_name + donation_amount present', () => {
+    expect(templateIds(['campaign_name', 'donation_amount', 'fund_name'])).toContain(
+      'nonprofit_giving',
+    );
+  });
+});
+
+describe('G15 — research / scholarly domain pack', () => {
+  it('classifies paper_id / paper_title / publication_year / citation_count / venue_name', () => {
+    expect(top('publication_id', ['W1', 'W2', 'W3'])).toBe('paper_id');
+    expect(top('article_title', ['On Foo', 'Bar Methods', 'Baz'])).toBe('paper_title');
+    expect(top('pub_year', ['2019', '2020', '2021'], 'INTEGER')).toBe('publication_year');
+    expect(top('cited_by_count', ['12', '3', '88'], 'INTEGER')).toBe('citation_count');
+    expect(top('journal_name', ['Nature', 'JMLR', 'PLOS'])).toBe('venue_name');
+  });
+  it('paper_title does NOT hijack the media content_title (owns bare "title")', () => {
+    expect(top('title', ['Ganglands', 'Midnight Mass'])).not.toBe('paper_title');
+  });
+  it('research_output surfaces when venue_name + citation_count present', () => {
+    expect(templateIds(['venue_name', 'citation_count', 'publication_year'])).toContain(
+      'research_output',
+    );
+  });
+});
+
+describe('G16 — government operations domain pack', () => {
+  it('classifies agency_name / program_name / application_status / processing_days / benefit_amount', () => {
+    expect(top('agency', ['DMV', 'IRS', 'USCIS'])).toBe('agency_name');
+    expect(top('benefit_program', ['SNAP', 'Medicaid', 'TANF'])).toBe('program_name');
+    expect(top('application_status', ['approved', 'pending', 'denied'])).toBe('application_status');
+    expect(top('turnaround_days', ['14', '30', '7'], 'INTEGER')).toBe('processing_days');
+    expect(top('grant_amount', ['1200', '450', '3000'], 'INTEGER')).toBe('benefit_amount');
+  });
+  it('benefit_amount financial; agency_name/program_name public', () => {
+    expect(sensitivityForType(BUNDLE, 'benefit_amount')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'agency_name')).toBe('public');
+  });
+  it('gov_services surfaces when program_name + benefit_amount present', () => {
+    expect(templateIds(['program_name', 'benefit_amount', 'application_status'])).toContain(
+      'gov_services',
+    );
+  });
+});
