@@ -2,6 +2,25 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — H6 cross-origin CLOSED (live-verified) + breadth G17/G18 + success (DZ) [autopilot run 7]
+
+### Decision DZ — H6 fully shipped (mirror default-on, verified live) + final breadth
+
+- **H6 cross-origin owed-item CLOSED.** Ran the owed live test in **real Chrome** against the production
+  deploy `naklidata.naklitechie.com` — which boots via the **cross-origin GH-Pages mirror** (it 404s
+  same-origin `duckdb-fallback/`; the mirror serves 200). With `?verify=1` the console showed
+  `[naklidata] DuckDB integrity verified (2 files)` + a clean boot, proving the cross-origin preflight
+  fetches + SHA-384-verifies the mirror bytes and boots. So the mirror is now default-on too: the H6
+  default simplifies to `verifyIntegrity = verify !== '0'` (ON for both paths; `?verify=0` opts out).
+  Fail-closed + CDN-exclusion untouched; same-origin re-verified each run by smoke. `7413f9b`.
+- **Breadth G17 agriculture + G18 sports** (new domains) + **customer-SUCCESS extension** — 3 NPS/success
+  roles (nps_score, resolution_minutes, topic_label) folded into the existing customer-support domain
+  rather than a redundant new one. Taxonomy **180 → 193 types / 27 → 29 domains**. `18dd867`.
+
+**Note:** the sandbox can't re-run the cross-origin test (DuckDB-wasm won't boot there); the live-Chrome
+run IS the mirror verification and is cited in the commit. **All H6 items now closed** — no owed SRI work.
+**Gate:** test + check + smoke green.
+
 ## 2026-07-14 — Decision-clearout: E2 delete · H6 default · S11 exemption · breadth G14–16 (DY) [autopilot run 6]
 
 ### Decision DY — six ratified decisions executed (four with work, three resolved no-work)
