@@ -116,6 +116,12 @@
       "label": "Insurance",
       "description": "Policy IDs, premium, sum insured, claim status and line of business \u2014 insurance policy / claims book exports.",
       "domain_file": "domains/insurance.json"
+    },
+    {
+      "id": "customer-support",
+      "label": "Customer support and success",
+      "description": "Ticket IDs/status, priority, first-response time and CSAT \u2014 helpdesk / support / success exports.",
+      "domain_file": "domains/customer-support.json"
     }
   ],
   "types_file": "types.jsonl",

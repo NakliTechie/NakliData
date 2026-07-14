@@ -1,0 +1,14 @@
+{
+  "domain": "customer-support",
+  "label": "Customer support and success",
+  "types": [
+    "ticket_id",
+    "ticket_status",
+    "support_priority",
+    "first_response_minutes",
+    "csat_score"
+  ],
+  "report_templates": [
+    "support_sla"
+  ]
+}

@@ -1223,6 +1223,37 @@ LIMIT 30`,
   },
 };
 
+// G9 — Customer support / success domain pack (SLA brief).
+export const SUPPORT_SLA: Template = {
+  id: 'support_sla',
+  name: 'Support SLA brief',
+  description:
+    'Ticket count and average first-response time by priority — with average CSAT when present. Fits helpdesk / support exports.',
+  requiredTypes: ['support_priority', 'first_response_minutes'],
+  optionalTypes: ['csat_score'],
+  instantiate(m) {
+    const priority = m.support_priority!;
+    const frt = m.first_response_minutes!;
+    const csat = m.csat_score;
+    const csatSelect = csat ? `,\n       ROUND(AVG(${q(csat.column)}), 2) AS avg_csat` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Support SLA brief\n\nTicket count and average first-response time by priority.'),
+      sql(
+        'sla_by_priority',
+        `SELECT ${q(priority.column)} AS priority,
+       COUNT(*) AS tickets,
+       ROUND(AVG(${q(frt.column)}), 1) AS avg_first_response_minutes${csatSelect}
+FROM ${q(priority.table)}
+GROUP BY 1
+ORDER BY tickets DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'sla_by_priority', 'priority', 'tickets'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1250,6 +1281,7 @@ export const ALL_TEMPLATES: Template[] = [
   FRAUD_REVIEW,
   BANKING_FLOWS,
   INSURANCE_BOOK,
+  SUPPORT_SLA,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

@@ -237,3 +237,25 @@ describe('G8 — insurance domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('insurance_book');
   });
 });
+
+describe('G9 — customer support / success domain pack', () => {
+  it('classifies ticket_id / ticket_status / support_priority / first_response_minutes / csat_score', () => {
+    expect(top('ticket_number', ['T-100', 'T-101', 'T-102'])).toBe('ticket_id');
+    expect(top('ticket_status', ['open', 'pending', 'closed'])).toBe('ticket_status');
+    expect(top('priority', ['High', 'Low', 'Medium'])).toBe('support_priority');
+    expect(top('first_response_time', ['12', '45', '8'], 'INTEGER')).toBe('first_response_minutes');
+    expect(top('csat', ['4', '5', '3'], 'INTEGER')).toBe('csat_score');
+  });
+  it('ticket_id does NOT claim a healthcare case_id (owned by encounter_id)', () => {
+    // ticket_id drops bare case_id (encounter_id owns it); uses ticket_number/case_number instead.
+    expect(top('case_id', ['C1', 'C2', 'C3'])).not.toBe('ticket_id');
+  });
+  it('support_sla surfaces when support_priority + first_response_minutes present', () => {
+    expect(templateIds(['support_priority', 'first_response_minutes', 'csat_score'])).toContain(
+      'support_sla',
+    );
+  });
+  it('support_sla does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('support_sla');
+  });
+});
