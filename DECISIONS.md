@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — A4 · Scoped report-refresh (DR) [autopilot]
+
+### Decision DR — refresh a report's dependency subgraph, not the whole notebook
+
+The report cell's "Refresh data" ran `Notebook.runAll()` — re-running every runnable cell in the notebook,
+including ones the report doesn't embed. A4 scopes it.
+
+New pure **`reportRefreshOrder(report, cells)`** (notebook-graph.ts, reusing the existing `@name` graph
+primitives `extractRefs` / `viewCellNames` / `topoOrderRunnableCells`): (1) seeds from the report's references
+— every `cell-ref` name plus each `kpi-row.sourceCell`; a referenced view cell (chart / stats / pivot — not
+itself view-materialising) resolves to its `inputCell`, recursively and cycle-guarded; (2) the transitive
+`@name`-upstream closure of those seeds; (3) that set filtered into the notebook's topo order.
+**`handleScopedReportRefresh`** runs the subgraph via `runCell` in order, then `refreshReportKpis`. An
+all-markdown template scaffold (A3) has no runnable deps → order `[]` → KPI-only refresh, no error.
+
+Chose reusing the static `@name` graph over the physical DuckDB lineage (`core/lineage.ts`): the notebook's
+`@name` references are the authoritative *cell* dependency edges (the physical plan tracks table/view inputs,
+a different granularity), and `topoOrderRunnableCells` already encodes the correct run order + cycle fallback.
+Unit-tested (5: linear upstream w/ unrelated-excluded, kpi-source seed, chart→inputCell resolution,
+markdown-only→[], diamond de-dup). Smoke: clicking Refresh on the A2 report re-runs its subgraph and KPIs
+recompute to 60. Gates: check clean · 1096 vitest · smoke green · bundle 766.7/768. Commit `47ee0fc`.
+
+**Chunk 1 (reporting flagship) COMPLETE — A1 (auto-chart/limb) · A2 (KPI tiles) · A3 (exec templates) · A4
+(scoped refresh).**
+
 ## 2026-07-14 — A3 · Executive report-cell templates + report-builder lazy-load (DQ) [autopilot]
 
 ### Decision DQ — three report presets via an empty-state picker, and lazy-load the report builders to stay under 768
