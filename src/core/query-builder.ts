@@ -247,7 +247,7 @@ function validateSpec(spec: QueryBuilderSpec): void {
   // vanish into a single-row scalar with no warning (M17). Either way
   // the silent drop is surprising, so reject it.
   if (spec.groupBy.length > 0 || spec.aggregates.length > 0) {
-    const key = (t: string, c: string): string => `${t} ${c}`;
+    const key = (t: string, c: string): string => `${t}\0${c}`;
     const grouped = new Set(spec.groupBy.map((g) => key(g.table, g.column)));
     const aggregated = new Set(spec.aggregates.map((a) => key(a.table, a.column)));
     for (const c of spec.selectColumns) {
