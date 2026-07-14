@@ -498,6 +498,10 @@ function layoutNodes(graph: LineageGraph): {
   return { positions, totalWidth, totalHeight };
 }
 
+// TOKENS-ONLY EXEMPTION (S11, ratified 2026-07-14, DECISIONS DY): these
+// lineage-graph node fills/strokes are a localized SVG affordance palette, kept
+// inline rather than promoted into `src/tokens/colors.ts`. Deliberate — not a
+// stray hardcode. (Same call as the anonymize-modal sensitivity badges.)
 function nodeFill(n: LineageNode): string {
   if (n.kind === 'source') return '#eff6ff';
   if (n.kind === 'sink') return '#f0fdf4';
