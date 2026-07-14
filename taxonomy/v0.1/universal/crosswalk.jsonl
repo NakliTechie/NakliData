@@ -158,3 +158,8 @@
 {"role":"defect_count","universalTerm":"ut:count"}
 {"role":"yield_rate","universalTerm":"ut:percentage"}
 {"role":"quality_result","universalTerm":"ut:status"}
+{"role":"contract_id","universalTerm":"ut:transaction_identifier"}
+{"role":"contract_type","universalTerm":"ut:category","sensitivity":"financial"}
+{"role":"contract_value","universalTerm":"ut:monetary_amount"}
+{"role":"renewal_status","universalTerm":"ut:status"}
+{"role":"compliance_status","universalTerm":"ut:status","sensitivity":"secret"}

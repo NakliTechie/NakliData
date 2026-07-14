@@ -1361,6 +1361,35 @@ LIMIT 30`,
   },
 };
 
+// G13 — Legal / contracts / compliance domain pack (contract pipeline brief).
+export const CONTRACT_PIPELINE: Template = {
+  id: 'contract_pipeline',
+  name: 'Contract pipeline brief',
+  description:
+    'Contract count and total value by contract type — with renewal status when present. Fits legal / contract-management / GRC exports.',
+  requiredTypes: ['contract_type', 'contract_value'],
+  optionalTypes: ['renewal_status'],
+  instantiate(m) {
+    const ctype = m.contract_type!;
+    const cvalue = m.contract_value!;
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Contract pipeline brief\n\nContract count and total value by contract type.'),
+      sql(
+        'value_by_contract_type',
+        `SELECT ${q(ctype.column)} AS contract_type,
+       COUNT(*) AS contracts,
+       ROUND(SUM(${q(cvalue.column)}), 0) AS total_value
+FROM ${q(ctype.table)}
+GROUP BY 1
+ORDER BY total_value DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'value_by_contract_type', 'contract_type', 'total_value'),
+    ];
+    return cells;
+  },
+};
+
 // G12 — Manufacturing / quality domain pack (production quality brief).
 export const PRODUCTION_QUALITY: Template = {
   id: 'production_quality',
@@ -1455,6 +1484,7 @@ export const ALL_TEMPLATES: Template[] = [
   INVENTORY_HEALTH,
   CONSUMPTION_SUMMARY,
   PRODUCTION_QUALITY,
+  CONTRACT_PIPELINE,
   METRIC_BY_DIMENSION,
 ];
 

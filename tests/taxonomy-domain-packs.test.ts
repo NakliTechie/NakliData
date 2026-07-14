@@ -371,3 +371,25 @@ describe('G12 — manufacturing / quality domain pack', () => {
     );
   });
 });
+
+describe('G13 — legal / contracts / compliance domain pack', () => {
+  it('classifies contract_id / contract_type / contract_value / renewal_status / compliance_status', () => {
+    expect(top('agreement_id', ['C-1', 'C-2', 'C-3'])).toBe('contract_id');
+    expect(top('contract_type', ['MSA', 'NDA', 'SOW'])).toBe('contract_type');
+    expect(top('total_contract_value', ['500000', '120000', '80000'], 'BIGINT')).toBe(
+      'contract_value',
+    );
+    expect(top('renewal_status', ['auto', 'manual', 'expired'])).toBe('renewal_status');
+    expect(top('compliance_status', ['compliant', 'open', 'remediated'])).toBe('compliance_status');
+  });
+  it('crosswalk overrides: contract_type/value financial, compliance_status secret', () => {
+    expect(sensitivityForType(BUNDLE, 'contract_type')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'contract_value')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'compliance_status')).toBe('secret');
+  });
+  it('contract_pipeline surfaces when contract_type + contract_value present', () => {
+    expect(templateIds(['contract_type', 'contract_value', 'renewal_status'])).toContain(
+      'contract_pipeline',
+    );
+  });
+});
