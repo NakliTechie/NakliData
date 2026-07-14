@@ -36,8 +36,9 @@ export interface ColumnRef {
 /** Find the "best" assignment per typeId across all column assignments.
  *  Now considers same-table cohesion so a template's required types end up
  *  bound to columns from one consistent table whenever possible.
+ *  Internal — `indexByTypeWithCandidates` is the exported entry point (E2/S18).
  */
-export function indexByType(
+function indexByType(
   assignments: Record<string, ColumnAssignment>,
   sources: Array<{ tables: Array<{ id: string; name: string }> }>,
 ): Record<string, ColumnRef> {

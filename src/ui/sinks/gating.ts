@@ -40,8 +40,9 @@ export interface GatedSink {
 
 /** Build the set of typeIds present in the result, by mapping each result
  *  column back to its assignment (assignments may include columns from other
- *  cells / tables; we filter to columns that appear in this result). */
-export function presentTypeIds(result: SqlResult, assignments: ColumnAssignment[]): Set<string> {
+ *  cells / tables; we filter to columns that appear in this result).
+ *  Internal to this module (E2/S18: the export had no external consumer). */
+function presentTypeIds(result: SqlResult, assignments: ColumnAssignment[]): Set<string> {
   const inResult = new Set(result.columns);
   const out = new Set<string>();
   for (const a of assignments) {
