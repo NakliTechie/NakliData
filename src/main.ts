@@ -106,6 +106,7 @@ import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
+import { reportRefreshOrder } from './ui/notebook-graph.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
 import { type QueryBuilderTable, openQueryBuilderModal } from './ui/query-builder-modal.ts';
@@ -1455,11 +1456,40 @@ async function handleCreateReport(cellId: string): Promise<void> {
 }
 
 /**
- * A2 — after a report-refresh (runAll), recompute the cached KPI tile values
- * from each report's re-run source result. Reads the `sourceCell` + `valueColumn`
- * recorded on the kpi-row; skips reports whose source cell has no fresh result.
- * The KPI helpers ride the lazy `report-templates` chunk (A35), so this loads
- * the chunk only when a report actually carries a KPI row.
+ * A4 — scoped report-refresh. Re-run only the cells THIS report depends on (its
+ * `@name`-upstream closure), in topo order, instead of `runAll`. So refreshing
+ * one report doesn't re-run every unrelated cell in the notebook. Falls back to
+ * a KPI-only refresh when the report has no runnable data cells (e.g. a
+ * template scaffold that's all markdown).
+ */
+async function handleScopedReportRefresh(reportCellId: string): Promise<void> {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const report = nb.get().cells.find((c) => c.id === reportCellId);
+  if (!report || report.kind !== 'report') return;
+  const order = reportRefreshOrder(report, nb.get().cells);
+  if (order.length === 0) {
+    await refreshReportKpis(engine);
+    toast('Report refreshed — no upstream data cells to re-run.');
+    return;
+  }
+  toast(`Refreshing report data — ${order.length} cell${order.length === 1 ? '' : 's'}…`);
+  try {
+    for (const id of order) await nb.runCell(id);
+    // A2 — recompute cached KPI values from the re-run source results.
+    await refreshReportKpis(engine);
+    toast('Report data refreshed.');
+  } catch (err) {
+    toast(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
+}
+
+/**
+ * A2 — after a report-refresh, recompute the cached KPI tile values from each
+ * report's re-run source result. Reads the `sourceCell` + `valueColumn` recorded
+ * on the kpi-row; skips reports whose source cell has no fresh result. The KPI
+ * helpers ride the lazy `report-templates` chunk (A35), so this loads the chunk
+ * only when a report actually carries a KPI row.
  */
 async function refreshReportKpis(engine: Engine): Promise<void> {
   const nb = getNotebook(engine);
@@ -2157,20 +2187,8 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       return;
     }
     case 'report-refresh': {
-      // Tier-2 — one-click report refresh: re-run all cells in dependency
-      // (topo) order so the report's embedded results (and their snapshots +
-      // staleness badges) refresh. Per-cell errors surface on the cells.
-      toast('Refreshing report data — re-running cells…');
-      void getNotebook(engine)
-        .runAll()
-        .then(async () => {
-          // A2 — recompute cached KPI values from the re-run source results.
-          await refreshReportKpis(engine);
-          toast('Report data refreshed.');
-        })
-        .catch((err) =>
-          toast(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`, 'error'),
-        );
+      const cellId = el?.dataset.cellId;
+      if (cellId) void handleScopedReportRefresh(cellId);
       return;
     }
     case 'open-settings': {

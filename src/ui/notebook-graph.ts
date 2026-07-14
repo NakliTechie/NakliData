@@ -36,6 +36,7 @@ import type {
   AssertionCellState,
   CellState,
   CohortCellState,
+  ReportCellState,
   SqlCellState,
 } from './cells/types.ts';
 
@@ -198,6 +199,68 @@ export function topoOrderRunnableCells(cells: CellState[]): string[] {
   // Seed in document order so output is document-stable absent cross-refs.
   for (const c of runnable) visit(c.id);
   return order;
+}
+
+/**
+ * A4 — the runnable cells a report depends on, in run (topo) order. Scoped
+ * report-refresh runs THIS subgraph instead of `runAll`, so refreshing one
+ * report doesn't re-run every unrelated cell in the notebook.
+ *
+ * Seeds = the report's referenced cells (cell-refs + each kpi-row's
+ * `sourceCell`). A referenced cell that materialises a view (sql / cohort /
+ * assertion) is a seed directly; a referenced *view* cell (chart / stats /
+ * pivot / …) contributes its `inputCell` instead (that's where the data comes
+ * from). From each seed we take the transitive `@name`-upstream closure, then
+ * return those ids filtered into the notebook's topo order.
+ */
+export function reportRefreshOrder(report: ReportCellState, cells: CellState[]): string[] {
+  const nameToId = viewCellNames(cells);
+  const byId = new Map<string, CellState>();
+  for (const c of cells) byId.set(c.id, c);
+  const byName = new Map<string, CellState>();
+  for (const c of cells) {
+    if (c.name?.trim() && !byName.has(c.name)) byName.set(c.name, c);
+  }
+  const isRunnable = (c: CellState | undefined): boolean =>
+    !!c && (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion');
+
+  // Resolve a referenced cell to its runnable root(s): itself if runnable, else
+  // its `inputCell` (recursively, guarded against a chain cycle).
+  const seeds = new Set<string>();
+  const addRoot = (cell: CellState | undefined, seen: Set<string>): void => {
+    if (!cell || seen.has(cell.id)) return;
+    seen.add(cell.id);
+    if (isRunnable(cell)) {
+      seeds.add(cell.id);
+      return;
+    }
+    const input = (cell as { inputCell?: string }).inputCell;
+    if (input) addRoot(byId.get(input), seen);
+  };
+  for (const item of report.definition.items) {
+    if (item.kind === 'cell-ref') addRoot(byName.get(item.cellName), new Set());
+    else if (item.kind === 'kpi-row' && item.sourceCell) {
+      addRoot(byName.get(item.sourceCell), new Set());
+    }
+  }
+
+  // Transitive @name-upstream closure over view-materialising cells.
+  const closure = new Set<string>();
+  const walk = (id: string): void => {
+    if (closure.has(id)) return;
+    closure.add(id);
+    const cell = byId.get(id);
+    const code = isRunnable(cell)
+      ? (cell as SqlCellState | CohortCellState | AssertionCellState).code
+      : '';
+    for (const ref of extractRefs(code)) {
+      const upId = nameToId.get(ref);
+      if (upId && upId !== id) walk(upId);
+    }
+  };
+  for (const s of seeds) walk(s);
+
+  return topoOrderRunnableCells(cells).filter((id) => closure.has(id));
 }
 
 /** Render a RefIssue as a one-line user-facing error message. */

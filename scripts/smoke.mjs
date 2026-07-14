@@ -1579,6 +1579,27 @@ async function main() {
       fail(`A2: a KPI tile rendered empty/placeholder — ${JSON.stringify(kpis)}`);
     }
     log('✓ A2: Create-report leads with computed KPI tiles (total 60 / rows 2) bound to named measures');
+
+    // A4 — scoped report-refresh. Click "Refresh data" on this report; it
+    // re-runs only its dependency subgraph (the source SQL cell), then
+    // recomputes the KPI tiles. Asserts the path works end-to-end (the scoped
+    // subgraph selection itself is unit-tested).
+    await page.evaluate(() => {
+      const reports = document.querySelectorAll('.cell[data-cell-kind="report"]');
+      const last = reports[reports.length - 1];
+      last?.querySelector('[data-action="report-refresh"]')?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const reports = document.querySelectorAll('.cell[data-cell-kind="report"]');
+        const last = reports[reports.length - 1];
+        const total = last?.querySelector('.report-kpi-tile [data-measure$="_total"]');
+        return total?.textContent?.trim() === '60';
+      },
+      null,
+      { timeout: 8000 },
+    );
+    log('✓ A4: scoped report-refresh re-runs the report subgraph + recomputes KPIs (total 60)');
   }
 
   // 12f-ter. A3 — executive report-cell templates. Add an empty report, pick
