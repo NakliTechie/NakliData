@@ -2,7 +2,14 @@
 // The bundle ships in public/taxonomy/v0.1/ so it's reachable at runtime
 // via a relative URL.
 
-import type { DomainSpec, TaxonomyBundle, TypeRelationship, TypeSpec } from './types.ts';
+import type {
+  DomainSpec,
+  TaxonomyBundle,
+  TypeRelationship,
+  TypeSpec,
+  UniversalLayer,
+} from './types.ts';
+import { parseUniversalLayer } from './universal.ts';
 
 interface IndexJson {
   format: string;
@@ -11,6 +18,9 @@ interface IndexJson {
   domains: Array<{ id: string; label: string; description?: string; domain_file: string }>;
   types_file: string;
   relationships_file: string;
+  /** Tier-3 UniversalTerm layer files (optional). */
+  universal_file?: string;
+  crosswalk_file?: string;
 }
 
 let cache: TaxonomyBundle | null = null;
@@ -79,12 +89,33 @@ export async function loadTaxonomy(
     }
   }
 
+  // Tier-3 UniversalTerm layer — optional. Two JSONL files (concepts +
+  // crosswalk). Parsed by the pure `universal.ts` module. Missing files leave
+  // the field undefined (resolvers then fall back to `'public'` / `null`).
+  let universal: UniversalLayer | undefined;
+  if (index.universal_file && index.crosswalk_file) {
+    try {
+      const [uRes, cRes] = await Promise.all([
+        get(`${base}${index.universal_file}`),
+        get(`${base}${index.crosswalk_file}`),
+      ]);
+      if (uRes.ok && cRes.ok) {
+        universal = parseUniversalLayer(await uRes.text(), await cRes.text());
+      } else {
+        console.warn(`[taxonomy] universal-layer fetch failed: ${uRes.status}/${cRes.status}`);
+      }
+    } catch (err) {
+      console.warn('[taxonomy] universal-layer parse failed', err);
+    }
+  }
+
   cache = {
     version: index.version,
     released: index.released,
     domains,
     types,
     ...(relationships ? { relationships } : {}),
+    ...(universal ? { universal } : {}),
   };
   return cache;
 }
