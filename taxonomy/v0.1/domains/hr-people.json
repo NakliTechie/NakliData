@@ -1,0 +1,12 @@
+{
+  "domain": "hr-people",
+  "label": "HR and people",
+  "types": [
+    "employee_id",
+    "job_title",
+    "department",
+    "compensation",
+    "tenure_years"
+  ],
+  "report_templates": ["hr_workforce"]
+}

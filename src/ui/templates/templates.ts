@@ -929,6 +929,39 @@ export const COLUMN_PROFILE: Template = {
   },
 };
 
+// B2 — HR / people domain pack (workforce brief).
+export const HR_WORKFORCE: Template = {
+  id: 'hr_workforce',
+  name: 'Workforce brief',
+  description:
+    'Headcount and average compensation by department — with average tenure when present. Fits HRIS / people-analytics exports.',
+  requiredTypes: ['department', 'compensation'],
+  optionalTypes: ['tenure_years'],
+  instantiate(m) {
+    const dept = m.department!;
+    const comp = m.compensation!;
+    const tenure = m.tenure_years;
+    const tenureSelect = tenure
+      ? `,\n       ROUND(AVG(${q(tenure.column)}), 1) AS avg_tenure_years`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Workforce brief\n\nHeadcount and average compensation by department.'),
+      sql(
+        'workforce_by_department',
+        `SELECT ${q(dept.column)} AS department,
+       COUNT(*) AS headcount,
+       ROUND(AVG(${q(comp.column)}), 0) AS avg_compensation${tenureSelect}
+FROM ${q(dept.table)}
+GROUP BY 1
+ORDER BY headcount DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'workforce_by_department', 'department', 'headcount'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -947,6 +980,7 @@ export const ALL_TEMPLATES: Template[] = [
   AMOUNT_SUMMARY,
   RETAIL_SALES,
   CONTENT_CATALOG,
+  HR_WORKFORCE,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────

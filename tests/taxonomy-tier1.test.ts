@@ -133,6 +133,51 @@ describe('Tier-1 taxonomy — sample datasets (Titanic)', () => {
   });
 });
 
+// B1 · Tier-1 quick wins — the last two unclassified Airbnb columns (`id`,
+// `name`). Both headers are extreme false-positive magnets: `id` is a token of
+// every `*_id` column and `name` of every `*_name` column. The types therefore
+// carry a 0.9 confidence_floor so they only enter the candidate list on an
+// EXACT header + high-cardinality co-signal — a mere token match on
+// `customer_id` / `host_id` / `host_name` scores <0.9 and is filtered before it
+// can create ambiguity with the specific type. These guards lock that in.
+function candidateIds(name: string, values: string[], sqlType = 'VARCHAR'): string[] {
+  return classifyColumn(BUNDLE, sample(name, values, sqlType)).candidates.map((c) => c.typeId);
+}
+
+describe('Tier-1 quick wins — record_id + listing_name (Airbnb id / name)', () => {
+  it('classifies a high-cardinality `id` column as record_id', () => {
+    expect(top('id', ['2539', '2595', '3647', '5022', '5099'], 'BIGINT')).toBe('record_id');
+    expect(top('record_id', ['a1', 'b2', 'c3', 'd4'])).toBe('record_id');
+  });
+  it('classifies the Airbnb listing `name` (long free-text titles) as listing_name', () => {
+    expect(
+      top('name', [
+        'Clean & quiet apt home by the park',
+        'Skylit Midtown Castle',
+        'Cozy Entire Floor of Brownstone',
+        'Entire Apt: Spacious Studio/Loft by central park',
+      ]),
+    ).toBe('listing_name');
+  });
+  it('does NOT hijack a specific *_id column — customer_id / host_id keep their type', () => {
+    // Unique host_id (worst case: high-card would feed record_id's co-signal).
+    expect(top('host_id', ['2787', '2845', '4632', '4869'], 'BIGINT')).toBe('host_id');
+    expect(candidateIds('host_id', ['2787', '2845', '4632', '4869'], 'BIGINT')).not.toContain(
+      'record_id',
+    );
+    // customer_id (existing retail fixture) is unaffected.
+    expect(candidateIds('CustomerID', ['17850', '13047', '12583'], 'INTEGER')).not.toContain(
+      'record_id',
+    );
+  });
+  it('does NOT hijack host_name — bare person names stay host_name, not listing_name', () => {
+    expect(top('host_name', ['John', 'Jennifer', 'Elisabeth', 'LisaRoxanne'])).toBe('host_name');
+    expect(candidateIds('host_name', ['John', 'Jennifer', 'Elisabeth'])).not.toContain(
+      'listing_name',
+    );
+  });
+});
+
 describe('Retail domain pack (e-commerce)', () => {
   it('classifies sku / quantity / customer_id / order_id', () => {
     expect(top('StockCode', ['85123A', '71053', '84406B'])).toBe('sku');
@@ -164,6 +209,27 @@ describe('Media domain pack (Netflix)', () => {
   });
 });
 
+// B2 — HR / people domain pack. Fixtures mirror the IBM HR Attrition dataset.
+describe('HR / people domain pack', () => {
+  it('classifies employee_id / job_title / department / compensation / tenure', () => {
+    expect(top('EmployeeNumber', ['1', '2', '4', '5', '7'], 'INTEGER')).toBe('employee_id');
+    expect(top('JobRole', ['Sales Executive', 'Research Scientist', 'Manager'])).toBe('job_title');
+    expect(top('Department', ['Sales', 'Research & Development', 'Human Resources'])).toBe(
+      'department',
+    );
+    expect(top('MonthlyIncome', ['5993', '5130', '2090'], 'INTEGER')).toBe('compensation');
+    expect(top('YearsAtCompany', ['6', '10', '0', '8'], 'INTEGER')).toBe('tenure_years');
+  });
+  it('employee_id is flagged PII and compensation is flagged financial', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'employee_id')?.sensitivity).toBe('pii');
+    expect(BUNDLE.types.find((t) => t.id === 'compensation')?.sensitivity).toBe('financial');
+  });
+  it('does NOT mislabel a bare "title"/"role" column as job_title (avoids media/generic collisions)', () => {
+    // job_title deliberately omits bare "title" (→ content_title) and "role".
+    expect(top('title', ['Blood & Water', 'Ganglands', 'Midnight Mass'])).not.toBe('job_title');
+  });
+});
+
 describe('Tier-1 report templates surface for matching roles', () => {
   const byType = (ids: string[]): Record<string, ColumnRef> =>
     Object.fromEntries(ids.map((id) => [id, { table: 'listings', column: id }]));
@@ -184,6 +250,9 @@ describe('Tier-1 report templates surface for matching roles', () => {
   });
   it('content_catalog surfaces when release_year present', () => {
     expect(ids(['release_year', 'media_type', 'content_rating'])).toContain('content_catalog');
+  });
+  it('hr_workforce surfaces when department + compensation present', () => {
+    expect(ids(['department', 'compensation', 'tenure_years'])).toContain('hr_workforce');
   });
   it('none of the Tier-1 templates surface for a bare finance workbook', () => {
     const got = ids(['gstin', 'amount']);
