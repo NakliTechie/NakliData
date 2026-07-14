@@ -65,3 +65,4 @@
 {"id":"ut:ip_address","prefLabel":"IP address","broader":["ut:contact"],"roleFamily":"dimension","sensitivity":"pii"}
 {"id":"ut:web_address","prefLabel":"Web address","broader":["ut:label"],"roleFamily":"dimension","sensitivity":"public","exactMatch":["schema:url"]}
 {"id":"ut:rating","prefLabel":"Rating","broader":["ut:ratio"],"roleFamily":"metric","sensitivity":"public","exactMatch":["schema:Rating"]}
+{"id":"ut:facility_identifier","prefLabel":"Facility identifier","broader":["ut:identifier"],"roleFamily":"entity","sensitivity":"public"}

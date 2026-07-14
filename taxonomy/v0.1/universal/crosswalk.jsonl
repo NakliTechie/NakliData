@@ -143,3 +143,13 @@
 {"role":"support_priority","universalTerm":"ut:priority"}
 {"role":"first_response_minutes","universalTerm":"ut:count"}
 {"role":"csat_score","universalTerm":"ut:score"}
+{"role":"purchase_order_id","universalTerm":"ut:transaction_identifier"}
+{"role":"warehouse_id","universalTerm":"ut:facility_identifier"}
+{"role":"inventory_quantity","universalTerm":"ut:count"}
+{"role":"lead_time_days","universalTerm":"ut:duration"}
+{"role":"unit_cost","universalTerm":"ut:monetary_amount"}
+{"role":"meter_id","universalTerm":"ut:device_identifier"}
+{"role":"usage_kwh","universalTerm":"ut:physical_measurement"}
+{"role":"demand_kw","universalTerm":"ut:physical_measurement"}
+{"role":"tariff_code","universalTerm":"ut:category","sensitivity":"financial"}
+{"role":"outage_minutes","universalTerm":"ut:duration"}

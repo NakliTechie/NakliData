@@ -122,6 +122,18 @@
       "label": "Customer support and success",
       "description": "Ticket IDs/status, priority, first-response time and CSAT \u2014 helpdesk / support / success exports.",
       "domain_file": "domains/customer-support.json"
+    },
+    {
+      "id": "supply-chain",
+      "label": "Supply chain and procurement",
+      "description": "Purchase orders, warehouses, inventory, lead time and unit cost \u2014 procurement / inventory / logistics exports.",
+      "domain_file": "domains/supply-chain.json"
+    },
+    {
+      "id": "energy",
+      "label": "Energy and utilities",
+      "description": "Meter IDs, kWh usage, kW demand, tariff codes and outage minutes \u2014 utility metering / grid / energy exports.",
+      "domain_file": "domains/energy.json"
     }
   ],
   "types_file": "types.jsonl",
