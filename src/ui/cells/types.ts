@@ -147,7 +147,17 @@ export interface NetworkCellState {
    * attributed view). Older files lack the key; read with `?? null`.
    */
   edgeWidthCol: string | null;
+  /**
+   * Which node metric drives colour + size. 'degree' (default) keeps the legacy
+   * degree ramp; 'pagerank' / 'betweenness' colour + size by that centrality;
+   * 'community' colours by Louvain community (size stays degree-based). Computed
+   * natively (core/graph-metrics.ts). Older files lack the key; read `?? 'degree'`.
+   */
+  nodeMetric: NodeMetric | null;
 }
+
+/** Node metric selectable in the Network cell's "color/size by" picker. */
+export type NodeMetric = 'degree' | 'pagerank' | 'betweenness' | 'community';
 
 /**
  * Temporal cell (Facet track). Buckets an upstream SQL cell's time column into

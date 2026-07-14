@@ -1,6 +1,7 @@
 import { getAssociationsStore } from './core/associations.ts';
 import { pickChartColumns } from './core/chart-columns.ts';
 import type { ValueCount } from './core/clustering.ts';
+import { buildCorrelationGraphPlan } from './core/correlation-graph.ts';
 import { setDemoMode } from './core/demo-mode.ts';
 import { getDimensionsStore } from './core/dimensions.ts';
 import { type Engine, getEngine } from './core/engine.ts';
@@ -1383,6 +1384,67 @@ function handleXRay(cellId: string): void {
   toast('X-Ray inserted — descriptive stats + correlations.');
 }
 
+/** Columns whose sampled non-null values are ≥80% numeric (number/bigint). */
+function numericColumnsOf(columns: string[], rows: Array<Record<string, unknown>>): string[] {
+  const sample = rows.slice(0, 200);
+  return columns.filter((col) => {
+    let numeric = 0;
+    let nonNull = 0;
+    for (const row of sample) {
+      const v = row[col];
+      if (v == null) continue;
+      nonNull++;
+      if (typeof v === 'number' || typeof v === 'bigint') numeric++;
+    }
+    return nonNull > 0 && numeric / nonNull >= 0.8;
+  });
+}
+
+/**
+ * Correlation-graph synthesis (Facet, graph-analytics Phase 1b) — turn a flat
+ * result into a graph: numeric COLUMNS become nodes, a strong pairwise Pearson
+ * correlation becomes a weighted edge. Inserts a SQL cell (the corr() edge list,
+ * over the source cell's `cell_<id>` view), runs it, and adds a Network cell
+ * pointed at it so the whole graph-theory arsenal "falls out" of a tabular set.
+ */
+async function handleCorrelationGraph(cellId: string): Promise<void> {
+  const engine = getEngine();
+  const nb = getNotebook(engine);
+  const cell = nb.get().cells.find((c) => c.id === cellId);
+  if (!cell || cell.kind !== 'sql' || !cell.lastResult) {
+    toast('Run the cell first — a correlation graph needs a result.');
+    return;
+  }
+  const numeric = numericColumnsOf(cell.lastResult.columns, cell.lastResult.rows);
+  if (numeric.length < 2) {
+    toast('Need at least two numeric columns to build a correlation graph.');
+    return;
+  }
+  let plan: ReturnType<typeof buildCorrelationGraphPlan>;
+  try {
+    plan = buildCorrelationGraphPlan(`cell_${cell.id}`, numeric);
+  } catch (err) {
+    toast(err instanceof Error ? err.message : 'Could not build the correlation graph.');
+    return;
+  }
+  const base = (cell.name?.trim() || `result_${cell.id}`).replace(/[^A-Za-z0-9_]/g, '_');
+  const edges = nb.addCell('sql');
+  nb.patchCell(edges.id, { name: `${base}_correlations`, code: plan.sql });
+  await nb.runCell(edges.id); // populate lastResult + the cell_<id> view
+  const net = nb.addCell('network');
+  nb.patchCell(net.id, {
+    inputCell: edges.id,
+    sourceCol: 'source',
+    targetCol: 'target',
+    edgeWidthCol: 'weight',
+    nodeMetric: 'community',
+  });
+  toast(
+    `Correlation graph: ${numeric.length} numeric columns → edges above |corr| ${plan.threshold}` +
+      `${plan.truncated ? ' (capped columns)' : ''}. Coloured by community.`,
+  );
+}
+
 /**
  * Tier-2 "Create report from result" — turn a run SQL result into a
  * staff-ready report cell: names the source cell (so `cell-ref` resolves
@@ -2157,6 +2219,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     case 'create-report': {
       const cellId = el?.dataset.cellId;
       if (cellId) void handleCreateReport(cellId);
+      return;
+    }
+    case 'correlation-graph': {
+      const cellId = el?.dataset.cellId;
+      if (cellId) void handleCorrelationGraph(cellId);
       return;
     }
     case 'report-template': {

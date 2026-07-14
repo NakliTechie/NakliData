@@ -234,6 +234,7 @@ export class Notebook {
         targetCol: null,
         edgeColorCol: null,
         edgeWidthCol: null,
+        nodeMetric: 'degree',
       } satisfies NetworkCellState;
     } else if (kind === 'temporal') {
       cell = {

@@ -340,6 +340,9 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     <button class="btn btn-ghost" data-action="create-report" data-cell-id="${cell.id}" title="Build a staff-ready report from this result — embeds the table + provenance, with an editable notes area. Print to PDF.">
       ${iconSvg('file', 12)} <span>Create report</span>
     </button>
+    <button class="btn btn-ghost" data-action="correlation-graph" data-cell-id="${cell.id}" title="Build a correlation graph — numeric columns become nodes, strong pairwise correlations become edges. Inserts a SQL edge-list + a Network cell.">
+      ${iconSvg('link', 12)} <span>Correlation graph</span>
+    </button>
   `;
   container.append(meta);
 

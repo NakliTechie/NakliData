@@ -2,6 +2,56 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-15 — Facet graph analytics: native metrics + correlation-graph (crib from FrankenNetworkX) (EB)
+
+### Decision EB — native TS analytics on the Facet; NetworkX-in-Pyodide parked; wasm deferred
+
+- **Context.** Jeffrey Emanuel's FrankenNetworkX (Rust NetworkX port) + his tweet on
+  synthesizing graphs from data. The library itself is a native Python extension → can't
+  `import` in our Pyodide cell and can't be called from TS. So the crib is selective. The
+  Facet computed only `degree`; the gaps were the standard analytics.
+- **Phase 2 — native TS metrics (shipped).** New pure `src/core/graph-metrics.ts`: PageRank
+  (power iteration + dangling redistribution), Brandes betweenness (normalized undirected),
+  Louvain (+ modularity), Batagelj–Zaversnik k-core, clustering coefficient, connected
+  components. **Determinism is the load-bearing design choice** (cribbed from FrankenNetworkX's
+  CGSE): tie-breaks are pinned — insertion-order node indexing, ascending-neighbour iteration,
+  lowest-index on ties, no RNG — so a metric is reproducible run-to-run. That matters because
+  the Network cell caches layouts by signature and we hash result snapshots for staleness; a
+  hash-order-dependent metric would churn both. Engine-boundary clean (no DOM), like
+  force-layout.ts. Verified: 23 unit tests + a **fresh-eyes differential pass against networkx
+  3.2.1** (38 graphs / ~190 assertions, all exact; Louvain within heuristic tolerance of
+  best-of-60-seeds, expected for a deterministic single-pass).
+- **Facet wiring (shipped).** A "color/size by" picker (degree | pagerank | betweenness |
+  community) on `NetworkCellState.nodeMetric`. deck.gl node render generalized: `metricValue`
+  → hot/cool ramp + bounded 2–8 px size; `community` → categorical palette. Metric memoized in
+  a cache keyed by layout-sig+metric so an unrelated re-render doesn't recompute betweenness/
+  Louvain. **Node caps** (betweenness ≤3000 — O(n·m); Louvain ≤20000) fall back to degree with
+  a note rather than jank the tab. Metrics run synchronously on the main thread (post-layout) —
+  worker-izing is the noted next scale lever.
+- **Phase 1b — correlation-graph synthesis (shipped).** The tweet's headline idea for a data
+  workbench. A "Correlation graph" SQL-result action: numeric columns become nodes, strong
+  pairwise Pearson `corr()` (|corr| ≥ 0.5) becomes weighted edges. Pure
+  `src/core/correlation-graph.ts` builds a DuckDB edge-list query over the source `cell_<id>`
+  view (thresholded, ordered, identifier/literal-quoted, column-capped); the handler inserts
+  that SQL cell, runs it, and adds a Network cell (edge width = |corr|, Louvain colour). 9 unit
+  tests on the SQL generation.
+- **Phase 3 — wasm spike DONE, GO but DEFERRED.** His PyO3-free crates (`fnx-algorithms/
+  fnx-classes/fnx-cgse`) compile to `wasm32-unknown-unknown` with 3 small patches (2 are real
+  32-bit-portability bugs worth upstreaming); a 5-fn shim is ~102 KB gzipped and fast (pagerank
+  239 ms on 50k nodes). **License is MIT** → vendoring is fine with attribution. Deferred
+  because Phase 2 already covers the 6 core metrics natively; his Rust earns its keep on the
+  long-tail 550-fn catalog, byte-exact conformance, and extreme scale. Pull on demand.
+- **Phase 1a — NetworkX-in-Pyodide PARKED (not decided unattended).** It was scoped as
+  "near-free" but Pyodide 0.27.7's lock makes `networkx-3.4.2` depend on **matplotlib**
+  (+ setuptools/decorator) — `loadPackage(['networkx'])` drags a ~30 MB closure. This is a
+  genuine sovereign-posture fork (accept the closure / manual lean same-origin wheel extraction
+  / skip) with no clearly-right answer, so autopilot parked it for a human rather than choosing.
+  Leaning skip or lean-extraction, because Phase 2 + the deferred wasm already cover the need.
+  See plan/pending.md Open questions.
+
+**Gate:** 1216 vitest · tsc + biome clean · smoke PASSED · bundle 764.6/768 (3.4 KB headroom —
+follow-up: lazy-load graph-metrics to reclaim it).
+
 ## 2026-07-15 — C1 · >2k-node Facet render CLOSED (live-verified on the deploy) (EA)
 
 ### Decision EA — the last owed live verification, closed against the production deploy

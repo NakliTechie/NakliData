@@ -250,6 +250,18 @@ export interface NetworkRenderNode {
   id: string;
   position: [number, number];
   degree: number;
+  /**
+   * Continuous metric driving colour + size (degree / pagerank / betweenness).
+   * Defaults to `degree` when absent — so existing callers keep the degree ramp.
+   */
+  metricValue?: number;
+  /**
+   * Louvain community index → categorical colour (overrides the metric ramp).
+   * null/absent → colour by `metricValue`.
+   */
+  community?: number | null;
+  /** Extra hover text (e.g. "pagerank 0.031"); appended after the degree label. */
+  metricLabel?: string | null;
 }
 export interface NetworkRenderEdge {
   sourcePosition: [number, number];
@@ -288,12 +300,18 @@ export interface NetworkGraphHandle {
   destroy: () => void;
 }
 
-function degreeColor(degree: number, maxDegree: number): [number, number, number] {
-  if (maxDegree <= 1) return MID_RGB;
-  const r = degree / maxDegree;
+/** Hot→cool ramp on a value's ratio to the max (degree/pagerank/betweenness). */
+function rampColor(value: number, max: number): [number, number, number] {
+  if (max <= 0) return MID_RGB;
+  const r = value / max;
   if (r > 0.5) return HUB_RGB;
   if (r > 0.15) return MID_RGB;
   return LEAF_RGB;
+}
+
+/** Categorical colour for a Louvain community index (cycles the palette). */
+function communityColor(community: number): [number, number, number] {
+  return PALETTE_RGB[community % PALETTE_RGB.length] ?? ACCENT_RGB;
 }
 
 /**
@@ -313,7 +331,10 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
   const width = container.clientWidth || 600;
   const height = container.clientHeight || 420;
   const zoom = Math.log2(Math.min(width, height) / span) - 0.2;
-  const maxDegree = nodes.reduce((m, n) => Math.max(m, n.degree), 1);
+  // Metric that drives colour + size — `metricValue` when set (pagerank /
+  // betweenness), else degree. Max is the ramp denominator + size normaliser.
+  const metricAt = (n: NetworkRenderNode): number => n.metricValue ?? n.degree;
+  const maxMetric = nodes.reduce((m, n) => Math.max(m, metricAt(n)), 0) || 1;
 
   const canvas = document.createElement('canvas');
   // Explicit drawing-buffer size — deck.gl v9 leaves a bare canvas at 300×150
@@ -358,14 +379,18 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
       data: nodes,
       getPosition: (n) => [n.position[0], n.position[1], 0],
       getFillColor: (n, { index }) => {
-        const [r, g, b] = degreeColor(n.degree, maxDegree);
+        const [r, g, b] =
+          n.community != null ? communityColor(n.community) : rampColor(metricAt(n), maxMetric);
         if (selected === null || index === selected || neighborSet.has(index)) {
           return [r, g, b, 255];
         }
         return [r, g, b, 40];
       },
       getRadius: (n, { index }) => {
-        const base = 2 + Math.sqrt(n.degree);
+        // Bounded 2–8 px, scaled by the metric's ratio to the max (so tiny
+        // pagerank/betweenness fractions still spread across the size range).
+        const ratio = Math.max(0, Math.min(1, metricAt(n) / maxMetric));
+        const base = 2 + 6 * Math.sqrt(ratio);
         return index === selected ? base + 4 : neighborSet.has(index) ? base + 2 : base;
       },
       radiusUnits: 'pixels',
@@ -385,7 +410,11 @@ export function mountNetworkGraph(opts: NetworkGraphOpts): NetworkGraphHandle {
         ? {
             onHover: (info: { object?: NetworkRenderNode }) =>
               onHover(
-                info.object?.id != null ? `${info.object.id} · degree ${info.object.degree}` : null,
+                info.object?.id != null
+                  ? `${info.object.id} · degree ${info.object.degree}${
+                      info.object.metricLabel ? ` · ${info.object.metricLabel}` : ''
+                    }`
+                  : null,
               ),
           }
         : {}),
