@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultStrategyForSensitivity } from '../src/core/anonymize.ts';
 import type { TaxonomyBundle, TypeSensitivity, TypeSpec } from '../src/taxonomy/types.ts';
 import {
+  hasSensitivityLayer,
   parseUniversalLayer,
   roleFamilyForType,
   sensitivityForType,
@@ -135,6 +136,23 @@ describe('universal layer — resolvers', () => {
     expect(sensitivityForType(bare, 'amount')).toBe('public');
     expect(roleFamilyForType(bare, 'amount')).toBeNull();
     expect(universalTermForType(bare, 'amount')).toBeNull();
+  });
+});
+
+describe('anonymize FAIL-CLOSED guard (security — no plaintext leak on missing layer)', () => {
+  it('hasSensitivityLayer is false without the layer → the sink must refuse to export', () => {
+    // With the layer, exports are allowed; without it (independent fetch failure),
+    // sensitivityForType degrades to public→keep, so the sink refuses instead.
+    expect(hasSensitivityLayer(bundle)).toBe(true);
+    expect(hasSensitivityLayer({ version: '0.1', released: 'x', domains: [], types })).toBe(false);
+    expect(hasSensitivityLayer(null)).toBe(false);
+  });
+  it('documents the failure mode this guards: no layer makes every column look public', () => {
+    const bare: TaxonomyBundle = { version: '0.1', released: 'x', domains: [], types };
+    // api_key is secret WITH the layer, but 'public' without it — the exact
+    // degradation ('public' → keep → plaintext) the sink guard exists to catch.
+    expect(sensitivityForType(bundle, 'api_key')).toBe('secret');
+    expect(sensitivityForType(bare, 'api_key')).toBe('public');
   });
 });
 

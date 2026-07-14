@@ -60,6 +60,19 @@ function indexOf(layer: UniversalLayer): LayerIndex {
 
 // --- resolvers (the public surface the seams call) ---------------------------
 
+/**
+ * True when the Tier-3 sensitivity layer is loaded. Security-critical: the
+ * anonymize sink MUST fail closed (refuse to export) when this is `false`,
+ * because `sensitivityForType` degrades to `'public'` → strategy `'keep'` →
+ * a plaintext export otherwise. The layer is a separate fetch from types.jsonl
+ * and can fail independently, so a non-null bundle does NOT imply it's present.
+ */
+export function hasSensitivityLayer(
+  bundle: TaxonomyBundle | null,
+): bundle is TaxonomyBundle & { universal: UniversalLayer } {
+  return !!bundle?.universal;
+}
+
 /** The UniversalTerm a `typeId` maps to, or `null` if unmapped / no layer. */
 export function universalTermForType(bundle: TaxonomyBundle, typeId: string): UniversalTerm | null {
   const layer = bundle.universal;
