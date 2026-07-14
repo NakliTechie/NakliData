@@ -11,7 +11,6 @@ import { MeasuresStore } from '../src/core/measures-store.ts';
 import {
   type MeasureDefinition,
   type MeasuresFile,
-  applicableMeasures,
   expandMeasures,
   findReferencedMeasures,
   validateMeasureExpression,
@@ -319,29 +318,6 @@ describe('findReferencedMeasures', () => {
 
   it('returns empty for SQL with no MEASURE() calls', () => {
     expect(findReferencedMeasures('SELECT * FROM x')).toEqual([]);
-  });
-});
-
-describe('applicableMeasures', () => {
-  it('measures with no requiredTypes are always applicable', () => {
-    const all = [m('a', 'SUM(x)'), m('b', 'COUNT(*)')];
-    expect(applicableMeasures(all, [])).toEqual(all);
-  });
-
-  it('measures with requiredTypes need ALL types present', () => {
-    const revenue: MeasureDefinition = {
-      ...m('revenue', 'SUM(amount)'),
-      requiredTypes: ['amount'],
-    };
-    const orderRev: MeasureDefinition = {
-      ...m('order_revenue', 'SUM(amount) GROUP BY order_id'),
-      requiredTypes: ['amount', 'order_id'],
-    };
-    expect(applicableMeasures([revenue, orderRev], ['amount'])).toEqual([revenue]);
-    expect(applicableMeasures([revenue, orderRev], ['amount', 'order_id'])).toEqual([
-      revenue,
-      orderRev,
-    ]);
   });
 });
 
