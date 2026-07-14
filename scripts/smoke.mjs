@@ -115,8 +115,10 @@ async function main() {
   const page = await context.newPage();
 
   const consoleErrors = [];
+  let sawIntegrityVerified = false; // H6: the now-default DuckDB SHA-384 preflight ran + passed
   page.on('console', (msg) => {
     const type = msg.type();
+    if (msg.text().includes('DuckDB integrity verified')) sawIntegrityVerified = true;
     if (type === 'error') {
       consoleErrors.push(msg.text());
       log(`console error: ${msg.text()}`);
@@ -152,6 +154,17 @@ async function main() {
     { timeout: 90000 },
   );
   log('✓ engine ready');
+
+  // 2-bis. H6 (DECISIONS DY): the DuckDB SHA-384 integrity preflight is now ON BY
+  // DEFAULT for the same-origin vendored path (smoke boots ?offline=1). Assert it
+  // actually ran + passed — the engine booted, so a present-and-matching manifest
+  // was verified; a regression (skipped check, or a fail-closed break) fails here.
+  if (!sawIntegrityVerified) {
+    fail(
+      'H6: DuckDB integrity preflight did NOT run by default (?offline=1) — expected the verify marker',
+    );
+  }
+  log('✓ H6: DuckDB integrity preflight ran + passed by default (same-origin vendored path)');
 
   // 3. Empty state is visible.
   const heading = await page.textContent('.empty-state h1');
@@ -1569,7 +1582,9 @@ async function main() {
       chartWiring.y !== 'total' ||
       chartWiring.type !== 'bar'
     ) {
-      fail(`A1: Create-report auto-chart not wired to bar/k/total — ${JSON.stringify(chartWiring)}`);
+      fail(
+        `A1: Create-report auto-chart not wired to bar/k/total — ${JSON.stringify(chartWiring)}`,
+      );
     }
     log('✓ A1: Create-report auto-embeds a bar chart cell wired to category × measure');
 
@@ -1595,7 +1610,9 @@ async function main() {
     if (kpis.some((k) => k.value === '…' || k.value === '')) {
       fail(`A2: a KPI tile rendered empty/placeholder — ${JSON.stringify(kpis)}`);
     }
-    log('✓ A2: Create-report leads with computed KPI tiles (total 60 / rows 2) bound to named measures');
+    log(
+      '✓ A2: Create-report leads with computed KPI tiles (total 60 / rows 2) bound to named measures',
+    );
 
     // A4 — scoped report-refresh. Click "Refresh data" on this report; it
     // re-runs only its dependency subgraph (the source SQL cell), then
