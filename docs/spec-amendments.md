@@ -1530,6 +1530,48 @@ at 750.8/768. DECISIONS CH + A35.
 
 ---
 
+## A36 — Tier-3 UniversalTerm layer + sensitivity migration (new surface; amends spec §3.6 + §M1)
+
+**Amends:** adds a Tier-3 semantic layer above the flat `typeId` taxonomy, and relocates the
+`sensitivity` field. Full design in `universal-terms/SPEC.md` (dev-process initiative
+`universal-termsv1`); the 6 ratified decisions are in `universal-terms/walkthroughs.md`.
+
+**New surface — the UniversalTerm layer.** A hand-curated SKOS concept scheme
+(`taxonomy/v0.1/universal/universal-terms.jsonl`, 67 `ut:`-prefixed concepts) plus a
+role→concept crosswalk (`crosswalk.jsonl`, one entry per shipped `typeId`). Each concept carries
+a `roleFamily` (dbt-style `entity`|`dimension`|`measure`|`metric`), the canonical `sensitivity`,
+a `skos:broader` ladder, and `skos:exactMatch` links to schema.org / FHIR / OCDS / dbt. The
+crosswalk chain is **3 links** — `source_term → naklidata_role (typeId) → universal_term`. It is
+read *after* classification to enrich a resolved column; classification (`classify.ts`) is
+untouched. Loaded by `load.ts` beside the bundle and answered synchronously by the engine-pure
+`src/taxonomy/universal.ts` (`sensitivityForType` / `roleFamilyForType` / `universalTermForType`).
+
+**Amended §M1 (anonymize) — sensitivity's home.** `sensitivity` is **removed from `TypeSpec` /
+`types.jsonl`** and lives only on the universal layer (with optional per-role crosswalk override).
+The two consumers — the schema-panel badge and the anonymize sink — resolve it via
+`sensitivityForType(bundle, typeId)`. The anonymize default map is unchanged (`secret→redact`,
+`pii→hash`, `financial→bucket`, `public→keep`); a per-type **strategy-parity** test proves every
+column gets the same strategy as before the migration. Demo-mode is not sensitivity-driven and is
+unaffected.
+
+**Report placement stays out (decision #5).** `report_slot` (`kpi.total`, `axis.x`, …) is
+deliberately **not** in Tier-3 — the report engine derives placement from `roleFamily`. The
+validator rejects any `report_slot`/`reportSlot` key on a term to keep the layer purely semantic.
+Wiring A1/A2/templates to consume `roleFamily` is deferred (`universal-terms/DEFERRED.md`).
+
+**Reasoning:** the flat taxonomy answers "what is this column" but not "how is it used
+analytically" or "how does it relate across reports". Tier-3 adds that without a breaking change to
+classification, and consolidates sensitivity into one authoritative place (its old per-type
+duplication was drifting as domain packs grew). Non-breaking to `.naklidata` files (no schema
+change); a bundle missing the `universal/` files degrades safely (resolvers fall back to
+`public`/`null`).
+
+**Status: adopted 2026-07-14.** Branch `universal-termsv1`. 67 concepts / 145 crosswalk rows /
+13 per-role sensitivity overrides. DECISIONS DW. Gate: full test + check + smoke green, sensitivity
++ anonymize-strategy parity asserted.
+
+---
+
 ## A31 — Sidecar Jobs 9 & 10: assign-type + nl-to-schema (Wave 7, amends spec §4.3)
 
 **Amends:** §4.3 (sidecar jobs). The spec's v1.1 sidecar defined three jobs; subsequent waves added Jobs 4–6 (recommend-reports, summarise-result, nl-to-sql) and Jobs 7–8 (propose-chart, propose-merge). This adds Jobs 9 and 10. (Originally authored as "Jobs 7 & 8" on the source branch, before Jobs 7–8 were claimed by propose-chart/propose-merge on main; renumbered on forward-port 2026-07-11.)

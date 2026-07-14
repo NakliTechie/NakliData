@@ -120,6 +120,12 @@ export function validateUniversalLayer(layer: UniversalLayer, types: TypeSpec[])
       errors.push(`term ${term.id}: bad sensitivity ${term.sensitivity}`);
     for (const b of term.broader ?? [])
       if (!termIds.has(b)) errors.push(`term ${term.id}: broader→undefined ${b}`);
+    // Decision #5: report placement (kpi.*, axis.*, filter…) is NOT in Tier-3 —
+    // the report engine derives it from roleFamily. Reject any smuggled slot key
+    // so the layer stays purely semantic.
+    const rec = term as unknown as Record<string, unknown>;
+    if ('reportSlot' in rec || 'reportSlots' in rec || 'report_slot' in rec)
+      errors.push(`term ${term.id}: report_slot must live with the report engine, not Tier-3`);
   }
 
   // 2. no broader cycles

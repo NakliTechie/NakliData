@@ -92,6 +92,24 @@ describe('universal layer — validator catches breakage', () => {
     );
     expect(errs.some((e) => e.includes('ut:nonexistent'))).toBe(true);
   });
+  it('rejects a report_slot smuggled onto a term (decision #5 — placement is the report engine)', () => {
+    const errs = validateUniversalLayer(
+      {
+        terms: [
+          {
+            id: 'ut:x',
+            prefLabel: 'X',
+            roleFamily: 'measure',
+            sensitivity: 'public',
+            reportSlot: 'kpi.total',
+          } as never,
+        ],
+        crosswalk: [],
+      },
+      [],
+    );
+    expect(errs.some((e) => e.includes('report_slot'))).toBe(true);
+  });
 });
 
 describe('universal layer — resolvers', () => {

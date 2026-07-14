@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — Tier-3 UniversalTerm meta-model ratified + shipped (DW) [/dev-process]
+
+### Decision DW — a semantic layer above the 145 flat types; sensitivity migrated in
+
+Ran `/dev-process` (`universal-termsv1`) to ratify + build the Tier-3 UniversalTerm layer from the
+design draft. 6 user-ratified decisions (see `universal-terms/walkthroughs.md`), spec amendment A36:
+
+1. **role_family on the universal_term** (per-role crosswalk override for edge cases).
+2. **Hand-curated** 67 `ut:` concepts (grounded in the codex ontology survey).
+3. **exactMatch to all four vocabs** (schema/fhir/ocds/dbt) authored upfront.
+4. **Sensitivity migrated off `types.jsonl`** into the universal layer THIS round.
+5. **report_slot moved out** to the report engine — Tier-3 is 3-link + purely semantic.
+6. **Named UniversalTerm** (`ut:` prefix).
+
+**Shipped (branch `universal-termsv1`, 6 commits):** `taxonomy/v0.1/universal/{universal-terms,
+crosswalk}.jsonl` (67 concepts / 145 crosswalk rows / 13 per-role sensitivity overrides);
+engine-pure `src/taxonomy/universal.ts` (loader + validator + `sensitivityForType`/
+`roleFamilyForType`/`universalTermForType`); `load.ts` attaches `bundle.universal`; the schema-panel
+badge + anonymize sink rewired to resolve sensitivity via the crosswalk; `types.jsonl` stripped of
+`sensitivity` + the field removed from `TypeSpec`; amendment A36.
+
+**The risky call was #4 (in-round sensitivity migration) — handled with these diligence gates:**
+- A **golden parity snapshot** of all 145 pre-migration sensitivities (`tests/fixtures/`), asserted by
+  `sensitivityForType` for every type (byte-identical).
+- A **per-type anonymize-STRATEGY parity** test: every column gets the same strategy
+  (secret→redact/pii→hash/financial→bucket/public→keep) as before — the actual anonymize risk.
+- Confirmed the universal layer **ships to `dist/` recursively** and **loads live in smoke** with no
+  fetch-fail warning (no silent degradation → no PII-in-the-clear).
+- Found demo-mode is NOT sensitivity-driven (masks labels uniformly), so only the two real seams
+  (badge + anonymize) needed rewiring.
+
+**Reversible/notable calls:** 67 concepts (slightly above the "~40–60" estimate — the extra granularity
+buys cleaner 2.2-types/concept coverage of 145 types); a `report_slot` validator guard codifies #5.
+**Deferred** (`universal-terms/DEFERRED.md`): wiring A1/A2/templates to consume `roleFamily`; the
+quality + provenance meta-roles. **Gate:** 1154 vitest · check exit 0 · SMOKE PASSED. **Unmerged.**
+
 ## 2026-07-14 — Taxonomy breadth batch 2 · five more vertical packs, worktree-isolated (DV) [autopilot]
 
 ### Decision DV — five more data-only vertical packs (G5–G9) on an isolated branch, fresh-eyes verified
