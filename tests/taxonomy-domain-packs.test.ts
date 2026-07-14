@@ -69,3 +69,31 @@ describe('G1 — real-estate domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('real_estate_inventory');
   });
 });
+
+describe('G2 — education domain pack', () => {
+  it('classifies student_id / grade_level / course_name / score_percent / completion_status', () => {
+    expect(top('student_id', ['S1001', 'S1002', 'S1003'])).toBe('student_id');
+    expect(top('grade_level', ['9', '10', '11'], 'INTEGER')).toBe('grade_level');
+    expect(top('course_name', ['Algebra', 'Biology', 'History'])).toBe('course_name');
+    expect(top('exam_score', ['82', '91', '77'], 'INTEGER')).toBe('score_percent');
+    expect(top('completion_status', ['completed', 'in_progress', 'completed'])).toBe(
+      'completion_status',
+    );
+  });
+  it('student_id + score_percent are marked pii', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'student_id')?.sensitivity).toBe('pii');
+    expect(BUNDLE.types.find((t) => t.id === 'score_percent')?.sensitivity).toBe('pii');
+  });
+  it('score_percent does NOT hijack a bare "score"/"percentage" column (owned by probability/percentage)', () => {
+    expect(top('score', ['0.8', '0.6', '0.9'], 'DOUBLE')).not.toBe('score_percent');
+    expect(top('percentage', ['12', '48', '30'], 'INTEGER')).not.toBe('score_percent');
+  });
+  it('education_performance surfaces when course_name + score_percent present', () => {
+    expect(templateIds(['course_name', 'score_percent', 'grade_level'])).toContain(
+      'education_performance',
+    );
+  });
+  it('education_performance does NOT surface for a bare finance workbook', () => {
+    expect(templateIds(['gstin', 'amount'])).not.toContain('education_performance');
+  });
+});

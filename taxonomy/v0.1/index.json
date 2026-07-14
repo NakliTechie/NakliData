@@ -74,6 +74,12 @@
       "label": "Real estate",
       "description": "Property type, bedrooms/bathrooms, square footage and sale price \u2014 real-estate listing and transaction exports.",
       "domain_file": "domains/real-estate.json"
+    },
+    {
+      "id": "education",
+      "label": "Education",
+      "description": "Student IDs, grade level, course, score and completion status \u2014 school / LMS / assessment exports.",
+      "domain_file": "domains/education.json"
     }
   ],
   "types_file": "types.jsonl",

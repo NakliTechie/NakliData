@@ -994,6 +994,38 @@ LIMIT 30`,
   },
 };
 
+// G2 — Education domain pack (performance brief).
+export const EDUCATION_PERFORMANCE: Template = {
+  id: 'education_performance',
+  name: 'Performance brief',
+  description:
+    'Average score and student count by course — with grade level when present. Fits school / LMS / assessment exports.',
+  requiredTypes: ['course_name', 'score_percent'],
+  optionalTypes: ['grade_level'],
+  instantiate(m) {
+    const course = m.course_name!;
+    const score = m.score_percent!;
+    const grade = m.grade_level;
+    const gradeSelect = grade ? `,\n       ${q(grade.column)} AS grade_level` : '';
+    const gradeGroup = grade ? ', 3' : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Performance brief\n\nAverage score and student count by course.'),
+      sql(
+        'performance_by_course',
+        `SELECT ${q(course.column)} AS course,
+       COUNT(*) AS students,
+       ROUND(AVG(${q(score.column)}), 1) AS avg_score${gradeSelect}
+FROM ${q(course.table)}
+GROUP BY 1${gradeGroup}
+ORDER BY students DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'performance_by_course', 'course', 'avg_score'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1014,6 +1046,7 @@ export const ALL_TEMPLATES: Template[] = [
   CONTENT_CATALOG,
   HR_WORKFORCE,
   REAL_ESTATE_INVENTORY,
+  EDUCATION_PERFORMANCE,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────
