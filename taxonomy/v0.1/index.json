@@ -98,6 +98,12 @@
       "label": "Scientific and measurements",
       "description": "Sensor IDs, temperature, humidity, pressure and measurement units \u2014 IoT / environmental / lab sensor exports.",
       "domain_file": "domains/scientific.json"
+    },
+    {
+      "id": "risk-fraud",
+      "label": "Risk, fraud and security",
+      "description": "Fraud flags, risk scores, authorization results, device IDs and card-last-4 \u2014 fraud / payments-risk / security exports. Sensitivity-marked.",
+      "domain_file": "domains/risk-fraud.json"
     }
   ],
   "types_file": "types.jsonl",

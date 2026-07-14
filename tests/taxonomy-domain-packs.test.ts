@@ -166,3 +166,24 @@ describe('G5 — scientific / measurements domain pack', () => {
     expect(templateIds(['gstin', 'amount'])).not.toContain('sensor_readings');
   });
 });
+
+describe('G6 — risk / fraud / security domain pack', () => {
+  it('classifies fraud_flag / risk_score / auth_result / device_id / card_last4', () => {
+    expect(top('is_fraud', ['0', '1', '0'], 'INTEGER')).toBe('fraud_flag');
+    expect(top('risk_score', ['0.82', '0.13', '0.44'], 'DOUBLE')).toBe('risk_score');
+    expect(top('authorization_status', ['approved', 'declined', 'approved'])).toBe('auth_result');
+    expect(top('device_fingerprint', ['d9f1', 'a2c8', 'b7e0'])).toBe('device_id');
+    expect(top('card_last4', ['4242', '1881', '0002'])).toBe('card_last4');
+  });
+  it('risk-fraud identifiers are sensitivity-marked (secret / pii)', () => {
+    expect(BUNDLE.types.find((t) => t.id === 'risk_score')?.sensitivity).toBe('secret');
+    expect(BUNDLE.types.find((t) => t.id === 'card_last4')?.sensitivity).toBe('secret');
+    expect(BUNDLE.types.find((t) => t.id === 'device_id')?.sensitivity).toBe('pii');
+  });
+  it('risk_score does NOT hijack a bare "score" column (owned by probability)', () => {
+    expect(top('score', ['0.8', '0.6', '0.9'], 'DOUBLE')).not.toBe('risk_score');
+  });
+  it('fraud_review surfaces when auth_result + risk_score present', () => {
+    expect(templateIds(['auth_result', 'risk_score', 'fraud_flag'])).toContain('fraud_review');
+  });
+});

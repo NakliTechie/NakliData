@@ -1122,6 +1122,41 @@ LIMIT 30`,
   },
 };
 
+// G6 — Risk / fraud / security domain pack (authorization review brief).
+export const FRAUD_REVIEW: Template = {
+  id: 'fraud_review',
+  name: 'Authorization review brief',
+  description:
+    'Transaction count and average risk score by authorization result — with fraud rate when present. Fits fraud / payments-risk exports.',
+  requiredTypes: ['auth_result', 'risk_score'],
+  optionalTypes: ['fraud_flag'],
+  instantiate(m) {
+    const auth = m.auth_result!;
+    const risk = m.risk_score!;
+    const fraud = m.fraud_flag;
+    const fraudSelect = fraud
+      ? `,\n       ROUND(AVG(CASE WHEN CAST(${q(fraud.column)} AS VARCHAR) IN ('1', 'true', 'True', 'yes') THEN 1 ELSE 0 END), 3) AS fraud_rate`
+      : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md(
+        '# Authorization review brief\n\nTransaction count and average risk score by authorization result.',
+      ),
+      sql(
+        'review_by_auth_result',
+        `SELECT ${q(auth.column)} AS auth_result,
+       COUNT(*) AS transactions,
+       ROUND(AVG(${q(risk.column)}), 1) AS avg_risk_score${fraudSelect}
+FROM ${q(auth.table)}
+GROUP BY 1
+ORDER BY transactions DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'review_by_auth_result', 'auth_result', 'transactions'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1146,6 +1181,7 @@ export const ALL_TEMPLATES: Template[] = [
   CLINICAL_CLAIMS,
   DEMOGRAPHIC_SUMMARY,
   SENSOR_READINGS,
+  FRAUD_REVIEW,
 ];
 
 // ── A3 — Executive report-cell templates ────────────────────────────────────
