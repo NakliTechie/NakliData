@@ -2,6 +2,164 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-14 — A3 · Executive report-cell templates + report-builder lazy-load (DQ) [autopilot]
+
+### Decision DQ — three report presets via an empty-state picker, and lazy-load the report builders to stay under 768
+
+A3 = "executive report-cell templates: briefing memo / operating review / dataset audit." These are pre-built
+report LAYOUTS (a titled `ReportDefinition` + named markdown scaffold cells the user fills), distinct from the
+analysis `Template`s that surface in "Suggested reports."
+
+- **Surface:** the report cell's **empty state** (`items.length === 0`) shows a picker — three buttons whose
+  id/name are a tiny const in `report-cell.ts` (shell). Picking one dispatches `report-template`, which
+  lazy-loads the `report-templates` chunk and calls the new pure **`buildExecutiveReport(id, seed, today)`**
+  (in `templates.ts`, re-exported from the lazy chunk). It returns `{markdownCells, definition}`; the seed
+  (report cell id) namespaces the markdown cell names so multiple reports don't collide. `handleReportTemplate`
+  creates the markdown cells first (so the report's cell-refs resolve), then patches the definition. Chose the
+  empty-state picker over a toolbar dropdown: it's zero-cost until a report exists and keeps the bodies off the
+  shell.
+
+- **Bundle discipline (A35, forced call):** A3's picker + handler pushed the shell to **exactly 768.0 KB**
+  (over). Relief valve: the report **builders** consumed *only* by the create-report/refresh handlers —
+  `buildReportScaffold` (report-from-result, ~2 KB) and the KPI-measure helpers (report-measures, ~2.5 KB) —
+  now ride the same lazy `report-templates` chunk. `handleCreateReport` + `refreshReportKpis` became `async`
+  and `loadChunk` them; `coerceNumeric` stays in the shell (sql-cell `formatCell` needs it synchronously). Net
+  shell **765.7/768 (2.3 KB headroom)** — enough for A4. This follows the DA precedent (report templates were
+  already lazy) and the general rule: report machinery is on-demand, so it belongs off the inlined shell.
+
+Pure builder unit-tested (`tests/executive-templates.test.ts`, 5 — incl. every preset validating against the
+cells it creates). Smoke leg: add report → pick "Briefing memo" → the three seeded sections + their markdown
+cells land. Gates: check clean · 1091 vitest · smoke green · bundle 765.7/768. Commit `e05752e`.
+
+## 2026-07-13 — A2 · KPI tiles in reports + the auto-measure step (DP)
+
+### Decision DP — auto-generate named measures + lead the report with a cached-value KPI row
+
+The `kpi-row` report item existed (`report-layout.ts` type + `report-cell.ts` render), but nothing ever
+**produced** one and nothing **computed** a tile value — tiles rendered a literal "…". A2 completes the
+surface. Three sub-decisions:
+
+**1. Auto-measure generation → the measures-store.** New pure `src/core/report-measures.ts`.
+`deriveResultMeasures(base, valueColumn)` turns a result's numeric measure column into three real
+`MeasureDefinition`s — `<base>_total` = `SUM("col")`, `<base>_average` = `AVG("col")`, `<base>_count` =
+`COUNT(*)` — with the column SQL-quoted (quotes escaped) and names snake_case-validated (`sanitizeMeasureBase`
+strips a result name to `[a-z_][a-z0-9_]*`, digit-prefixed → `_`-led, `''`→`result`). `handleCreateReport`
+**upserts these into `getMeasuresStore()`** (chosen over report-local: they show in the Measures panel and are
+reusable — the report becomes a genuine measures-layer consumer, the workplan's "measures step"). Upsert (set
+replaces by name) means re-creating the same-named report doesn't duplicate. Accepted cost: minor,
+meaningfully-named store growth per report.
+
+**2. Cached tile values, not a live view-query (chosen).** A report is static HTML with no engine; a KPI tile
+needs a number. Two models: (a) cache the value on the tile at create-time, or (b) store only the measure name
+and run `SELECT MEASURE() FROM "cell_<id>"` at render. Chose **(a)** — `computeKpiValues` sums/averages/counts
+the result's rows in **pure JS**, reusing A1's `coerceNumeric` so HUGEINT/Int128 limb-object aggregates sum
+correctly; `formatMeasureValue` formats per the measure's hint; `buildKpiTiles` binds each measure to its
+`{measure, label, value}`. Rationale: (a) shows instantly, **survives reload** (the value persists in the
+definition — the `cell_<id>` view does NOT survive reload, so (b) would show "…" until the source re-runs),
+prints correctly, and needs no async in a synchronous renderer. This mirrors the DC result-snapshot posture
+(results are cached for reload display). The tile still *references* the named measure (label/provenance/reuse).
+
+**3. Refresh recomputes.** The kpi-row records `sourceCell` (the SQL cell name) + `valueColumn`. The
+Refresh-data path (`refreshReportKpis`, after `runAll`) finds each report's source cell, recomputes
+`computeKpiValues` from its fresh `lastResult`, and re-caches the tiles via `recomputeKpiTiles` (format looked
+up from the store). So "always live" — (b)'s only edge — is covered without (b)'s reload cost.
+
+Report order: **KPI row leads** (executive summary first), then notes, result table, chart. `ReportItem`'s
+kpi-tile gained an optional `value` and the kpi-row gained optional `sourceCell`/`valueColumn` — all optional,
+so existing `.naklidata` files and `validateReport` are unaffected. `formatCell` untouched.
+
+Tests: `tests/report-measures.test.ts` (9) + a scaffold test for the leading kpi-row. **End-to-end: a new
+smoke leg** on the A1 fixture asserts the report leads with computed tiles (Total 60 / Rows 2, not "…") bound
+to named measures — real DuckDB, real HUGEINT sum.
+
+Gates: check clean · **1086 vitest** (+10) · smoke green · bundle **766.7/768 (1.3 KB headroom)** — tightening;
+A3/A4 or any new dep should lazy-load or trim. **A2 done; Chunk-1 tail = A3 (exec templates) + A4 (scoped
+refresh).**
+
+## 2026-07-13 — A1 · Auto-chart embed on Create-report + bigint-limb numeric detection (DO)
+
+### Decision DO — reconstruct DuckDB's Int128 limb objects so GROUP-BY-SUM reports auto-chart
+
+A1 ("cat+num → bar cell embedded in the report") was deferred mid-session on discovering that DuckDB-wasm
+serialises aggregate results in a shape naive numeric detection misreads. `SUM`/`AVG` over an integer column
+promote to **HUGEINT (Int128)**; apache-arrow's `.toJSON()` returns a 128-bit integer NOT as a JS `number` or
+`bigint` but as a **little-endian 32-bit limb object** — `{"0":550,"1":0,"2":0,"3":0}` is 550. (Native
+`bigint` only comes back for 64-bit BIGINT — e.g. `COUNT(*)` — which the code already handled; the limb shape
+is specific to the 128-bit promotion, and a group-by-sum is the single most common report shape.) So a
+`typeof v === 'number'` check treats the measure column as non-numeric and the chart picker either picks the
+wrong column or bails — silently.
+
+**The fix is a pure detector, not chart plumbing.** New `src/core/chart-columns.ts`:
+
+- **`coerceNumeric(v)`** → `number | null`, handling `number` (finite), `bigint`, numeric `string`, and the
+  arrow limb object. Limb reconstruction reads keys `"0".."n-1"` as unsigned 32-bit little-endian limbs,
+  accumulates with `BigInt`, then applies **two's-complement** across the full width (top bit of the highest
+  limb set → negative), and narrows to `Number` for charting. Any object that isn't exactly this shape
+  (field-named keys, gaps, non-integer/out-of-range limbs) returns null, so a genuine struct/JSON column is
+  never mistaken for a measure.
+- **`pickChartColumns(columns, rows)`** → `{category, value} | null`. Heuristic for the common aggregate
+  shape: **value = the LAST numeric column** (aggregates trail the group keys), **category = the FIRST
+  non-numeric column** (the group label). A column is numeric when ≥ 80% of its non-null sampled values
+  coerce (tolerates the odd `N/A`). Returns null when there's no label or no measure — the report then just
+  embeds the table, as before.
+
+Wired into `handleCreateReport` (main.ts): a chartable result adds a `bar` chart cell (`x=category`,
+`y=value`, `inputCell` = the SQL cell) named `<sql>_chart`, created **before** the report cell so the
+report's cell-ref resolves it; `buildReportScaffold` gained an optional `chart` arg that appends the chart
+cell-ref after the table and returns its name. Also fixed **`formatCell`** (sql-cell.ts) to run `coerceNumeric`
+on object values — the result *table* now shows `550` (right-aligned, numeric) instead of `{"0":550}`; same
+root cause, so it's fixed at the same time.
+
+**Why the shape assumption is safe:** the limb reconstruction is verified two ways. Unit tests
+(`tests/chart-columns.test.ts`, 14) reconstruct known integers incl. > 2^32 multi-limb and negatives, and
+assert the shape guards reject structs. And — the load-bearing part — **two new smoke legs run a real
+`GROUP BY … SUM` against real DuckDB-wasm** and assert (a) the result table renders the HUGEINT totals as
+plain numbers (never `{`), and (b) Create-report auto-embeds a bar chart wired to the right x/y. So the
+`{"0":…}` shape is confirmed empirically, not assumed — same discipline as the SPSS/SAS date decoders (don't
+ship an unverified decoder).
+
+Gates: check clean · **1076 vitest** (+16) · smoke green (+2 A1 legs) · bundle 764.2/768. **A2 (KPI tiles)
+remains blocked on the auto-measure-generation step** (report `kpi-row` binds to NAMED measures).
+
+## 2026-07-13 — B1 · Tier-1 quick wins: record_id + listing_name (DN)
+
+### Decision DN — the last two Airbnb unknowns (`id`, `name`) classify via a high `confidence_floor`, not new detector plumbing
+
+The 2026-07-12 Kaggle pass left NYC-Airbnb at 14/16: `id` and `name` stayed unknown. Both are the two
+hardest headers in the whole vocabulary because the header-matcher (`detectors.ts` `headerMatch`) scores a
+pattern whose tokens are all present in the column header at **0.85** — so a bare `id` pattern token-matches
+`customer_id`/`host_id`/`order_id`/`listing_id`, and a bare `name` pattern token-matches `host_name`. A
+naive "add `record_id` with pattern `id`" would therefore have regressed every existing `*_id` type from a
+clean auto-accept into an **ambiguous** resolution (two candidates ≥ 0.7), and `name` would have collided
+with `host_name`.
+
+**The lever chosen: `confidence_floor: 0.9`** on both new types (vs the usual 0.5). `classifyColumn` drops any
+candidate below its own floor *before* the resolve step, so a generic type set to 0.9 can only ever appear as
+a candidate on an **exact** header match plus a high-cardinality co-signal — a token/substring match can't
+reach it. Weights are tuned so the ceiling of a non-exact match stays under 0.9:
+
+- **`record_id`** (domain `generic-logs`, next to `uuid`): header `weight 0.75` + `distribution high_cardinality weight 0.25`. Exact `id`/`record_id`/`row_id`/`uid`/`guid`/… on a unique column → 1.0 (auto-accepts); a token match on `customer_id` maxes at 0.85·0.75 + 0.25 = 0.8875 < 0.9 → filtered. So specific `*_id` types keep their exact-match auto-accept untouched.
+- **`listing_name`** (domain `marketplace`): header `weight 0.6` (patterns `listing_name`/`listing_title`/`name`) + `distribution high_cardinality + min_length:12 weight 0.4`. The length co-signal is what separates a listing title (Airbnb `name`, ~35 chars, unique) from a short person-name column — a `host_name` of `John`/`Jennifer` fails the length gate and stays `host_name`; `title` is deliberately *not* a pattern (that stays `content_title` in media).
+
+This is the same philosophy as DG (numeric-code regexes require a header co-signal so regex-alone < floor) —
+a generic role earns its place only with corroborating evidence, and the floor is the gate.
+
+**Accepted trade-off:** a VARCHAR column literally named `id` that contains real UUIDs is now *ambiguous*
+between `uuid` and `record_id` (both reach ≥ 0.9) rather than auto-accepting `uuid`. That's honest — such a
+column genuinely is both — and it's a narrow case (VARCHAR + exact id-synonym header + uuid-shaped values).
+
+Pure data change: 2 lines in `types.jsonl` + domain-file membership (`generic-logs.json`, `marketplace.json`);
+no classifier code touched. `tests/taxonomy-tier1.test.ts` gains a B1 block asserting the wins **and** the
+guards (host_id/host_name/customer_id do not surface `record_id`/`listing_name` as candidates). Taxonomy
+93 → 95 types. Gates: check clean · **1060 vitest** (+4) · smoke green · bundle 762.9/768.
+
+**Verification note:** the live schema-panel badge render could not be eyeballed this session — the dev-pane
+DuckDB engine hung on the cross-origin fallback-mirror wasm fetch (an environmental boot issue, independent of
+a taxonomy-data change). Covered instead by (a) the smoke test, which boots the engine from built `dist/`,
+classifies, and renders the schema panel deterministically green, (b) unit tests running the real
+`classify.ts`/`detectors.ts` over the exact Airbnb fixtures, and (c) an in-browser fetch confirming the served
+runtime bundle parses both new types at floor 0.9.
+
 ## 2026-07-13 — Smoke stabilization: two landed background fixes (DL + DM)
 
 Both spun off the "WebGL flake" investigation and were integrated onto main together (zero code-file
