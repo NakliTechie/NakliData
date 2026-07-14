@@ -453,3 +453,44 @@ describe('G16 — government operations domain pack', () => {
     );
   });
 });
+
+describe('G17 — agriculture / food-systems domain pack', () => {
+  it('classifies farm_id / crop_type / yield_amount / acreage / market_price', () => {
+    expect(top('plot_id', ['F1', 'F2', 'F3'])).toBe('farm_id');
+    expect(top('crop', ['Wheat', 'Rice', 'Maize'])).toBe('crop_type');
+    expect(top('yield_kg', ['1200', '980', '1500'], 'INTEGER')).toBe('yield_amount');
+    expect(top('area_acres', ['40', '12', '88'], 'DOUBLE')).toBe('acreage');
+    expect(top('market_price', ['22.5', '18.0', '31.0'], 'DOUBLE')).toBe('market_price');
+  });
+  it('market_price financial; crop_type/farm_id public', () => {
+    expect(sensitivityForType(BUNDLE, 'market_price')).toBe('financial');
+    expect(sensitivityForType(BUNDLE, 'crop_type')).toBe('public');
+  });
+  it('agri_yield surfaces when crop_type + yield_amount present', () => {
+    expect(templateIds(['crop_type', 'yield_amount', 'acreage'])).toContain('agri_yield');
+  });
+});
+
+describe('G18 — sports / events domain pack', () => {
+  it('classifies match_id / team_name / score_for / attendance_count / win_loss_result', () => {
+    expect(top('game_id', ['M1', 'M2', 'M3'])).toBe('match_id');
+    expect(top('club_name', ['Arsenal', 'Chelsea', 'Spurs'])).toBe('team_name');
+    expect(top('goals_for', ['2', '0', '3'], 'INTEGER')).toBe('score_for');
+    expect(top('spectators', ['40000', '18000', '60000'], 'INTEGER')).toBe('attendance_count');
+    expect(top('match_result', ['W', 'L', 'D'])).toBe('win_loss_result');
+  });
+  it('score_for does NOT hijack a bare "score" (owned by probability)', () => {
+    expect(top('score', ['0.8', '0.6', '0.9'], 'DOUBLE')).not.toBe('score_for');
+  });
+  it('sports_results surfaces when team_name + score_for present', () => {
+    expect(templateIds(['team_name', 'score_for', 'attendance_count'])).toContain('sports_results');
+  });
+});
+
+describe('customer-success extension (into customer-support domain)', () => {
+  it('classifies nps_score / resolution_minutes / topic_label', () => {
+    expect(top('net_promoter_score', ['9', '3', '10'], 'INTEGER')).toBe('nps_score');
+    expect(top('time_to_resolve', ['45', '120', '8'], 'INTEGER')).toBe('resolution_minutes');
+    expect(top('issue_type', ['Billing', 'Bug', 'Login'])).toBe('topic_label');
+  });
+});

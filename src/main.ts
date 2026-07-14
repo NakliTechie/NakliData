@@ -390,23 +390,14 @@ async function boot(): Promise<void> {
     }
     bootOpts = sameOrigin ? { offline: true } : { offline: true, fallbackBase: FALLBACK_MIRROR };
   }
-  // H6 (ratified 2026-07-14, DECISIONS DY): preflight SHA-384 integrity check of
-  // the DuckDB worker + wasm bytes before instantiate. Fail-closed, additive
-  // (no blob-worker change). Promotion policy:
-  //   - `?verify=0`            → OFF (escape hatch if the check ever regresses boot).
-  //   - `?verify` / `?verify=1`→ ON, including the cross-origin mirror path.
-  //   - default (no param)     → ON for the SAME-ORIGIN vendored path only; the
-  //     cross-origin mirror stays opt-in because its preflight is TOCTOU-sensitive
-  //     and can't be verified without a live cross-origin (GH-Pages) browser test
-  //     (owed — same wall as C1/C3). The same-origin default is smoke-verified.
-  const verifyParam = params.get('verify');
-  if (verifyParam === '0') {
-    bootOpts.verifyIntegrity = false;
-  } else if (params.has('verify')) {
-    bootOpts.verifyIntegrity = true;
-  } else {
-    bootOpts.verifyIntegrity = !bootOpts.fallbackBase;
-  }
+  // H6 (ratified 2026-07-14, DECISIONS DY→DZ): preflight SHA-384 integrity check
+  // of the DuckDB worker + wasm bytes before instantiate. Fail-closed, additive
+  // (no blob-worker change). ON BY DEFAULT for BOTH the same-origin vendored path
+  // AND the cross-origin GH-Pages mirror — the mirror was verified live in real
+  // Chrome against the production deploy (which boots via the mirror): `?verify=1`
+  // → "[naklidata] DuckDB integrity verified (2 files)" + clean boot (DZ). The
+  // same-origin default is smoke-verified each run. `?verify=0` is the escape hatch.
+  bootOpts.verifyIntegrity = params.get('verify') !== '0';
   try {
     await engine.boot(bootOpts);
   } catch (err) {

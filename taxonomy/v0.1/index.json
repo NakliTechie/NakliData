@@ -164,6 +164,18 @@
       "label": "Government operations",
       "description": "Agencies, programs, application status, processing time and benefit amounts \u2014 public-service / benefits / civic exports.",
       "domain_file": "domains/government.json"
+    },
+    {
+      "id": "agriculture",
+      "label": "Agriculture and food systems",
+      "description": "Farm IDs, crop type, yield, acreage and market price \u2014 agriculture / food-systems exports.",
+      "domain_file": "domains/agriculture.json"
+    },
+    {
+      "id": "sports",
+      "label": "Sports and events",
+      "description": "Match IDs, teams, scores, attendance and results \u2014 sports / events / fixtures exports.",
+      "domain_file": "domains/sports.json"
     }
   ],
   "types_file": "types.jsonl",

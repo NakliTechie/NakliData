@@ -1539,6 +1539,68 @@ LIMIT 30`,
   },
 };
 
+// G17 — Agriculture / food-systems domain pack (yield brief).
+export const AGRI_YIELD: Template = {
+  id: 'agri_yield',
+  name: 'Crop yield brief',
+  description:
+    'Total yield by crop type — with total acreage when present. Fits agriculture / food-systems exports.',
+  requiredTypes: ['crop_type', 'yield_amount'],
+  optionalTypes: ['acreage'],
+  instantiate(m) {
+    const crop = m.crop_type!;
+    const yld = m.yield_amount!;
+    const acre = m.acreage;
+    const acreSelect = acre ? `,\n       ROUND(SUM(${q(acre.column)}), 1) AS total_acreage` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Crop yield brief\n\nTotal yield by crop type.'),
+      sql(
+        'yield_by_crop',
+        `SELECT ${q(crop.column)} AS crop,
+       COUNT(*) AS records,
+       ROUND(SUM(${q(yld.column)}), 1) AS total_yield${acreSelect}
+FROM ${q(crop.table)}
+GROUP BY 1
+ORDER BY total_yield DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'yield_by_crop', 'crop', 'total_yield'),
+    ];
+    return cells;
+  },
+};
+
+// G18 — Sports / events domain pack (results brief).
+export const SPORTS_RESULTS: Template = {
+  id: 'sports_results',
+  name: 'Results brief',
+  description:
+    'Match count and total score by team — with total attendance when present. Fits sports / events exports.',
+  requiredTypes: ['team_name', 'score_for'],
+  optionalTypes: ['attendance_count'],
+  instantiate(m) {
+    const team = m.team_name!;
+    const sf = m.score_for!;
+    const att = m.attendance_count;
+    const attSelect = att ? `,\n       SUM(${q(att.column)}) AS total_attendance` : '';
+    const cells: Omit<CellState, 'order'>[] = [
+      md('# Results brief\n\nMatch count and total score by team.'),
+      sql(
+        'results_by_team',
+        `SELECT ${q(team.column)} AS team,
+       COUNT(*) AS matches,
+       SUM(${q(sf.column)}) AS total_score${attSelect}
+FROM ${q(team.table)}
+GROUP BY 1
+ORDER BY total_score DESC
+LIMIT 30`,
+      ),
+      chart('bar', 'results_by_team', 'team', 'total_score'),
+    ];
+    return cells;
+  },
+};
+
 export const ALL_TEMPLATES: Template[] = [
   AR_AGING,
   VENDOR_CONCENTRATION,
@@ -1574,6 +1636,8 @@ export const ALL_TEMPLATES: Template[] = [
   NONPROFIT_GIVING,
   RESEARCH_OUTPUT,
   GOV_SERVICES,
+  AGRI_YIELD,
+  SPORTS_RESULTS,
   METRIC_BY_DIMENSION,
 ];
 
