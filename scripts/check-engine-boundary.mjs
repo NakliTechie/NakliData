@@ -54,6 +54,12 @@ const WATCHED_OPTIONAL = [
   'src/core/segments.ts', // Resolve M2 — segment primitive (pure)
   'src/core/golden.ts', // Resolve M3 — golden-table survivorship (pure)
   'src/core/embed-search.ts', // Facet — embedSearch VSS + ranking (pure)
+  // Facet graph analytics. These two are load-bearing here, not aspirational:
+  // they run INSIDE the graph-metrics worker, where `document`/`window` don't
+  // exist at all — a browser-global creeping in is a runtime crash, not just a
+  // future extraction problem.
+  'src/core/graph-metrics.ts',
+  'src/core/graph-metrics-protocol.ts',
 ];
 
 const FORBIDDEN_PATTERNS = [

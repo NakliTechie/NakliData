@@ -20,18 +20,26 @@ import {
   NetworkTooLargeError,
   forceLayout,
 } from '../../core/force-layout.ts';
-import { betweennessCentrality, louvainCommunities, pageRank } from '../../core/graph-metrics.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import { registerGlSurface } from './gl-surface.ts';
+import { computeNodeMetric } from './graph-metrics-client.ts';
 import type { CellHandlers, NetworkCellState, NodeMetric, ResultRefCell } from './types.ts';
 
-// Node-count guards for the pricier metrics (computed synchronously after
-// layout). Betweenness is O(n·m) — capped low; Louvain is near-linear but
-// iterative. PageRank/degree are cheap and run to the layout ceiling. Above a
-// cap the cell falls back to degree with a note rather than jank the tab.
-const BETWEENNESS_MAX_NODES = 3000;
-const COMMUNITY_MAX_NODES = 20000;
+// Node-count guards for the pricier metrics. These run in the graph-metrics
+// WORKER now, so the cost of a big graph is a wait, not a frozen tab — which is
+// what let them rise from the synchronous-era caps (3000 / 20000).
+//
+// Louvain is near-linear, so it now covers everything the force sim can lay out
+// (today's NETWORK_LAYOUT_MAX). Kept as its OWN literal rather than aliased to
+// NETWORK_LAYOUT_MAX on purpose: the 1M-node GPU-layout track would raise that
+// ceiling, and Louvain-in-JS should NOT silently ride along to a million nodes.
+// Betweenness stays capped far lower because Brandes is O(n·m) — off-thread
+// makes it non-blocking, not fast, and past ~10k the honest answer is "no"
+// rather than a spinner that runs for minutes. PageRank is cheap and uncapped.
+// Above a cap the cell falls back to degree with a note.
+const BETWEENNESS_MAX_NODES = 10000;
+const COMMUNITY_MAX_NODES = 30000;
 
 const METRIC_LABELS: Record<NodeMetric, string> = {
   degree: 'degree',
@@ -346,8 +354,9 @@ async function renderGraph(
   if (!mount.isConnected) return;
 
   // Selected node metric → per-node colour/size. Degree is free (already on the
-  // node); the others are computed natively (core/graph-metrics.ts), guarded by
-  // node-count caps so a huge graph falls back to degree instead of janking.
+  // node); the others go to the graph-metrics worker (core/graph-metrics.ts runs
+  // THERE, not here — that's what keeps it off the shell budget), guarded by
+  // node-count caps so a huge graph falls back to degree instead of grinding.
   const metric = cell.nodeMetric ?? 'degree';
   let metricValues: Map<string, number> | null = null;
   let communityOf: Map<string, number> | null = null;
@@ -357,20 +366,31 @@ async function renderGraph(
   if (cachedMetric?.key === metricKey) {
     metricValues = cachedMetric.values;
     communityOf = cachedMetric.community;
-  } else {
-    if (metric === 'pagerank') {
-      metricValues = pageRank(nodes, edges);
-    } else if (metric === 'betweenness') {
-      if (nodes.length <= BETWEENNESS_MAX_NODES) metricValues = betweennessCentrality(nodes, edges);
-      else
-        metricNote = `betweenness is limited to ${BETWEENNESS_MAX_NODES.toLocaleString()} nodes — showing degree`;
-    } else if (metric === 'community') {
-      if (nodes.length <= COMMUNITY_MAX_NODES) communityOf = louvainCommunities(nodes, edges);
-      else
-        metricNote = `communities are limited to ${COMMUNITY_MAX_NODES.toLocaleString()} nodes — showing degree`;
+  } else if (metric !== 'degree') {
+    const cap = metric === 'betweenness' ? BETWEENNESS_MAX_NODES : COMMUNITY_MAX_NODES;
+    if (metric !== 'pagerank' && nodes.length > cap) {
+      metricNote = `${METRIC_LABELS[metric]} is limited to ${cap.toLocaleString()} nodes — showing degree`;
+    } else {
+      mount.innerHTML = `<div class="cell-output-empty">Computing ${METRIC_LABELS[metric]} over ${nodes.length.toLocaleString()} nodes…</div>`;
+      try {
+        const computed = await computeNodeMetric(metric, nodes, edges);
+        metricValues = computed.values;
+        communityOf = computed.community;
+      } catch (err) {
+        // A metric is a colour choice, not the graph — degrade to degree with a
+        // visible note rather than fail the render.
+        metricNote = `couldn't compute ${METRIC_LABELS[metric]} (${errMsg(err)}) — showing degree`;
+      }
+      mount.innerHTML = '';
     }
+    // Cache the fallback too (null values + the note's cap/error) so flipping
+    // back to this metric doesn't re-await a worker round-trip to learn the
+    // same thing.
     _metricCache.set(cell.id, { key: metricKey, values: metricValues, community: communityOf });
   }
+  // Same detachment guard as after the chunk load — the metric await is another
+  // window in which a re-render can replace the notebook DOM under us.
+  if (!mount.isConnected) return;
 
   // Render lists. `renderNodes` index === node index (used for highlight +
   // neighbour lookup); `idIndex` maps id → that index.

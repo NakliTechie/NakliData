@@ -100,6 +100,16 @@ async function buildShell() {
     outfile: `${OUT_DIR}/taxonomy.worker.js`,
   });
 
+  // The graph-metrics worker (Facet Network view) — same deal: spawned via
+  // `new Worker('./graph-metrics.worker.js', {type:'module'})`. Bundling it
+  // separately is also what keeps core/graph-metrics.ts OFF the inlined shell
+  // (spec §7.1 / A35) — the algorithms ship in this file, not in index.html.
+  const graphMetricsWorker = await build({
+    ...COMMON,
+    entryPoints: ['src/workers/graph-metrics.worker.ts'],
+    outfile: `${OUT_DIR}/graph-metrics.worker.js`,
+  });
+
   // Lazy chunks: standalone ESM modules dynamically imported at runtime.
   await buildLazyChunks();
 
@@ -216,6 +226,7 @@ async function buildShell() {
   }
 
   void taxonomyWorker;
+  void graphMetricsWorker;
 }
 
 async function serve() {

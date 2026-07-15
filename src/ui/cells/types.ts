@@ -151,7 +151,8 @@ export interface NetworkCellState {
    * Which node metric drives colour + size. 'degree' (default) keeps the legacy
    * degree ramp; 'pagerank' / 'betweenness' colour + size by that centrality;
    * 'community' colours by Louvain community (size stays degree-based). Computed
-   * natively (core/graph-metrics.ts). Older files lack the key; read `?? 'degree'`.
+   * natively (core/graph-metrics.ts), in the graph-metrics worker. Older files
+   * lack the key; read `?? 'degree'`.
    */
   nodeMetric: NodeMetric | null;
 }
