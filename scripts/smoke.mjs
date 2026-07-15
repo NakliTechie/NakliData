@@ -116,6 +116,12 @@ async function main() {
 
   const consoleErrors = [];
   let sawIntegrityVerified = false; // H6: the now-default DuckDB SHA-384 preflight ran + passed
+  // Dedicated workers the page spawns. The Facet metric leg asserts against this:
+  // a metric that silently fell back to the main thread would still paint a
+  // canvas, so "a graph-metrics worker was actually created" is the only proof
+  // that the off-thread path (not just the picker) ran.
+  const spawnedWorkers = [];
+  page.on('worker', (w) => spawnedWorkers.push(w.url()));
   page.on('console', (msg) => {
     const type = msg.type();
     if (msg.text().includes('DuckDB integrity verified')) sawIntegrityVerified = true;
@@ -1028,6 +1034,165 @@ async function main() {
       throw new Error('attributed edges: clicking a legend swatch did not filter (dim others)');
     }
     log(`✓ Facet attributed edges: legend [${legend.values.join(', ')}] → swatch click filters`);
+
+    // 10f-2. The "color/size by" metric picker → the graph-metrics WORKER.
+    // Each non-degree metric is computed off the main thread; if the worker
+    // can't answer (404 under a deploy prefix, throw, cap exceeded) the cell
+    // degrades to degree and says so in the tip. So assert three things per
+    // metric: the canvas comes back, the tip carries NO fallback note, and —
+    // below — that a graph-metrics worker was really spawned.
+    for (const metric of ['pagerank', 'community', 'betweenness']) {
+      await page.evaluate((m) => {
+        const net = document.querySelector('.cell[data-cell-kind="network"]');
+        const sel = net?.querySelector('[data-action="net-metric"]');
+        if (sel) {
+          sel.value = m;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, metric);
+      // The cell re-renders from scratch (Building graph… → Computing <metric>…
+      // → canvas), so waiting on the canvas can't observe the previous metric's.
+      await page.waitForFunction(
+        () => {
+          const mountEl = document
+            .querySelector('.cell[data-cell-kind="network"]')
+            ?.querySelector('[data-region="net-canvas"]');
+          if (!mountEl) return false;
+          const text = mountEl.textContent ?? '';
+          if (text.includes('Force layout failed') || text.includes("Couldn't render")) {
+            throw new Error(`network re-render failed: ${text.slice(0, 120)}`);
+          }
+          return mountEl.querySelector('canvas') !== null;
+        },
+        null,
+        { timeout: 30000 },
+      );
+      const note = await page.evaluate(
+        () =>
+          document
+            .querySelector('.cell[data-cell-kind="network"]')
+            ?.querySelector('[data-region="net-tip"]')?.textContent ?? '',
+      );
+      if (/showing degree|couldn't compute/i.test(note)) {
+        throw new Error(`metric picker "${metric}" degraded to degree: ${note}`);
+      }
+      const persisted = await page.evaluate(
+        () =>
+          document
+            .querySelector('.cell[data-cell-kind="network"]')
+            ?.querySelector('[data-action="net-metric"]')?.value ?? '',
+      );
+      if (persisted !== metric) {
+        throw new Error(`metric picker "${metric}" did not persist (picker shows "${persisted}")`);
+      }
+    }
+    if (!spawnedWorkers.some((u) => u.includes('graph-metrics.worker.js'))) {
+      throw new Error(
+        `metric picker: no graph-metrics worker was spawned — metrics ran on the main thread. Workers seen: ${spawnedWorkers.join(', ') || 'none'}`,
+      );
+    }
+    log(
+      '✓ Facet metric picker: pagerank / community / betweenness each render via the graph-metrics worker (no degree fallback)',
+    );
+
+    // 10f-3. Correlation-graph synthesis (Phase 1b) — the "turn a table into a
+    // graph" result action. Numeric COLUMNS become nodes and strong pairwise
+    // corr() becomes weighted edges, so one click must insert a named edge-list
+    // SQL cell, RUN it, and wire a Network cell at it. Previously verified only
+    // structurally + unit (the SQL generator); this drives the actual button.
+    const corrSqlBefore = await page.evaluate(
+      () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+    );
+    await page.click('[data-nb-action="add-sql"]');
+    await page.waitForFunction(
+      (before) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > before,
+      corrSqlBefore,
+      { timeout: 5000 },
+    );
+    const corrCell = page.locator('.cell[data-cell-kind="sql"]').last();
+    // Deliberately left unnamed: setting the name fires a change → notebook
+    // re-render that re-mounts CodeMirror from state, racing the keystrokes
+    // below. The handler falls back to `result_<id>_correlations`, so match the
+    // derived cell on the suffix instead.
+    await corrCell.locator('.cm-content, textarea').first().click();
+    await page.keyboard.press('ControlOrMeta+a');
+    // Four numeric columns, deliberately all |corr| = 1 (b/c rise with a, d falls):
+    // every pair clears the 0.5 threshold, so the edge list is non-empty regardless
+    // of float wobble — this leg tests the plumbing, not the statistics.
+    await page.keyboard.insertText(
+      'SELECT i::DOUBLE AS a, (i*2)::DOUBLE AS b, (i*3+1)::DOUBLE AS c, (100-i)::DOUBLE AS d ' +
+        'FROM range(50) t(i)',
+    );
+    await corrCell.locator('[data-action="cell-run"]').click();
+    await page.waitForFunction(
+      () => {
+        const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+        const last = cells[cells.length - 1];
+        return !!last && !last.classList.contains('errored') && last.querySelector('table') !== null;
+      },
+      null,
+      { timeout: 15000 },
+    );
+    await corrCell.locator('[data-action="correlation-graph"]').click();
+    // The handler inserts the edge SQL cell, runs it, then adds the Network cell.
+    await page.waitForFunction(
+      () => {
+        const sql = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
+        const edgeCell = sql.find((c) =>
+          /_correlations$/.test(c.querySelector('[data-region="cell-name"]')?.value ?? ''),
+        );
+        if (!edgeCell) return false;
+        if (edgeCell.classList.contains('errored')) {
+          throw new Error('correlation edge-list cell errored');
+        }
+        if (!edgeCell.querySelector('table')) return false;
+        return document.querySelectorAll('.cell[data-cell-kind="network"]').length >= 2;
+      },
+      null,
+      { timeout: 30000 },
+    );
+    const corrGraph = await page.evaluate(() => {
+      const nets = Array.from(document.querySelectorAll('.cell[data-cell-kind="network"]'));
+      const net = nets[nets.length - 1];
+      const val = (a) => net?.querySelector(`[data-action="${a}"]`)?.value ?? null;
+      const edgeRows =
+        Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'))
+          .find((c) =>
+            /_correlations$/.test(c.querySelector('[data-region="cell-name"]')?.value ?? ''),
+          )
+          ?.querySelectorAll('tbody tr').length ?? 0;
+      return {
+        edgeRows,
+        source: val('net-source'),
+        target: val('net-target'),
+        width: val('net-edge-width'),
+        metric: val('net-metric'),
+      };
+    });
+    // 4 numeric columns, all pairs correlated → C(4,2) = 6 undirected edges.
+    if (corrGraph.edgeRows !== 6) {
+      throw new Error(`correlation graph: expected 6 edge rows, got ${corrGraph.edgeRows}`);
+    }
+    if (
+      corrGraph.source !== 'source' ||
+      corrGraph.target !== 'target' ||
+      corrGraph.width !== 'weight' ||
+      corrGraph.metric !== 'community'
+    ) {
+      throw new Error(`correlation graph: Network cell mis-wired: ${JSON.stringify(corrGraph)}`);
+    }
+    await page.waitForFunction(
+      () => {
+        const nets = Array.from(document.querySelectorAll('.cell[data-cell-kind="network"]'));
+        const mountEl = nets[nets.length - 1]?.querySelector('[data-region="net-canvas"]');
+        return !!mountEl?.querySelector('canvas');
+      },
+      null,
+      { timeout: 30000 },
+    );
+    log(
+      '✓ Facet correlation graph: 4 numeric cols → 6 corr() edges → Network cell (source/target/weight, community) → canvas',
+    );
   } else {
     log('~ Facet Network cell rendered (no WebGL canvas in this environment)');
   }
