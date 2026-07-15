@@ -2,6 +2,79 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-15 — Graph-analytics follow-ups: Phase 1a skipped; metrics worker-ized (EC + ED)
+
+### Decision EC — NetworkX-in-Pyodide (Phase 1a): SKIP
+
+- **Context.** Parked by autopilot run 8 as a sovereign-posture call rather than
+  decided unattended. Phase 1a was scoped as "near-free NetworkX via
+  `loadPackage(['networkx'])`", which turned out false: Pyodide 0.27.7's lock makes
+  `networkx-3.4.2` depend on **matplotlib**, dragging a ~30 MB closure.
+- **Decision (Chirag's, 2026-07-15).** **Skip it** — option (c). The deciding fact is
+  that the "something better" Phase 1a was hedging against **already shipped**: run 8's
+  `core/graph-metrics.ts` covers pagerank / betweenness / louvain / k-core / clustering /
+  components natively, differentially verified against networkx 3.2.1. So the ~30 MB buys
+  nothing we don't have.
+- **Why not (b) — lean same-origin wheel extraction (~1.6 MB).** It was the tempting
+  middle: sovereign, and a real `import networkx` in a Python cell is on-vision for the
+  Polyglot workbench. Rejected because it's an unusual mechanism we'd own forever, and
+  **without scipy the sparse-matrix paths (incl. `nx.pagerank`) don't work** — so it buys
+  half a long tail at the cost of a bespoke loader. If we ever want the long tail properly,
+  the deferred Phase-3 wasm (MIT, ~102 KB gz, already de-risked) is strictly the better
+  answer.
+- **Consequence.** The graph-analytics crib is now fully resolved: Phase 1b + 2 shipped,
+  Phase 1a closed as skip, Phase 3 standing on-demand. No open questions remain.
+
+### Decision ED — the pricier node metrics move into a graph-metrics worker
+
+- **Context.** Run 8 shipped the metrics computing **synchronously on the main thread**
+  right after layout. The only thing standing between a large graph and a frozen tab was a
+  pair of conservative node caps (betweenness ≤3000, Louvain ≤20000) that refused to answer
+  above them. Both the Phase-3 spike and run 8's own follow-up list named a worker as the
+  cheapest >30k scale lever.
+- **Decision.** New `src/workers/graph-metrics.worker.ts` — the **third** worker, which
+  CLAUDE.md says needs a clear reason. The reason: Brandes is O(n·m); there is no making it
+  cheap, only making it not block. Off-thread, a slow metric is a spinner instead of a
+  frozen tab, and that is precisely what lets the caps rise.
+- **Caps raised.** Betweenness **3000 → 10000**; Louvain **20000 → 30000**. Louvain is
+  deliberately its **own literal, not an alias of `NETWORK_LAYOUT_MAX`** — the 1M-node
+  GPU-layout track would raise that ceiling, and Louvain-in-JS must not silently ride along
+  to a million nodes. Betweenness stays capped far lower on purpose: past ~10k the honest
+  answer is "no" rather than a spinner that runs for minutes. PageRank is cheap → uncapped.
+- **Encoding (`src/core/graph-metrics-protocol.ts`, pure).** The obvious postMessage shape
+  (`{source,target}[]`) would structured-clone 171k edge objects **on the main thread** —
+  reintroducing the jank the worker exists to remove. Instead the graph crosses as a
+  `string[]` of ids + a **transferred `Int32Array`** of index pairs (zero-copy); results
+  return as transferred typed arrays. **The load-bearing property is the index space**:
+  `packGraph` assigns indices in first-appearance order, exactly as graph-metrics.ts's
+  `buildAdjacency` does, so the worker's pinned tie-breaks match the in-process ones and
+  EB's determinism guarantee survives the move. 13 tests pin this, including a
+  pack→compute→unpack vs. direct-call equality check on all three metrics.
+- **Boundary.** Both graph-metrics modules joined the **engine-boundary** watched set. This
+  is no longer aspirational for them: they execute in a worker where `document`/`window`
+  don't exist, so a browser global is a runtime crash, not a future extraction problem.
+- **Failure posture.** A metric is a colour choice, not the graph — a worker that can't boot
+  degrades to degree **with a visible note** rather than failing the render. The boot is
+  guarded by a `ready` ping + 15s timeout (the taxonomy client's M7 lesson: a promise that
+  only settles on the happy path hangs forever when the worker 404s under a deploy prefix).
+  The **compute** is deliberately un-timed — betweenness legitimately takes tens of seconds,
+  and a timeout there would abort correct work.
+- **The bundle win was mostly illusory — recorded so it isn't re-scoped.** The follow-up was
+  "lazy-load graph-metrics off the shell, reclaims ~6 KB." Measured: `graph-metrics.ts`
+  minifies to **~2.8 KB** (the ~6 KB came from source size, not minified), and the new client
+  costs **2.0 KB** back — so the shell moved **764.6 → 764.2 KB**, a 0.4 KB net. The worker
+  is worth doing for the off-thread win; it is **not** a headroom lever. The real headroom is
+  `network-cell.ts` (**8.6 KB**, shell-resident even though it only renders through the lazy
+  deckgl chunk) — that's the honest next move if the shell gets tight.
+- **Verification (closes run 8's "owed").** Two new smoke legs: the **metric picker**
+  (pagerank/community/betweenness each render with no degree fallback) and the
+  **correlation-graph** action (4 numeric cols → 6 `corr()` edges → wired Network cell →
+  canvas). The picker leg asserts a `graph-metrics.worker.js` was *really spawned* via
+  Playwright's `page.on('worker')` — a silent main-thread fallback would still paint a canvas
+  and pass a naive check. **Correction:** run 8's report claimed "no Network-cell smoke leg";
+  one already existed (10e/10f) — the actual gap was the picker + correlation flows.
+- **Gate.** 1229 vitest · check exit 0 · SMOKE PASSED · bundle 764.2/768 · engine-boundary clean.
+
 ## 2026-07-15 — Facet graph analytics: native metrics + correlation-graph (crib from FrankenNetworkX) (EB)
 
 ### Decision EB — native TS analytics on the Facet; NetworkX-in-Pyodide parked; wasm deferred
