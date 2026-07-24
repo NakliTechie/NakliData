@@ -72,4 +72,42 @@ export function bindAgentSurface(deps: AgentBridgeDeps): void {
     listTools: () => load().then((m) => m.catalogue(fullDeps)),
     version: '1',
   };
+
+  // WebMCP spike (Chunk 7, DECISIONS EE-0d) — flag-gated, ships nothing
+  // load-bearing. Only when `?webmcp=1` AND the browser exposes
+  // `document.modelContext` (Chrome-149 origin trial) do we register the same
+  // verbs as WebMCP tools. Fire-and-forget; degrades to a console note.
+  maybeRegisterWebMcp(load, fullDeps);
+}
+
+/** True when the page asked for the WebMCP spike via `?webmcp=1`. */
+function webMcpRequested(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has('webmcp');
+  } catch {
+    return false;
+  }
+}
+
+function maybeRegisterWebMcp(
+  load: () => Promise<typeof import('../lazy/agent-surface.ts')>,
+  fullDeps: AgentSurfaceDeps,
+): void {
+  if (!webMcpRequested()) return;
+  const root = (document as unknown as { modelContext?: unknown }).modelContext;
+  if (!root) {
+    console.info(
+      '[naklidata] WebMCP requested (?webmcp=1) but document.modelContext is unavailable in this browser.',
+    );
+    return;
+  }
+  void load()
+    .then((m) => {
+      const reg = m.registerWithWebMcp(
+        root as Parameters<typeof m.registerWithWebMcp>[0],
+        fullDeps,
+      );
+      console.info(`[naklidata] WebMCP: registered ${reg.registered.length} tools.`);
+    })
+    .catch((e) => console.warn('[naklidata] WebMCP registration failed:', e));
 }

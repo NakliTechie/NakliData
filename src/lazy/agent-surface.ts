@@ -352,3 +352,71 @@ export function catalogue(deps: AgentSurfaceDeps): ToolCatalogue {
 export function buildTools(deps: AgentSurfaceDeps): AgentTool[] {
   return tools(deps);
 }
+
+// ── WebMCP adapter (Chunk 7 — flag-gated SPIKE, DECISIONS EE-0d) ──────────────
+// WebMCP (`document.modelContext.registerTool`) is the right shape for exposing
+// tools to an in-browser agent, but it's Chrome-149-origin-trial-only and has
+// churned its root object twice — so this ships NOTHING load-bearing: the bridge
+// only calls it behind a `?webmcp=1` flag when `document.modelContext` exists.
+// The registration is injected the root (not `document.*`) so it's unit-testable
+// against a mock. Same tools + same host as `window.naklidata` — one surface, two
+// front doors.
+
+/** The slice of a WebMCP root we use. Kept minimal + local — there is no stable
+ *  WebMCP type package (the API is a moving origin trial). */
+export interface WebMcpToolDef {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  annotations: { readOnlyHint: boolean; untrustedContentHint: boolean };
+  execute: (
+    input: unknown,
+  ) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
+}
+export interface WebMcpRoot {
+  registerTool: (def: WebMcpToolDef, opts?: unknown) => unknown;
+  unregisterTool?: (name: string) => void;
+}
+
+export interface WebMcpRegistration {
+  registered: string[];
+  unregister: () => void;
+}
+
+/**
+ * Register every agent verb with a WebMCP root. Maps our tool contract to
+ * WebMCP's: the `execute` runs our verb (validator + gate included) and wraps the
+ * `{ ok, data | error }` result as an MCP text-content result. Returns the
+ * registered names + an unregister fn. Injected the root, so a mock drives it.
+ */
+export function registerWithWebMcp(root: WebMcpRoot, deps: AgentSurfaceDeps): WebMcpRegistration {
+  const registered: string[] = [];
+  for (const tool of tools(deps)) {
+    const def: WebMcpToolDef = {
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      annotations: {
+        readOnlyHint: tool.annotations.readOnlyHint,
+        untrustedContentHint: tool.annotations.untrustedContentHint,
+      },
+      execute: async (input: unknown) => {
+        const result = await tool.execute(input);
+        const payload = result.ok ? result.data : { error: result.error };
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+          isError: !result.ok,
+        };
+      },
+    };
+    root.registerTool(def);
+    registered.push(tool.name);
+  }
+  return {
+    registered,
+    unregister: () => {
+      if (!root.unregisterTool) return;
+      for (const name of registered) root.unregisterTool(name);
+    },
+  };
+}
