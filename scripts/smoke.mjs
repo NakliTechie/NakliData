@@ -1459,16 +1459,26 @@ async function main() {
   const agent = await page.evaluate(async () => {
     const nd = window.naklidata;
     if (!nd) return { error: 'window.naklidata is not bound' };
-    const tools = nd
-      .listTools()
-      .map((t) => t.name)
-      .sort();
+    const tools = (await nd.listTools()).map((t) => t.name).sort();
     const okQuery = await nd.query({ sql: 'SELECT 1 AS x, 2 AS y' });
     const write = await nd.query({ sql: 'DROP TABLE something' });
     const scoped = await nd.query({ sql: 'SELECT * FROM definitely_not_a_mounted_table' });
     const fileScan = await nd.query({ sql: "SELECT * FROM 'file:///etc/passwd'" });
     const gated = await nd.proposeCell({ sql: 'SELECT 1' });
     const describe = await nd.describe();
+    // Chunk 4 enrichment: envelope version + per-table provenance + column stats.
+    let describeEnriched = false;
+    if (describe.ok === true && describe.data.tables.length > 0) {
+      const firstTable = describe.data.tables[0];
+      const anyCol = describe.data.tables.flatMap((t) => t.columns);
+      describeEnriched =
+        describe.data.version === '1' &&
+        !!firstTable.provenance &&
+        typeof firstTable.provenance.sourceLabel === 'string' &&
+        anyCol.some(
+          (c) => typeof c.nullFraction === 'number' || typeof c.distinctCount === 'number',
+        );
+    }
     return {
       version: nd.version,
       tools,
@@ -1478,6 +1488,8 @@ async function main() {
       fileScanRejected: fileScan.ok === false ? fileScan.error : '(NOT REJECTED)',
       gated,
       describeOk: describe.ok === true && Array.isArray(describe.data.tables),
+      describeTableCount: describe.ok === true ? describe.data.tables.length : 0,
+      describeEnriched,
     };
   });
   if (agent.error) fail(`agent surface: ${agent.error}`);
@@ -1504,8 +1516,81 @@ async function main() {
     fail('agent surface: a file-scan query was NOT rejected');
   if (agent.gated.ok !== false) fail('agent surface: proposeCell was NOT gated off by default');
   if (!agent.describeOk) fail('agent surface: describe did not return a tables array');
+  if (agent.describeTableCount > 0 && !agent.describeEnriched) {
+    fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
+  }
   log(
-    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok`,
+    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
+  );
+
+  // 10k. Accessibility legibility (Chunk 6). A DOM/ARIA-driving agent (Operator,
+  // Atlas, Claude-in-Chrome) reads the accessibility tree, not our data-action
+  // layer — so every interactive control must expose an accessible NAME. Audit
+  // the fully-populated app for interactive elements with no name (aria-label /
+  // title / text / aria-labelledby) and assert none remain.
+  const a11y = await page.evaluate(() => {
+    const accessibleName = (el) => {
+      const aria = el.getAttribute('aria-label');
+      if (aria && aria.trim()) return true;
+      if (el.getAttribute('aria-labelledby')) return true;
+      const title = el.getAttribute('title');
+      if (title && title.trim()) return true;
+      if ((el.textContent || '').trim()) return true;
+      // A <select> is named by its options / associated label; a titled/labelled
+      // wrapper counts too.
+      if (el.tagName === 'SELECT' && el.closest('label')) return true;
+      const ph = el.getAttribute('placeholder');
+      if (ph && ph.trim()) return true;
+      return false;
+    };
+    const isVisible = (el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const interactive = [
+      ...document.querySelectorAll(
+        'button, a[href], [role="button"], select, input:not([type="hidden"])',
+      ),
+    ].filter(isVisible);
+    const unnamed = interactive
+      .filter((el) => !accessibleName(el))
+      .map((el) => {
+        const cls = (el.className || '').toString().slice(0, 30);
+        return `${el.tagName.toLowerCase()}${el.dataset.action ? `[${el.dataset.action}]` : ''}${cls ? `.${cls}` : ''}`;
+      });
+    // Landmark roles — a DOM agent orients by them.
+    const landmarks = {
+      main: !!document.querySelector('main, [role="main"]'),
+    };
+    // Canvas cells are WebGL — a DOM agent can't see them, so a rendered Facet
+    // graph canvas must carry a role=img + descriptive aria-label (Chunk 6).
+    const netCanvas = document.querySelector(
+      '.cell[data-cell-kind="network"] [data-region="net-canvas"]',
+    );
+    const netCanvasDesc =
+      netCanvas && netCanvas.getAttribute('role') === 'img'
+        ? netCanvas.getAttribute('aria-label')
+        : null;
+    return { total: interactive.length, unnamed, landmarks, netCanvasDesc };
+  });
+  log(
+    `[a11y] ${a11y.total} interactive · ${a11y.unnamed.length} unnamed · main-landmark=${a11y.landmarks.main}`,
+  );
+  if (a11y.unnamed.length > 0) {
+    log(`[a11y] unnamed: ${JSON.stringify(a11y.unnamed.slice(0, 25))}`);
+  }
+  if (a11y.unnamed.length > 0) {
+    fail(`accessibility: ${a11y.unnamed.length} interactive element(s) have no accessible name`);
+  }
+  if (!a11y.landmarks.main) fail('accessibility: no <main> / role=main landmark');
+  if (a11y.netCanvasDesc === null) {
+    fail('accessibility: the rendered Network canvas has no role=img/aria-label description');
+  }
+  if (!/nodes.*edges/.test(a11y.netCanvasDesc)) {
+    fail(`accessibility: Network canvas description is not descriptive ("${a11y.netCanvasDesc}")`);
+  }
+  log(
+    `✓ Accessibility: all ${a11y.total} interactive controls named · main landmark · WebGL canvas described ("${a11y.netCanvasDesc}")`,
   );
 
   // 11. Override one column's type. Pick the first schema-column row, open

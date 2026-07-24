@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-24 — Agent surfaces Chunks 4–7 (EG)
+
+### Decision EG — describe enrichment · workbook contract · a11y · WebMCP spike
+
+- **Context.** Second autopilot run of the day, Chunks 4–7 of the agent-surfaces
+  track. Bundle headroom was 2.8 KB, so the run opened with a prerequisite lazy-split.
+- **Prereq — lazy-split the agent surface.** Moved the AgentHost + registry + validator
+  into an `agent-surface` lazy chunk behind a thin `agent-bridge.ts` stub. **Load-bearing
+  correctness call:** the chunk must NOT import the workbook/taxonomy STORE SINGLETONS —
+  a chunk copy diverges from the shell's live instances (the footgun that retired the
+  measures-panel chunk). The bridge injects `getWorkbookState`/`getBundle` accessors that
+  read the shell's singletons; the chunk imports only pure modules. Reclaimed 11.4 KB
+  (headroom 2.8 → 14.2). Smoke proves no divergence (query scopes real tables; describe
+  returns the real workbook).
+- **Chunk 4 — describe enrichment.** Added null%/cardinality (shape stats — counts, always
+  safe) via one aggregate query per table; min/max range for PUBLIC numeric/date columns
+  only (a value → redacted by tier, 0c); per-table provenance; a versioned envelope. New
+  pure `data-dictionary.ts` renders the same structure as a Markdown handoff doc — one
+  artifact, two jobs (agent grounding + the Tier-1 human data dictionary). **Deferred:**
+  the schema-panel *download button* for the Markdown doc (the serializer is built + tested;
+  only the UI affordance remains).
+- **Chunk 5 — workbook contract.** Hand-authored `docs/naklidata-file.schema.json`
+  (JSON Schema) + `docs/agent-authoring.md`. **Naming call:** the repo-root `AGENTS.md` is
+  already the DEV-agent conventions file, so the external-agent authoring doc went to
+  `docs/agent-authoring.md` rather than clobbering it. **Schema not generated from types**
+  (would need a TS→JSONSchema devDep, against the no-new-deps rule) — instead hand-authored
+  + a drift-guard test that its required set == what `parse()` enforces. `?lens=` limits
+  verified from source (7800 soft / 2 MB hard) → file handoff beats URL, documented.
+- **Chunk 6 — DOM/ARIA legibility.** Audit found the app already strong (434 interactive
+  controls, 0 unnamed, main landmark) — locked in with a smoke assertion. The real
+  DOM-agent blind spot was the WebGL canvas cells (invisible to the a11y tree); gave the
+  Network/Embedding/Map canvases `role=img` + a descriptive `aria-label`.
+- **Chunk 7 — WebMCP adapter → FLAG-GATED SPIKE (0d honoured).** `registerWithWebMcp(root,
+  deps)` maps the verbs to WebMCP's tool shape; the bridge registers only behind `?webmcp=1`
+  when `document.modelContext` exists. Ships nothing load-bearing (Chrome-149 origin trial,
+  churned twice). Headless has no `modelContext`, so **live verification is parked** — the
+  unit test (mock root) is the verification.
+- **Consequence.** All four chunks shipped green. Remaining agent-track work: Chunk 8 (MCP
+  bridge, deferred), the data-dictionary download button, and — if the shell tightens again
+  — nothing new is owed on headroom (the lazy-split bought room back).
+
 ## 2026-07-24 — Agent-surfaces contract ratified (Chunk 0) + inherited smoke fix (EE + EF)
 
 ### Decision EE — the agent contract (four calls, ratified to their documented leans)

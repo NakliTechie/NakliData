@@ -63,8 +63,26 @@ export interface DescribedColumn {
   sensitivity: 'public' | 'pii' | 'financial' | 'secret';
   /** Canonical universal-term id, if the column maps to one. */
   universalTerm: string | null;
+  /** Fraction of rows that are NULL, 0..1 (a shape stat, not a value — always
+   *  present when stats were computed). Null if stats couldn't be gathered. */
+  nullFraction: number | null;
+  /** Distinct non-null value count — cardinality (a shape stat, not a value). */
+  distinctCount: number | null;
+  /** Min value as text — ONLY for PUBLIC numeric/date columns (a value, so
+   *  redacted to null by tier per 0c); null otherwise. */
+  min: string | null;
+  /** Max value as text — ONLY for public numeric/date columns; null otherwise. */
+  max: string | null;
   /** A few example values — ONLY for public columns; null when redacted. */
   sampleValues: string[] | null;
+}
+
+/** Where a table's bytes came from — provenance for the data dictionary. */
+export interface TableProvenance {
+  sourceLabel: string;
+  sourceKind: string;
+  /** Display origin (a URL, a filename, a bundle id), if known. */
+  origin: string | null;
 }
 
 export interface DescribedTable {
@@ -72,10 +90,13 @@ export interface DescribedTable {
   tableId: string;
   name: string;
   rowCount: number | null;
+  provenance: TableProvenance;
   columns: DescribedColumn[];
 }
 
 export interface DescribeResult {
+  /** Envelope version — additive-optional, like `.naklidata` (spec discipline). */
+  version: '1';
   tables: DescribedTable[];
   /** Taxonomy bundle version the semantics were resolved against. */
   taxonomyVersion: string | null;

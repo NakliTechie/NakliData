@@ -66,6 +66,7 @@ const WATCHED_OPTIONAL = [
   // unchanged — the browser wiring lives in src/ui/agent-surface.ts, never here.
   'src/core/agent/registry.ts',
   'src/core/agent/sql-validator.ts',
+  'src/core/agent/data-dictionary.ts', // Chunk 4 — pure describe→Markdown serializer
 ];
 
 const FORBIDDEN_PATTERNS = [

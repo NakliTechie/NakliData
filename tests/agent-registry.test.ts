@@ -8,7 +8,12 @@ import { type AgentHost, buildAgentTools, dispatchAgentTool } from '../src/core/
 
 function fakeHost(overrides: Partial<AgentHost> = {}): AgentHost {
   return {
-    describe: () => ({ tables: [], taxonomyVersion: 'v1', sensitivityLayerLoaded: true }),
+    describe: () => ({
+      version: '1',
+      tables: [],
+      taxonomyVersion: 'v1',
+      sensitivityLayerLoaded: true,
+    }),
     listTables: () => [],
     listCells: () => [],
     query: async (sql: string) => ({
@@ -69,7 +74,7 @@ describe('read verbs work regardless of the write gate', () => {
       .execute({});
     expect(r).toEqual({
       ok: true,
-      data: { tables: [], taxonomyVersion: 'v1', sensitivityLayerLoaded: true },
+      data: { version: '1', tables: [], taxonomyVersion: 'v1', sensitivityLayerLoaded: true },
     });
   });
   it('query passes the sql through to the host', async () => {

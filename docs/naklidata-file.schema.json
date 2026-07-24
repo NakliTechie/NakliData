@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://naklidata.naklitechie.com/schema/naklidata-file.schema.json",
+  "title": "NakliDataFile",
+  "description": "A `.naklidata` workbook — the versioned, JSON-on-disk description of a NakliData session (source mounts, schema assignments, notebook cells, user types). NEVER contains source row data. Authorable from scratch: an agent can hand a user a workbook and, because the human opens and runs it, it is propose-don't-execute by construction. This schema is a CONTRACT for authoring; validation happens on load via core/persistence.ts `parse()`. Mirrors the `NakliDataFile` TS interface (src/core/persistence.ts) — keep the two in sync (a test guards the required set).",
+  "type": "object",
+  "required": ["format", "version", "sources", "cells"],
+  "additionalProperties": true,
+  "properties": {
+    "format": { "const": "naklidata", "description": "Discriminator — must be the literal \"naklidata\"." },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)*$",
+      "description": "Semver-ish. Current is \"1.0\". A file whose version is newer than the running app is rejected on load."
+    },
+    "created": { "type": "string", "description": "ISO-8601 creation timestamp." },
+    "modified": { "type": "string", "description": "ISO-8601 last-modified timestamp." },
+    "name": { "type": "string", "description": "Human label for the workbook." },
+    "sources": {
+      "type": "array",
+      "description": "Mounted sources. Only example-bundle and single-file FSA sources persist a usable `ref`; on load, sources are re-attempted and failures show a 'Reconnect needed' banner. Row data is never here.",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "assignments": {
+      "type": "array",
+      "description": "Per-column semantic-type assignments. Optional — defaults to [] on load.",
+      "items": { "$ref": "#/$defs/assignment" }
+    },
+    "cells": {
+      "type": "array",
+      "description": "Notebook cells in order. Each must carry a string `kind`. SQL/cohort/assertion cells carry `code`.",
+      "items": { "$ref": "#/$defs/cell" }
+    },
+    "user_types": {
+      "type": "array",
+      "description": "User-defined semantic types. Optional — defaults to [] on load.",
+      "items": { "type": "object" }
+    },
+    "override_rules": {
+      "type": "array",
+      "description": "'Always treat columns named X as type Y' rules. Optional.",
+      "items": { "type": "object" }
+    },
+    "settings": {
+      "type": "object",
+      "description": "Workbook-scoped settings.",
+      "properties": { "auto_accept_threshold": { "type": "number", "minimum": 0.5, "maximum": 1 } }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["id", "kind", "label", "tables"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "description": "e.g. 'example-bundle', 'fsa-file', 's3-endpoint'." },
+        "label": { "type": "string" },
+        "ref": { "type": ["string", "null"], "description": "Reattach hint (bundle id / URL / handle id); null when not persistable." },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string", "description": "The table/view name the notebook queries." },
+              "format": { "type": "string" },
+              "origin": { "type": "string" },
+              "rowCount": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "required": ["key", "columnName", "sqlType"],
+      "properties": {
+        "key": { "type": "string", "description": "`sourceId::tableId::columnName`." },
+        "columnName": { "type": "string" },
+        "sqlType": { "type": "string" },
+        "typeId": { "type": ["string", "null"], "description": "Taxonomy type id, or null = unknown." },
+        "origin": { "type": "string", "enum": ["detector", "user_accept", "user_override", "unknown"] },
+        "confidence": { "type": "number" },
+        "candidates": { "type": "array" },
+        "resolutionKind": { "type": "string", "enum": ["auto_accept", "ambiguous", "unknown"] }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "required": ["kind"],
+      "description": "A notebook cell. `kind` is authoritative (sql, markdown, chart, pivot, map, network, temporal, distribution, cohort, assertion, input, dashboard, stats, python, r, report, embedding). SQL/cohort/assertion carry `code`.",
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "code": { "type": "string", "description": "SQL/code body (SQL/cohort/assertion/python/r cells)." }
+      }
+    }
+  }
+}

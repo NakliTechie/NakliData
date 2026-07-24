@@ -285,6 +285,14 @@ async function renderScatter(
     // find-similar through handle.simulateClick, since synthetic pointer
     // events can't reach deck.gl's input manager.
     (mount as MountWithSeam).__embedScatter = handle;
+    // A11y (Chunk 6): the scatter is WebGL — invisible to the accessibility tree.
+    // Describe it so a DOM/ARIA-driving agent knows what's here (the seam above
+    // stays the interactive hook).
+    mount.setAttribute('role', 'img');
+    mount.setAttribute(
+      'aria-label',
+      `Embedding scatter plot: ${points.length.toLocaleString()} points.`,
+    );
     // Release the deck.gl WebGL context when the notebook re-renders or this
     // cell is deleted — otherwise every re-render leaks a context (gl-surface.ts).
     registerGlSurface(cell.id, () => handle.destroy());
