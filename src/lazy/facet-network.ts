@@ -332,6 +332,15 @@ export async function renderGraph(
       },
     });
     (mount as HTMLElement & { __networkGraph?: unknown }).__networkGraph = handle;
+    // A11y (Chunk 6): the graph is WebGL — invisible to the accessibility tree,
+    // so a DOM/ARIA-driving agent sees nothing here. Give the canvas mount a
+    // text description of what it renders. (The __networkGraph seam remains the
+    // interactive hook; this is the read-only legibility.)
+    mount.setAttribute('role', 'img');
+    mount.setAttribute(
+      'aria-label',
+      `Network graph: ${renderNodes.length.toLocaleString()} nodes, ${renderEdges.length.toLocaleString()} edges, coloured by ${METRIC_LABELS[metric]}.`,
+    );
     // Release the deck.gl WebGL context on re-render / delete (gl-surface.ts).
     registerGlSurface(cell.id, () => handle.destroy());
     // Legend for the categorical edge-type colouring (Knowledge-graph view).

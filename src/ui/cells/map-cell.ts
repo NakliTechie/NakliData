@@ -187,6 +187,12 @@ async function renderMap(
       basemap: mapBasemap,
       skipNativePoints: useDeckGl,
     });
+    // A11y (Chunk 6): the map is WebGL — describe it for a DOM/ARIA-driving agent.
+    mount.setAttribute('role', 'img');
+    mount.setAttribute(
+      'aria-label',
+      `Map: ${features.length.toLocaleString()} geographic features.`,
+    );
     // Release the MapLibre (and any deck.gl overlay) WebGL context when the
     // notebook re-renders or this cell is deleted (gl-surface.ts). The overlay
     // handle is captured below once it attaches; both are torn down here.

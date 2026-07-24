@@ -1523,6 +1523,76 @@ async function main() {
     `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
 
+  // 10k. Accessibility legibility (Chunk 6). A DOM/ARIA-driving agent (Operator,
+  // Atlas, Claude-in-Chrome) reads the accessibility tree, not our data-action
+  // layer — so every interactive control must expose an accessible NAME. Audit
+  // the fully-populated app for interactive elements with no name (aria-label /
+  // title / text / aria-labelledby) and assert none remain.
+  const a11y = await page.evaluate(() => {
+    const accessibleName = (el) => {
+      const aria = el.getAttribute('aria-label');
+      if (aria && aria.trim()) return true;
+      if (el.getAttribute('aria-labelledby')) return true;
+      const title = el.getAttribute('title');
+      if (title && title.trim()) return true;
+      if ((el.textContent || '').trim()) return true;
+      // A <select> is named by its options / associated label; a titled/labelled
+      // wrapper counts too.
+      if (el.tagName === 'SELECT' && el.closest('label')) return true;
+      const ph = el.getAttribute('placeholder');
+      if (ph && ph.trim()) return true;
+      return false;
+    };
+    const isVisible = (el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const interactive = [
+      ...document.querySelectorAll(
+        'button, a[href], [role="button"], select, input:not([type="hidden"])',
+      ),
+    ].filter(isVisible);
+    const unnamed = interactive
+      .filter((el) => !accessibleName(el))
+      .map((el) => {
+        const cls = (el.className || '').toString().slice(0, 30);
+        return `${el.tagName.toLowerCase()}${el.dataset.action ? `[${el.dataset.action}]` : ''}${cls ? `.${cls}` : ''}`;
+      });
+    // Landmark roles — a DOM agent orients by them.
+    const landmarks = {
+      main: !!document.querySelector('main, [role="main"]'),
+    };
+    // Canvas cells are WebGL — a DOM agent can't see them, so a rendered Facet
+    // graph canvas must carry a role=img + descriptive aria-label (Chunk 6).
+    const netCanvas = document.querySelector(
+      '.cell[data-cell-kind="network"] [data-region="net-canvas"]',
+    );
+    const netCanvasDesc =
+      netCanvas && netCanvas.getAttribute('role') === 'img'
+        ? netCanvas.getAttribute('aria-label')
+        : null;
+    return { total: interactive.length, unnamed, landmarks, netCanvasDesc };
+  });
+  log(
+    `[a11y] ${a11y.total} interactive · ${a11y.unnamed.length} unnamed · main-landmark=${a11y.landmarks.main}`,
+  );
+  if (a11y.unnamed.length > 0) {
+    log(`[a11y] unnamed: ${JSON.stringify(a11y.unnamed.slice(0, 25))}`);
+  }
+  if (a11y.unnamed.length > 0) {
+    fail(`accessibility: ${a11y.unnamed.length} interactive element(s) have no accessible name`);
+  }
+  if (!a11y.landmarks.main) fail('accessibility: no <main> / role=main landmark');
+  if (a11y.netCanvasDesc === null) {
+    fail('accessibility: the rendered Network canvas has no role=img/aria-label description');
+  }
+  if (!/nodes.*edges/.test(a11y.netCanvasDesc)) {
+    fail(`accessibility: Network canvas description is not descriptive ("${a11y.netCanvasDesc}")`);
+  }
+  log(
+    `✓ Accessibility: all ${a11y.total} interactive controls named · main landmark · WebGL canvas described ("${a11y.netCanvasDesc}")`,
+  );
+
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.
