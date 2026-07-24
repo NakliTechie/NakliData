@@ -1128,7 +1128,9 @@ async function main() {
       () => {
         const cells = Array.from(document.querySelectorAll('.cell[data-cell-kind="sql"]'));
         const last = cells[cells.length - 1];
-        return !!last && !last.classList.contains('errored') && last.querySelector('table') !== null;
+        return (
+          !!last && !last.classList.contains('errored') && last.querySelector('table') !== null
+        );
       },
       null,
       { timeout: 15000 },
@@ -1447,6 +1449,63 @@ async function main() {
   }
   log(
     `✓ Facet crossfilter: brush → downstream CROSSFILTER(twin) count ${xfCountFull} → ${xfCountNarrow}`,
+  );
+
+  // 10j. Agent surfaces — drive `window.naklidata` end-to-end (DECISIONS EE).
+  // The whole point is that the semantic layer is the agent surface, so this
+  // exercises the real binding in the real browser: the verb catalogue, a valid
+  // read query, the read-only validator's loud rejection of a write, table
+  // scoping, and the default-off write gate.
+  const agent = await page.evaluate(async () => {
+    const nd = window.naklidata;
+    if (!nd) return { error: 'window.naklidata is not bound' };
+    const tools = nd
+      .listTools()
+      .map((t) => t.name)
+      .sort();
+    const okQuery = await nd.query({ sql: 'SELECT 1 AS x, 2 AS y' });
+    const write = await nd.query({ sql: 'DROP TABLE something' });
+    const scoped = await nd.query({ sql: 'SELECT * FROM definitely_not_a_mounted_table' });
+    const fileScan = await nd.query({ sql: "SELECT * FROM 'file:///etc/passwd'" });
+    const gated = await nd.proposeCell({ sql: 'SELECT 1' });
+    const describe = await nd.describe();
+    return {
+      version: nd.version,
+      tools,
+      okQuery,
+      writeRejected: write.ok === false ? write.error : '(NOT REJECTED)',
+      scopedRejected: scoped.ok === false ? scoped.error : '(NOT REJECTED)',
+      fileScanRejected: fileScan.ok === false ? fileScan.error : '(NOT REJECTED)',
+      gated,
+      describeOk: describe.ok === true && Array.isArray(describe.data.tables),
+    };
+  });
+  if (agent.error) fail(`agent surface: ${agent.error}`);
+  const expectVerbs = ['describe', 'listCells', 'listTables', 'proposeCell', 'query', 'runCell'];
+  if (JSON.stringify(agent.tools) !== JSON.stringify(expectVerbs)) {
+    fail(`agent surface: verbs ${JSON.stringify(agent.tools)} != ${JSON.stringify(expectVerbs)}`);
+  }
+  if (
+    !(
+      agent.okQuery.ok &&
+      agent.okQuery.data.rows.length === 1 &&
+      agent.okQuery.data.rows[0].x === 1
+    )
+  ) {
+    fail(
+      `agent surface: read query did not return the expected row (${JSON.stringify(agent.okQuery)})`,
+    );
+  }
+  if (agent.writeRejected === '(NOT REJECTED)')
+    fail('agent surface: a write query was NOT rejected');
+  if (agent.scopedRejected === '(NOT REJECTED)')
+    fail('agent surface: an out-of-scope table was NOT rejected');
+  if (agent.fileScanRejected === '(NOT REJECTED)')
+    fail('agent surface: a file-scan query was NOT rejected');
+  if (agent.gated.ok !== false) fail('agent surface: proposeCell was NOT gated off by default');
+  if (!agent.describeOk) fail('agent surface: describe did not return a tables array');
+  log(
+    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok`,
   );
 
   // 11. Override one column's type. Pick the first schema-column row, open
