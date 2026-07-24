@@ -56,6 +56,16 @@ export interface Settings {
    * opt-in. Spec amendment A13.
    */
   mapBasemap: 'none' | 'osm';
+  /**
+   * Agent surfaces (2026-07-24, DECISIONS EE-0b) — write access for the
+   * `window.naklidata` agent bridge. The READ verbs (describe / listTables /
+   * listCells / query) are always on: they're validator-gated, value-redacted,
+   * and are the whole point (the semantic layer is the agent surface). The
+   * WRITE verbs (proposeCell / runCell) mutate the notebook, so they're refused
+   * unless this is on. Off by default — an agent gets grounding for free, and
+   * the human opts in before an agent can touch the workbook.
+   */
+  agentWritesEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -67,17 +77,32 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarModelByProvider: {},
   demoMode: false,
   mapBasemap: 'none',
+  agentWritesEnabled: false,
 };
 
 const KEY = 'settings/v1';
 
+// Synchronous mirror of the last loaded/saved settings. Most consumers read
+// settings asynchronously at the point they need them, but some surfaces need a
+// SYNCHRONOUS live read (e.g. the agent bridge's write gate, which is called
+// from a `window.naklidata` verb). Seeded on the first `loadSettings()` at boot
+// and kept fresh by every `saveSettings()`. Defaults are the safe pre-load state.
+let _current: Settings = { ...DEFAULT_SETTINGS };
+
+/** The current settings, synchronously. Reflects the last load or save; returns
+ *  defaults before the first `loadSettings()` (so a gated feature reads OFF). */
+export function currentSettings(): Settings {
+  return _current;
+}
+
 export async function loadSettings(): Promise<Settings> {
   const raw = await kvGet<Partial<Settings>>(KEY);
-  if (!raw) return { ...DEFAULT_SETTINGS };
-  return { ...DEFAULT_SETTINGS, ...normalize(raw) };
+  _current = raw ? { ...DEFAULT_SETTINGS, ...normalize(raw) } : { ...DEFAULT_SETTINGS };
+  return { ..._current };
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
+  _current = { ...DEFAULT_SETTINGS, ...normalize(settings) };
   await kvPut(KEY, normalize(settings));
 }
 
@@ -117,6 +142,7 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
   }
   if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
   if (s.mapBasemap === 'none' || s.mapBasemap === 'osm') out.mapBasemap = s.mapBasemap;
+  if (typeof s.agentWritesEnabled === 'boolean') out.agentWritesEnabled = s.agentWritesEnabled;
   return out;
 }
 

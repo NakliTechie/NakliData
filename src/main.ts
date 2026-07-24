@@ -65,7 +65,7 @@ import {
   saveSnapshot,
   setActiveSession,
 } from './core/sessions.ts';
-import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
+import { type Settings, currentSettings, loadSettings, saveSettings } from './core/settings.ts';
 import { loadKey } from './core/sidecar/byok.ts';
 import { dispatchJob } from './core/sidecar/client.ts';
 import { getLocalGenerator, registerLocalGenerator } from './core/sidecar/local-runtime.ts';
@@ -81,6 +81,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { bindAgentSurface } from './ui/agent-surface.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
@@ -345,6 +346,15 @@ async function boot(): Promise<void> {
   nb.subscribe(() => {
     const notebookMount = root.querySelector<HTMLElement>('[data-region="notebook"]');
     if (notebookMount) renderNotebook(notebookMount, nb, sqlExtra());
+  });
+
+  // Agent surfaces (DECISIONS EE) — bind `window.naklidata`: read verbs
+  // (describe / listTables / listCells / query) on by default; write verbs
+  // (proposeCell / runCell) gated on the `agentWritesEnabled` setting, read live.
+  bindAgentSurface({
+    engine,
+    notebook: nb,
+    isWritesEnabled: () => currentSettings().agentWritesEnabled,
   });
 
   // Cmd/Ctrl+Shift+Enter → run all cells.

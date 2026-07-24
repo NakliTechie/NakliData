@@ -2,6 +2,61 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-24 — Agent-surfaces contract ratified (Chunk 0) + inherited smoke fix (EE + EF)
+
+### Decision EE — the agent contract (four calls, ratified to their documented leans)
+
+- **Context.** The agent-surfaces track (design in `plan/agent-surfaces.md`) hinges on
+  four decisions (§6) that were parked for Chirag. Ratified at autopilot launch
+  2026-07-24 to their documented leans — each is consistent with the pre-ratified
+  `resolve-track-vision.md` doctrine and the Facet M0 handoff, and Chirag set the
+  direction + reviewed the leans at launch. Recorded here as the settled contract every
+  downstream chunk (registry, validator, redaction) builds on.
+- **0a — Read vs propose → ALLOW READS, PROPOSE ALL WRITES.** An agent may run
+  read-only `SELECT`s through a validator on a read-only connection; every write is a
+  proposal the human runs. The safety model rides in the return shape
+  (`{ sql, editable: true }`, cribbed verbatim from `facet-m0-handoff.md:60-70`) — the
+  model is never the safety boundary, the validator is.
+- **0b — Discoverability → ON-BY-DEFAULT READ-ONLY `describe`/`list`, GATED WRITES.**
+  A fully dev-gated surface is invisible to an agent that doesn't know to ask; a
+  fully-open one over-reaches. Split the difference: read-only introspection
+  (`describe`, `listTables`, `listCells`) is discoverable by default; `query`, any
+  propose/run verb, and everything mutating stays behind the dev-setting gate. Squares
+  the `resolve-track-vision.md:95` "gated, off by default" doctrine with actual agent
+  reach.
+- **0c — Default data visibility → SCHEMA+SEMANTICS ALWAYS, VALUES REDACTED BY TIER.**
+  An agent always sees the semantic layer (types, sensitivity, universal terms); actual
+  values are redacted by sensitivity tier until explicitly unlocked. This is both the
+  differentiator (grounding no competitor offers — 193 types + sensitivity from a tab
+  where data never leaves) and the safer default. Reuses `core/anonymize.ts` strategies;
+  no second masker.
+- **0d — WebMCP → REGISTRY NOW, WebMCP AS A NO-SHIPPING-DEPENDENCY SPIKE.** Build the
+  tool registry + `window.naklidata` binding now, shaped like WebMCP's
+  `{ name, description, inputSchema, execute, annotations }` contract so a WebMCP adapter
+  is thin later. WebMCP itself is a timeboxed spike only (Chrome-149 origin-trial, API
+  churned twice) — parked, never a blocker.
+- **Consequence.** Chunks 2–3 proceed on this contract. Reversible — Chirag can veto any
+  of the four in the morning; the registry is structured so 0b/0c are config, not
+  architecture.
+
+### Decision EF — inherited crossfilter smoke timeout (fix, not a crossfilter bug)
+
+- **Context.** The Facet crossfilter smoke leg (green when shipped 2026-07-09, DECISIONS
+  CR) failed deterministically at HEAD `4895bca`. Root-caused with fresh-eyes
+  instrumentation: `applyCrossfilter` re-runs the WHOLE notebook (topological Run-all),
+  and the smoke had accumulated ~30 cells including heavy ones (embedding generation,
+  graph-metrics via a worker, correlation-graph) that landed *after* the leg was written.
+  A single sweep now takes ~20-30s to reach this last-added cell — blowing the 15s
+  `waitForFunction` budget. The feature is correct (per-cell query ~2.5s, count=120 on
+  the full brush).
+- **Decision.** Bump both brush→propagate waits 15s → 45s (`scripts/smoke.mjs`), with a
+  comment explaining the accumulated-sweep cost. No assertion weakened (the 120→narrow
+  drop still gates). This restores the ship gate without touching product behaviour.
+- **Follow-up logged (`plan/ideas.md`).** The deeper fix — scope `applyCrossfilter`'s
+  re-run to the cells that reference the crossfilter and their dependents, instead of a
+  full `runAll()` — is a real perf/latency win at notebook scale but a behaviour change
+  needing its own tests. Out of scope for this run.
+
 ## 2026-07-15 — Graph-analytics follow-ups: Phase 1a skipped; metrics worker-ized (EC + ED)
 
 ### Decision EC — NetworkX-in-Pyodide (Phase 1a): SKIP

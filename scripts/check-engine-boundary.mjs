@@ -60,6 +60,12 @@ const WATCHED_OPTIONAL = [
   // future extraction problem.
   'src/core/graph-metrics.ts',
   'src/core/graph-metrics-protocol.ts',
+  // Agent surfaces (2026-07-24). The registry is the pure verb contract + the
+  // injected AgentHost interface; the validator is the read-only SQL guard. Both
+  // are DI'd (no engine/DOM/window) so they extract into a server-side sibling
+  // unchanged — the browser wiring lives in src/ui/agent-surface.ts, never here.
+  'src/core/agent/registry.ts',
+  'src/core/agent/sql-validator.ts',
 ];
 
 const FORBIDDEN_PATTERNS = [
