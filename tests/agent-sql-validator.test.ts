@@ -142,6 +142,63 @@ describe('validateReadOnlySql — table scoping', () => {
   });
 });
 
+describe('validateReadOnlySql — adversarial bypasses (2026-07-24 review)', () => {
+  const allowed = { allowedTables: new Set(['orders', 'customers']) };
+
+  it('comma-join tables ARE scoped (FROM orders, secrets)', () => {
+    const r = rejected('SELECT * FROM orders, secrets', allowed);
+    expect(r.reason).toMatch(/secrets/);
+  });
+  it('three-way comma-join scopes every relation', () => {
+    rejected('SELECT * FROM orders, customers, secrets', allowed);
+    ok('SELECT * FROM orders, customers', allowed);
+  });
+  it('comma-join with aliases still scopes (FROM orders o, secrets s)', () => {
+    rejected('SELECT * FROM orders o, secrets s', allowed);
+  });
+  it('string literal in table position is rejected (file/URL replacement scan)', () => {
+    rejected("SELECT * FROM '/etc/passwd'", allowed);
+    rejected("SELECT * FROM 'https://evil.example/x.csv'", allowed);
+    rejected("SELECT * FROM orders JOIN '/etc/passwd' ON true", allowed);
+  });
+  it('file/connector table functions are rejected in table position', () => {
+    for (const fn of [
+      "parquet_metadata('/etc/passwd')",
+      "parquet_schema('/x.parquet')",
+      "st_read('/etc/passwd')",
+      "read_xlsx('/x.xlsx')",
+      "sqlite_scan('a.db', 'secrets')",
+      "postgres_scan('conn', 'public', 'secrets')",
+      "iceberg_scan('/x')",
+      "delta_scan('/x')",
+      'duckdb_settings()',
+      "pragma_table_info('orders')",
+    ]) {
+      rejected(`SELECT * FROM ${fn}`, allowed);
+    }
+  });
+  it('quoted / backtick identifier does not dodge the function denylist', () => {
+    rejected(`SELECT * FROM "read_csv"('/etc/passwd')`, allowed);
+    rejected("SELECT * FROM `read_csv`('/etc/passwd')", allowed);
+    rejected(`SELECT "read_blob"('/etc/passwd')`, allowed);
+  });
+  it('file functions in a NON-table position (SELECT list) are still rejected', () => {
+    rejected("SELECT read_blob('/etc/passwd') AS x FROM orders", allowed);
+  });
+
+  // False positives the review flagged — these are legitimate reads that MUST pass.
+  it('replace() is a core string function, not a write', () => {
+    ok("SELECT replace(name, 'a', 'b') FROM orders", allowed);
+  });
+  it('columns named start / begin / end are fine', () => {
+    ok('SELECT start FROM orders WHERE start < 5', allowed);
+    ok('SELECT begin FROM orders', allowed);
+  });
+  it('an alias named analyze is fine', () => {
+    ok('SELECT x AS analyze FROM orders', allowed);
+  });
+});
+
 describe('validateReadOnlySql — degenerate input', () => {
   it('rejects empty / whitespace', () => {
     rejected('');
