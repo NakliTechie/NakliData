@@ -32,6 +32,14 @@ export interface LazyChunkRegistry {
   deckgl: typeof import('../lazy/deckgl.ts');
   /** Facet track — SVG renderers for the Temporal timeline + Distribution bars. */
   'facet-charts': typeof import('../lazy/facet-charts.ts');
+  /**
+   * Facet track — the Network cell's RENDER BODY (graph build, force-layout
+   * orchestration, node-metric worker round-trip, deck.gl mount, legend + the
+   * layout/metric caches). Split off `network-cell.ts` (the cell chrome) so it
+   * stays off the inlined shell budget (spec §7.1 / A35); loads on first render,
+   * with `deck.gl` one hop further in the `deckgl` chunk.
+   */
+  'facet-network': typeof import('../lazy/facet-network.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**
