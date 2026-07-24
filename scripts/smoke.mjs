@@ -1401,13 +1401,19 @@ async function main() {
     const [lo, hi] = seam.range;
     seam.brushTimeWindow(lo, hi);
   });
+  // `applyCrossfilter` re-runs the WHOLE notebook (topological Run-all), and by
+  // this point the smoke has accumulated ~30 cells including heavy ones
+  // (embedding generation, graph-metrics via a worker, correlation-graph). A
+  // single Run-all sweep can take ~20-30s to reach this last-added cell — so
+  // this brush→propagate wait needs headroom well past the default 15s. (The
+  // per-cell crossfilter query itself is ~2.5s; the cost is the full sweep.)
   await page.waitForFunction(
     (id) => {
       const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
       return !!td && Number(td.textContent) > 0;
     },
     xfCellId,
-    { timeout: 15000 },
+    { timeout: 45000 },
   );
   const xfCountFull = await page.evaluate((id) => {
     const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
@@ -1428,7 +1434,7 @@ async function main() {
       return !!td && Number(td.textContent) < full;
     },
     [xfCellId, xfCountFull],
-    { timeout: 15000 },
+    { timeout: 45000 },
   );
   const xfCountNarrow = await page.evaluate((id) => {
     const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
