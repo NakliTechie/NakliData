@@ -1,18 +1,24 @@
-// Agent surfaces — the browser-side binder (Chunk 2; DECISIONS EE). This is the
-// UI half that the pure `core/agent/registry.ts` + `core/agent/sql-validator.ts`
-// are DI'd into. It implements `AgentHost` against the live engine / workbook /
-// notebook / taxonomy, then exposes the verb set on `window.naklidata` — the
-// first true `window.*` object binding in the app (the semantic layer is the
-// agent surface).
+// Agent surfaces — the LAZY host implementation (Chunk 2 binder, moved off the
+// shell in the Chunks 4-7 run to reclaim bundle headroom). The thin shell stub
+// (`src/ui/agent-bridge.ts`) binds `window.naklidata` to proxies that load this
+// chunk on the first verb call; the pure registry + read-only validator ride
+// here with it, out of the inlined bundle.
 //
-// The three safety properties (DECISIONS EE) live HERE, at the boundary:
-//   - 0a: `query` runs the SQL through `validateReadOnlySql` (read-only, scoped
-//     to the mounted tables) before the engine sees it; writes are proposals.
-//   - 0b: the write verbs (proposeCell / runCell) are gated on the
-//     `agentWritesEnabled` setting; the read verbs are always on.
-//   - 0c: `query` redacts output columns whose sensitivity tier is not public,
-//     reusing the taxonomy sensitivity layer; `describe` returns schema +
-//     semantics with NO values (the value path is `query`, redacted).
+// CRITICAL: this chunk must NOT import the workbook / taxonomy STORE SINGLETONS
+// (`getWorkbook`, `getTaxonomyClient`). A self-contained chunk would bundle its
+// OWN copies and diverge from the shell's live instances (the footgun that
+// retired the measures-panel chunk — see lazy-loader.ts). Instead the shell
+// INJECTS accessors (`getWorkbookState`, `getBundle`) that read its singletons.
+// Only pure, stateless modules (registry, sql-validator, the taxonomy resolvers)
+// are imported here — safe to duplicate because they hold no state.
+//
+// The three safety properties (DECISIONS EE) live here at the boundary:
+//   - 0a: query() validates every SQL (read-only, scoped to the mounted tables)
+//     before the engine runs it; writes are proposals.
+//   - 0b: proposeCell/runCell gated on `writesEnabled()`; reads always on.
+//   - 0c: query() redacts output columns whose sensitivity tier is not public;
+//     describe() returns schema+semantics with no values (query is the redacted
+//     value path).
 
 import {
   type AgentHost,
@@ -28,22 +34,21 @@ import {
 } from '../core/agent/registry.ts';
 import { validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import type { Engine } from '../core/engine.ts';
-import { getWorkbook } from '../core/workbook.ts';
-import { getTaxonomyClient } from '../taxonomy/client.ts';
-import type { TypeSensitivity } from '../taxonomy/types.ts';
+import type { WorkbookState } from '../core/workbook.ts';
+import type { TaxonomyBundle, TypeSensitivity } from '../taxonomy/types.ts';
 import {
   hasSensitivityLayer,
   sensitivityForType,
   universalTermForType,
 } from '../taxonomy/universal.ts';
-import type { Notebook } from './notebook.ts';
+import type { Notebook } from '../ui/notebook.ts';
 
 /** Cap on rows returned to an agent — enough to be useful, bounded so a verb
  *  can't flood the caller's context with a whole table. */
 const AGENT_QUERY_ROW_CAP = 1000;
 
 /** Assignment key format — mirrors `assignmentKey` in schema-panel.ts (kept
- *  inline to avoid pulling the schema panel into this module). */
+ *  inline to avoid pulling the schema panel into this chunk). */
 const assignmentKey = (sourceId: string, tableId: string, columnName: string): string =>
   `${sourceId}::${tableId}::${columnName}`;
 
@@ -52,6 +57,11 @@ export interface AgentSurfaceDeps {
   notebook: Notebook;
   /** Live read of the `agentWritesEnabled` setting (the 0b gate). */
   isWritesEnabled: () => boolean;
+  /** Live read of the shell's Workbook singleton state (injected, NOT imported —
+   *  see the module header on singleton divergence). */
+  getWorkbookState: () => WorkbookState;
+  /** Live read of the shell's taxonomy bundle (injected). */
+  getBundle: () => TaxonomyBundle | null;
 }
 
 /** Sensitivity ranking — higher is stricter, so the "worst tier wins" when a
@@ -68,8 +78,8 @@ function stricter(a: TypeSensitivity | undefined, b: TypeSensitivity): TypeSensi
  * Reads the live workbook/engine/notebook on every call (never a stale snapshot).
  */
 export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
-  const workbook = () => getWorkbook().get();
-  const bundle = () => getTaxonomyClient().getBundle();
+  const workbook = () => deps.getWorkbookState();
+  const bundle = () => deps.getBundle();
 
   /** Lowercased names of every mounted table — the validator's allow-set. */
   function allowedTableNames(): Set<string> {
@@ -242,49 +252,37 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** The public shape bound to `window.naklidata`. Each verb returns the registry's
- *  `{ ok, ... }` result. `listTools` exposes the catalogue (for a WebMCP adapter
- *  or an agent's own discovery); `version` marks the contract. */
-export interface NakliDataAgentApi {
-  describe(input?: unknown): Promise<unknown>;
-  listTables(input?: unknown): Promise<unknown>;
-  listCells(input?: unknown): Promise<unknown>;
-  query(input?: unknown): Promise<unknown>;
-  proposeCell(input?: unknown): Promise<unknown>;
-  runCell(input?: unknown): Promise<unknown>;
-  listTools(): Array<Pick<AgentTool, 'name' | 'description' | 'inputSchema' | 'annotations'>>;
-  version: string;
+/** Tool catalogue (name/description/inputSchema/annotations) — for discovery /
+ *  a WebMCP adapter. Built from the host so the metadata is authoritative. */
+export type ToolCatalogue = Array<
+  Pick<AgentTool, 'name' | 'description' | 'inputSchema' | 'annotations'>
+>;
+
+// The tool list is stable per session (deps don't change), so build once.
+let _tools: AgentTool[] | null = null;
+function tools(deps: AgentSurfaceDeps): AgentTool[] {
+  _tools ??= buildAgentTools(createAgentHost(deps));
+  return _tools;
 }
 
-declare global {
-  interface Window {
-    naklidata?: NakliDataAgentApi;
-  }
+/** Dispatch a verb by name. The shell's `window.naklidata.<verb>` proxies route
+ *  here after loading this chunk. */
+export function dispatch(deps: AgentSurfaceDeps, verb: string, input: unknown) {
+  return dispatchAgentTool(tools(deps), verb, input);
 }
 
-/**
- * Build the tools against a fresh host and bind them to `window.naklidata`.
- * Idempotent — a second call replaces the binding. Returns the tool list (handy
- * for tests / a future WebMCP registration).
- */
-export function bindAgentSurface(deps: AgentSurfaceDeps): AgentTool[] {
-  const host = createAgentHost(deps);
-  const tools = buildAgentTools(host);
-  const api = {
-    listTools: () =>
-      tools.map(({ name, description, inputSchema, annotations }) => ({
-        name,
-        description,
-        inputSchema,
-        annotations,
-      })),
-    version: '1',
-  } as NakliDataAgentApi;
-  for (const t of tools) {
-    (api as unknown as Record<string, (input?: unknown) => Promise<unknown>>)[t.name] = (
-      input?: unknown,
-    ) => dispatchAgentTool(tools, t.name, input ?? {});
-  }
-  window.naklidata = api;
-  return tools;
+/** The verb catalogue (WebMCP-shaped metadata). */
+export function catalogue(deps: AgentSurfaceDeps): ToolCatalogue {
+  return tools(deps).map(({ name, description, inputSchema, annotations }) => ({
+    name,
+    description,
+    inputSchema,
+    annotations,
+  }));
+}
+
+/** Build the tool list for a WebMCP adapter (Chunk 7) — same tools, so the
+ *  adapter and `window.naklidata` share one catalogue + one host. */
+export function buildTools(deps: AgentSurfaceDeps): AgentTool[] {
+  return tools(deps);
 }

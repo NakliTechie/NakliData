@@ -40,6 +40,14 @@ export interface LazyChunkRegistry {
    * with `deck.gl` one hop further in the `deckgl` chunk.
    */
   'facet-network': typeof import('../lazy/facet-network.ts');
+  /**
+   * Agent surfaces — the `window.naklidata` host: the AgentHost impl + the pure
+   * registry + read-only validator. Loaded on the first agent verb call via the
+   * thin `src/ui/agent-bridge.ts` stub, so ~10 KB stays off the inlined shell.
+   * Reads the workbook/taxonomy singletons via INJECTED accessors (never imports
+   * them — a chunk copy would diverge from the shell's live instances).
+   */
+  'agent-surface': typeof import('../lazy/agent-surface.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**

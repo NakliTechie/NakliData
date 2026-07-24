@@ -1459,10 +1459,7 @@ async function main() {
   const agent = await page.evaluate(async () => {
     const nd = window.naklidata;
     if (!nd) return { error: 'window.naklidata is not bound' };
-    const tools = nd
-      .listTools()
-      .map((t) => t.name)
-      .sort();
+    const tools = (await nd.listTools()).map((t) => t.name).sort();
     const okQuery = await nd.query({ sql: 'SELECT 1 AS x, 2 AS y' });
     const write = await nd.query({ sql: 'DROP TABLE something' });
     const scoped = await nd.query({ sql: 'SELECT * FROM definitely_not_a_mounted_table' });
