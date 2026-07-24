@@ -135,12 +135,20 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
               typeId,
               sensitivity,
               universalTerm: term ? term.id : null,
-              // v1: describe carries NO values (schema + semantics only). The
-              // value path is `query`, redacted by tier (0c). The field is here
-              // for when per-column public-sampling lands.
+              // Shape stats (null%/cardinality) are always safe — they're counts,
+              // not values. The min/max RANGE is a value, so it's filled only for
+              // public columns (0c). sampleValues stays null in v1 (query is the
+              // redacted value path).
+              nullFraction: null,
+              distinctCount: null,
+              min: null,
+              max: null,
               sampleValues: null,
             };
           });
+          // One aggregate query per table fills null%/cardinality for every
+          // column + min/max for the public numeric/date ones. Best-effort.
+          await enrichColumnStats(t.name, columns);
         } catch {
           // A table that won't DESCRIBE (mid-mount, dropped) contributes no
           // columns rather than failing the whole describe.
@@ -151,11 +159,63 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
           tableId: t.id,
           name: t.name,
           rowCount: t.rowCount ?? null,
+          provenance: {
+            sourceLabel: src.label,
+            sourceKind: String(src.kind),
+            origin: t.origin ?? null,
+          },
           columns,
         });
       }
     }
-    return { tables, taxonomyVersion: b?.version ?? null, sensitivityLayerLoaded: layerLoaded };
+    return {
+      version: '1' as const,
+      tables,
+      taxonomyVersion: b?.version ?? null,
+      sensitivityLayerLoaded: layerLoaded,
+    };
+  }
+
+  /** Fill null%/cardinality (+ min/max for public numeric/date) via ONE
+   *  aggregate query over the table. Mutates `columns` in place; best-effort —
+   *  a stats failure leaves the nulls, it never fails describe. */
+  async function enrichColumnStats(tableName: string, columns: DescribedColumn[]): Promise<void> {
+    if (columns.length === 0) return;
+    const parts: string[] = ['COUNT(*) AS _n'];
+    columns.forEach((c, i) => {
+      const q = quoteIdent(c.name);
+      parts.push(`COUNT(${q}) AS c${i}_nn`);
+      parts.push(`COUNT(DISTINCT ${q}) AS c${i}_d`);
+      // Range is a VALUE — only for public columns (0c), and only where MIN/MAX
+      // is meaningful (numeric / temporal).
+      if (c.sensitivity === 'public' && isRangeable(c.sqlType)) {
+        parts.push(`CAST(MIN(${q}) AS VARCHAR) AS c${i}_min`);
+        parts.push(`CAST(MAX(${q}) AS VARCHAR) AS c${i}_max`);
+      }
+    });
+    try {
+      const [stats] = await deps.engine.query<Record<string, unknown>>(
+        `SELECT ${parts.join(', ')} FROM ${quoteIdent(tableName)}`,
+      );
+      if (!stats) return;
+      const n = Number(stats._n) || 0;
+      columns.forEach((c, i) => {
+        const nn = Number(stats[`c${i}_nn`]);
+        if (n > 0 && Number.isFinite(nn)) {
+          c.nullFraction = Math.round(((n - nn) / n) * 1000) / 1000;
+        }
+        const d = Number(stats[`c${i}_d`]);
+        if (Number.isFinite(d)) c.distinctCount = d;
+        if (`c${i}_min` in stats) {
+          const mn = stats[`c${i}_min`];
+          c.min = mn == null ? null : String(mn);
+          const mx = stats[`c${i}_max`];
+          c.max = mx == null ? null : String(mx);
+        }
+      });
+    } catch {
+      // Stats are best-effort; leave the nulls in place.
+    }
   }
 
   function listTables(): TableSummary[] {
@@ -250,6 +310,12 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
 /** Minimal identifier quoting for the DESCRIBE calls in `describe`. */
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** True for SQL types where MIN/MAX (a range) is meaningful — numeric + temporal. */
+function isRangeable(sqlType: string): boolean {
+  const base = sqlType.toUpperCase().split('(')[0]?.trim() ?? '';
+  return /INT|DECIMAL|NUMERIC|FLOAT|REAL|DOUBLE|HUGEINT|DATE|TIMESTAMP|TIME/.test(base);
 }
 
 /** Tool catalogue (name/description/inputSchema/annotations) — for discovery /

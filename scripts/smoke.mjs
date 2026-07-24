@@ -1466,6 +1466,19 @@ async function main() {
     const fileScan = await nd.query({ sql: "SELECT * FROM 'file:///etc/passwd'" });
     const gated = await nd.proposeCell({ sql: 'SELECT 1' });
     const describe = await nd.describe();
+    // Chunk 4 enrichment: envelope version + per-table provenance + column stats.
+    let describeEnriched = false;
+    if (describe.ok === true && describe.data.tables.length > 0) {
+      const firstTable = describe.data.tables[0];
+      const anyCol = describe.data.tables.flatMap((t) => t.columns);
+      describeEnriched =
+        describe.data.version === '1' &&
+        !!firstTable.provenance &&
+        typeof firstTable.provenance.sourceLabel === 'string' &&
+        anyCol.some(
+          (c) => typeof c.nullFraction === 'number' || typeof c.distinctCount === 'number',
+        );
+    }
     return {
       version: nd.version,
       tools,
@@ -1475,6 +1488,8 @@ async function main() {
       fileScanRejected: fileScan.ok === false ? fileScan.error : '(NOT REJECTED)',
       gated,
       describeOk: describe.ok === true && Array.isArray(describe.data.tables),
+      describeTableCount: describe.ok === true ? describe.data.tables.length : 0,
+      describeEnriched,
     };
   });
   if (agent.error) fail(`agent surface: ${agent.error}`);
@@ -1501,8 +1516,11 @@ async function main() {
     fail('agent surface: a file-scan query was NOT rejected');
   if (agent.gated.ok !== false) fail('agent surface: proposeCell was NOT gated off by default');
   if (!agent.describeOk) fail('agent surface: describe did not return a tables array');
+  if (agent.describeTableCount > 0 && !agent.describeEnriched) {
+    fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
+  }
   log(
-    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok`,
+    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
 
   // 11. Override one column's type. Pick the first schema-column row, open
