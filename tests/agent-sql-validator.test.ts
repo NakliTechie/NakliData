@@ -185,6 +185,13 @@ describe('validateReadOnlySql — adversarial bypasses (2026-07-24 review)', () 
   it('file functions in a NON-table position (SELECT list) are still rejected', () => {
     rejected("SELECT read_blob('/etc/passwd') AS x FROM orders", allowed);
   });
+  it('a SCHEMA-QUALIFIED forbidden function does not dodge the denylist (round-2)', () => {
+    // system.main.read_blob is the canonical qualified path for a DuckDB builtin;
+    // the function check must match the last dotted segment, not the raw word.
+    rejected("SELECT system.main.read_blob('/etc/passwd') FROM orders", allowed);
+    rejected("SELECT main.read_text('/etc/hosts') FROM orders", allowed);
+    rejected("SELECT * FROM main.read_csv('/etc/passwd')", allowed);
+  });
 
   // False positives the review flagged — these are legitimate reads that MUST pass.
   it('replace() is a core string function, not a write', () => {

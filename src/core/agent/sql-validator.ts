@@ -359,14 +359,18 @@ export function validateReadOnlySql(sql: string, opts: ValidateOptions = {}): Va
   }
 
   // Reject forbidden file/network/session FUNCTIONS anywhere (word — quoted or
-  // not — immediately followed by `(`).
+  // not — immediately followed by `(`). Match the LAST dotted segment too, so a
+  // schema-qualified call (`system.main.read_blob(…)` — the canonical qualified
+  // path for a DuckDB built-in) can't slip a file-read past the raw-name check.
   for (let idx = 0; idx < body.length; idx++) {
     const t = body[idx];
     if (!t || t.word === null || t.isString) continue;
-    if (FORBIDDEN_FUNCTIONS.has(t.word) && body[idx + 1]?.text === '(') {
+    const isForbiddenFn =
+      FORBIDDEN_FUNCTIONS.has(t.word) || FORBIDDEN_FUNCTIONS.has(lastSegment(t.word));
+    if (isForbiddenFn && body[idx + 1]?.text === '(') {
       return {
         ok: false,
-        reason: `Rejected: the function "${t.word}(…)" can read outside the mounted schema (a local file, a URL, or session state) and is not allowed.`,
+        reason: `Rejected: the function "${lastSegment(t.word)}(…)" can read outside the mounted schema (a local file, a URL, or session state) and is not allowed.`,
       };
     }
   }
