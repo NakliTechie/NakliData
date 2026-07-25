@@ -69,7 +69,12 @@ import type {
   StatsCellState,
   TemporalCellState,
 } from './cells/types.ts';
-import { detectRefIssue, refIssueMessage, topoOrderRunnableCells } from './notebook-graph.ts';
+import {
+  crossfilterRunOrder,
+  detectRefIssue,
+  refIssueMessage,
+  topoOrderRunnableCells,
+} from './notebook-graph.ts';
 import { notebookCss } from './notebook.css.ts';
 
 let _idSeq = 1;
@@ -601,25 +606,40 @@ LIMIT 100`,
   }
 
   /**
-   * Persist a Facet cell's committed selection and re-run the notebook so any
-   * downstream `CROSSFILTER(<name>)` picks up the new predicate. Silent patch —
-   * the SVG already shows the brush; a full re-render would fight the pointer
-   * interaction. Re-run is a Run-all (topological), matching how `@param` inputs
-   * only take effect on a run; skipped entirely when nothing references this
-   * crossfilter, so brushing an unreferenced Facet cell stays free.
+   * Persist a Facet cell's committed selection and re-run the cells that
+   * actually depend on it, so any downstream `CROSSFILTER(<name>)` picks up the
+   * new predicate. Silent patch — the SVG already shows the brush; a full
+   * re-render would fight the pointer interaction.
+   *
+   * The re-run is SCOPED (`crossfilterRunOrder`): the cells referencing this
+   * crossfilter, everything downstream of them, and any un-run ancestor they
+   * need — in topological order. It used to be a whole-notebook `runAll()`,
+   * which re-ran every SQL cell on every brush (O(all cells): on a large
+   * notebook one drag re-ran unrelated embedding/graph/report cells and took
+   * tens of seconds). Brushing an unreferenced Facet cell still costs nothing —
+   * the order comes back empty.
    */
   applyCrossfilter(id: string, selection: FacetSelection | null): void {
     this.patchCellSilent(id, { selection });
     const cell = this.state.cells.find((c) => c.id === id);
     const name = cell?.name?.trim();
     if (!name) return;
-    const token = `CROSSFILTER(${name})`;
-    const referenced = this.state.cells.some(
-      (c) =>
-        (c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion') &&
-        c.code.includes(token),
-    );
-    if (referenced) void this.runAll();
+    const order = crossfilterRunOrder(this.state.cells, name);
+    if (order.length === 0) return;
+    void this.runCellsInOrder(order);
+  }
+
+  /** Run the given cell ids sequentially, skipping any that vanished or are
+   *  empty. Shared by the scoped crossfilter re-run; `runAll` is the
+   *  whole-notebook case of the same loop. */
+  private async runCellsInOrder(ids: string[]): Promise<void> {
+    const byId = new Map(this.state.cells.map((c) => [c.id, c]));
+    for (const id of ids) {
+      const c = byId.get(id);
+      if (!c || (c.kind !== 'sql' && c.kind !== 'cohort' && c.kind !== 'assertion')) continue;
+      if (!c.code.trim()) continue;
+      await this.runCell(id);
+    }
   }
 
   /**
