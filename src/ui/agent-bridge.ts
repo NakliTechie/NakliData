@@ -50,13 +50,7 @@ declare global {
  * tools once) and dispatches; subsequent calls reuse the resolved chunk.
  */
 export function bindAgentSurface(deps: AgentBridgeDeps): void {
-  const fullDeps: AgentSurfaceDeps = {
-    engine: deps.engine,
-    notebook: deps.notebook,
-    isWritesEnabled: deps.isWritesEnabled,
-    getWorkbookState: () => getWorkbook().get(),
-    getBundle: () => getTaxonomyClient().getBundle(),
-  };
+  const fullDeps = buildAgentDeps(deps);
   const load = () => loadChunk('agent-surface');
   const verb =
     (name: string) =>
@@ -78,6 +72,31 @@ export function bindAgentSurface(deps: AgentBridgeDeps): void {
   // `document.modelContext` (Chrome-149 origin trial) do we register the same
   // verbs as WebMCP tools. Fire-and-forget; degrades to a console note.
   maybeRegisterWebMcp(load, fullDeps);
+}
+
+/** Build the chunk's deps, injecting the SHELL's live store singletons. Single
+ *  definition — every entry point into the agent chunk (the window binding, the
+ *  data-dictionary export) goes through here, so none of them can accidentally
+ *  read a divergent copy. */
+function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
+  return {
+    engine: deps.engine,
+    notebook: deps.notebook,
+    isWritesEnabled: deps.isWritesEnabled,
+    getWorkbookState: () => getWorkbook().get(),
+    getBundle: () => getTaxonomyClient().getBundle(),
+  };
+}
+
+/**
+ * Render the workbook's data dictionary as Markdown (the schema panel's
+ * "Export data dictionary" affordance). Loads the agent chunk and runs the same
+ * `describe()` an agent calls — so the human doc and the agent grounding are the
+ * same artifact.
+ */
+export async function exportDataDictionaryMarkdown(deps: AgentBridgeDeps): Promise<string> {
+  const m = await loadChunk('agent-surface');
+  return m.exportDataDictionary(buildAgentDeps(deps));
 }
 
 /** True when the page asked for the WebMCP spike via `?webmcp=1`. */

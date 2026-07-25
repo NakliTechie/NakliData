@@ -81,7 +81,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
-import { bindAgentSurface } from './ui/agent-bridge.ts';
+import { bindAgentSurface, exportDataDictionaryMarkdown } from './ui/agent-bridge.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
@@ -92,7 +92,7 @@ import { type AiMergeDecision, openClusterModal } from './ui/cluster-modal.ts';
 // schema-panel open site — keeps the modal off the inlined shell budget.
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openEmbedModal } from './ui/embed-modal.ts';
-import { buildStandaloneHtml, saveHtmlFile } from './ui/export-html.ts';
+import { buildStandaloneHtml, saveHtmlFile, saveTextFile } from './ui/export-html.ts';
 import { maybeOpenWelcomeSplash, openHelpModal } from './ui/help-modal.ts';
 import {
   type LensConfirmCell,
@@ -812,6 +812,29 @@ function renderSchemaPanelWithCurrentState(
             engine,
           }),
         );
+      },
+      onExportDataDictionary: () => {
+        void (async () => {
+          try {
+            const md = await exportDataDictionaryMarkdown({
+              engine,
+              notebook: getNotebook(engine),
+              isWritesEnabled: () => currentSettings().agentWritesEnabled,
+            });
+            const written = await saveTextFile(md, 'data-dictionary.md', {
+              mime: 'text/markdown',
+              description: 'Markdown',
+              extensions: ['.md'],
+            });
+            // '' means the user cancelled the save picker — say nothing.
+            if (written) toast(`Data dictionary saved as ${written}`);
+          } catch (err) {
+            toast(
+              `Couldn't export the data dictionary: ${err instanceof Error ? err.message : String(err)}`,
+              'error',
+            );
+          }
+        })();
       },
       onClassifyAllUnknowns: () => {
         void runClassifyAllUnknowns(engine);

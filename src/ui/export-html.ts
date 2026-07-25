@@ -296,7 +296,26 @@ function esc(s: string): string {
  * click otherwise.
  */
 export async function saveHtmlFile(html: string, suggestedName: string): Promise<string> {
-  const bytes = new TextEncoder().encode(html);
+  return saveTextFile(html, suggestedName, {
+    mime: 'text/html',
+    description: 'HTML',
+    extensions: ['.html'],
+  });
+}
+
+/**
+ * Trigger a browser download of an arbitrary text file. The generic form of
+ * `saveHtmlFile` — same FSA-picker-then-anchor-fallback path, parameterised by
+ * MIME type so other exports (the Markdown data dictionary) reuse one saver
+ * rather than growing a second copy. Returns the written name, or '' if the
+ * user cancelled the picker.
+ */
+export async function saveTextFile(
+  text: string,
+  suggestedName: string,
+  opts: { mime: string; description: string; extensions: string[] },
+): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
   type Picker = (opts: {
     suggestedName: string;
     types: { description: string; accept: Record<string, string[]> }[];
@@ -306,10 +325,10 @@ export async function saveHtmlFile(html: string, suggestedName: string): Promise
     try {
       const handle = await picker({
         suggestedName,
-        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
+        types: [{ description: opts.description, accept: { [opts.mime]: opts.extensions } }],
       });
       const w = await handle.createWritable();
-      await w.write(new Blob([new Uint8Array(bytes)], { type: 'text/html' }));
+      await w.write(new Blob([new Uint8Array(bytes)], { type: opts.mime }));
       await w.close();
       return handle.name;
     } catch (err) {
@@ -318,7 +337,7 @@ export async function saveHtmlFile(html: string, suggestedName: string): Promise
     }
   }
   // Fallback: anchor download.
-  const blob = new Blob([new Uint8Array(bytes)], { type: 'text/html' });
+  const blob = new Blob([new Uint8Array(bytes)], { type: opts.mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

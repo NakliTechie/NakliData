@@ -78,6 +78,12 @@ export interface SchemaPanelHandlers {
   /** Open the "Compare tables" modal. Theme 4 wave 2 (B2). */
   onCompareTables: () => void;
   /**
+   * Export the workbook's data dictionary as Markdown (Chunk 4 follow-up).
+   * Renders the same `describe()` the agent surface serves, so the human
+   * handoff doc and the agent grounding are one artifact.
+   */
+  onExportDataDictionary: () => void;
+  /**
    * W7.1 — run the sidecar `assign-type` job across every column the
    * detectors left unknown. Wired only when the sidecar is enabled; the
    * toolbar button is also CSS-gated behind `.app-sidecar-enabled`.
@@ -170,6 +176,14 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
            ${iconSvg('info', 12)} Classify ${unknownCount} unknown${unknownCount === 1 ? '' : 's'} with AI
          </button>`
       : '';
+  // Data-dictionary export — only with something mounted to describe. Renders
+  // the same describe() the agent surface serves (one artifact, two jobs).
+  const exportDictHtml =
+    totalTables >= 1
+      ? `<button class="btn btn-ghost" data-action="export-data-dictionary" style="width: 100%; margin-top: 4px; justify-content: center;" title="Download a Markdown data dictionary: every column with its semantic type, sensitivity tier, null %, cardinality and range">
+           ${iconSvg('download', 12)} Export data dictionary…
+         </button>`
+      : '';
   el.innerHTML = `
     <label style="font-size: 12px; color: var(--text-muted); display: block;">
       Auto-accept threshold
@@ -184,6 +198,7 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
     ${reclassifyHtml}
     ${manageRulesHtml}
     ${compareTablesHtml}
+    ${exportDictHtml}
     ${classifyAllHtml}
   `;
   el.querySelector<HTMLInputElement>('[data-action="threshold-slider"]')?.addEventListener(
@@ -209,6 +224,9 @@ function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): 
   });
   el.querySelector('[data-action="compare-tables"]')?.addEventListener('click', () => {
     handlers.onCompareTables();
+  });
+  el.querySelector('[data-action="export-data-dictionary"]')?.addEventListener('click', () => {
+    handlers.onExportDataDictionary();
   });
   el.querySelector('[data-action="classify-all-unknowns"]')?.addEventListener('click', () => {
     handlers.onClassifyAllUnknowns?.();
