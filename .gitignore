@@ -73,3 +73,5 @@ src/vendor/readstat/out/
 
 # autopilot worktrees (local, never pushed)
 .worktrees/
+.realdata/
+public/realdata
