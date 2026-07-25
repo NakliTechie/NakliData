@@ -1403,19 +1403,18 @@ async function main() {
     const [lo, hi] = seam.range;
     seam.brushTimeWindow(lo, hi);
   });
-  // `applyCrossfilter` re-runs the WHOLE notebook (topological Run-all), and by
-  // this point the smoke has accumulated ~30 cells including heavy ones
-  // (embedding generation, graph-metrics via a worker, correlation-graph). A
-  // single Run-all sweep can take ~20-30s to reach this last-added cell — so
-  // this brush→propagate wait needs headroom well past the default 15s. (The
-  // per-cell crossfilter query itself is ~2.5s; the cost is the full sweep.)
+  // `applyCrossfilter` re-runs only the crossfilter's affected subgraph
+  // (`crossfilterRunOrder`), not the whole notebook. This wait is deliberately
+  // back at the original 15s budget: it needed 45s while a brush triggered a
+  // full ~30-cell Run-all, so passing at 15s is the end-to-end proof that the
+  // scoping works (the cell's own query is ~2.5s).
   await page.waitForFunction(
     (id) => {
       const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
       return !!td && Number(td.textContent) > 0;
     },
     xfCellId,
-    { timeout: 45000 },
+    { timeout: 15000 },
   );
   const xfCountFull = await page.evaluate((id) => {
     const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
@@ -1436,7 +1435,7 @@ async function main() {
       return !!td && Number(td.textContent) < full;
     },
     [xfCellId, xfCountFull],
-    { timeout: 45000 },
+    { timeout: 15000 },
   );
   const xfCountNarrow = await page.evaluate((id) => {
     const td = document.querySelector(`.cell[data-cell-id="${id}"] table td`);
@@ -1592,6 +1591,54 @@ async function main() {
   log(
     `✓ Accessibility: all ${a11y.total} interactive controls named · main landmark · WebGL canvas described ("${a11y.netCanvasDesc}")`,
   );
+
+  // 10l. Data-dictionary export (Chunk 4 follow-up). Clicking the schema-panel
+  // button must produce the Markdown doc through the SAME describe() the agent
+  // surface serves. The save path is a native picker, so stub the global to
+  // capture the bytes instead of opening a dialog.
+  const dictExport = await page.evaluate(async () => {
+    const btn = document.querySelector('[data-action="export-data-dictionary"]');
+    if (!btn) return { error: 'export-data-dictionary button not rendered' };
+    let captured = null;
+    window.showSaveFilePicker = async ({ suggestedName }) => ({
+      name: suggestedName,
+      createWritable: async () => ({
+        write: async (blob) => {
+          captured = await blob.text();
+        },
+        close: async () => {},
+      }),
+    });
+    btn.click();
+    // Wait for the lazy chunk + describe() round-trip to finish writing.
+    for (let i = 0; i < 60 && captured === null; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return { markdown: captured };
+  });
+  if (dictExport.error) fail(`data dictionary: ${dictExport.error}`);
+  if (!dictExport.markdown) fail('data dictionary: export produced no file content');
+  {
+    const md = dictExport.markdown;
+    if (!md.startsWith('# Data dictionary')) {
+      fail(`data dictionary: unexpected header (${md.slice(0, 40)})`);
+    }
+    if (!/Envelope v1/.test(md)) fail('data dictionary: missing envelope version');
+    // The table header proves the enriched columns made it into the doc.
+    if (
+      !/\| Column \| Type \| Semantic type \| Sensitivity \| Null % \| Distinct \| Range \|/.test(
+        md,
+      )
+    ) {
+      fail('data dictionary: column table header missing/changed');
+    }
+    // At least one real mounted table + a semantic type resolved.
+    const tableCount = (md.match(/^## /gm) || []).length;
+    if (tableCount < 1) fail('data dictionary: no table sections rendered');
+    log(
+      `✓ Data dictionary export: ${md.length} chars · ${tableCount} table section(s) · envelope + enriched columns present`,
+    );
+  }
 
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes

@@ -20,6 +20,7 @@
 //     describe() returns schema+semantics with no values (query is the redacted
 //     value path).
 
+import { describeToMarkdown } from '../core/agent/data-dictionary.ts';
 import {
   type AgentHost,
   type AgentTool,
@@ -351,6 +352,19 @@ export function catalogue(deps: AgentSurfaceDeps): ToolCatalogue {
  *  adapter and `window.naklidata` share one catalogue + one host. */
 export function buildTools(deps: AgentSurfaceDeps): AgentTool[] {
   return tools(deps);
+}
+
+/**
+ * Render the workbook's data dictionary as Markdown — the human-facing half of
+ * the "one artifact, two jobs" pair. Deliberately runs the SAME `describe()` an
+ * agent calls (one core, not two codepaths): identical semantics, identical
+ * tier-redaction, so the doc a human downloads can never disagree with the
+ * grounding an agent reads. Lives in this chunk so the serializer stays off the
+ * inlined shell.
+ */
+export async function exportDataDictionary(deps: AgentSurfaceDeps): Promise<string> {
+  const result = await createAgentHost(deps).describe();
+  return describeToMarkdown(result);
 }
 
 // ── WebMCP adapter (Chunk 7 — flag-gated SPIKE, DECISIONS EE-0d) ──────────────

@@ -213,6 +213,95 @@ export function topoOrderRunnableCells(cells: CellState[]): string[] {
  * from). From each seed we take the transitive `@name`-upstream closure, then
  * return those ids filtered into the notebook's topo order.
  */
+/**
+ * The cells a crossfilter brush actually needs to re-run.
+ *
+ * `Notebook.applyCrossfilter` used to fire a full `runAll()` on every brush,
+ * re-running every SQL/cohort/assertion cell in the notebook — including
+ * embedding, graph and report cells that can't be affected by the selection.
+ * That's O(all cells) per brush; on a big notebook a single drag cost tens of
+ * seconds. This narrows it to the affected subgraph:
+ *
+ *   1. **Seeds** — runnable cells whose code references `CROSSFILTER(<name>)`.
+ *   2. **Downstream** — everything transitively reachable from a seed through
+ *      `@name` references (their inputs changed, so they must re-run).
+ *   3. **Un-run ancestors** — any upstream cell a closure member `@`-references
+ *      that has never produced a result. Full `runAll` used to materialise every
+ *      `cell_<id>` view as a side effect; without this, a dependent could now
+ *      reference a view that was never created. Ancestors that HAVE run are
+ *      deliberately excluded — their results can't have changed.
+ *
+ * Returned in `topoOrderRunnableCells` order (dependencies before dependents),
+ * so the caller can run the list front-to-back. Empty when nothing references
+ * the crossfilter — brushing an unreferenced Facet cell stays free.
+ */
+export function crossfilterRunOrder(cells: CellState[], crossfilterName: string): string[] {
+  const name = crossfilterName.trim();
+  if (!name) return [];
+  const isRunnable = (c: CellState): c is SqlCellState | CohortCellState | AssertionCellState =>
+    c.kind === 'sql' || c.kind === 'cohort' || c.kind === 'assertion';
+  const runnable = cells.filter(isRunnable);
+  // Same token match `applyCrossfilter` used, so the "is it referenced at all?"
+  // question keeps one definition of the answer.
+  const token = `CROSSFILTER(${name})`;
+  const seeds = runnable.filter((c) => c.code.includes(token));
+  if (seeds.length === 0) return [];
+
+  const nameToId = viewCellNames(cells);
+  const byId = new Map<string, SqlCellState | CohortCellState | AssertionCellState>();
+  for (const c of runnable) byId.set(c.id, c);
+
+  /** Runnable cell ids this cell `@`-references. */
+  const depsOf = (c: SqlCellState | CohortCellState | AssertionCellState): string[] =>
+    extractRefs(c.code)
+      .map((n) => nameToId.get(n))
+      .filter((id): id is string => !!id && id !== c.id && byId.has(id));
+
+  // Reverse edges: dependency id → ids that depend on it.
+  const dependents = new Map<string, string[]>();
+  for (const c of runnable) {
+    for (const dep of depsOf(c)) {
+      const list = dependents.get(dep);
+      if (list) list.push(c.id);
+      else dependents.set(dep, [c.id]);
+    }
+  }
+
+  // 1 + 2: seeds and everything downstream.
+  const closure = new Set<string>();
+  const queue = seeds.map((c) => c.id);
+  while (queue.length > 0) {
+    const id = queue.pop() as string;
+    if (closure.has(id)) continue;
+    closure.add(id);
+    for (const next of dependents.get(id) ?? []) {
+      if (!closure.has(next)) queue.push(next);
+    }
+  }
+
+  // 3: pull in ancestors that have never run (their view doesn't exist yet).
+  const hasRun = (c: SqlCellState | CohortCellState | AssertionCellState): boolean =>
+    c.lastResult != null;
+  const ancestorQueue = [...closure];
+  const ancestorSeen = new Set<string>(closure);
+  while (ancestorQueue.length > 0) {
+    const id = ancestorQueue.pop() as string;
+    const cell = byId.get(id);
+    if (!cell) continue;
+    for (const dep of depsOf(cell)) {
+      if (ancestorSeen.has(dep)) continue;
+      ancestorSeen.add(dep);
+      const depCell = byId.get(dep);
+      if (depCell && !hasRun(depCell)) {
+        closure.add(dep);
+        ancestorQueue.push(dep);
+      }
+    }
+  }
+
+  return topoOrderRunnableCells(cells).filter((id) => closure.has(id));
+}
+
 export function reportRefreshOrder(report: ReportCellState, cells: CellState[]): string[] {
   const nameToId = viewCellNames(cells);
   const byId = new Map<string, CellState>();
