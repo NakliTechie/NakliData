@@ -252,8 +252,14 @@ async function serve() {
     );
   };
   createServer(async (req, res) => {
-    const url = req.url === '/' ? '/index.html' : req.url;
-    const path = url ?? '/index.html';
+    // Strip the query string / fragment BEFORE resolving a file path. Without
+    // this, `req.url` arrives as `/index.html?present=1` and we look for a file
+    // literally named `index.html?present=1` → 404. That silently made every
+    // one of the app's query params (`lens`, `present`, `cdn`, `offline`,
+    // `verify`, `webmcp`) untestable in dev mode; found 2026-07-25 while driving
+    // the app with `?webmcp=1`.
+    const rawUrl = (req.url ?? '/').split('#')[0]?.split('?')[0] || '/';
+    const path = rawUrl === '/' ? '/index.html' : rawUrl;
     // First-pass syntactic filter: any decoded `..` segment is
     // an intent-to-escape signal — reject before resolving.
     let decoded;
