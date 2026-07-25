@@ -2,6 +2,85 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-25 — Agent-contract RATIFIED by Chirag · follow-ups · real-data harness (EH)
+
+### Decision EH-1 — the four agent-contract calls (EE 0a–0d): CONFIRMED
+
+- **Context.** EE ratified them to their documented leans during an unattended
+  autopilot run; the morning report flagged that they were "ratified to their
+  leans, not to your explicit yes."
+- **Decision (Chirag's, 2026-07-25).** **Confirmed all four as shipped** — no
+  reopening. 0a allow validator-gated read-only `SELECT`s / propose all writes ·
+  0b read verbs on-by-default, writes gated · 0c schema+semantics always, values
+  redacted by sensitivity tier · 0d registry now, WebMCP a no-shipping spike.
+  EE's veto window is closed; these are the contract.
+
+### Decision EH-2 — MCP bridge (Chunk 8): stay deferred past the RC
+
+- **Decision (Chirag's).** Keep deferred; revisit *after* the 2026-07-28 RC lands
+  rather than building to the 2025-06-18 spec that it supersedes. CSP blocks
+  plain `http://localhost` regardless, so the naive design is dead either way —
+  nothing is lost by waiting, and we get to scope against the new stateless /
+  MRTR architecture.
+
+### Decision EH-3 — WebMCP live verification: NOT AVAILABLE (spike vindicated)
+
+- **Measured 2026-07-25** in real Chrome against the app: **Chrome 150**, and
+  `document.modelContext` / `navigator.modelContext` / `window.agent` are all
+  **undefined**. The Chrome-149 origin trial is not active for this origin, so
+  the adapter genuinely cannot be exercised live.
+- **Consequence.** Chunk 7's posture was right: flag-gated (`?webmcp=1`), nothing
+  load-bearing, unit-tested against a mock root. The owed "live verification" is
+  **closed as un-runnable** rather than left open — re-check when a browser
+  actually ships the API. The bridge already degrades to a console note.
+
+### Decision EH-4 — data-dictionary export runs the SAME describe() as the agent
+
+- The schema-panel "Export data dictionary" button calls
+  `exportDataDictionary()` in the agent-surface chunk, which calls the same
+  `describe()` the agent verb serves. **Deliberate:** one core, not two
+  codepaths — the human doc cannot disagree with the agent's grounding, and the
+  serializer stays off the inlined shell. Also generalised `saveHtmlFile` into
+  `saveTextFile` rather than adding a second saver.
+
+### Decision EH-5 — crossfilter re-run is scoped, and un-run ancestors are pulled in
+
+- `applyCrossfilter` now runs `crossfilterRunOrder()` (seeds + downstream +
+  un-run ancestors) instead of a whole-notebook `runAll()`. The **un-run-ancestor
+  rule is the load-bearing subtlety**: the old full `runAll` materialised every
+  `cell_<id>` view as a side effect, so scoping without it would let a dependent
+  reference a view that was never created. Ancestors that *have* run are excluded
+  — their results cannot have changed.
+- **Proof, not assertion:** the smoke's crossfilter waits went back to their
+  original 15s budget (they had been raised to 45s for the full sweep) and the
+  leg still asserts the same 120 → 24 propagation.
+
+### Decision EH-6 — real-data testing uses public datasets, not Kaggle
+
+- **Context.** Chirag asked for large diverse Kaggle datasets driven through the
+  app. Kaggle needs an authenticated session (no CLI/token present; its API 404s
+  unauthenticated). The browser download *does* fire with his logged-in session,
+  but **macOS TCC denies this shell access to `~/Downloads` / `~/Desktop` /
+  `~/Documents`**, so downloaded files are unreadable here.
+- **Decision.** Ship `scripts/realdata-fetch.mjs` + `scripts/realdata-drive.mjs`
+  against **equivalent public, credential-free datasets** (~96 MB: 500k-row
+  clinical CSV, census demographics, 2.96M-row NYC taxi parquet, HR parquet) —
+  chosen for the same property, that they stress clinical/PII, sensitive
+  demographics, and geo+temporal+money at scale. Chirag will copy Kaggle files
+  into `.realdata/` (a shell-readable, gitignored path) when he wants them in
+  the mix; the harness takes new files by adding one entry to `DATASETS`.
+- **Same-origin is the mechanism.** The app's CSP (`connect-src 'self' https:`)
+  means a local file is only mountable by URL if it is served same-origin, so the
+  harness serves `.realdata/` from its own dist server rather than a second port.
+
+### Decision EH-7 — dev server stripped of query strings (real bug, fixed)
+
+- `esbuild.config.mjs` passed `req.url` straight to the filesystem, so
+  `/index.html?present=1` looked for a file of that literal name and 404'd —
+  silently making **every** documented query param (`lens`, `present`, `cdn`,
+  `offline`, `verify`, `webmcp`) untestable in dev. The smoke server already
+  stripped the query; dev was the odd one out. Found by driving `?webmcp=1`.
+
 ## 2026-07-24 — Agent surfaces Chunks 4–7 (EG)
 
 ### Decision EG — describe enrichment · workbook contract · a11y · WebMCP spike
