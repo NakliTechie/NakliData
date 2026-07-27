@@ -48,6 +48,12 @@ export interface LazyChunkRegistry {
    * them — a chunk copy would diverge from the shell's live instances).
    */
   'agent-surface': typeof import('../lazy/agent-surface.ts');
+  /**
+   * Cleaning surface — the fix registry's detectors + SQL emitters. Loaded at
+   * classification time (already async), so the shell only carries the tiny
+   * `core/cleaning/fix-cache.ts` the schema panel reads synchronously.
+   */
+  cleaning: typeof import('../lazy/cleaning.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**

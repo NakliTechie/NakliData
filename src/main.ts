@@ -1,7 +1,6 @@
 import { getAssociationsStore } from './core/associations.ts';
 import { pickChartColumns } from './core/chart-columns.ts';
 import { getFixesFor, setFixesFor } from './core/cleaning/fix-cache.ts';
-import { suggestFixes } from './core/cleaning/fix-registry.ts';
 import type { ValueCount } from './core/clustering.ts';
 import { buildCorrelationGraphPlan } from './core/correlation-graph.ts';
 import { setDemoMode } from './core/demo-mode.ts';
@@ -83,6 +82,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { roleFamilyForType } from './taxonomy/universal.ts';
 import { bindAgentSurface, exportDataDictionaryMarkdown } from './ui/agent-bridge.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
@@ -3063,6 +3063,7 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
     for (const table of src.tables) {
       try {
         const results = await classifyTableColumns(engine, client, table.name);
+        const bundle = client.getBundle();
         for (const r of results) {
           const key = assignmentKey(src.id, table.id, r.column.columnName);
           // Theme 4 wave 2: an override rule for this column-name (if any)
@@ -3076,13 +3077,18 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
           // Cleaning surface (C0): classification already sampled this column,
           // so suggestions cost ZERO extra queries — compute them from the same
           // sample rather than issuing one query per column at render time.
+          const cleaning = await loadChunk('cleaning');
           setFixesFor(
             key,
-            suggestFixes({
+            cleaning.suggestFixes({
               table: table.name,
               column: r.column.columnName,
               sqlType: r.column.sqlType,
               typeId: assigned.assigned.typeId,
+              roleFamily:
+                bundle && assigned.assigned.typeId
+                  ? roleFamilyForType(bundle, assigned.assigned.typeId)
+                  : null,
               sensitivity: 'public',
               rowCount: table.rowCount ?? null,
               sampledRows: r.column.totalSampled ?? null,

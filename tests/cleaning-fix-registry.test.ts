@@ -11,6 +11,7 @@ const facts = (over: Partial<ColumnFacts> = {}): ColumnFacts => ({
   column: 'city',
   sqlType: 'VARCHAR',
   typeId: null,
+  roleFamily: null,
   sensitivity: 'public',
   rowCount: 100,
   sampledRows: 100,

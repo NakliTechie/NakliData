@@ -33,6 +33,10 @@ export interface ColumnFacts {
   sqlType: string;
   /** Taxonomy type id, or null when unclassified. */
   typeId: string | null;
+  /** The Tier-3 analytical family for `typeId`. `'entity'` is the taxonomy's
+   *  own notion of "this column identifies something" — which is exactly the
+   *  guard a dedupe suggestion needs, and far better than regexing the name. */
+  roleFamily: 'entity' | 'dimension' | 'measure' | 'metric' | null;
   /** Sensitivity tier — a fix may want to behave differently on pii/secret. */
   sensitivity: 'public' | 'pii' | 'financial' | 'secret';
   /** Total rows in the table, when known. Display/context only — never mix it
@@ -304,6 +308,15 @@ function embeddedNumber(value: string): string | null {
   const nums = toks.filter((t) => /^\d+(?:\.\d+)?$/.test(t));
   return nums.length === 1 ? (nums[0] ?? null) : null;
 }
+
+// C3 (row dedupe) is PARKED — see plan/pending.md and DECISIONS EK.
+//
+// A per-column registry cannot tell a PRIMARY key from a FOREIGN key, and a
+// foreign key repeating is not a defect, it is the entire point of one. The
+// first attempt suggested "keep one row per key" for `vendor_gstin` on an
+// INVOICES table (160 sampled values, 24 distinct) — advice that would delete
+// 85% of the invoices. Dedupe needs table-level context (which column is the
+// grain) and belongs with the other table-level fixes.
 
 const C2_FIXES: FixDefinition[] = [
   {
