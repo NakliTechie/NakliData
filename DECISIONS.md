@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-25 — Taxonomy header matching fixed on real-world column shapes (EI)
+
+### Decision EI — fix the tokenizer, not the pattern lists
+
+- **Context.** The real-data drive classified 21/67 real columns and, critically,
+  left `doctor_name` and `patientid` unclassified → tier `public` → **not
+  redacted** by the agent surface. The tempting fix was to bolt more patterns
+  onto individual types.
+- **Decision.** Fix the **matcher**, because the misses were structural:
+  1. `tokenize()` lowercased *before* splitting, so camelCase collapsed to one
+     opaque token (`MonthlyIncome` → `monthlyincome`). Real headers are camelCase
+     constantly; this alone caused most misses. Now splits case boundaries first.
+  2. A separator-less header could never match a snake_case pattern
+     (`patientid` vs `patient_id`). Added squashed (alphanumeric-only) equality
+     at 0.95 — just under an exact match.
+  3. The `header.includes(pattern)` fallback matched *inside unrelated words* and
+     produced real misclassifications (`manager` contains "age"; `ratecodeid`
+     contains "rate"). Replaced with a contiguous **token-run** match, so a hit
+     must align with token boundaries.
+- **Why this ordering matters.** One tokenizer change fixed four independent
+  symptoms across three datasets. Pattern-stuffing would have fixed the four
+  named columns and left the class of bug intact.
+- **Taxonomy data changes, deliberately narrow.** New `person_name` type
+  (sensitive-data) crosswalked to the **existing** `ut:person_name` term, which
+  already carried `pii` — the concept was there, nothing mapped to it. Patterns
+  are explicit person contexts only: a bare `"name"` would hijack `vendor_name`
+  / `country_name` / `file_name` / `campaign_name`, and there are tests asserting
+  it does not. `tenure_years` gained explicit HR headers so it outranks `amount`
+  — **`amount` was left alone on purpose**, since an invoice "total" really is an
+  amount; the fix belongs on the more specific type.
+- **Verified by re-measurement, not assertion.** Same datasets: 21/67 → 24/67;
+  tiers `{pii:2, financial:7}` → `{pii:3, secret:1, financial:6}`; `doctor_name`
+  → `person_name [pii]` with redaction confirmed live (`[redacted:pii]`);
+  `patientid` → `patient_id [secret]`. Full suite **1339 green** — the important
+  number, since the tokenizer touches every classification in the app.
+- **Still open** (logged, not done): ~43/67 columns remain unclassified
+  (`Insurance`, `Admission_Deposit`, `race`, `marital.status`, the taxi
+  `PULocationID`/`DOLocationID` geo pair, `payment_type`), and two dubious hits
+  (`Ward_Facility_Code` → `district_neighbourhood`, `Severity of Illness` →
+  `support_priority`).
+
 ## 2026-07-25 — Agent-contract RATIFIED by Chirag · follow-ups · real-data harness (EH)
 
 ### Decision EH-1 — the four agent-contract calls (EE 0a–0d): CONFIRMED
