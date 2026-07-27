@@ -191,3 +191,4 @@
 {"role":"nps_score","universalTerm":"ut:score"}
 {"role":"resolution_minutes","universalTerm":"ut:count"}
 {"role":"topic_label","universalTerm":"ut:category"}
+{"role":"person_name","universalTerm":"ut:person_name"}

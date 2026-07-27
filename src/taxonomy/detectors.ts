@@ -28,15 +28,58 @@ export function runDetector(spec: DetectorSpec, sample: ColumnSample): DetectorR
 }
 
 const HEADER_TOKEN_RE = /[a-z0-9]+/g;
+/**
+ * Split a column header into comparable tokens.
+ *
+ * Splits on camelCase/PascalCase boundaries BEFORE lowercasing — the real-data
+ * drive (2026-07-25) found this was the single biggest classification gap:
+ * `MonthlyIncome` used to lowercase to one opaque token `monthlyincome`, so it
+ * could never match a snake_case pattern. Real CSV/parquet headers are camelCase
+ * constantly (`TotalWorkingYears`, `PatientID`, `RatecodeID`).
+ *
+ * `ABCDef` → `abc def` (acronym followed by a word), `fooBar` → `foo bar`,
+ * `Rate2Code` → `rate 2 code`.
+ */
 function tokenize(name: string): string[] {
-  return name.toLowerCase().match(HEADER_TOKEN_RE) ?? [];
+  return (
+    name
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .toLowerCase()
+      .match(HEADER_TOKEN_RE) ?? []
+  );
+}
+
+/** Alphanumerics only — lets `patientid` compare equal to `patient_id`. */
+function squash(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** True when some CONTIGUOUS run of header tokens spells the pattern exactly.
+ *  This replaced a raw `header.includes(pattern)` fallback, which matched inside
+ *  unrelated words and produced real misclassifications: `manager` contains
+ *  "age" (→ age_years), `ratecodeid` contains "rate" (→ percentage). Requiring
+ *  the match to align with token boundaries keeps the useful cases and drops
+ *  those. */
+function hasTokenRun(headerTokens: string[], squashedPattern: string): boolean {
+  for (let i = 0; i < headerTokens.length; i++) {
+    let run = '';
+    for (let j = i; j < headerTokens.length; j++) {
+      run += headerTokens[j];
+      if (run === squashedPattern) return true;
+      if (run.length >= squashedPattern.length) break;
+    }
+  }
+  return false;
 }
 
 function headerMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
   const patterns = spec.patterns ?? [];
   if (patterns.length === 0) return inapplicable();
   const header = sample.columnName.toLowerCase();
-  const headerTokens = new Set(tokenize(sample.columnName));
+  const headerTokenList = tokenize(sample.columnName);
+  const headerTokens = new Set(headerTokenList);
+  const squashedHeader = squash(sample.columnName);
   // Scan all patterns and return the best (highest-score) match so a
   // generic short pattern doesn't shadow a more specific one (e.g. "vendor"
   // shouldn't beat "vendor_name" when the column is literally "vendor_name").
@@ -46,17 +89,23 @@ function headerMatch(spec: DetectorSpec, sample: ColumnSample): DetectorResult {
     const pLower = p.toLowerCase();
     let score = 0;
     let evidence = '';
+    const squashedPattern = squash(p);
     if (header === pLower) {
       score = 1;
       evidence = `header == "${p}"`;
+    } else if (squashedHeader === squashedPattern) {
+      // `patientid` / `PatientID` vs the pattern `patient_id` — the same name,
+      // written without separators. Just below an exact match.
+      score = 0.95;
+      evidence = `header ≡ "${p}" (ignoring separators)`;
     } else {
       const pTokens = tokenize(p);
       if (pTokens.length > 0 && pTokens.every((t) => headerTokens.has(t))) {
         score = 0.85;
         evidence = `header contains "${p}"`;
-      } else if (header.includes(pLower)) {
+      } else if (squashedPattern.length >= 3 && hasTokenRun(headerTokenList, squashedPattern)) {
         score = 0.65;
-        evidence = `header substring "${p}"`;
+        evidence = `header token-run "${p}"`;
       }
     }
     if (score > bestScore) {
