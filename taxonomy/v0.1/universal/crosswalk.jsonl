@@ -192,3 +192,13 @@
 {"role":"resolution_minutes","universalTerm":"ut:count"}
 {"role":"topic_label","universalTerm":"ut:category"}
 {"role":"person_name","universalTerm":"ut:person_name"}
+{"role":"race_ethnicity","universalTerm":"ut:protected_attribute"}
+{"role":"marital_status","universalTerm":"ut:protected_attribute"}
+{"role":"medical_condition","universalTerm":"ut:diagnosis_code"}
+{"role":"facility_code","universalTerm":"ut:facility_identifier"}
+{"role":"illness_severity","universalTerm":"ut:priority"}
+{"role":"location_zone_id","universalTerm":"ut:location"}
+{"role":"payment_method","universalTerm":"ut:categorical"}
+{"role":"education_level","universalTerm":"ut:categorical"}
+{"role":"hours_worked","universalTerm":"ut:duration"}
+{"role":"distance","universalTerm":"ut:spatial_dimension"}

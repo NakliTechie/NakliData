@@ -103,6 +103,67 @@ describe('tenure columns are years, not money and not age', () => {
   });
 });
 
+describe('SAFETY — protected demographic attributes are pii', () => {
+  it('race classifies and is pii', () => {
+    expect(top('race', ['White', 'Black', 'Asian-Pac-Islander'])).toBe('race_ethnicity');
+    expect(sensitivityForType(BUNDLE, 'race_ethnicity')).toBe('pii');
+  });
+  it('marital.status (dotted header) classifies and is pii', () => {
+    expect(top('marital.status', ['Never-married', 'Divorced', 'Widowed'])).toBe('marital_status');
+    expect(sensitivityForType(BUNDLE, 'marital_status')).toBe('pii');
+  });
+  it('MaritalStatus (camelCase) hits the same type', () => {
+    expect(top('MaritalStatus', ['Single', 'Married', 'Divorced'])).toBe('marital_status');
+  });
+  it('a medical condition is secret-tier', () => {
+    expect(top('health_conditions', ['Diabetes', 'Asthma', 'Heart disease'])).toBe(
+      'medical_condition',
+    );
+    expect(sensitivityForType(BUNDLE, 'medical_condition')).toBe('secret');
+  });
+});
+
+describe('the two dubious real-data hits are corrected', () => {
+  it('Ward_Facility_Code is a facility code, not a district/neighbourhood', () => {
+    expect(top('Ward_Facility_Code', ['A', 'B', 'C'])).toBe('facility_code');
+  });
+  it('a real district column still classifies as district_neighbourhood', () => {
+    expect(top('neighbourhood', ['Kreuzberg', 'Mitte', 'Neukolln'])).toBe('district_neighbourhood');
+  });
+  it('Severity of Illness is clinical severity, not a support priority', () => {
+    expect(top('Severity of Illness', ['Minor', 'Moderate', 'Extreme'])).toBe('illness_severity');
+  });
+  it('a real support ticket priority still classifies as support_priority', () => {
+    expect(top('priority', ['P1', 'P2', 'P3'])).toBe('support_priority');
+  });
+});
+
+describe('everyday columns the real-data drive left unclassified', () => {
+  it('taxi zone ids are locations', () => {
+    expect(top('PULocationID', ['142', '236', '79'], 'BIGINT')).toBe('location_zone_id');
+    expect(top('DOLocationID', ['142', '236', '79'], 'BIGINT')).toBe('location_zone_id');
+  });
+  it('payment_type is a payment method', () => {
+    expect(top('payment_type', ['1', '2', '1'], 'BIGINT')).toBe('payment_method');
+  });
+  it('trip_distance and DistanceFromHome are distances', () => {
+    expect(top('trip_distance', ['1.2', '3.4', '0.9'], 'DOUBLE')).toBe('distance');
+    expect(top('DistanceFromHome', ['1', '8', '2'], 'INTEGER')).toBe('distance');
+  });
+  it('hours.per.week is hours worked', () => {
+    expect(top('hours.per.week', ['40', '45', '38'], 'INTEGER')).toBe('hours_worked');
+  });
+  it('education is an education level', () => {
+    expect(top('education', ['Bachelors', 'HS-grad', 'Masters'])).toBe('education_level');
+  });
+  it('deposits, surcharges and capital gains read as monetary amounts', () => {
+    for (const h of ['Admission_Deposit', 'capital.gain', 'congestion_surcharge', 'Airport_fee']) {
+      const t = top(h, ['10.5', '20.25', '0'], 'DOUBLE');
+      expect(sensitivityForType(BUNDLE, t ?? 'public')).toBe('financial');
+    }
+  });
+});
+
 describe('an *ID / *Code suffix outranks the numeric-percentage detector', () => {
   it('RatecodeID is not a percentage', () => {
     expect(top('RatecodeID', ['1', '2', '1'], 'BIGINT')).not.toBe('percentage');

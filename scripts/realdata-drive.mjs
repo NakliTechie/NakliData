@@ -291,6 +291,9 @@ async function main() {
       columnCount: cols,
       tiers,
       classified: typed,
+      unclassified: r.data.tables.flatMap((t) =>
+        t.columns.filter((c) => !c.typeId).map((c) => `${t.name}.${c.name}`),
+      ),
     };
   });
   if (described.error) fail(`describe() failed: ${described.error}`);
@@ -307,9 +310,11 @@ async function main() {
   log(`  columns total: ${described.columnCount}`);
   log(`  sensitivity tiers: ${JSON.stringify(described.tiers)}`);
   log(`  semantically classified: ${described.classified.length}/${described.columnCount}`);
-  for (const c of described.classified.slice(0, 40)) {
+  for (const c of described.classified.slice(0, 60)) {
     log(`    ${c.table}.${c.col} → ${c.type} [${c.tier}]`);
   }
+  log(`  UNCLASSIFIED (${described.unclassified.length}):`);
+  for (const u of described.unclassified) log(`    ${u}`);
 
   // Redaction check: query a table that has a non-public column and confirm the
   // agent surface actually masks it (0c) on REAL data, not a fixture.
