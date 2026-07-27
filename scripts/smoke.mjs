@@ -373,11 +373,17 @@ async function main() {
   // sprouts advice on every column would be invisible without this check.
   // Then force a dirty column through the real registry + real click path and
   // assert EJ-1: it emits an UN-RUN cell, and never a mutation.
-  const cleanPanel = await page.evaluate(
-    () => document.querySelectorAll('[data-region="schema-fixes"]').length,
+  const cleanPanel = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-action="apply-fix"]')].map((b) => ({
+      col: b.dataset.column,
+      fix: b.dataset.fixId,
+      why: (b.getAttribute('title') || '').slice(0, 120),
+    })),
   );
-  if (cleanPanel !== 0) {
-    fail(`cleaning: a clean fixture showed ${cleanPanel} fix affordance(s) — EJ-3 says none`);
+  if (cleanPanel.length !== 0) {
+    fail(
+      `cleaning: a clean fixture showed ${cleanPanel.length} fix affordance(s) — EJ-3 says none: ${JSON.stringify(cleanPanel)}`,
+    );
   }
   // Now the dirty path, driven for real: mount a CSV whose values carry
   // whitespace (written into dist/ by this script, so nothing ships to

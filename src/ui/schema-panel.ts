@@ -151,12 +151,25 @@ function renderSuggestedFixes(sourceId: string, tableId: string, column: string)
                  data-column="${escapeHtml(column)}" data-fix-id="${escapeHtml(f.id)}"
                  title="${escapeHtml(f.rationale)} Adds an un-run SQL cell you can review and edit.">
            ${iconSvg('pencil', 12)} ${escapeHtml(f.label)}
-         </button>`,
+         </button>${renderFixPreview(f)}`,
     )
     .join('');
   return `<div class="schema-fixes" data-region="schema-fixes">
       <span class="schema-fixes-label">Suggested fixes</span>${buttons}
     </div>`;
+}
+
+/** C2 reshaping fixes change a value's SHAPE, so show worked examples inline —
+ *  a user should not have to run the cell to find out what it does. */
+function renderFixPreview(f: { preview: Array<{ before: string; after: string }> }): string {
+  if (f.preview.length === 0) return '';
+  const rows = f.preview
+    .map(
+      (p) =>
+        `<div class="schema-fix-preview-row"><code>${escapeHtml(p.before)}</code> → <code>${escapeHtml(p.after)}</code></div>`,
+    )
+    .join('');
+  return `<div class="schema-fix-preview">${rows}</div>`;
 }
 
 function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): HTMLElement {
@@ -805,6 +818,16 @@ const SCHEMA_CSS = `
   align-items: center;
   gap: 4px;
   margin-top: 4px;
+}
+.schema-fix-preview {
+  flex-basis: 100%;
+  margin: 2px 0 0 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.schema-fix-preview-row code {
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
 .schema-fixes-label {
   font-size: 10px;

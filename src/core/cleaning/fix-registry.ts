@@ -59,6 +59,12 @@ export interface FixEvidence {
   rationale: string;
 }
 
+/** One worked example of what a fix does, computed from the sample. */
+export interface FixPreviewRow {
+  before: string;
+  after: string;
+}
+
 export interface SuggestedFix extends FixEvidence {
   /** Stable id (`trim`, `fill-nulls`, …) — used as the click target. */
   id: string;
@@ -66,6 +72,14 @@ export interface SuggestedFix extends FixEvidence {
   label: string;
   /** The SQL this fix would emit as a NEW, UN-RUN cell (EJ-1). */
   sql: string;
+  /**
+   * Up to 3 before/after examples. C2's reshaping fixes (split, extract) change
+   * a value's SHAPE, not just its whitespace — a user has to SEE the effect
+   * before accepting, and computing it here from the existing sample means no
+   * engine round-trip and no preview that can disagree with the emitted SQL.
+   * Empty for fixes whose effect is obvious from the label.
+   */
+  preview: FixPreviewRow[];
 }
 
 /** A fix definition. `detect` returns null when the fix doesn't apply. */
@@ -74,6 +88,8 @@ interface FixDefinition {
   label: string;
   detect(facts: ColumnFacts): FixEvidence | null;
   emit(facts: ColumnFacts, ev: FixEvidence): string;
+  /** Optional worked examples from the sample (C2 reshaping fixes). */
+  preview?(facts: ColumnFacts): FixPreviewRow[];
 }
 
 export interface SuggestOptions {
@@ -242,6 +258,132 @@ const FIXES: FixDefinition[] = [
 /** Placeholder strings that mean "missing". Uppercased for comparison. */
 const MISSING_TOKENS = new Set(['N/A', 'NA', 'NULL', 'NONE', 'NIL', '-', '--', '?', '']);
 
+// ── C2 — reshaping fixes. These change a value's SHAPE, so each one ships a
+//    before/after preview (computed from the same sample the detector used).
+
+/** Delimiters worth splitting on, most specific first so `", "` wins over `","`. */
+const SPLIT_DELIMS = [', ', ' | ', ' - ', ';', ',', '|', '\t'] as const;
+
+/** The delimiter that splits (nearly) every sampled value into the same number
+ *  of parts (≥2). Returns null when the column isn't consistently delimited —
+ *  a half-delimited column is not a split candidate, it's a mess. */
+function detectDelimiter(
+  values: readonly string[],
+): { delim: string; parts: number; affected: number } | null {
+  const nonEmpty = values.filter((v) => v.trim() !== '');
+  if (nonEmpty.length === 0) return null;
+  for (const delim of SPLIT_DELIMS) {
+    const counts = nonEmpty.map((v) => v.split(delim).length);
+    const parts = counts[0] ?? 1;
+    if (parts < 2) continue;
+    const agree = counts.filter((c) => c === parts).length;
+    // Demand near-total agreement: splitting on a delimiter that only some rows
+    // have silently produces NULL columns for the rest.
+    if (agree / nonEmpty.length >= 0.9) {
+      return { delim, parts, affected: agree };
+    }
+  }
+  return null;
+}
+
+/**
+ * The number in a value like "Stay 5 days", if there is exactly one and it
+ * stands alone.
+ *
+ * "Stands alone" is the load-bearing rule. An earlier version accepted digits
+ * glued to letters, which made this fire on every IDENTIFIER in the smoke
+ * fixture — `vendor_id` "V0001", `pan` "HBHZW6406C", `ifsc` "PUNB0ZMUBTG" —
+ * suggesting we extract "the number" from a PAN code. A measure spells its
+ * number as its own whitespace-delimited token; a code does not. Requiring a
+ * second, non-numeric token also excludes plain numbers ("42"), which have
+ * nothing to extract.
+ */
+function embeddedNumber(value: string): string | null {
+  const toks = value.trim().split(/\s+/).filter(Boolean);
+  if (toks.length < 2) return null;
+  const nums = toks.filter((t) => /^\d+(?:\.\d+)?$/.test(t));
+  return nums.length === 1 ? (nums[0] ?? null) : null;
+}
+
+const C2_FIXES: FixDefinition[] = [
+  {
+    id: 'split-column',
+    label: 'Split into columns',
+    detect(facts) {
+      if (!isTextual(facts.sqlType) || facts.sampleValues.length === 0) return null;
+      const d = detectDelimiter(facts.sampleValues);
+      if (!d) return null;
+      const fraction = d.affected / facts.sampleValues.length;
+      return {
+        affected: d.affected,
+        fraction,
+        rationale: `${d.affected} of ${facts.sampleValues.length} sampled values split into ${d.parts} parts on "${d.delim}" — one column is holding ${d.parts} fields.`,
+      };
+    },
+    emit(facts, ev) {
+      const d = detectDelimiter(facts.sampleValues);
+      const col = quoteIdent(facts.column);
+      const parts = d?.parts ?? 2;
+      const delim = (d?.delim ?? ',').replace(/'/g, "''");
+      const cols: string[] = [];
+      for (let i = 1; i <= parts; i++) {
+        cols.push(
+          `  SPLIT_PART(${col}, '${delim}', ${i}) AS ${quoteIdent(`${facts.column}_${i}`)}`,
+        );
+      }
+      // Adds columns rather than replacing — the original stays so the human can
+      // compare before deleting it.
+      return `-- Split "${facts.column}" on '${delim}' into ${parts} columns (${pct(ev.fraction)} of sampled values)\n-- The original column is kept; drop it once you're happy.\nSELECT *,\n${cols.join(',\n')}\nFROM ${quoteIdent(facts.table)}`;
+    },
+    preview(facts) {
+      const d = detectDelimiter(facts.sampleValues);
+      if (!d) return [];
+      return facts.sampleValues
+        .filter((v) => v.split(d.delim).length === d.parts)
+        .slice(0, 3)
+        .map((v) => ({ before: v, after: v.split(d.delim).join('  |  ') }));
+    },
+  },
+  {
+    id: 'extract-number',
+    label: 'Extract the number',
+    detect(facts) {
+      if (!isTextual(facts.sqlType) || facts.sampleValues.length === 0) return null;
+      let affected = 0;
+      let purelyNumeric = 0;
+      for (const v of facts.sampleValues) {
+        const t = v.trim();
+        if (t === '') continue;
+        if (/^\d+(\.\d+)?$/.test(t)) {
+          purelyNumeric++;
+          continue;
+        }
+        if (embeddedNumber(t) !== null) affected++;
+      }
+      // If the column is already all-numeric there is nothing to extract; the
+      // fix is for numbers TRAPPED in text.
+      if (affected === 0 || purelyNumeric > affected) return null;
+      const fraction = affected / facts.sampleValues.length;
+      return {
+        affected,
+        fraction,
+        rationale: `${affected} of ${facts.sampleValues.length} sampled values hold a number inside text (e.g. "${facts.sampleValues.find((v) => embeddedNumber(v) !== null) ?? ''}") — it can't be summed or compared while it's a string.`,
+      };
+    },
+    emit(facts, ev) {
+      const col = quoteIdent(facts.column);
+      const alias = quoteIdent(`${facts.column}_number`);
+      return `-- Extract the number from "${facts.column}" into a numeric column (${pct(ev.fraction)} of sampled values)\n-- The original column is kept; drop it once you're happy.\nSELECT *,\n  TRY_CAST(REGEXP_EXTRACT(${col}, '(?:^|\\s)(\\d+(?:\\.\\d+)?)(?:\\s|$)', 1) AS DOUBLE) AS ${alias}\nFROM ${quoteIdent(facts.table)}`;
+    },
+    preview(facts) {
+      return facts.sampleValues
+        .map((v) => ({ before: v.trim(), after: embeddedNumber(v) }))
+        .filter((x): x is { before: string; after: string } => x.after !== null)
+        .slice(0, 3);
+    },
+  },
+];
+
 /** Shared null detection for the fill/drop pair — both fire on the same
  *  condition and differ only in what the user wants done about it. */
 function nullEvidence(facts: ColumnFacts): FixEvidence | null {
@@ -265,7 +407,7 @@ function nullEvidence(facts: ColumnFacts): FixEvidence | null {
 export function suggestFixes(facts: ColumnFacts, opts: SuggestOptions = {}): SuggestedFix[] {
   const floor = opts.impactFloor ?? DEFAULT_IMPACT_FLOOR;
   const out: SuggestedFix[] = [];
-  for (const def of FIXES) {
+  for (const def of [...FIXES, ...C2_FIXES]) {
     let ev: FixEvidence | null;
     try {
       ev = def.detect(facts);
@@ -274,7 +416,13 @@ export function suggestFixes(facts: ColumnFacts, opts: SuggestOptions = {}): Sug
       continue;
     }
     if (!ev || ev.fraction < floor) continue;
-    out.push({ id: def.id, label: def.label, ...ev, sql: def.emit(facts, ev) });
+    let preview: FixPreviewRow[] = [];
+    try {
+      preview = def.preview?.(facts) ?? [];
+    } catch {
+      preview = [];
+    }
+    out.push({ id: def.id, label: def.label, ...ev, sql: def.emit(facts, ev), preview });
   }
   return out.sort((a, b) => b.fraction - a.fraction);
 }
@@ -282,5 +430,5 @@ export function suggestFixes(facts: ColumnFacts, opts: SuggestOptions = {}): Sug
 /** The ids this build knows about — lets a caller (or a test) assert coverage
  *  without reaching into the private FIXES array. */
 export function knownFixIds(): string[] {
-  return FIXES.map((f) => f.id);
+  return [...FIXES, ...C2_FIXES].map((f) => f.id);
 }

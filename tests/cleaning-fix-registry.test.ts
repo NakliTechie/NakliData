@@ -67,9 +67,11 @@ describe('trim fix', () => {
 
 describe('EJ-3 — the impact floor', () => {
   // 1 dirty value in 200 = 0.5%, below the 1% default.
-  const barelyDirty = facts({
-    sampleValues: [' one', ...Array.from({ length: 199 }, (_, i) => `v${i}`)],
-  });
+  // Filler must contain NO digits and no case variants, or another detector
+  // (extract-number, normalize-case) legitimately fires and this stops being a
+  // test about the floor.
+  const filler = Array.from({ length: 199 }, (_, i) => `city${'x'.repeat((i % 7) + 1)}`);
+  const barelyDirty = facts({ sampleValues: [' one', ...filler] });
 
   it('suppresses a fix below the default 1% floor', () => {
     expect(suggestFixes(barelyDirty)).toEqual([]);
@@ -161,6 +163,112 @@ describe('C1 — nulls (fill and drop are offered together)', () => {
   it('stays quiet when the sample size is unknown (no honest denominator)', () => {
     const ids = suggestFixes(facts({ sampledRows: null, nullCount: 30 })).map((f) => f.id);
     expect(ids).not.toContain('fill-nulls');
+  });
+});
+
+describe('C2 — split a delimited column', () => {
+  const names = facts({
+    column: 'full_name',
+    sampleValues: ['Alice Smith', 'Bob Jones', 'Carol Wu'],
+  });
+
+  it('does NOT split on a bare space (too risky to guess)', () => {
+    // Space is deliberately not a delimiter: addresses and free text would be
+    // shredded. Only explicit separators qualify.
+    expect(suggestFixes(names).map((f) => f.id)).not.toContain('split-column');
+  });
+
+  it('splits a consistently comma-delimited column', () => {
+    const f = suggestFixes(
+      facts({ column: 'name', sampleValues: ['Smith, Alice', 'Jones, Bob', 'Wu, Carol'] }),
+    ).find((x) => x.id === 'split-column');
+    expect(f).toBeDefined();
+    expect(f?.sql).toContain('SPLIT_PART');
+    expect(f?.sql).toContain('"name_1"');
+    expect(f?.sql).toContain('"name_2"');
+  });
+
+  it('keeps the original column (SELECT *, …) rather than replacing it', () => {
+    const sql =
+      suggestFixes(facts({ sampleValues: ['a, b', 'c, d', 'e, f'] })).find(
+        (x) => x.id === 'split-column',
+      )?.sql ?? '';
+    expect(sql).toContain('SELECT *,');
+    expect(sql).not.toContain('* REPLACE');
+  });
+
+  it('ships a before/after preview', () => {
+    const f = suggestFixes(facts({ sampleValues: ['a, b', 'c, d', 'e, f'] })).find(
+      (x) => x.id === 'split-column',
+    );
+    expect(f?.preview.length).toBeGreaterThan(0);
+    expect(f?.preview[0]?.before).toBe('a, b');
+    expect(f?.preview[0]?.after).toContain('|');
+  });
+
+  it('refuses a half-delimited column (would NULL the rest)', () => {
+    const ids = suggestFixes(facts({ sampleValues: ['a, b', 'c', 'd', 'e', 'f'] })).map(
+      (f) => f.id,
+    );
+    expect(ids).not.toContain('split-column');
+  });
+});
+
+describe('C2 — extract a number trapped in text', () => {
+  const trapped = facts({ sampleValues: ['Stay 5 days', 'Stay 12 days', 'Stay 3 days'] });
+
+  it('fires when values hold a number inside text', () => {
+    const f = suggestFixes(trapped).find((x) => x.id === 'extract-number');
+    expect(f).toBeDefined();
+    expect(f?.rationale).toMatch(/can't be summed|cannot be summed/i);
+  });
+
+  it('emits TRY_CAST + REGEXP_EXTRACT into a new column, keeping the original', () => {
+    const sql = suggestFixes(trapped).find((x) => x.id === 'extract-number')?.sql ?? '';
+    expect(sql).toContain('REGEXP_EXTRACT');
+    expect(sql).toContain('TRY_CAST');
+    expect(sql).toContain('"city_number"');
+    expect(sql).toContain('SELECT *,');
+  });
+
+  it('previews the extracted values', () => {
+    const p = suggestFixes(trapped).find((x) => x.id === 'extract-number')?.preview ?? [];
+    expect(p[0]).toEqual({ before: 'Stay 5 days', after: '5' });
+  });
+
+  it('does not fire when the column is already numeric text', () => {
+    const ids = suggestFixes(facts({ sampleValues: ['1', '2', '3'] })).map((f) => f.id);
+    expect(ids).not.toContain('extract-number');
+  });
+
+  it('does NOT fire on identifiers — the smoke caught this class for real', () => {
+    // These are the exact values from the smoke fixture that an earlier,
+    // looser detector matched: it offered to "extract the number" from a PAN
+    // and an IFSC code. A code glues its digits to letters; a measure spells
+    // the number as its own token.
+    for (const vals of [
+      ['V0001', 'V0002', 'V0003'], // vendor_id
+      ['HBHZW6406C', 'AAKCS9123M', 'BQXPT4409K'], // pan
+      ['PUNB0ZMUBTG', 'HDFC0001234', 'ICIC0000456'], // ifsc
+      ['INV-001', 'INV-002', 'INV-003'],
+      ['SKU12', 'SKU13', 'SKU14'],
+    ]) {
+      expect(suggestFixes(facts({ sampleValues: vals })).map((f) => f.id)).not.toContain(
+        'extract-number',
+      );
+    }
+  });
+
+  it('still fires on genuine measures written as text', () => {
+    for (const vals of [
+      ['Stay 5 days', 'Stay 12 days'],
+      ['12 kg', '7 kg'],
+      ['about 3 hours', 'about 9 hours'],
+    ]) {
+      expect(suggestFixes(facts({ sampleValues: vals })).map((f) => f.id)).toContain(
+        'extract-number',
+      );
+    }
   });
 });
 
