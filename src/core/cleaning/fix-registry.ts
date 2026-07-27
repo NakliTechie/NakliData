@@ -35,9 +35,12 @@ export interface ColumnFacts {
   typeId: string | null;
   /** Sensitivity tier — a fix may want to behave differently on pii/secret. */
   sensitivity: 'public' | 'pii' | 'financial' | 'secret';
-  /** Total rows in the table, when known. */
+  /** Total rows in the table, when known. Display/context only — never mix it
+   *  with the sample-scoped counts below to compute a fraction. */
   rowCount: number | null;
-  /** Nulls in the column, when known. */
+  /** Rows the sample covered. The denominator for `nullCount`. */
+  sampledRows: number | null;
+  /** Nulls WITHIN the sample (`sampledRows` is its denominator). */
   nullCount: number | null;
   /** Distinct non-null values, when known. */
   distinctCount: number | null;
@@ -132,7 +135,126 @@ const FIXES: FixDefinition[] = [
       );
     },
   },
+
+  // ── C1 ─────────────────────────────────────────────────────────────────────
+
+  {
+    // Placeholder strings that MEAN missing but aren't NULL, so every count,
+    // average and join silently treats them as real data. The most valuable
+    // member of the find-replace family, and the only one a registry can
+    // suggest without being told what to look for.
+    id: 'normalize-missing',
+    label: 'Convert "N/A" to NULL',
+    detect(facts) {
+      if (!isTextual(facts.sqlType) || facts.sampleValues.length === 0) return null;
+      let affected = 0;
+      for (const v of facts.sampleValues) {
+        if (MISSING_TOKENS.has(v.trim().toUpperCase())) affected++;
+      }
+      if (affected === 0) return null;
+      const fraction = affected / facts.sampleValues.length;
+      return {
+        affected,
+        fraction,
+        rationale: `${affected} of ${facts.sampleValues.length} sampled values (${pct(fraction)}) are placeholders like "N/A" or "-" that mean missing but are not NULL, so aggregates silently count them.`,
+      };
+    },
+    emit(facts, ev) {
+      const col = quoteIdent(facts.column);
+      const list = [...MISSING_TOKENS].map((t) => `'${t}'`).join(', ');
+      return emitReplace(
+        facts,
+        `CASE WHEN UPPER(TRIM(${col})) IN (${list}) THEN NULL ELSE ${col} END`,
+        `Convert missing-value placeholders in "${facts.column}" to real NULL (${pct(ev.fraction)} of sampled values)`,
+      );
+    },
+  },
+  {
+    // Same value, different casing — splits every GROUP BY and join.
+    id: 'normalize-case',
+    label: 'Normalise casing',
+    detect(facts) {
+      if (!isTextual(facts.sqlType) || facts.sampleValues.length === 0) return null;
+      const seen = new Set<string>();
+      const lowered = new Set<string>();
+      for (const v of facts.sampleValues) {
+        const t = v.trim();
+        if (!t) continue;
+        seen.add(t);
+        lowered.add(t.toLowerCase());
+      }
+      const collapsed = seen.size - lowered.size;
+      if (collapsed <= 0) return null;
+      const fraction = collapsed / Math.max(1, seen.size);
+      return {
+        affected: collapsed,
+        fraction,
+        rationale: `${seen.size} distinct sampled values collapse to ${lowered.size} when case is ignored — ${collapsed} are case variants of another value, which splits GROUP BY and joins.`,
+      };
+    },
+    emit(facts, ev) {
+      return emitReplace(
+        facts,
+        `LOWER(${quoteIdent(facts.column)})`,
+        `Normalise casing in "${facts.column}" (${ev.affected} case-variant value(s)) — switch LOWER to UPPER or INITCAP if you prefer`,
+      );
+    },
+  },
+  {
+    id: 'fill-nulls',
+    label: 'Fill nulls',
+    detect(facts) {
+      const ev = nullEvidence(facts);
+      if (!ev) return null;
+      return {
+        ...ev,
+        rationale: `${ev.rationale} Filling keeps the rows; edit the fill value in the emitted cell.`,
+      };
+    },
+    emit(facts, ev) {
+      const col = quoteIdent(facts.column);
+      const fill = isTextual(facts.sqlType) ? `''` : '0';
+      return emitReplace(
+        facts,
+        `COALESCE(${col}, ${fill})`,
+        `Fill nulls in "${facts.column}" (${pct(ev.fraction)} of sampled rows) — EDIT ${fill} to the value you actually want`,
+      );
+    },
+  },
+  {
+    id: 'drop-null-rows',
+    label: 'Drop rows with nulls',
+    detect(facts) {
+      const ev = nullEvidence(facts);
+      if (!ev) return null;
+      return {
+        ...ev,
+        rationale: `${ev.rationale} Dropping removes those rows entirely — check the count before you run it.`,
+      };
+    },
+    emit(facts, ev) {
+      const col = quoteIdent(facts.column);
+      return `-- Drop rows where "${facts.column}" is NULL (${pct(ev.fraction)} of sampled rows)\nSELECT *\nFROM ${quoteIdent(facts.table)}\nWHERE ${col} IS NOT NULL`;
+    },
+  },
 ];
+
+/** Placeholder strings that mean "missing". Uppercased for comparison. */
+const MISSING_TOKENS = new Set(['N/A', 'NA', 'NULL', 'NONE', 'NIL', '-', '--', '?', '']);
+
+/** Shared null detection for the fill/drop pair — both fire on the same
+ *  condition and differ only in what the user wants done about it. */
+function nullEvidence(facts: ColumnFacts): FixEvidence | null {
+  const denom = facts.sampledRows;
+  const nulls = facts.nullCount;
+  if (denom == null || nulls == null || denom <= 0 || nulls <= 0) return null;
+  const fraction = nulls / denom;
+  return {
+    affected: nulls,
+    fraction,
+    rationale: `${nulls} of ${denom} sampled rows (${pct(fraction)}) are NULL in "${facts.column}".`,
+  };
+}
 
 /**
  * Rank the fixes worth offering for one column, most impactful first.

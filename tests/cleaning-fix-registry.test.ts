@@ -13,6 +13,7 @@ const facts = (over: Partial<ColumnFacts> = {}): ColumnFacts => ({
   typeId: null,
   sensitivity: 'public',
   rowCount: 100,
+  sampledRows: 100,
   nullCount: 0,
   distinctCount: 10,
   sampleValues: [],
@@ -80,6 +81,97 @@ describe('EJ-3 — the impact floor', () => {
     const mid = facts({ sampleValues: [' a', 'b', 'c', 'd'] }); // 25%
     expect(suggestFixes(mid)).toHaveLength(1);
     expect(suggestFixes(mid, { impactFloor: 0.5 })).toEqual([]);
+  });
+});
+
+describe('C1 — placeholder missing values', () => {
+  const withNa = facts({ sampleValues: ['Mumbai', 'N/A', '-', 'Pune', 'none'] });
+
+  it('is suggested when placeholders stand in for NULL', () => {
+    const f = suggestFixes(withNa).find((x) => x.id === 'normalize-missing');
+    expect(f).toBeDefined();
+    expect(f?.affected).toBe(3); // N/A, -, none
+    expect(f?.rationale).toMatch(/not NULL/i);
+  });
+
+  it('emits a CASE that maps them to real NULL, and mutates nothing', () => {
+    const sql = suggestFixes(withNa).find((x) => x.id === 'normalize-missing')?.sql ?? '';
+    expect(sql).toContain('THEN NULL ELSE');
+    expect(sql).toContain('SELECT * REPLACE');
+    expect(sql).not.toMatch(/\b(UPDATE|DELETE|CREATE|ALTER|DROP|INSERT)\b/i);
+  });
+
+  it('does not fire on a column with no placeholders', () => {
+    const ids = suggestFixes(facts({ sampleValues: ['Mumbai', 'Delhi'] })).map((f) => f.id);
+    expect(ids).not.toContain('normalize-missing');
+  });
+});
+
+describe('C1 — case normalisation', () => {
+  it('fires when values differ only by case', () => {
+    const f = suggestFixes(facts({ sampleValues: ['Mumbai', 'MUMBAI', 'Delhi', 'Pune'] })).find(
+      (x) => x.id === 'normalize-case',
+    );
+    expect(f).toBeDefined();
+    expect(f?.affected).toBe(1);
+    expect(f?.sql).toContain('LOWER("city")');
+  });
+  it('does not fire when casing is already consistent', () => {
+    const ids = suggestFixes(facts({ sampleValues: ['Mumbai', 'Delhi', 'Pune'] })).map((f) => f.id);
+    expect(ids).not.toContain('normalize-case');
+  });
+});
+
+describe('C1 — nulls (fill and drop are offered together)', () => {
+  const nully = facts({ sampledRows: 100, nullCount: 30, sampleValues: ['Mumbai', 'Delhi'] });
+
+  it('offers both fill and drop for the same condition', () => {
+    const ids = suggestFixes(nully).map((f) => f.id);
+    expect(ids).toContain('fill-nulls');
+    expect(ids).toContain('drop-null-rows');
+  });
+  it('reports the fraction against SAMPLED rows, not the table row count', () => {
+    // rowCount is 100 here too, but the point is the denominator is sampledRows:
+    // mixing a sample-scoped numerator with a table-scoped denominator would lie.
+    const f = suggestFixes(facts({ rowCount: 1_000_000, sampledRows: 100, nullCount: 30 })).find(
+      (x) => x.id === 'fill-nulls',
+    );
+    expect(f?.fraction).toBeCloseTo(0.3);
+    expect(f?.rationale).toContain('30 of 100');
+  });
+  it('fill emits COALESCE; drop emits a WHERE IS NOT NULL', () => {
+    const fill = suggestFixes(nully).find((f) => f.id === 'fill-nulls')?.sql ?? '';
+    const drop = suggestFixes(nully).find((f) => f.id === 'drop-null-rows')?.sql ?? '';
+    expect(fill).toContain('COALESCE("city", \'\')');
+    expect(drop).toContain('WHERE "city" IS NOT NULL');
+    expect(drop).not.toMatch(/\bDELETE\b/i);
+  });
+  it('fills numeric columns with 0, not an empty string', () => {
+    const sql =
+      suggestFixes(
+        facts({ sqlType: 'BIGINT', sampledRows: 10, nullCount: 5, sampleValues: [] }),
+      ).find((f) => f.id === 'fill-nulls')?.sql ?? '';
+    expect(sql).toContain('COALESCE("city", 0)');
+  });
+  it('stays quiet when there are no nulls', () => {
+    const ids = suggestFixes(facts({ sampledRows: 100, nullCount: 0 })).map((f) => f.id);
+    expect(ids).not.toContain('fill-nulls');
+    expect(ids).not.toContain('drop-null-rows');
+  });
+  it('stays quiet when the sample size is unknown (no honest denominator)', () => {
+    const ids = suggestFixes(facts({ sampledRows: null, nullCount: 30 })).map((f) => f.id);
+    expect(ids).not.toContain('fill-nulls');
+  });
+});
+
+describe('ranking — the most impactful fix comes first', () => {
+  it('sorts by affected fraction descending', () => {
+    // 3/4 placeholders vs 1/4 needing trim.
+    const f = suggestFixes(facts({ sampleValues: [' a', 'N/A', '-', 'none'] }));
+    expect(f.length).toBeGreaterThan(1);
+    for (let i = 1; i < f.length; i++) {
+      expect(f[i - 1]!.fraction).toBeGreaterThanOrEqual(f[i]!.fraction);
+    }
   });
 });
 

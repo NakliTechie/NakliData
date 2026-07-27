@@ -3085,6 +3085,7 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
               typeId: assigned.assigned.typeId,
               sensitivity: 'public',
               rowCount: table.rowCount ?? null,
+              sampledRows: r.column.totalSampled ?? null,
               nullCount: r.column.nullCount ?? null,
               distinctCount: r.column.distinctCount ?? null,
               sampleValues: r.column.values,
