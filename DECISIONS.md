@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-25 — Cleaning-surface track: the four shape decisions (EJ)
+
+### Decision EJ — how the cleaning surface behaves (ratified before any code)
+
+- **Context.** Cleaning is coverage row 1 (universality 3, 25–45% of analyst
+  time) and the next big track. Scoping in `plan/cleaning-surface.md`. Four
+  shape questions had to be settled before C0, because each one changes what the
+  keystone chunk builds.
+- **EJ-1 — fix output: EMIT A CELL PER FIX.** Every accepted fix drops a
+  readable, editable cell rather than mutating a view. Keeps the same
+  propose-don't-execute posture as the agent surface: lineage stays honest, undo
+  is "delete the cell", the source is never silently changed. Cost accepted
+  knowingly — a messy 60-column file can produce 10+ cells; if that proves
+  painful the fallback is composing per-table, NOT abandoning the posture.
+- **EJ-2 — surface: THE SCHEMA-PANEL COLUMN ROW.** Suggestions sit on the column
+  they describe, next to its classification and sensitivity badge, reusing the
+  row that already carries `cluster-column` / `show-profile`. A workbook-wide
+  "Clean" roll-up panel is deliberately kept open as a later addition — the
+  real-data drive hit 67 columns across 4 tables, which is exactly the scale
+  where a roll-up starts to earn its keep — so **C0's registry must be built to
+  feed both surfaces**, not wired to the panel.
+- **EJ-3 — suggestion floor: ONLY ABOVE AN IMPACT FLOOR** (start ≥1% of rows, or
+  a clearly malformed column). A clean file shows nothing, and that silence is
+  itself information. This is what keeps the surface from becoming the ignorable
+  advice-sprout every cleaning UI degrades into. The inputs are free: Chunk 4
+  already computes `nullFraction` and `distinctCount` per column.
+- **EJ-4 — sidecar: NOT IN C0–C3.** Trim / nulls / find-replace / regex extract /
+  dedupe are deterministic and taxonomy-driven, so they stay local — free,
+  instant, offline, no BYOK key — consistent with the sovereignty posture. The
+  one genuine LLM case is text/verbatim coding (coverage row 12), which is its
+  own track, not part of this one.
+- **Consequence.** C0 is unblocked: a pure, engine-boundary-clean fix registry
+  (column classification + profile → ranked suggested fixes, each with a label, a
+  rationale and the SQL it would emit), plus the per-column affordance, plus one
+  trivial fix (trim) to prove the shape end-to-end.
+
 ## 2026-07-25 — Taxonomy header matching fixed on real-world column shapes (EI)
 
 ### Decision EI — fix the tokenizer, not the pattern lists
