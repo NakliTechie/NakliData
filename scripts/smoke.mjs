@@ -10,7 +10,7 @@
 // notebook seed, SQL run, chart cell, template instantiation, .naklidata
 // serialize round-trip.
 
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -103,6 +103,14 @@ function delay(ms) {
 }
 
 async function main() {
+  // Cleaning-surface fixture: a CSV with whitespace-dirty values. Written into
+  // dist/ at run time (NOT into public/) so it is served same-origin for the
+  // mount-by-URL path without shipping a fixture to production.
+  await writeFile(
+    join(ROOT, '__smoke_dirty.csv'),
+    'city,note\n  Mumbai,ok\nDelhi  ,ok\nPune,ok\n  Kochi ,ok\n',
+    'utf8',
+  );
   log('starting server');
   const { server, url } = await startServer();
 
@@ -359,6 +367,82 @@ async function main() {
     fail(`expected ≥15 typed columns, got ${classified.typed}`);
   }
   log('✓ ≥15 columns assigned a semantic type');
+
+  // 5b. Cleaning surface (C0). The fixture is clean, so EJ-3 says the panel
+  // must show NOTHING — that silence is the feature, and a regression that
+  // sprouts advice on every column would be invisible without this check.
+  // Then force a dirty column through the real registry + real click path and
+  // assert EJ-1: it emits an UN-RUN cell, and never a mutation.
+  const cleanPanel = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-action="apply-fix"]')].map((b) => ({
+      col: b.dataset.column,
+      fix: b.dataset.fixId,
+      why: (b.getAttribute('title') || '').slice(0, 120),
+    })),
+  );
+  if (cleanPanel.length !== 0) {
+    fail(
+      `cleaning: a clean fixture showed ${cleanPanel.length} fix affordance(s) — EJ-3 says none: ${JSON.stringify(cleanPanel)}`,
+    );
+  }
+  // Now the dirty path, driven for real: mount a CSV whose values carry
+  // whitespace (written into dist/ by this script, so nothing ships to
+  // production), let classification sample it, and assert the suggestion
+  // appears and that clicking it emits an UN-RUN cell.
+  const cellsBeforeFix = await page.evaluate(
+    () => document.querySelectorAll('.cell[data-cell-kind="sql"]').length,
+  );
+  // A source is already mounted by now, so the empty-state option cards are
+  // gone — the mount picker lives behind "+ Add source".
+  if ((await page.locator('[data-action="mount-url"]').count()) === 0) {
+    await page.click('[data-action="add-source"]');
+    await page.waitForSelector('[data-action="mount-url"]', { timeout: 10000 });
+  }
+  await page.click('[data-action="mount-url"]');
+  await page.waitForSelector('.mount-url-overlay', { timeout: 10000 });
+  await page.fill('[data-region="url-input"]', `${url}/__smoke_dirty.csv`);
+  await page.click('[data-action="confirm-mount-url"]');
+  await page.waitForFunction(() => !document.querySelector('.mount-url-overlay'), null, {
+    timeout: 60000,
+  });
+  // Wait for the suggestion to appear (classification is async).
+  await page.waitForSelector('[data-action="apply-fix"][data-fix-id="trim"]', { timeout: 60000 });
+  const suggestion = await page.evaluate(() => {
+    const b = document.querySelector('[data-action="apply-fix"][data-fix-id="trim"]');
+    return { label: (b.textContent || '').trim(), title: b.getAttribute('title') || '' };
+  });
+  if (!/whitespace/i.test(suggestion.title)) {
+    fail(`cleaning: fix has no rationale in its tooltip (${suggestion.title})`);
+  }
+  await page.click('[data-action="apply-fix"][data-fix-id="trim"]');
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > n,
+    cellsBeforeFix,
+    { timeout: 15000 },
+  );
+  const emitted = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('.cell[data-cell-kind="sql"]')];
+    const last = cells[cells.length - 1];
+    return {
+      code: (last.querySelector('.cm-content, textarea')?.textContent || '').trim(),
+      // EJ-1: the emitted cell must be UN-RUN — no result table yet.
+      hasResult: !!last.querySelector('table td'),
+    };
+  });
+  if (!/TRIM\(/i.test(emitted.code) || !/SELECT \* REPLACE/i.test(emitted.code)) {
+    fail(`cleaning: emitted cell is not the trim fix (${emitted.code.slice(0, 90)})`);
+  }
+  if (/\b(UPDATE|DELETE|CREATE|ALTER|DROP|INSERT)\b/i.test(emitted.code)) {
+    fail(
+      `cleaning: emitted cell contains a mutation — EJ-1 forbids it (${emitted.code.slice(0, 90)})`,
+    );
+  }
+  if (emitted.hasResult) {
+    fail('cleaning: the emitted cell already ran — EJ-1 says propose, the human runs it');
+  }
+  log(
+    `✓ Cleaning surface: clean fixture silent (EJ-3) · dirty column suggested "${suggestion.label}" · click emitted an UN-RUN trim cell (EJ-1)`,
+  );
 
   // 6. Templates panel: "Vendor concentration" should be applicable.
   await page.waitForFunction(

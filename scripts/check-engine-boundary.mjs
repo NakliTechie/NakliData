@@ -67,6 +67,11 @@ const WATCHED_OPTIONAL = [
   'src/core/agent/registry.ts',
   'src/core/agent/sql-validator.ts',
   'src/core/agent/data-dictionary.ts', // Chunk 4 — pure describe→Markdown serializer
+  // Cleaning surface (C0) — the fix registry is pure proposal logic and the
+  // cache is a Map; both must stay extractable (a server-side sibling would
+  // want the same suggestions).
+  'src/core/cleaning/fix-registry.ts',
+  'src/core/cleaning/fix-cache.ts',
 ];
 
 const FORBIDDEN_PATTERNS = [

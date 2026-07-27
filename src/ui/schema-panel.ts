@@ -4,6 +4,7 @@
 // Per column we show: name + SQL type + assigned semantic type + confidence
 // bar + expandable evidence + accept/override/define-new actions.
 
+import { getFixesFor } from '../core/cleaning/fix-cache.ts';
 import { maskLabel } from '../core/demo-mode.ts';
 import type { ColumnProfile } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
@@ -130,6 +131,45 @@ export function renderSchemaPanel(
       region.append(renderTableBlock(src, table, state, handlers));
     }
   }
+}
+
+/**
+ * Cleaning suggestions for one column (C0; DECISIONS EJ-2, EJ-3).
+ *
+ * Renders NOTHING when the column is clean — that silence is the point: a tidy
+ * file shouldn't sprout advice on every row. Each button emits an un-run SQL
+ * cell (EJ-1); the rationale is shown so the user can see WHY before accepting.
+ */
+function renderSuggestedFixes(sourceId: string, tableId: string, column: string): string {
+  const fixes = getFixesFor(assignmentKey(sourceId, tableId, column));
+  if (fixes.length === 0) return '';
+  const buttons = fixes
+    .map(
+      (f) =>
+        `<button class="btn btn-ghost schema-fix" data-action="apply-fix"
+                 data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}"
+                 data-column="${escapeHtml(column)}" data-fix-id="${escapeHtml(f.id)}"
+                 title="${escapeHtml(f.rationale)} Adds an un-run SQL cell you can review and edit.">
+           ${iconSvg('pencil', 12)} ${escapeHtml(f.label)}
+         </button>${renderFixPreview(f)}`,
+    )
+    .join('');
+  return `<div class="schema-fixes" data-region="schema-fixes">
+      <span class="schema-fixes-label">Suggested fixes</span>${buttons}
+    </div>`;
+}
+
+/** C2 reshaping fixes change a value's SHAPE, so show worked examples inline —
+ *  a user should not have to run the cell to find out what it does. */
+function renderFixPreview(f: { preview: Array<{ before: string; after: string }> }): string {
+  if (f.preview.length === 0) return '';
+  const rows = f.preview
+    .map(
+      (p) =>
+        `<div class="schema-fix-preview-row"><code>${escapeHtml(p.before)}</code> → <code>${escapeHtml(p.after)}</code></div>`,
+    )
+    .join('');
+  return `<div class="schema-fix-preview">${rows}</div>`;
 }
 
 function renderToolbar(state: SchemaPanelState, handlers: SchemaPanelHandlers): HTMLElement {
@@ -381,6 +421,7 @@ function renderColumnRow(
     </div>
     <div id="${detailsId}" class="schema-evidence" hidden>${renderEvidence(a)}</div>
     <div class="schema-profile-pane" ${profile ? '' : 'hidden'}>${profile ? renderProfilePanel(profile) : ''}</div>
+    ${renderSuggestedFixes(sourceId, tableId, a.columnName)}
   `;
 
   li.querySelector('[data-action="accept"]')?.addEventListener('click', () => {
@@ -770,6 +811,30 @@ const SCHEMA_CSS = `
   padding: 0;
   display: flex; flex-direction: column;
   gap: 4px;
+}
+.schema-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.schema-fix-preview {
+  flex-basis: 100%;
+  margin: 2px 0 0 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.schema-fix-preview-row code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.schema-fixes-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-right: 2px;
 }
 .schema-pending {
   color: var(--text-muted);

@@ -2,6 +2,48 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-25 — Cleaning surface C0-C2 shipped; C3 dedupe parked (EK)
+
+### Decision EK-1 — C3 row dedupe is PARKED as un-decidable per-column
+
+- **Context.** C3 was scoped as row dedupe. A `dedupe-by-key` fix was built and
+  unit-tested (7 tests green) using the Tier-3 `entity` role family as the
+  key guard — it looked correct.
+- **What happened.** The smoke's EJ-3 assertion (clean fixture must show ZERO
+  suggestions) fired: six columns sprouted advice, including `vendor_gstin` on
+  the **invoices** table — 160 sampled values, 24 distinct.
+- **Decision: revert, don't tune.** `vendor_gstin` on an invoices table is a
+  **foreign key**; repeating is what a foreign key is FOR. A per-column registry
+  cannot distinguish a primary key from a foreign key, because the information
+  is not in the column. The fix would have advised deleting ~85% of a correct
+  table. EJ-3's principle — a false suggestion is worse than none — makes that a
+  revert, not a heuristic-tuning exercise.
+- **Consequence.** Row dedupe needs **table-level context** (which column is the
+  grain), the same shape `merge-columns` needs. Both are parked for a
+  table-level entry point rather than bent through the per-column API that EJ-2
+  requires stay pure. `ColumnFacts.roleFamily` was kept — it is the right input
+  for that future work.
+
+### Decision EK-2 — the cleaning registry rides a lazy chunk
+
+- C2 took the shell to 764.2/768 (3.8 KB headroom). The registry's detectors and
+  emitters are only needed at classification time, which is already async, so
+  they moved to a `cleaning` lazy chunk; only `fix-cache.ts` (a Map) stays in the
+  shell, because the schema panel reads it synchronously every re-render.
+  758.6/768 — more headroom than before C2 started.
+
+### Decision EK-3 — detection guards are the hard part, and the smoke is what proves them
+
+Two false-positive classes shipped past unit tests and were caught only by the
+smoke's clean-fixture assertion:
+- `extract-number` matched digits glued to letters, offering to "extract the
+  number" from `pan` "HBHZW6406C" and `ifsc` "PUNB0ZMUBTG". Fixed by requiring
+  the number to be its own whitespace-delimited token.
+- `dedupe-by-key` (above).
+Both are now regression-tested **by value**. The lesson worth keeping: for a
+suggestion surface, the detector's GUARD matters more than its detection, and a
+clean-fixture assertion is the only thing that catches an over-eager guard.
+
 ## 2026-07-25 — Cleaning-surface track: the four shape decisions (EJ)
 
 ### Decision EJ — how the cleaning surface behaves (ratified before any code)

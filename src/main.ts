@@ -1,5 +1,6 @@
 import { getAssociationsStore } from './core/associations.ts';
 import { pickChartColumns } from './core/chart-columns.ts';
+import { getFixesFor, setFixesFor } from './core/cleaning/fix-cache.ts';
 import type { ValueCount } from './core/clustering.ts';
 import { buildCorrelationGraphPlan } from './core/correlation-graph.ts';
 import { setDemoMode } from './core/demo-mode.ts';
@@ -81,6 +82,7 @@ import {
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
+import { roleFamilyForType } from './taxonomy/universal.ts';
 import { bindAgentSurface, exportDataDictionaryMarkdown } from './ui/agent-bridge.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
@@ -1667,6 +1669,26 @@ function handleClusterFromResult(cellId: string): void {
 }
 
 /** Schema-panel "Cluster values" — cluster a mounted column. */
+/**
+ * Cleaning surface (C0) — accept a suggested fix.
+ *
+ * EJ-1: this ALWAYS emits a new, UN-RUN SQL cell carrying the fix. It never
+ * mutates a view or the source, so the change is reviewable, editable, and undone
+ * by deleting the cell. The registry already computed the SQL; this only places
+ * it and scrolls the user to it.
+ */
+function handleApplyFix(sourceId: string, tableId: string, column: string, fixId: string): void {
+  const fix = getFixesFor(assignmentKey(sourceId, tableId, column)).find((f) => f.id === fixId);
+  if (!fix) {
+    toast('That suggestion is no longer available — re-classify to refresh.', 'error');
+    return;
+  }
+  const nb = getNotebook(getEngine());
+  const cell = nb.addCell('sql');
+  nb.patchCell(cell.id, { code: fix.sql, name: `clean_${column}`.slice(0, 40) });
+  toast(`Added an un-run cell: ${fix.label} on "${column}". Review it, then Run.`);
+}
+
 function handleClusterFromColumn(sourceId: string, tableId: string, column: string): void {
   const wb = getWorkbook().get();
   const table = wb.sources.find((s) => s.id === sourceId)?.tables.find((t) => t.id === tableId);
@@ -2242,6 +2264,16 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const tableId = el?.dataset.tableId;
       const column = el?.dataset.column;
       if (sourceId && tableId && column) handleClusterFromColumn(sourceId, tableId, column);
+      return;
+    }
+    case 'apply-fix': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const column = el?.dataset.column;
+      const fixId = el?.dataset.fixId;
+      if (sourceId && tableId && column && fixId) {
+        handleApplyFix(sourceId, tableId, column, fixId);
+      }
       return;
     }
     case 'xray': {
@@ -3031,6 +3063,7 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
     for (const table of src.tables) {
       try {
         const results = await classifyTableColumns(engine, client, table.name);
+        const bundle = client.getBundle();
         for (const r of results) {
           const key = assignmentKey(src.id, table.id, r.column.columnName);
           // Theme 4 wave 2: an override rule for this column-name (if any)
@@ -3039,7 +3072,31 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
           // inherit that intent without re-clicking.
           const fresh = resultToAssignment(r);
           const rules = workbook.get().overrideRules;
-          workbook.setAssignment(key, applyOverrideRule(fresh, rules));
+          const assigned = applyOverrideRule(fresh, rules);
+          workbook.setAssignment(key, assigned);
+          // Cleaning surface (C0): classification already sampled this column,
+          // so suggestions cost ZERO extra queries — compute them from the same
+          // sample rather than issuing one query per column at render time.
+          const cleaning = await loadChunk('cleaning');
+          setFixesFor(
+            key,
+            cleaning.suggestFixes({
+              table: table.name,
+              column: r.column.columnName,
+              sqlType: r.column.sqlType,
+              typeId: assigned.assigned.typeId,
+              roleFamily:
+                bundle && assigned.assigned.typeId
+                  ? roleFamilyForType(bundle, assigned.assigned.typeId)
+                  : null,
+              sensitivity: 'public',
+              rowCount: table.rowCount ?? null,
+              sampledRows: r.column.totalSampled ?? null,
+              nullCount: r.column.nullCount ?? null,
+              distinctCount: r.column.distinctCount ?? null,
+              sampleValues: r.column.values,
+            }),
+          );
         }
       } catch (err) {
         console.error(`[naklidata] classify failed for ${table.name}`, err);
