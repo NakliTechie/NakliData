@@ -86,11 +86,11 @@ function renderModal(opts: {
           <input type="text" data-region="label-input" placeholder="defaults to '<table> (bridge)'" autocomplete="off" spellcheck="false">
         </label>
         <p class="mount-url-hint">
-          The bridge runs the SQL inside your VPC; only the result rows cross to
-          the browser as Arrow IPC and land as a local DuckDB table. Bound your
-          query with <code>LIMIT</code> — the result has to fit in the tab.
-          Plain <code>http://</code> URLs are blocked by CSP; the bridge should
-          serve TLS (self-signed is fine over a VPN). Per <code>plan/compute-bridge-protocol.md</code>.
+          The bridge runs SQL close to your warehouse or lakehouse inside your
+          VPC. Only the result rows are transferred to this browser and stored
+          locally. Add <code>LIMIT</code> so the result fits in the tab. The
+          bridge must use <code>https://</code>; a self-signed certificate is
+          fine over a trusted VPN.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

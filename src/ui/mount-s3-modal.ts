@@ -111,10 +111,11 @@ function renderModal(opts: {
           <input type="text" data-region="label-input" placeholder="defaults to bucket / path" autocomplete="off" spellcheck="false">
         </label>
         <p class="mount-url-hint">
-          Slice 2 supports <code>.csv</code> / <code>.tsv</code> / <code>.jsonl</code> /
-          <code>.parquet</code> over S3-compatible httpfs (AWS S3, MinIO, R2, B2,
-          Wasabi). Only one set of S3 credentials per session — mounting a second
-          endpoint with different keys will clobber the first.
+          Reads <code>.csv</code>, <code>.tsv</code>, <code>.jsonl</code>, and
+          <code>.parquet</code> directly from AWS S3, MinIO, R2, B2, Wasabi, and
+          compatible services. Only one S3 credential set can be active in a
+          session. Connecting another endpoint with different keys can require
+          you to reconnect earlier S3 sources.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

@@ -78,10 +78,10 @@ function renderModal(opts: {
           <input type="text" data-region="label-input" placeholder="defaults to the table directory name" autocomplete="off" spellcheck="false">
         </label>
         <p class="mount-url-hint">
-          Slice 3a — table-by-URL with Bearer auth. For <code>s3://</code> URLs,
-          mount your bucket via "Mount bucket" first so the S3 credentials are
-          configured. REST catalog navigation (OAuth2 device flow, AWS Glue
-          SigV4) is queued for slice 3b.
+          Mounts one Iceberg table from its metadata URL, with an optional
+          Bearer token. For <code>s3://</code> URLs, connect the bucket first so
+          NakliData can use its S3 credentials. OAuth2 sign-in and AWS Glue
+          credentials are not supported in this form.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

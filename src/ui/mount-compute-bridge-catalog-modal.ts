@@ -97,9 +97,9 @@ function renderModal(handlers: MountComputeBridgeCatalogHandlers): HTMLElement {
         </label>
         <p class="mount-url-hint">
           Connect lists the tables the bridge exposes; pick any subset to
-          materialise locally. Each pick runs <code>SELECT * FROM &lt;name&gt; LIMIT &lt;cap&gt;</code>
-          on the bridge and lands the result as a local DuckDB table.
-          Per <code>plan/compute-bridge-protocol.md</code>.
+          copy into this browser. Each selected table is capped at the row limit
+          configured by the bridge, so only a bounded result crosses from your
+          VPC.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

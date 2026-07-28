@@ -89,9 +89,9 @@ function renderModal(opts: {
         </label>
         <p class="mount-url-hint">
           The catalog resolves the table's current metadata-location each time
-          you reload, so fresh snapshots pick up automatically. Slice 3b ships
-          Bearer auth only; OAuth2 device flow and AWS SigV4 (for Glue) are
-          queued for v1.3.
+          you reload, so fresh snapshots are picked up automatically. Bearer
+          tokens are supported; OAuth2 sign-in and AWS Glue credentials are not
+          supported yet.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

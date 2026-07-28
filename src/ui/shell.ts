@@ -250,7 +250,7 @@ export function mountOptionsHtml(): string {
       <button class="opt" data-action="mount-compute-bridge" title="Run SQL against a Compute Bridge in your VPC; result lands as a local DuckDB table">
         ${iconSvg('link', 28)}
         <span class="label">Compute Bridge</span>
-        <span class="hint">SQL in-VPC, Arrow result.</span>
+        <span class="hint">SQL in your VPC. Results only.</span>
       </button>
       <button class="opt" data-action="mount-compute-bridge-catalog" title="Pick multiple tables from a Compute Bridge catalog; each becomes a local DuckDB table">
         ${iconSvg('link', 28)}
