@@ -2606,6 +2606,57 @@ async function main() {
     log(`✓ SW runtime cache: readstat wasm cached in ${rtCache.runtimeKey}, not the shell cache`);
   }
 
+  // 12m. Session isolation. Every source and runnable cell materialises a
+  // DuckDB relation. Starting a new session must drop the outgoing workspace's
+  // relations, not merely clear the visible source/cell lists.
+  const outgoingCellViews = await page.evaluate(() =>
+    [...document.querySelectorAll('.cell[data-cell-id]')]
+      .map((cell) => cell.getAttribute('data-cell-id'))
+      .filter((id) => id !== null)
+      .map((id) => `cell_${id}`),
+  );
+  await page.click('[data-action="session-menu"]');
+  await page.click('[data-action="session-new"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.source-card').length === 0 &&
+      document.querySelectorAll('.cell[data-cell-id]').length === 0,
+    null,
+    { timeout: 10000 },
+  );
+  await page.click('[data-action="browse-examples"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.source-card').length === 3 &&
+      document.querySelectorAll('.cell[data-cell-kind="sql"]').length === 1,
+    null,
+    { timeout: 30000 },
+  );
+  const isolatedSqlCell = page.locator('.cell[data-cell-kind="sql"]').last();
+  await isolatedSqlCell.locator('.cm-content, textarea').first().click();
+  await page.keyboard.insertText('SHOW TABLES');
+  await isolatedSqlCell.locator('[data-action="cell-run"]').click();
+  await page.waitForFunction(
+    () => {
+      const cell = document.querySelector('.cell[data-cell-kind="sql"]');
+      return !!cell?.querySelector('.result-table tbody tr');
+    },
+    null,
+    { timeout: 15000 },
+  );
+  const visibleRelations = await isolatedSqlCell.evaluate((cell) =>
+    [...cell.querySelectorAll('.result-table tbody tr')].map(
+      (row) => row.querySelector('td')?.textContent ?? '',
+    ),
+  );
+  const leakedCellViews = outgoingCellViews.filter((name) => visibleRelations.includes(name));
+  if (leakedCellViews.length > 0) {
+    fail(`session isolation: outgoing cell views remained queryable (${leakedCellViews.join(', ')})`);
+  }
+  log(
+    `✓ Session isolation: ${outgoingCellViews.length} outgoing cell relation(s) dropped before the new workspace mounted`,
+  );
+
   // 13. Sanity: no uncaught errors in the console. (SB5: this used to log and
   // pass regardless — now a real gate.) A short allowlist covers errors that
   // are benign in the headless/offline harness only; anything else fails.

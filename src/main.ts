@@ -950,9 +950,10 @@ async function switchToSession(engine: Engine, root: HTMLElement, id: string): P
   const idx = await loadIndex();
   const meta = idx.sessions.find((s) => s.id === id) ?? null;
   _activeSession = meta;
-  // M4: drop the outgoing session's DuckDB views before clearing state, so
-  // its data isn't queryable from the incoming session's SQL cells.
-  await dropAllSourceViews(engine);
+  // Drop the outgoing session's DuckDB relations before clearing state, so
+  // neither mounted sources nor materialised cell results stay queryable from
+  // the incoming session.
+  await dropCurrentWorkspaceArtifacts(engine);
   getWorkbook().clear();
   getNotebook(engine).load([]);
   await restoreFromActiveSession(engine);
@@ -1882,22 +1883,29 @@ function fullSerializeInput(engine: Engine, notebookName: string): SerializeInpu
 }
 
 /**
- * M4: drop every DuckDB view/table backing the current workbook's sources.
- * `workbook.clear()` only wipes the in-memory source list — without this the
- * previous session/file's data stayed queryable from SQL cells in the newly
- * loaded workspace (cross-session exposure in a sovereign-workspace product).
- * Best-effort: a failed drop is logged, not fatal.
+ * Drop every DuckDB relation owned by the current workspace. Clearing the
+ * in-memory workbook/notebook does not remove source views or materialised
+ * `cell_<id>` views, so a new session/file could otherwise query data that is
+ * no longer visible in its UI. Best-effort: a failed drop is logged, not fatal.
  */
-async function dropAllSourceViews(engine: Engine): Promise<void> {
+async function dropCurrentWorkspaceArtifacts(engine: Engine): Promise<void> {
+  const names = new Set<string>();
   for (const src of getWorkbook().get().sources) {
     for (const t of src.tables) {
-      try {
-        await engine.drop(t.name);
-      } catch (err) {
-        console.warn(`[naklidata] drop view failed for ${t.name}`, err);
-      }
+      names.add(t.name);
     }
   }
+  for (const cell of getNotebook(engine).get().cells) {
+    names.add(`cell_${cell.id}`);
+  }
+  for (const name of names) {
+    try {
+      await engine.drop(name);
+    } catch (err) {
+      console.warn(`[naklidata] drop relation failed for ${name}`, err);
+    }
+  }
+  await engine.dropRegisteredFiles();
 }
 
 async function persistSnapshot(engine: Engine): Promise<void> {
@@ -2159,6 +2167,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       const root = document.getElementById('app');
       if (!root) return;
       await persistSnapshot(engine); // flush current
+      await dropCurrentWorkspaceArtifacts(engine);
       const meta = await createSession();
       _activeSession = meta;
       getWorkbook().clear();
@@ -2215,6 +2224,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         const fresh = await loadIndex();
         const nextActive = fresh.sessions.find((s) => s.id === fresh.activeId);
         if (nextActive) {
+          await dropCurrentWorkspaceArtifacts(engine);
           _activeSession = nextActive;
           getWorkbook().clear();
           getNotebook(engine).load([]);
@@ -2739,9 +2749,9 @@ async function doApplyLoadedFile(
 ): Promise<void> {
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
-  // M4: drop the previous workbook's DuckDB views before loading — otherwise
-  // the old data stays queryable from the loaded file's SQL cells.
-  await dropAllSourceViews(engine);
+  // Drop the previous workspace's DuckDB relations before loading — otherwise
+  // old sources and materialised cell results stay queryable from the new file.
+  await dropCurrentWorkspaceArtifacts(engine);
   workbook.clear();
   // Restore user-defined types from the file before sources mount, so the
   // override menu has them available when the schema panel re-renders.

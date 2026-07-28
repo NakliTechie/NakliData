@@ -1339,6 +1339,20 @@ export class Engine {
     }
   }
 
+  /**
+   * Remove every file registered in DuckDB's virtual filesystem. Workspace
+   * switches call this only after dropping the outgoing views/tables, so no
+   * live relation should still depend on those bytes or file handles.
+   */
+  async dropRegisteredFiles(): Promise<void> {
+    if (!this.db) return;
+    try {
+      await this.db.dropFiles();
+    } catch {
+      // Best effort — relation cleanup still preserves SQL isolation.
+    }
+  }
+
   /** Drop a previously registered table/view. Some register paths
    *  produce TABLEs (Arrow IPC via insertArrowFromIPCStream) and others
    *  produce VIEWs (the CSV/Parquet/Excel/SQLite paths); try both. */
