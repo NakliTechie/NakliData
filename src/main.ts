@@ -1994,6 +1994,7 @@ function wireActions(root: HTMLElement): void {
         'reclassify',
         'manage-override-rules',
         'compare-tables',
+        'export-data-dictionary',
         'classify-all-unknowns',
         'instantiate',
         'cell-run',

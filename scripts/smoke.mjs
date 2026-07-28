@@ -123,6 +123,7 @@ async function main() {
   const page = await context.newPage();
 
   const consoleErrors = [];
+  const consoleWarnings = [];
   let sawIntegrityVerified = false; // H6: the now-default DuckDB SHA-384 preflight ran + passed
   // Dedicated workers the page spawns. The Facet metric leg asserts against this:
   // a metric that silently fell back to the main thread would still paint a
@@ -137,6 +138,7 @@ async function main() {
       consoleErrors.push(msg.text());
       log(`console error: ${msg.text()}`);
     } else if (type === 'warning') {
+      consoleWarnings.push(msg.text());
       log(`console warning: ${msg.text()}`);
     }
   });
@@ -1702,6 +1704,9 @@ async function main() {
   });
   if (dictExport.error) fail(`data dictionary: ${dictExport.error}`);
   if (!dictExport.markdown) fail('data dictionary: export produced no file content');
+  if (consoleWarnings.some((msg) => msg.includes('unknown action: export-data-dictionary'))) {
+    fail('data dictionary: click leaked into the global dispatcher as an unknown action');
+  }
   {
     const md = dictExport.markdown;
     if (!md.startsWith('# Data dictionary')) {
