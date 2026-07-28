@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-28 — Role walkthrough: workspace boundaries and connector language (EL)
+
+### Decision EL-1 — a workspace boundary owns DuckDB relations and registered files
+
+- **Context.** The production walkthrough created a populated analyst session,
+  then started a new session. The source and notebook UI cleared, but DuckDB
+  also holds materialised `cell_<id>` relations and files in its virtual
+  filesystem. Source-only teardown did not cover either class completely.
+- **Decision.** Treat session switches, new/deleted active sessions, and loaded
+  `.naklidata` files as full workspace boundaries. Before loading the next
+  workspace, drop every mounted-source relation, every materialised cell
+  relation, and all registered VFS files. Cleanup remains best-effort so a stale
+  artifact cannot prevent the user opening the next workspace.
+- **Consequence.** A fresh session cannot query outgoing cell results or inherit
+  stale registered filenames. The production smoke now creates a new session,
+  remounts examples, runs `SHOW TABLES`, and rejects any outgoing cell relation;
+  the walkthrough run proved 37 relations were isolated.
+
+### Decision EL-2 — connector dialogs explain the trust boundary, not implementation internals
+
+- **Context.** The S3, Iceberg, and Compute Bridge dialogs exposed internal
+  terms such as “Slice 3b”, `httpfs`, Arrow IPC, DuckDB, CSP, “clobber”, and a
+  repository plan path. Those details neither help a Databricks/Snowflake user
+  decide whether to connect nor accurately state the product's trust boundary.
+- **Decision.** Connector help text leads with where SQL runs, what crosses the
+  boundary, which services/formats/auth methods work now, and the relevant
+  result/credential limits. Protocol names and internal release bookkeeping
+  stay in developer documentation.
+- **Consequence.** The dialogs now say, in user language, that Compute Bridge
+  executes inside the VPC and returns bounded results; S3 supports one active
+  credential set; and Iceberg currently supports metadata URLs and Bearer
+  tokens but not OAuth2 or AWS Glue credentials.
+
 ## 2026-07-25 — Cleaning surface C0-C2 shipped; C3 dedupe parked (EK)
 
 ### Decision EK-1 — C3 row dedupe is PARKED as un-decidable per-column
