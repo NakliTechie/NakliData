@@ -20,7 +20,7 @@ import type { Notebook } from './notebook.ts';
 export interface AgentBridgeDeps {
   engine: Engine;
   notebook: Notebook;
-  /** Live read of the `agentWritesEnabled` setting (the 0b gate). */
+  /** Live read of the legacy `agentWritesEnabled` proposal-only gate. */
   isWritesEnabled: () => boolean;
 }
 
@@ -33,7 +33,6 @@ export interface NakliDataAgentApi {
   listCells(input?: unknown): Promise<unknown>;
   query(input?: unknown): Promise<unknown>;
   proposeCell(input?: unknown): Promise<unknown>;
-  runCell(input?: unknown): Promise<unknown>;
   listTools(): Promise<unknown>;
   version: string;
 }
@@ -62,9 +61,11 @@ export function bindAgentSurface(deps: AgentBridgeDeps): void {
     listCells: verb('listCells'),
     query: verb('query'),
     proposeCell: verb('proposeCell'),
-    runCell: verb('runCell'),
     listTools: () => load().then((m) => m.catalogue(fullDeps)),
-    version: '1',
+    // v2 removes the latent runCell execution capability. This is intentionally
+    // a breaking safety correction rather than pretending the v1 catalogue is
+    // unchanged.
+    version: '2',
   };
 
   // WebMCP spike (Chunk 7, DECISIONS EE-0d) — flag-gated, ships nothing

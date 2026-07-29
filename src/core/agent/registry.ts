@@ -17,8 +17,9 @@
 //      propose-don't-execute shape cribbed from Facet M0. Writes are proposals a
 //      human runs (0a).
 // The gate (0b): read verbs (describe / listTables / listCells / query) are
-// on-by-default; write verbs (proposeCell / runCell) are refused unless
-// `host.writesEnabled()` — the browser binder wires that to a Settings flag.
+// on-by-default; `proposeCell` is refused unless `host.writesEnabled()` — the
+// legacy internal setting name now grants proposal access only. There is no
+// agent execution verb.
 
 /** A JSON Schema object (draft-07 shape). Kept as an open record so this module
  *  needs no schema dependency; the binder/agent validates against it. */
@@ -142,11 +143,6 @@ export interface ProposeResult {
   editable: true;
 }
 
-export interface RunResult {
-  id: string;
-  status: string;
-}
-
 /**
  * The capability surface the tools call. The browser binder implements it
  * against the live engine / workbook / notebook. `query` MUST validate its SQL
@@ -162,9 +158,7 @@ export interface AgentHost {
   query(sql: string): Promise<QueryResult>;
   /** Add an un-run SQL cell carrying `sql`. Does NOT execute it. */
   proposeCell(sql: string): Promise<ProposeResult>;
-  /** Run an existing cell by id (a write path — gated). */
-  runCell(id: string): Promise<RunResult>;
-  /** The 0b gate: are write verbs (proposeCell / runCell) permitted? */
+  /** The 0b gate: may an agent add an editable, un-run proposal? */
   writesEnabled(): boolean;
 }
 
@@ -195,7 +189,7 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
   const gate = (): void => {
     if (!host.writesEnabled()) {
       throw new Error(
-        'This action is disabled. Turn on agent write access in Settings → AI sidecar to let an agent propose or run cells.',
+        'This action is disabled. Turn on agent proposal access in Settings → Agent proposals to let an agent add editable, un-run cells.',
       );
     }
   };
@@ -246,7 +240,7 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
     {
       name: 'proposeCell',
       description:
-        'Add an UN-RUN SQL cell carrying the given query to the notebook, for the human to review and run. Returns { id, sql, editable: true } — the agent proposes, the human executes. Requires agent write access.',
+        'Add an UN-RUN SQL cell carrying the given query to the notebook, for the human to review and run. Returns { id, sql, editable: true } — the agent proposes, the human executes. Requires agent proposal access.',
       inputSchema: {
         type: 'object',
         properties: { sql: { type: 'string', description: 'SQL to seed the proposed cell.' } },
@@ -260,25 +254,6 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
           const sql = stringField(input, 'sql');
           if (sql === null) throw new Error('proposeCell expects { sql: string }.');
           return host.proposeCell(sql);
-        }),
-    },
-    {
-      name: 'runCell',
-      description:
-        'Run an existing notebook cell by id. This executes SQL against the engine, so it requires agent write access.',
-      inputSchema: {
-        type: 'object',
-        properties: { id: { type: 'string', description: 'The cell id to run.' } },
-        required: ['id'],
-        additionalProperties: false,
-      },
-      annotations: { readOnlyHint: false, untrustedContentHint: false, gated: true },
-      execute: (input) =>
-        guarded(() => {
-          gate();
-          const id = stringField(input, 'id');
-          if (id === null) throw new Error('runCell expects { id: string }.');
-          return host.runCell(id);
         }),
     },
   ];

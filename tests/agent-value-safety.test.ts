@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   type AgentSurfaceDeps,
+  boundedAgentQuerySql,
   createAgentHost,
   traceDirectResultProjection,
 } from '../src/lazy/agent-surface.ts';
@@ -108,7 +109,6 @@ function makeDeps(opts: {
       get: () => ({ cells: [] }),
       addCell: () => ({ id: 'c1', kind: 'sql' }),
       patchCell: () => {},
-      runCell: async () => {},
     },
     isWritesEnabled: () => false,
     getWorkbookState: () => state,
@@ -118,6 +118,12 @@ function makeDeps(opts: {
 }
 
 describe('agent value safety', () => {
+  it('places the 1,000-row cap in SQL before materialization and tolerates a trailing semicolon', () => {
+    expect(boundedAgentQuerySql(' SELECT name FROM people; ')).toBe(
+      'SELECT * FROM (SELECT name FROM people) AS _agent_scope LIMIT 1000',
+    );
+  });
+
   it('exposes only the same strict direct projection as result provenance', () => {
     expect(traceDirectResultProjection('SELECT name, email FROM people')).toEqual({
       tableName: 'people',
@@ -139,6 +145,15 @@ describe('agent value safety', () => {
     );
     expect(query).not.toHaveBeenCalled();
   });
+
+  it.each(['TABLE people', "VALUES ('raw')", 'FROM people SELECT name', 'DESCRIBE people'])(
+    'rejects non-SELECT row form before engine execution: %s',
+    async (sql) => {
+      const { deps, query } = makeDeps({ activeBundle: bundle });
+      await expect(createAgentHost(deps).query(sql)).rejects.toThrow(/must use SELECT/i);
+      expect(query).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses aliases, expressions, CTE aliases, and joins before execution', async () => {
     const cases = [

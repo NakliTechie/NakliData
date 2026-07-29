@@ -686,6 +686,10 @@ async function main() {
   // Enable the sidecar (keeps the default provider) via the Settings UI.
   await page.click('[data-action="open-settings"]');
   await page.waitForSelector('[data-action="settings-enable"]', { timeout: 5000 });
+  const agentProposalToggle = page.locator('[data-action="settings-agent-proposals"]');
+  if ((await agentProposalToggle.count()) !== 1 || (await agentProposalToggle.isChecked())) {
+    fail('settings: proposal-only agent permission is missing or not off by default');
+  }
   await page.evaluate(() => {
     const en = document.querySelector('[data-action="settings-enable"]');
     if (en && !en.checked) {
@@ -1584,13 +1588,15 @@ async function main() {
       scopedRejected: scoped.ok === false ? scoped.error : '(NOT REJECTED)',
       fileScanRejected: fileScan.ok === false ? fileScan.error : '(NOT REJECTED)',
       gated,
+      runCellExposed: typeof nd.runCell === 'function',
       describeOk: describe.ok === true && Array.isArray(describe.data.tables),
       describeTableCount: describe.ok === true ? describe.data.tables.length : 0,
       describeEnriched,
     };
   });
   if (agent.error) fail(`agent surface: ${agent.error}`);
-  const expectVerbs = ['describe', 'listCells', 'listTables', 'proposeCell', 'query', 'runCell'];
+  if (agent.version !== '2') fail(`agent surface: expected proposal-only contract v2, got v${agent.version}`);
+  const expectVerbs = ['describe', 'listCells', 'listTables', 'proposeCell', 'query'];
   if (JSON.stringify(agent.tools) !== JSON.stringify(expectVerbs)) {
     fail(`agent surface: verbs ${JSON.stringify(agent.tools)} != ${JSON.stringify(expectVerbs)}`);
   }
@@ -1628,12 +1634,13 @@ async function main() {
   if (agent.fileScanRejected === '(NOT REJECTED)')
     fail('agent surface: a file-scan query was NOT rejected');
   if (agent.gated.ok !== false) fail('agent surface: proposeCell was NOT gated off by default');
+  if (agent.runCellExposed) fail('agent surface: runCell execution verb is still exposed');
   if (!agent.describeOk) fail('agent surface: describe did not return a tables array');
   if (agent.describeTableCount > 0 && !agent.describeEnriched) {
     fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
   }
   log(
-    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · direct public query → 1 row · direct PII redacted · aliased PII + write + out-of-scope + file-scan rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
+    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · no execution verb · direct public query → 1 row · direct PII redacted · aliased PII + write + out-of-scope + file-scan rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
 
   // 10k. Accessibility legibility (Chunk 6). A DOM/ARIA-driving agent (Operator,

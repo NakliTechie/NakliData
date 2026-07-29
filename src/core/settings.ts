@@ -57,13 +57,13 @@ export interface Settings {
    */
   mapBasemap: 'none' | 'osm';
   /**
-   * Agent surfaces (2026-07-24, DECISIONS EE-0b) — write access for the
+   * Agent surfaces (2026-07-24, DECISIONS EE-0b) — proposal access for the
    * `window.naklidata` agent bridge. The READ verbs (describe / listTables /
    * listCells / query) are always on: they're validator-gated, value-redacted,
    * and are the whole point (the semantic layer is the agent surface). The
-   * WRITE verbs (proposeCell / runCell) mutate the notebook, so they're refused
-   * unless this is on. Off by default — an agent gets grounding for free, and
-   * the human opts in before an agent can touch the workbook.
+   * only mutating verb, proposeCell, adds editable SQL but never executes it.
+   * It is refused unless this is on. The legacy field name is retained for
+   * settings compatibility; it no longer grants execution authority.
    */
   agentWritesEnabled: boolean;
 }

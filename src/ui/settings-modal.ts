@@ -128,6 +128,10 @@ async function refresh(): Promise<void> {
   if (enableInput) enableInput.checked = settings.sidecarEnabled;
   const demoInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-demo-mode"]');
   if (demoInput) demoInput.checked = settings.demoMode;
+  const agentInput = overlay.querySelector<HTMLInputElement>(
+    '[data-action="settings-agent-proposals"]',
+  );
+  if (agentInput) agentInput.checked = settings.agentWritesEnabled;
   const basemapInput = overlay.querySelector<HTMLInputElement>(
     '[data-action="settings-map-basemap"]',
   );
@@ -337,6 +341,14 @@ function renderModal(): HTMLElement {
           <p class="settings-hint">For screenshots and demos. Row values, SQL cell text, and the underlying engine queries are NOT masked — clear cells before screenshotting if they contain sensitive data. Toggle off any time to reveal real labels.</p>
         </section>
         <section class="settings-section">
+          <h2>Agent proposals</h2>
+          <label class="settings-remember">
+            <input type="checkbox" data-action="settings-agent-proposals" />
+            <span>Allow agents to add editable, un-run SQL cells</span>
+          </label>
+          <p class="settings-hint">Off by default. This permission allows proposals only: agents cannot run a cell, and every proposed query stays editable until you explicitly click Run.</p>
+        </section>
+        <section class="settings-section">
           <h2>Map basemap</h2>
           <label class="settings-remember">
             <input type="checkbox" data-action="settings-map-basemap" />
@@ -435,6 +447,10 @@ function renderModal(): HTMLElement {
       document.dispatchEvent(
         new CustomEvent('naklidata-demo-mode-changed', { detail: { enabled } }),
       );
+    }
+    if (action === 'settings-agent-proposals') {
+      const enabled = (target as HTMLInputElement).checked;
+      await patchSettings({ agentWritesEnabled: enabled });
     }
     if (action === 'settings-map-basemap') {
       const enabled = (target as HTMLInputElement).checked;

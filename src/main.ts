@@ -362,9 +362,10 @@ async function boot(): Promise<void> {
     if (notebookMount) renderNotebook(notebookMount, nb, sqlExtra());
   });
 
-  // Agent surfaces (DECISIONS EE) — bind `window.naklidata`: read verbs
-  // (describe / listTables / listCells / query) on by default; write verbs
-  // (proposeCell / runCell) gated on the `agentWritesEnabled` setting, read live.
+  // Agent surfaces (DECISIONS EE/ER) — bind `window.naklidata`: read verbs
+  // (describe / listTables / listCells / query) on by default; the only
+  // mutating verb adds an editable, un-run proposal and is gated by the legacy
+  // `agentWritesEnabled` setting. Agents have no cell-execution verb.
   bindAgentSurface({
     engine,
     notebook: nb,

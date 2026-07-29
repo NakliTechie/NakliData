@@ -24,7 +24,6 @@ function fakeHost(overrides: Partial<AgentHost> = {}): AgentHost {
       _sql: sql,
     }),
     proposeCell: async (sql: string) => ({ id: 'cell1', sql, editable: true as const }),
-    runCell: async (id: string) => ({ id, status: 'success' }),
     writesEnabled: () => true,
     ...overrides,
   };
@@ -36,13 +35,11 @@ const byName = (host: AgentHost) => {
 };
 
 describe('buildAgentTools — catalogue shape', () => {
-  it('exposes the six v1 verbs', () => {
+  it('exposes five verbs and no cell-execution capability', () => {
     const names = buildAgentTools(fakeHost())
       .map((t) => t.name)
       .sort();
-    expect(names).toEqual(
-      ['describe', 'listCells', 'listTables', 'proposeCell', 'query', 'runCell'].sort(),
-    );
+    expect(names).toEqual(['describe', 'listCells', 'listTables', 'proposeCell', 'query'].sort());
   });
   it('every tool has a WebMCP-shaped contract', () => {
     for (const t of buildAgentTools(fakeHost())) {
@@ -60,10 +57,9 @@ describe('buildAgentTools — catalogue shape', () => {
       expect(m.get(n)?.annotations.readOnlyHint).toBe(true);
       expect(m.get(n)?.annotations.gated).toBe(false);
     }
-    for (const n of ['proposeCell', 'runCell']) {
-      expect(m.get(n)?.annotations.readOnlyHint).toBe(false);
-      expect(m.get(n)?.annotations.gated).toBe(true);
-    }
+    expect(m.get('proposeCell')?.annotations.readOnlyHint).toBe(false);
+    expect(m.get('proposeCell')?.annotations.gated).toBe(true);
+    expect(m.has('runCell')).toBe(false);
   });
 });
 
@@ -88,22 +84,21 @@ describe('read verbs work regardless of the write gate', () => {
   });
 });
 
-describe('write gate (0b)', () => {
-  it('proposeCell + runCell are refused when writes are disabled', async () => {
+describe('proposal gate (0b)', () => {
+  it('proposeCell is refused when proposals are disabled', async () => {
     const m = byName(fakeHost({ writesEnabled: () => false }));
     const p = await m.get('proposeCell')!.execute({ sql: 'SELECT 1' });
-    const r = await m.get('runCell')!.execute({ id: 'c1' });
     expect(p.ok).toBe(false);
-    expect(r.ok).toBe(false);
     if (!p.ok) expect(p.error).toMatch(/Settings/);
   });
   it('proposeCell returns the propose-dont-execute shape when enabled', async () => {
     const r = await byName(fakeHost()).get('proposeCell')!.execute({ sql: 'SELECT 42' });
     expect(r).toEqual({ ok: true, data: { id: 'cell1', sql: 'SELECT 42', editable: true } });
   });
-  it('runCell executes when enabled', async () => {
-    const r = await byName(fakeHost()).get('runCell')!.execute({ id: 'c9' });
-    expect(r).toEqual({ ok: true, data: { id: 'c9', status: 'success' } });
+  it('runCell remains unavailable even when proposals are enabled', async () => {
+    const tools = buildAgentTools(fakeHost());
+    const result = await dispatchAgentTool(tools, 'runCell', { id: 'c9' });
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/Unknown verb/) });
   });
 });
 

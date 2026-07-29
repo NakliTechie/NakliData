@@ -15,7 +15,8 @@
 // The three safety properties (DECISIONS EE) live here at the boundary:
 //   - 0a: query() validates every SQL (read-only, scoped to the mounted tables)
 //     before the engine runs it; writes are proposals.
-//   - 0b: proposeCell/runCell gated on `writesEnabled()`; reads always on.
+//   - 0b: proposeCell gated on `writesEnabled()`; reads always on. No agent verb
+//     executes a notebook cell.
 //   - 0c: query() redacts output columns whose sensitivity tier is not public;
 //     describe() returns schema+semantics with no values (query is the redacted
 //     value path).
@@ -67,7 +68,7 @@ export function traceDirectResultProjection(sql: string): DirectResultProjection
 export interface AgentSurfaceDeps {
   engine: Engine;
   notebook: Notebook;
-  /** Live read of the `agentWritesEnabled` setting (the 0b gate). */
+  /** Live read of the legacy `agentWritesEnabled` proposal gate. */
   isWritesEnabled: () => boolean;
   /** Live read of the shell's Workbook singleton state (injected, NOT imported —
    *  see the module header on singleton divergence). */
@@ -264,7 +265,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     const owned = matchingTables[0];
     if (!owned) throw new Error('Agent value query refused because its table is unavailable.');
 
-    const runSql = `SELECT * FROM (${sql}) AS _agent_scope LIMIT ${AGENT_QUERY_ROW_CAP}`;
+    const runSql = boundedAgentQuerySql(sql);
     const raw = await deps.engine.query(runSql);
     const rows = raw.slice(0, AGENT_QUERY_ROW_CAP) as Array<Record<string, unknown>>;
     const columns = rows.length > 0 ? Object.keys(rows[0] as object) : [];
@@ -311,22 +312,23 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     return { id: cell.id, sql, editable: true };
   }
 
-  async function runCell(id: string): Promise<{ id: string; status: string }> {
-    const exists = deps.notebook.get().cells.some((c) => c.id === id);
-    if (!exists) throw new Error(`No cell with id "${id}".`);
-    const outcome = await deps.notebook.runCell(id);
-    return { id, status: outcome.status };
-  }
-
   return {
     describe,
     listTables,
     listCells,
     query,
     proposeCell,
-    runCell,
     writesEnabled: deps.isWritesEnabled,
   };
+}
+
+/** Put the row cap in the SQL handed to DuckDB, not only in result slicing.
+ * The strict value-projection guard runs first and rejects non-SELECT forms.
+ * Removing one tolerated trailing semicolon keeps the query valid inside the
+ * bounded subquery. */
+export function boundedAgentQuerySql(sql: string): string {
+  const trimmed = sql.trim().replace(/;\s*$/, '');
+  return `SELECT * FROM (${trimmed}) AS _agent_scope LIMIT ${AGENT_QUERY_ROW_CAP}`;
 }
 
 /** Minimal identifier quoting for the DESCRIBE calls in `describe`. */

@@ -18,7 +18,6 @@ const deps = {
     get: () => ({ cells: [] }),
     addCell: () => ({ id: 'c1', kind: 'sql' }),
     patchCell: () => {},
-    runCell: async () => {},
   },
   isWritesEnabled: () => false,
   getWorkbookState: () => ({ sources: [], assignments: {} }),
@@ -43,11 +42,11 @@ function mockRoot() {
 }
 
 describe('registerWithWebMcp', () => {
-  it('registers all six verbs in WebMCP tool shape', () => {
+  it('registers five verbs and no execution tool in WebMCP shape', () => {
     const m = mockRoot();
     const reg = registerWithWebMcp(m.root, deps);
     expect(reg.registered.sort()).toEqual(
-      ['describe', 'listCells', 'listTables', 'proposeCell', 'query', 'runCell'].sort(),
+      ['describe', 'listCells', 'listTables', 'proposeCell', 'query'].sort(),
     );
     for (const def of m.registered) {
       expect(typeof def.name).toBe('string');

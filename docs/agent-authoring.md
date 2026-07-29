@@ -18,7 +18,8 @@ design — the model is never the safety boundary.
 
 When a NakliData tab is open, it exposes a verb namespace on `window.naklidata`.
 Every verb returns `{ ok: true, data }` or `{ ok: false, error }` (a UI-safe
-message). All verbs are async.
+message). All verbs are async. The proposal-only contract reports
+`window.naklidata.version === "2"`.
 
 | Verb | Reads/writes | Gated? | What it does |
 |---|---|---|---|
@@ -27,7 +28,6 @@ message). All verbs are async.
 | `listCells()` | read | no | Notebook cells (id, kind, name, code). Never results. |
 | `query(sql)` | read | no | Runs a bounded **read-only** SQL SELECT that projects direct columns from one mounted table. See the safety model below. Non-public and unclassified columns are redacted. Capped at 1000 rows. |
 | `proposeCell(sql)` | write | **yes** | Adds an **un-run** SQL cell for the human to review and run. Returns `{ id, sql, editable: true }`. |
-| `runCell(id)` | write | **yes** | Runs an existing cell. |
 
 `window.naklidata.listTools()` returns the full catalogue (name, description,
 JSON input schema, annotations) — WebMCP's tool shape, so a WebMCP-capable agent
@@ -45,6 +45,9 @@ Every SQL string passes two guards **before** the engine sees it:
 - Value provenance must be direct and unambiguous: one mounted table, direct
   source columns, and no aliases, expressions, aggregates, CTEs, joins,
   subqueries, or duplicate projections.
+- `TABLE`, `VALUES`, FROM-first, `DESCRIBE`, and every other non-`SELECT`
+  row-producing form are rejected before engine execution. Accepted SELECTs
+  are wrapped in an outer 1,000-row limit before DuckDB materializes the result.
 - The sensitivity layer must be loaded. Output columns whose tier is not public,
   or whose semantic type is unclassified/unmapped, are redacted.
 
@@ -52,9 +55,10 @@ The deliberately narrow value contract keeps schema and semantic grounding
 available while refusing a projection whose source cannot be proven. Derived
 values can expand later when result-column lineage is explicit.
 
-Rejections are loud (`{ ok: false, error }`), never silent. **Writes are your
-proposal; the human runs them** — `proposeCell` and `runCell` are off unless the
-user turns on agent write access in Settings.
+Rejections are loud (`{ ok: false, error }`), never silent. **Writes are only
+proposals; the human runs them.** `proposeCell` is off unless the user enables
+Agent proposals in Settings. The setting grants permission to add an editable,
+un-run cell; the shipping agent catalogue has no execution verb.
 
 ---
 

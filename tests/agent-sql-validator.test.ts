@@ -265,6 +265,8 @@ describe('validateAgentValueProjection — fail-closed value provenance', () => 
       /subqueries|one mounted table/i,
     );
     expect(valueRejected('TABLE people').reason).toMatch(/must use SELECT/i);
+    expect(valueRejected("VALUES ('raw')").reason).toMatch(/must use SELECT/i);
+    expect(valueRejected('FROM people SELECT email').reason).toMatch(/must use SELECT/i);
     expect(valueRejected('DESCRIBE people').reason).toMatch(/must use SELECT/i);
   });
 });
