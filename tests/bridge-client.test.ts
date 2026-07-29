@@ -24,7 +24,7 @@ function healthBody(overrides: Record<string, unknown> = {}): Record<string, unk
     version: '1.0.0',
     auth: 'bearer',
     single_tenant: true,
-    capabilities: ['query', 'tables', 'arrow-ipc'],
+    capabilities: ['query', 'table-query', 'tables', 'arrow-ipc'],
     ...overrides,
   };
 }
@@ -57,6 +57,7 @@ describe('BridgeClient protocol boundary', () => {
     const health = await client.health({
       requiredCapabilities: [
         BRIDGE_CAPABILITIES.query,
+        BRIDGE_CAPABILITIES.tableQuery,
         BRIDGE_CAPABILITIES.tables,
         BRIDGE_CAPABILITIES.arrowIpc,
       ],
@@ -86,7 +87,7 @@ describe('BridgeClient protocol boundary', () => {
     for (const body of [
       {},
       healthBody({ protocol: 'other-bridge' }),
-      healthBody({ protocol_version: 2 }),
+      healthBody({ protocol_version: BRIDGE_PROTOCOL_VERSION - 1 }),
     ]) {
       const client = new BridgeClient({
         bridgeUrl: 'https://bridge.example.com',
@@ -111,7 +112,7 @@ describe('BridgeClient protocol boundary', () => {
     ).rejects.toMatchObject({ code: 'missing_capability' });
   });
 
-  it('parses hierarchical catalog objects and derives qualified names', async () => {
+  it('requires bridge-owned qualified names for hierarchical catalog objects', async () => {
     const client = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: null,
@@ -122,6 +123,7 @@ describe('BridgeClient protocol boundary', () => {
               catalog: 'prod',
               namespace: ['finance', 'ap'],
               name: 'invoices',
+              qualified_name: 'prod.finance.ap.invoices',
               kind: 'view',
               source: 'databricks',
               schema: [
@@ -172,7 +174,62 @@ describe('BridgeClient protocol boundary', () => {
       },
     });
     expect(new Uint8Array(await client.query('  SELECT 1  '))).toEqual(bytes);
-    expect(JSON.parse(body)).toEqual({ sql: 'SELECT 1' });
+    expect(JSON.parse(body)).toEqual({ sql: 'SELECT 1', row_limit: 100_000 });
+  });
+
+  it('sends opaque table identifiers structurally without dialect rewriting', async () => {
+    const bytes = new Uint8Array([0x41]);
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+        return arrowResponse(bytes);
+      },
+    });
+
+    const qualifiedName = '  "ANALYTICS"."PUBLIC"."ORDERS"  ';
+    expect(new Uint8Array(await client.queryTable(qualifiedName, 25_000))).toEqual(bytes);
+    expect(requests).toEqual([
+      {
+        url: 'https://bridge.example.com/v1/table-query',
+        body: {
+          qualified_name: qualifiedName,
+          row_limit: 25_000,
+        },
+      },
+    ]);
+  });
+
+  it('rejects write-shaped SQL and invalid row limits before network access', async () => {
+    let fetches = 0;
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async () => {
+        fetches++;
+        return arrowResponse(new Uint8Array([0x41]));
+      },
+    });
+
+    for (const sql of [
+      'DROP TABLE prod.orders',
+      'WITH changed AS (DELETE FROM prod.orders RETURNING *) SELECT * FROM changed',
+      'SELECT 1; INSERT INTO audit VALUES (1)',
+    ]) {
+      await expect(client.query(sql)).rejects.toMatchObject({ code: 'unsafe_query' });
+    }
+    await expect(client.query('SELECT 1', { rowLimit: 1_000_001 })).rejects.toMatchObject({
+      code: 'invalid_query',
+    });
+    await expect(client.queryTable('prod.orders', 0)).rejects.toMatchObject({
+      code: 'invalid_query',
+    });
+    await expect(client.queryTable('prod.\norders', 100)).rejects.toMatchObject({
+      code: 'invalid_query',
+    });
+    expect(fetches).toBe(0);
   });
 
   it('rejects wrong success Content-Type values', async () => {

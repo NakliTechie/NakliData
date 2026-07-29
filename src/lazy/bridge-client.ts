@@ -1,11 +1,15 @@
+import { validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import { assertSafeBearerToken } from '../core/bearer-token.ts';
 import {
   BRIDGE_PROTOCOL_ID,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_QUERY_ROW_CAP_DEFAULT,
+  BRIDGE_QUERY_ROW_CAP_MAX,
   type BridgeColumn,
   BridgeError,
   type BridgeHealth,
   type BridgeHealthOptions,
+  type BridgeQueryOptions,
   type BridgeRequestOptions,
   type BridgeTable,
 } from '../core/bridge/protocol.ts';
@@ -37,6 +41,7 @@ export type {
   BridgeColumn,
   BridgeHealth,
   BridgeHealthOptions,
+  BridgeQueryOptions,
   BridgeRequestOptions,
   BridgeTable,
 } from '../core/bridge/protocol.ts';
@@ -111,14 +116,57 @@ export class BridgeClient {
     return data.tables.map((value, index) => parseTable(value, index));
   }
 
-  async query(sql: string, options: BridgeRequestOptions = {}): Promise<ArrayBuffer> {
+  async query(sql: string, options: BridgeQueryOptions = {}): Promise<ArrayBuffer> {
     if (!sql.trim()) throw new BridgeError('Bridge query SQL is required.', 0, 'invalid_query');
-    return await this.withResponse(
+    const normalizedSql = sql.trim();
+    const validation = validateReadOnlySql(normalizedSql);
+    if (!validation.ok) {
+      throw new BridgeError(`Bridge query rejected: ${validation.reason}`, 0, 'unsafe_query');
+    }
+    return await this.postArrow(
       '/v1/query',
+      { sql: normalizedSql, row_limit: queryRowLimit(options.rowLimit) },
+      options,
+    );
+  }
+
+  async queryTable(
+    qualifiedName: string,
+    rowLimit: number,
+    options: BridgeRequestOptions = {},
+  ): Promise<ArrayBuffer> {
+    if (
+      !qualifiedName.trim() ||
+      qualifiedName.length > 8_192 ||
+      containsControlCharacter(qualifiedName)
+    ) {
+      throw new BridgeError(
+        'Bridge table query requires a valid opaque qualified name.',
+        0,
+        'invalid_query',
+      );
+    }
+    return await this.postArrow(
+      '/v1/table-query',
+      {
+        qualified_name: qualifiedName,
+        row_limit: queryRowLimit(rowLimit),
+      },
+      options,
+    );
+  }
+
+  private async postArrow(
+    path: string,
+    body: Record<string, unknown>,
+    options: BridgeRequestOptions,
+  ): Promise<ArrayBuffer> {
+    return await this.withResponse(
+      path,
       {
         method: 'POST',
         headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql: sql.trim() }),
+        body: JSON.stringify(body),
         ...signalInit(options.signal),
       },
       async (response) => {
@@ -264,11 +312,10 @@ function parseTable(value: unknown, index: number): BridgeTable {
       type: stringValue(column.type, `tables[${index}].schema[${columnIndex}].type`),
     };
   });
-  const derived = [...(catalog ? [catalog] : []), ...namespace, name].join('.');
-  const qualifiedName =
-    table.qualified_name === undefined && table.qualifiedName === undefined
-      ? derived
-      : stringValue(table.qualified_name ?? table.qualifiedName, `tables[${index}].qualified_name`);
+  const qualifiedName = opaqueStringValue(
+    table.qualified_name ?? table.qualifiedName,
+    `tables[${index}].qualified_name`,
+  );
   return { name, qualifiedName, catalog, namespace, kind: kindValue, source, schema };
 }
 
@@ -281,6 +328,46 @@ function parseNamespace(value: unknown, path: string): string[] {
       .filter(Boolean);
   }
   return stringArray(value, path);
+}
+
+function queryRowLimit(value: number | undefined): number {
+  const normalized = value ?? BRIDGE_QUERY_ROW_CAP_DEFAULT;
+  if (
+    !Number.isSafeInteger(normalized) ||
+    normalized < 1 ||
+    normalized > BRIDGE_QUERY_ROW_CAP_MAX
+  ) {
+    throw new BridgeError(
+      `Bridge row limit must be an integer from 1 to ${BRIDGE_QUERY_ROW_CAP_MAX}.`,
+      0,
+      'invalid_query',
+    );
+  }
+  return normalized;
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function opaqueStringValue(value: unknown, path: string): string {
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    value.length > 8_192 ||
+    containsControlCharacter(value)
+  ) {
+    throw new BridgeError(
+      `Bridge response ${path} must be a valid opaque identifier.`,
+      200,
+      'protocol_mismatch',
+    );
+  }
+  return value;
 }
 
 function objectValue(value: unknown, path: string): Record<string, unknown> {

@@ -24,12 +24,12 @@ test.describe('Compute Bridge catalog readiness', () => {
           contentType: 'application/json',
           body: JSON.stringify({
             protocol: 'naklidata-compute-bridge',
-            protocol_version: 1,
+            protocol_version: 2,
             name: 'test-bridge',
             version: '1.0.0',
             auth: 'none',
             single_tenant: true,
-            capabilities: ['query', 'tables', 'arrow-ipc'],
+            capabilities: ['query', 'table-query', 'tables', 'arrow-ipc'],
           }),
         });
         return;
@@ -43,6 +43,7 @@ test.describe('Compute Bridge catalog readiness', () => {
                 catalog: 'prod',
                 namespace: ['finance', 'ap'],
                 name: 'invoices',
+                qualified_name: 'prod.finance.ap.invoices',
                 kind: 'view',
                 source: 'databricks',
                 schema: [{ name: 'amount', type: 'DECIMAL(18,2)' }],
@@ -51,6 +52,7 @@ test.describe('Compute Bridge catalog readiness', () => {
                 catalog: 'prod',
                 namespace: ['sales'],
                 name: 'orders',
+                qualified_name: '"PROD"."SALES"."ORDERS"',
                 kind: 'table',
                 source: 'snowflake',
                 schema: [{ name: 'order_id', type: 'VARCHAR' }],
@@ -87,6 +89,10 @@ test.describe('Compute Bridge catalog readiness', () => {
       await expect(modal.locator('.mount-bridge-catalog-row').first()).toHaveAttribute(
         'data-table-name',
         'prod.finance.ap.invoices',
+      );
+      await expect(modal.locator('.mount-bridge-catalog-row').nth(1)).toHaveAttribute(
+        'data-table-name',
+        '"PROD"."SALES"."ORDERS"',
       );
     } finally {
       await server.close();

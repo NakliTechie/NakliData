@@ -289,6 +289,33 @@ Append-only. Format per AGENTHANDOFF §5.
   on Azure and Polaris/Open Catalog on ADLS remain explicitly unavailable
   until a separately reviewed browser-capable Azure data plane exists.
 
+### Decision FA-14 — the Compute Bridge owns dialect, limits, and downstream cancellation
+
+- **Context.** The generic bridge could list portable catalog objects but
+  browser-quoted every complete `qualified_name` as one DuckDB/Postgres
+  identifier, breaking vendor-qualified Databricks and Snowflake names. Direct
+  SQL allowed write-shaped input, result row bounds depended on authors adding
+  `LIMIT`, and an HTTP abort had no protocol-level obligation to cancel paid
+  downstream warehouse work. The referenced protocol document was also
+  missing from tracked docs.
+- **Decision.** Bump the declared Compute Bridge contract to version 2 while
+  retaining the `/v1/*` transport routes. Add a required `table-query`
+  capability and structured `{ qualified_name, row_limit }` endpoint so the
+  browser preserves opaque object identifiers and the bridge owns dialect
+  quoting plus server-side allowlisting. Send `{ sql, row_limit }` for direct
+  reads, reject non-read shapes before transport, default to 100,000 rows, and
+  cap requests at 1,000,000. Require conformant bridges to repeat read-only
+  enforcement with a non-writing warehouse identity, apply row/byte/time
+  ceilings, propagate disconnects to vendor cancellation, and poll to a
+  terminal state.
+- **Consequence.** Credential-free Databricks SQL Warehouse and Snowflake
+  Virtual Warehouse profiles now exercise the production client without
+  vendor credentials and keep exact three-part qualification intact.
+  Conformance still proves only browser request behavior: no bridge server,
+  vendor authentication, result conversion, live cancellation, branded card,
+  or compatibility claim ships. The tracked protocol defines the remaining
+  Databricks Statement Execution and Snowflake SQL API adapter obligations.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

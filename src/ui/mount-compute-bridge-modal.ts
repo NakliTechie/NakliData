@@ -89,11 +89,10 @@ function renderModal(opts: {
           <input type="text" data-region="label-input" placeholder="defaults to '<table> (bridge)'" autocomplete="off" spellcheck="false">
         </label>
         <p class="mount-url-hint">
-          The bridge runs SQL close to your warehouse or lakehouse inside your
-          VPC. Only the result rows are transferred to this browser and stored
-          locally. Add <code>LIMIT</code> so the result fits in the tab. The
-          bridge must use <code>https://</code>; a self-signed certificate is
-          fine over a trusted VPN.
+          The bridge runs read-only SQL inside your VPC. Only a bounded Arrow
+          result crosses into this browser; add a lower <code>LIMIT</code> when
+          useful. Use <code>https://</code>; a self-signed certificate is fine
+          over a trusted VPN.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

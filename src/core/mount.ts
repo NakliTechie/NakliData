@@ -5,7 +5,11 @@
 //   §3.1 — source mounting (FSA folder/file; multi-root; file-to-table mapping)
 //   §3.5 — example data bundle ("Browse example data" CTA)
 
-import { BRIDGE_CAPABILITIES } from './bridge/protocol.ts';
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_QUERY_ROW_CAP_DEFAULT,
+  BRIDGE_QUERY_ROW_CAP_MAX,
+} from './bridge/protocol.ts';
 import type { Engine, RegisterFileOptions } from './engine.ts';
 import {
   type AnyHandle,
@@ -75,9 +79,9 @@ export interface BridgeConfig {
 /**
  * W3.4b metadata for `kind: 'compute-bridge-catalog'`. The catalog
  * mount fetches `/v1/tables` from the bridge once, lets the user pick N
- * tables, and materialises each as `SELECT * FROM <name> LIMIT
- * <rowCap>` against the bridge. Each picked table lands as its own
- * local DuckDB table under one MountedSource.
+ * tables, and asks the bridge to materialise each opaque object identifier
+ * under a row cap. Each picked table lands as its own local DuckDB table under
+ * one MountedSource.
  *
  * Persistence shape diverges from `BridgeConfig` (single-SQL) — a
  * catalog source tracks the per-table selection + cap, not a raw SQL
@@ -1176,7 +1180,7 @@ export async function mountComputeBridge(
         sourceId,
         name: tableLabel,
         format: 'arrow',
-        origin: `${opts.bridgeUrl.trim()} :: ${opts.sql.trim().slice(0, 60)}${opts.sql.trim().length > 60 ? '…' : ''}`,
+        origin: `${opts.bridgeUrl.trim()} :: ${opts.sql.trim().slice(0, 60)}${opts.sql.trim().length > 60 ? '…' : ''} (≤${BRIDGE_QUERY_ROW_CAP_DEFAULT.toLocaleString()} rows)`,
         rowCount,
         registered: true,
       },
@@ -1191,25 +1195,16 @@ export async function mountComputeBridge(
  * depending on column count + types.
  */
 export const BRIDGE_CATALOG_ROW_CAP_MIN = 100;
-export const BRIDGE_CATALOG_ROW_CAP_MAX = 1_000_000;
-export const BRIDGE_CATALOG_ROW_CAP_DEFAULT = 100_000;
-
-/**
- * Quote an identifier for safe inclusion in SQL sent to the bridge.
- * DuckDB / Postgres convention: wrap in `"..."` and double any internal
- * `"`. The bridge is trusted to interpret quoted identifiers
- * consistently — listTables returns names verbatim.
- */
-function quoteBridgeIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
+export const BRIDGE_CATALOG_ROW_CAP_MAX = BRIDGE_QUERY_ROW_CAP_MAX;
+export const BRIDGE_CATALOG_ROW_CAP_DEFAULT = BRIDGE_QUERY_ROW_CAP_DEFAULT;
 
 /**
  * Wave 3 W3.4b — Compute Bridge catalog mount. Lists the bridge's
  * tables (`/v1/tables`), takes the user's multi-select + per-table row
- * caps, and materialises each table locally via
- * `SELECT * FROM <name> LIMIT <cap>` against the bridge. Each picked
- * table becomes a `MountedTable` under one `MountedSource`.
+ * caps, and materialises each table through structured `/v1/table-query`
+ * requests. The bridge—not the browser—owns vendor-dialect identifier
+ * quoting. Each picked table becomes a `MountedTable` under one
+ * `MountedSource`.
  *
  * Mirrors `mountComputeBridge` on the wire (HTTP + Arrow IPC, health
  * probe before queries, Bearer auth via source-secrets). Differs in
@@ -1251,7 +1246,7 @@ export async function mountComputeBridgeCatalog(
   // 1) Reachability + auth probe.
   try {
     await client.health({
-      requiredCapabilities: [BRIDGE_CAPABILITIES.query, BRIDGE_CAPABILITIES.arrowIpc],
+      requiredCapabilities: [BRIDGE_CAPABILITIES.tableQuery, BRIDGE_CAPABILITIES.arrowIpc],
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
   } catch (err) {
@@ -1265,14 +1260,18 @@ export async function mountComputeBridgeCatalog(
   const failures: Array<{ object: string; reason: string; code: string | null }> = [];
   for (const pick of opts.tables) {
     if (!pick.name.trim()) continue;
+    const qualifiedName = pick.name;
     const cap = clampRowCap(pick.rowCap);
     const localName = reserveMountedTableName(
       engine,
       sanitizeTableName(pick.localName?.trim() || pick.name.trim()),
     );
-    const sql = `SELECT * FROM ${quoteBridgeIdent(pick.name.trim())} LIMIT ${cap}`;
     try {
-      const buffer = await client.query(sql, opts.signal ? { signal: opts.signal } : {});
+      const buffer = await client.queryTable(
+        qualifiedName,
+        cap,
+        opts.signal ? { signal: opts.signal } : {},
+      );
       const bytes = new Uint8Array(buffer);
       await engine.registerArrowBuffer({ tableName: localName, bytes });
       const rowCount = await getRowCount(engine, localName);
@@ -1281,11 +1280,11 @@ export async function mountComputeBridgeCatalog(
         sourceId,
         name: localName,
         format: 'arrow',
-        origin: `${opts.bridgeUrl.trim()} :: ${pick.name.trim()} (≤${cap.toLocaleString()})`,
+        origin: `${opts.bridgeUrl.trim()} :: ${qualifiedName} (≤${cap.toLocaleString()})`,
         rowCount,
         registered: true,
       });
-      persistedTables.push({ name: pick.name.trim(), localName, rowCap: cap });
+      persistedTables.push({ name: qualifiedName, localName, rowCap: cap });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const code =

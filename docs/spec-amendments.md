@@ -19,7 +19,7 @@ The original spec stays authoritative for everything not listed here.
 | [A9](#a9--custom-endpoint-sidecar-provider-wave-2-w23-amends-spec-43) | §4.3 | Custom OpenAI-compatible sidecar endpoint (llamafile, vLLM, Ollama). |
 | [A10](#a10--job-4-report-template-recommendation-wave-3--w31-amends-spec-43) | §4.3 | Sidecar Job 4: rank candidate report templates against current schema. Hallucination guard in parser, not just prompt. |
 | [A11](#a11--local-model-sidecar-provider-wave-3--w32-amends-spec-43--43a) | §4.3 + §4.3a | `local` runtime seam wired through dispatch; runtime not bundled in v1.1; fails fast rather than silent fallback because picking local is a privacy choice. |
-| [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. W3.4b follow-up: catalog picker SourceKind that materialises N tables via SELECT * LIMIT cap. |
+| [A12](#a12--compute-bridge-source-kind-client-side-wave-3--w34a-amends-spec-41) | §4.1 | Compute Bridge source kind, client side. Browser↔bridge wire is HTTP + Arrow IPC (not Flight); health-check before SQL. A53 supersedes the original query bodies and catalog quoting. |
 | [A13](#a13--optional-map-cell-basemap-wave-1-stretch--w16-amends-spec-31--6) | §3.1, §6 | Optional OpenStreetMap raster basemap on map cells. Default off — tile-less canvas preserves the no-third-party-fetch posture. Explicit opt-in via Settings; CSP `img-src` carves out `tile.openstreetmap.org` only. |
 | [A14](#a14--three-tier-duckdb-wasm-bundle-source-w182--cloudflare-deploy-amends-spec-71) | §7.1 | DuckDB-wasm bundle sourcing: three-tier (same-origin → GH Pages canonical → jsDelivr). Pre-fetch SRI dropped because the blob-pre-wrap it required broke cross-blob worker access in current Chrome. Trust = version pin + build-time SHA-384 verify against `integrity.json`. |
 | [A15](#a15--sensitivity-field-on-typespec-w54-amends-spec-32) | §3.2 | Each `TypeSpec` carries a `sensitivity: 'public' \| 'pii' \| 'financial' \| 'secret'` field. Schema panel renders a badge on non-public types. Substrate for future demo-mode + sidecar prompt redaction. |
@@ -52,6 +52,7 @@ The original spec stays authoritative for everything not listed here.
 | [A50](#a50--semantic-gating-for-number-extraction-amends-spec-32) | §3.2 | Number-extraction cleaning advice requires numeric semantic/header intent and never fires on recognized narrative fields. |
 | [A51](#a51--canonical-chart-channel-inference-amends-spec-33) | §3.3 | Heuristically inferred chart axes are written into cell state before rendering so controls, shelves, saves, and output agree. |
 | [A52](#a52--opaque-vended-credential-leases-amends-spec-41) | §4.1 | Short-lived S3/GCS/ADLS credentials cross an opaque, revocable, in-memory target boundary with expiry and refresh ownership. |
+| [A53](#a53--read-only-bounded-compute-bridge-v2-amends-spec-41) | §4.1 | Compute Bridge v2 makes read-only enforcement, structured opaque table requests, row caps, downstream cancellation, and claim-scoped warehouse profiles mandatory. |
 
 ---
 
@@ -417,9 +418,10 @@ customer's VPC. The wire protocol is spec'd separately in
 > run against a Compute Bridge as a local DuckDB table.** The bridge
 > exposes an HTTP API (per `compute-bridge-protocol.md`):
 > `GET /v1/health` (discovery + capability handshake),
-> `GET /v1/tables` (catalog), `POST /v1/query` body `{ sql }` →
+> `GET /v1/tables` (catalog), `POST /v1/query` body
+> `{ sql, row_limit }` →
 > `Content-Type: application/vnd.apache.arrow.stream` body. NakliData's
-> browser client (`src/core/bridge/bridge-client.ts`) speaks only this
+> browser client (`src/lazy/bridge-client.ts`) speaks only this
 > HTTP + Arrow IPC surface — **not Arrow Flight** (browsers can't do
 > native gRPC; gRPC-web needs a proxy and doesn't stream cleanly).
 > Flight stays the canonical API for non-browser clients.
@@ -473,8 +475,9 @@ client and the binary share this wire contract. See DECISIONS
 
 **Follow-up (W3.4b, 2026-05-30):** the multi-table picker. A second
 SourceKind — `'compute-bridge-catalog'` — lists `/v1/tables`, lets the
-user pick N tables with per-table row caps, and runs
-`SELECT * FROM "<name>" LIMIT <cap>` against the bridge for each pick.
+user pick N tables with per-table row caps, and sends a structured
+`{ qualified_name, row_limit }` request to `/v1/table-query` for each pick.
+The bridge owns vendor-dialect quoting and allowlist resolution.
 All picks land under one MountedSource with N MountedTables. The
 persistence shape differs from `'compute-bridge'`: the catalog tracks
 `{ name, local_name, row_cap }[]` rather than a raw SQL string, so
@@ -1832,7 +1835,7 @@ caller cancellation. Bridge catalog objects were presented as one flat list,
 and partial table failures were console-only.
 
 **Amended behavior:** Compute Bridge health must declare
-`naklidata-compute-bridge` protocol version 1 and every capability required by
+`naklidata-compute-bridge` protocol version 2 and every capability required by
 the selected flow. Successful JSON and Arrow responses must use the declared
 media type. Requests keep a deadline through body consumption, accept an
 external abort signal, and enforce incremental byte ceilings (2 MiB JSON,
@@ -1841,7 +1844,8 @@ a bounded page count.
 
 Catalog descriptors use the portable shape
 `catalog/database → schema/namespace → table/view`, retain an opaque qualified
-identifier for bridge SQL, and render as a hierarchy. A multi-object mount may
+identifier for structured bridge table requests, and render as a hierarchy. A
+multi-object mount may
 commit successful objects, but it must return structured failures and name them
 in user-visible feedback. Both clients ship as lazy chunks. Databricks Unity
 Catalog, Snowflake Open Catalog/Polaris, and direct warehouse adapters remain
@@ -2232,6 +2236,49 @@ MVP Azure extension; the target therefore rejects ADLS before executor access.
 Applying the runtime remains a separately authorized migration, and
 Azure/ADLS needs a separate browser data-plane decision. Source cards remain
 disabled and `BLOCKER.md` defines the gate.
+
+---
+
+## A53 — Read-only, bounded Compute Bridge v2 (amends spec §4.1)
+
+**Original behavior:** protocol v1 accepted direct `{ sql }` requests and made
+the author responsible for adding a `LIMIT`. The catalog path received a
+`qualified_name` but the browser wrapped the complete value as one
+DuckDB/Postgres-style identifier before sending generated SQL. HTTP
+cancellation did not define downstream warehouse-statement cancellation.
+
+**Amended behavior:** protocol identity remains
+`naklidata-compute-bridge`, with `protocol_version: 2`. Direct query requests
+are `{ sql, row_limit }`. Catalog materialization uses the required
+`table-query` capability and sends `{ qualified_name, row_limit }` to
+`POST /v1/table-query`; the browser preserves the opaque identifier and the
+bridge owns vendor-dialect quoting plus allowlist resolution. The default cap
+is 100,000 rows and the client accepts no value above 1,000,000.
+
+The browser rejects write-shaped, multi-statement, extension/session, literal
+file-scan, and table-function query forms before transport. A conformant bridge
+must repeat
+read-only validation independently, use a warehouse identity that cannot
+write, enforce row/byte/time ceilings, propagate HTTP cancellation to the
+vendor statement, and poll cancellation to a terminal state. Errors are
+bounded and redacted. Successful data remains Arrow IPC.
+
+Databricks SQL Warehouse and Snowflake Virtual Warehouse mappings are adapter
+profiles, not browser connectors. Credential-free conformance fixtures verify
+opaque qualification, request caps, authentication-header scope, secret-free
+public results, capability failure, and continued absence of vendor-branded
+source cards. A live claim still requires a packaged bridge server/adapter and
+safe endpoint credentials that prove authentication, authorization,
+vendor-result conversion, cancellation, and read-only behavior.
+
+**Reasoning:** a whole Snowflake three-part name cannot be safely quoted as one
+identifier, and a client-suggested `LIMIT` is not an enforceable resource
+boundary. HTTP abort without downstream cancellation can leave paid warehouse
+work running after the browser has stopped waiting.
+
+**Status:** adopted 2026-07-29. DECISIONS FA-14. See
+[`compute-bridge-protocol.md`](compute-bridge-protocol.md). No bridge server,
+vendor credentials, dependency, or branded entry point was added.
 
 ---
 

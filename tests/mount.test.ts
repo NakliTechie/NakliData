@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_QUERY_ROW_CAP_DEFAULT,
+} from '../src/core/bridge/protocol.ts';
 import { _primeChunkForTests } from '../src/core/lazy-loader.ts';
 import {
   describeReadFailure,
@@ -6,6 +11,7 @@ import {
   reconcileRemountedFolder,
   sanitizeTableName,
 } from '../src/core/mount.ts';
+import { parse, serialize } from '../src/core/persistence.ts';
 import * as bridgeClientChunk from '../src/lazy/bridge-client.ts';
 
 _primeChunkForTests('bridge-client', bridgeClientChunk);
@@ -664,12 +670,12 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
         return new Response(
           JSON.stringify({
             protocol: 'naklidata-compute-bridge',
-            protocol_version: 1,
+            protocol_version: BRIDGE_PROTOCOL_VERSION,
             name: 'nakli-compute',
             version: '0.1',
             auth: 'bearer',
             single_tenant: true,
-            capabilities: ['query', 'arrow-ipc'],
+            capabilities: Object.values(BRIDGE_CAPABILITIES),
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -701,6 +707,7 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
     expect(src.bridge?.sql).toBe('SELECT * FROM lakehouse.sales LIMIT 100');
     expect(src.bridge?.requiresBearer).toBe(true);
     expect(src.tables[0]?.format).toBe('arrow');
+    expect(src.tables[0]?.origin).toContain(`≤${BRIDGE_QUERY_ROW_CAP_DEFAULT.toLocaleString()}`);
     expect(src.label).toBe('sales (bridge)');
   });
 
@@ -714,12 +721,12 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
         return new Response(
           JSON.stringify({
             protocol: 'naklidata-compute-bridge',
-            protocol_version: 1,
+            protocol_version: BRIDGE_PROTOCOL_VERSION,
             name: 'x',
             version: '0',
             auth: 'none',
             single_tenant: true,
-            capabilities: ['query', 'arrow-ipc'],
+            capabilities: Object.values(BRIDGE_CAPABILITIES),
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -769,12 +776,12 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
         return new Response(
           JSON.stringify({
             protocol: 'naklidata-compute-bridge',
-            protocol_version: 1,
+            protocol_version: BRIDGE_PROTOCOL_VERSION,
             name: 'x',
             version: '0',
             auth: 'none',
             single_tenant: true,
-            capabilities: ['query', 'arrow-ipc'],
+            capabilities: Object.values(BRIDGE_CAPABILITIES),
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -789,7 +796,7 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
       mountComputeBridge(engine as never, {
         label: '',
         bridgeUrl: 'https://bridge.example.com',
-        sql: 'SELEKT *',
+        sql: 'SELECT * FROM syntax_error_fixture',
         tableName: 't',
         bearerToken: null,
         fetchImpl,
@@ -852,32 +859,30 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
     return new Response(
       JSON.stringify({
         protocol: 'naklidata-compute-bridge',
-        protocol_version: 1,
+        protocol_version: BRIDGE_PROTOCOL_VERSION,
         name: 'nakli-compute',
         version: '0.1',
         auth: 'bearer',
         single_tenant: true,
-        capabilities: ['query', 'arrow-ipc'],
+        capabilities: Object.values(BRIDGE_CAPABILITIES),
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   }
 
-  it('health-checks then mounts each picked table via SELECT * LIMIT <cap>', async () => {
+  it('health-checks then mounts each opaque table through structured capped requests', async () => {
     const engine = bridgeCatalogMockEngine();
-    const queryBodies: string[] = [];
+    const queryBodies: unknown[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       const u = String(url);
       if (u.endsWith('/v1/health')) return healthResponse();
-      if (u.endsWith('/v1/query')) {
-        // The bridge accepts a JSON body with { sql }.
+      if (u.endsWith('/v1/table-query')) {
         const body =
           typeof init?.body === 'string'
             ? init.body
             : new TextDecoder().decode(init?.body as Uint8Array);
         try {
-          const parsed = JSON.parse(body) as { sql: string };
-          queryBodies.push(parsed.sql);
+          queryBodies.push(JSON.parse(body));
         } catch {
           queryBodies.push(body);
         }
@@ -898,8 +903,8 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
     // One health check + two queries.
     expect(engine.registerArrowBuffer).toHaveBeenCalledTimes(2);
     expect(queryBodies).toEqual([
-      'SELECT * FROM "sales" LIMIT 25000',
-      'SELECT * FROM "customers" LIMIT 5000',
+      { qualified_name: 'sales', row_limit: 25000 },
+      { qualified_name: 'customers', row_limit: 5000 },
     ]);
     expect(src.kind).toBe('compute-bridge-catalog');
     expect(src.bridgeCatalog?.tables).toEqual([
@@ -915,13 +920,13 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
 
   it('falls back to the default cap when rowCap is missing', async () => {
     const engine = bridgeCatalogMockEngine();
-    const queryBodies: string[] = [];
+    const queryBodies: unknown[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       const u = String(url);
       if (u.endsWith('/v1/health')) return healthResponse();
       const body = typeof init?.body === 'string' ? init.body : '';
       try {
-        queryBodies.push((JSON.parse(body) as { sql: string }).sql);
+        queryBodies.push(JSON.parse(body));
       } catch {
         // ignore
       }
@@ -934,18 +939,21 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
       tables: [{ name: 'sales' }],
       fetchImpl,
     });
-    expect(queryBodies[0]).toBe(`SELECT * FROM "sales" LIMIT ${BRIDGE_CATALOG_ROW_CAP_DEFAULT}`);
+    expect(queryBodies[0]).toEqual({
+      qualified_name: 'sales',
+      row_limit: BRIDGE_CATALOG_ROW_CAP_DEFAULT,
+    });
   });
 
-  it('escapes internal double-quotes in table names so the SELECT stays valid', async () => {
+  it('passes vendor-qualified identifiers opaquely without browser dialect quoting', async () => {
     const engine = bridgeCatalogMockEngine();
-    const queryBodies: string[] = [];
+    const queryBodies: unknown[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       const u = String(url);
       if (u.endsWith('/v1/health')) return healthResponse();
       const body = typeof init?.body === 'string' ? init.body : '';
       try {
-        queryBodies.push((JSON.parse(body) as { sql: string }).sql);
+        queryBodies.push(JSON.parse(body));
       } catch {
         // ignore
       }
@@ -955,10 +963,56 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
       label: '',
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: null,
-      tables: [{ name: 'has"quote', rowCap: 100 }],
+      tables: [{ name: '"PROD"."FINANCE"."has""quote"', rowCap: 100 }],
       fetchImpl,
     });
-    expect(queryBodies[0]).toBe('SELECT * FROM "has""quote" LIMIT 100');
+    expect(queryBodies[0]).toEqual({
+      qualified_name: '"PROD"."FINANCE"."has""quote"',
+      row_limit: 100,
+    });
+  });
+
+  it('preserves an opaque qualified name through save, parse, and remount', async () => {
+    const qualifiedName = '  "PROD"."SALES"."ORDERS"  ';
+    const queryBodies: unknown[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if (String(url).endsWith('/v1/health')) return healthResponse();
+      queryBodies.push(JSON.parse(String(init?.body)));
+      return arrowResponse();
+    };
+    const source = await mountComputeBridgeCatalog(bridgeCatalogMockEngine() as never, {
+      label: 'warehouse',
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      tables: [{ name: qualifiedName, localName: 'orders', rowCap: 500 }],
+      fetchImpl,
+    });
+    const saved = serialize({
+      notebookName: 'bridge-roundtrip',
+      sources: [source],
+      assignments: {},
+      cells: [],
+      autoAcceptThreshold: 0.8,
+    });
+    const persisted = parse(JSON.stringify(saved)).sources[0]?.bridge_catalog;
+    expect(persisted?.tables[0]?.name).toBe(qualifiedName);
+
+    await mountComputeBridgeCatalog(bridgeCatalogMockEngine() as never, {
+      label: 'warehouse',
+      bridgeUrl: persisted?.bridge_url ?? '',
+      bearerToken: null,
+      tables:
+        persisted?.tables.map((table) => ({
+          name: table.name,
+          localName: table.local_name,
+          rowCap: table.row_cap,
+        })) ?? [],
+      fetchImpl,
+    });
+    expect(queryBodies).toEqual([
+      { qualified_name: qualifiedName, row_limit: 500 },
+      { qualified_name: qualifiedName, row_limit: 500 },
+    ]);
   });
 
   it('records partial failures but still mounts the successful tables', async () => {

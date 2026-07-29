@@ -2961,7 +2961,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
           await client.health({
             requiredCapabilities: [
               BRIDGE_CAPABILITIES.tables,
-              BRIDGE_CAPABILITIES.query,
+              BRIDGE_CAPABILITIES.tableQuery,
               BRIDGE_CAPABILITIES.arrowIpc,
             ],
             signal,
@@ -3239,9 +3239,10 @@ async function doApplyLoadedFile(
       }
     } else if (ps.kind === 'compute-bridge-catalog' && ps.bridge_catalog) {
       // Wave 3 W3.4b — re-mount a Compute Bridge catalog. Each picked
-      // table re-runs as SELECT * FROM <name> LIMIT <cap> against the
-      // bridge so fresh data is pulled. Bearer token (if required) is
-      // looked up via source-secrets; missing or unreachable → reconnect.
+      // table re-runs through the bridge's structured table-query endpoint so
+      // fresh data is pulled without browser-side vendor identifier quoting.
+      // Bearer token (if required) is looked up via source-secrets; missing or
+      // unreachable → reconnect.
       try {
         const bearerToken = ps.bridge_catalog.requires_bearer
           ? await loadSecret(ps.id, 'bearer_token')

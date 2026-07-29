@@ -12,7 +12,7 @@
     "fmt": "biome format --write src tests eval",
     "lint": "biome lint src tests eval",
     "test": "vitest run",
-    "warehouse:conformance": "vitest run tests/warehouse-conformance.test.ts --reporter=verbose",
+    "warehouse:conformance": "vitest run tests/warehouse-conformance.test.ts tests/warehouse-bridge-conformance.test.ts --reporter=verbose",
     "warehouse:iceberg-candidate": "node scripts/probe-duckdb-iceberg-candidate.mjs",
     "test:e2e": "npm run build && npx playwright test --config tests/e2e/playwright.config.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",

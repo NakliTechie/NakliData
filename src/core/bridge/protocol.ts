@@ -1,14 +1,18 @@
 /** Stable browser ↔ Compute Bridge protocol identity. */
 export const BRIDGE_PROTOCOL_ID = 'naklidata-compute-bridge';
-export const BRIDGE_PROTOCOL_VERSION = 1;
+export const BRIDGE_PROTOCOL_VERSION = 2;
 
 export const BRIDGE_CAPABILITIES = {
   arrowIpc: 'arrow-ipc',
   query: 'query',
+  tableQuery: 'table-query',
   tables: 'tables',
 } as const;
 
 export type BridgeCapability = (typeof BRIDGE_CAPABILITIES)[keyof typeof BRIDGE_CAPABILITIES];
+
+export const BRIDGE_QUERY_ROW_CAP_DEFAULT = 100_000;
+export const BRIDGE_QUERY_ROW_CAP_MAX = 1_000_000;
 
 export interface BridgeHealth {
   protocol: typeof BRIDGE_PROTOCOL_ID;
@@ -28,7 +32,7 @@ export interface BridgeColumn {
 export interface BridgeTable {
   /** Leaf object name, suitable for compact display. */
   name: string;
-  /** Opaque server-side identifier used in generated bridge SQL. */
+  /** Opaque server-side identifier returned unchanged to `/v1/table-query`. */
   qualifiedName: string;
   /** Top-level catalog, when the bridge exposes one. */
   catalog: string | null;
@@ -42,6 +46,10 @@ export interface BridgeTable {
 
 export interface BridgeRequestOptions {
   signal?: AbortSignal;
+}
+
+export interface BridgeQueryOptions extends BridgeRequestOptions {
+  rowLimit?: number;
 }
 
 export interface BridgeHealthOptions extends BridgeRequestOptions {

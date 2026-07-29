@@ -1,10 +1,11 @@
 # Warehouse readiness
 
 Status: the portable Iceberg REST control plane, opaque in-memory
-credential-lease boundary, vendor-shaped fixtures, browser-proven S3/GCS
-DuckDB target, and current Databricks/Snowflake semantic-model compatibility
-accounting are implemented. This is not a claim of live Databricks or
-Snowflake compatibility. Both branded entry points remain disabled.
+credential-lease boundary, vendor-shaped catalog and Compute Bridge fixtures,
+browser-proven S3/GCS DuckDB target, and current Databricks/Snowflake
+semantic-model compatibility accounting are implemented. This is not a claim
+of live Databricks or Snowflake compatibility. Both branded entry points remain
+disabled.
 
 ## Next implementation boundary
 
@@ -15,8 +16,9 @@ A checked-in DuckDB target implements serialized, transactional temporary
 secrets for S3 session credentials and GCS OAuth bearer tokens. It rejects
 ADLS because the reviewed WASM candidate has no Azure extension artifact.
 
-The next checkpoint is a checked-in bounded storage-read target. A no-install
-spike selected stable `@duckdb/duckdb-wasm` 1.32.0 (DuckDB v1.4.3) and proved
+The remaining local Iceberg checkpoint is integrating that target with an
+authorized runtime migration. A no-install spike selected stable
+`@duckdb/duckdb-wasm` 1.32.0 (DuckDB v1.4.3) and proved
 same-origin, dependency-complete Iceberg reads over both EH and MVP variants in
 real Chromium. The public-fixture probe returned the same five rows with zero
 console errors. `npm run warehouse:iceberg-candidate` now repeats the proof
@@ -45,8 +47,69 @@ refresh behavior, and storage reads still need user-supplied test endpoints and
 credentials.
 
 Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
-separate packaged Compute Bridge concern; success on the Iceberg REST path must
-not enable or imply either bridge.
+separate packaged Compute Bridge concern. The browser contract is now hardened
+and exercised with credential-free vendor-shaped fixtures, but success on
+either the fixtures or the Iceberg REST path must not enable or imply a live
+bridge. See
+[`compute-bridge-protocol.md`](compute-bridge-protocol.md).
+
+## Direct warehouse Compute Bridge matrix
+
+Protocol version 2 now proves locally that:
+
+1. direct SQL is rejected unless it is a single read-only statement;
+2. every direct and catalog request carries an explicit row cap;
+3. a complete vendor `qualified_name` is returned opaquely to the bridge rather
+   than browser-quoted as one identifier;
+4. the catalog flow requires the structured `table-query` capability;
+5. browser cancellation reaches the HTTP request;
+6. successful data must be Arrow IPC under the existing byte/deadline ceiling;
+7. errors are bounded/redacted and public client results contain no bearer
+   value; and
+8. credential-free fixture success leaves Databricks/Snowflake source cards
+   absent.
+
+Those checks do not prove a server-side adapter. Any packaged bridge must
+independently enforce read-only access with a warehouse role that cannot write,
+honor row/byte/time ceilings, cancel the downstream vendor statement when the
+browser disconnects, and poll to a terminal cancellation state.
+
+### Databricks SQL Warehouse adapter
+
+A safe live adapter must additionally prove:
+
+1. configured `warehouse_id`, catalog, and schema context;
+2. Statement Execution API submit, status polling, and terminal cancellation;
+3. vendor row/byte ceilings in addition to the bridge cap;
+4. `ARROW_STREAM` or external-link result handling, with no Databricks
+   Authorization header sent to signed external URLs;
+5. bounded Arrow IPC returned to the browser;
+6. expired/invalid token behavior and redacted vendor errors; and
+7. read-only warehouse permissions and zero remote writes.
+
+References:
+
+- [Databricks Statement Execution API](https://docs.databricks.com/api/workspace/statementexecution)
+- [Databricks execute statement](https://docs.databricks.com/api/gcp/workspace/statementexecution/executestatement)
+- [Databricks cancel execution](https://docs.databricks.com/api/workspace/statementexecution/cancelexecution)
+
+### Snowflake Virtual Warehouse adapter
+
+A safe live adapter must additionally prove:
+
+1. configured database, schema, warehouse, and role context;
+2. SQL API asynchronous submit, status polling, and terminal cancellation;
+3. OAuth, key-pair, or programmatic-token handling entirely bridge-side;
+4. retrieval of every bounded JSONv2 partition and deterministic Arrow IPC
+   conversion;
+5. expired/invalid token behavior and redacted vendor errors; and
+6. read-only role permissions and zero remote writes.
+
+References:
+
+- [Snowflake SQL API reference](https://docs.snowflake.com/en/developer-guide/sql-api/reference)
+- [Snowflake response handling](https://docs.snowflake.com/en/en/developer-guide/sql-api/handling-responses)
+- [Snowflake request cancellation](https://docs.snowflake.com/en/en/developer-guide/sql-api/cancelling-requests)
 
 ## Databricks Unity Catalog matrix
 

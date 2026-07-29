@@ -292,7 +292,7 @@ function tokenize(sql: string): { tokens: Token[]; error: string | null } {
     // Word (identifier / keyword / number)
     if (/[A-Za-z_0-9]/.test(c)) {
       let j = i;
-      while (j < n && /[A-Za-z_0-9.]/.test(sql[j] as string)) j++;
+      while (j < n && /[A-Za-z_0-9]/.test(sql[j] as string)) j++;
       const text = sql.slice(i, j);
       pushIdent(text, text.toLowerCase(), false);
       i = j;
@@ -368,7 +368,7 @@ export function validateReadOnlySql(sql: string, opts: ValidateOptions = {}): Va
     if (isKeywordCandidate(t) && t.word !== null && FORBIDDEN_KEYWORDS.has(t.word)) {
       return {
         ok: false,
-        reason: `Rejected: "${t.word.toUpperCase()}" is not allowed — the agent may only run read-only SELECT queries, not writes, DDL, PRAGMA, or session statements.`,
+        reason: `Rejected: "${t.word.toUpperCase()}" is not allowed — only read-only queries are permitted, not writes, DDL, PRAGMA, or session statements.`,
       };
     }
   }
@@ -671,13 +671,22 @@ function validateTableRef(
     return { ok: true, next: skipAlias(body, skipParens(body, p)) };
   }
   if (isNameToken(tok) && tok.word !== null) {
-    if (body[p + 1]?.text === '(') {
+    let next = p + 1;
+    let name = lastSegment(tok.word);
+    while (body[next]?.text === '.') {
+      const part = body[next + 1];
+      if (!part || !isNameToken(part) || part.word === null) {
+        return { ok: false, reason: 'Rejected: malformed qualified table name.' };
+      }
+      name = part.word;
+      next += 2;
+    }
+    if (body[next]?.text === '(') {
       return {
         ok: false,
-        reason: `Rejected: the table function "${tok.word}(…)" can read outside the mounted schema and is not allowed. Query a mounted table by name instead.`,
+        reason: `Rejected: the table function "${name}(…)" can read outside the mounted schema and is not allowed. Query a mounted table by name instead.`,
       };
     }
-    const name = lastSegment(tok.word);
     if (!cteNames.has(name)) {
       if (allowed && !allowed.has(name)) {
         return {
@@ -687,7 +696,7 @@ function validateTableRef(
       }
       refs.push(name);
     }
-    return { ok: true, next: skipAlias(body, p + 1) };
+    return { ok: true, next: skipAlias(body, next) };
   }
   return { ok: false, reason: `Rejected: unexpected token "${tok.text}" in table position.` };
 }

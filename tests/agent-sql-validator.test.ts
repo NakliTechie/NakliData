@@ -53,6 +53,12 @@ describe('validateReadOnlySql — accepts read queries', () => {
   });
   it('schema-qualified names scope on the final segment', () => {
     ok('SELECT * FROM main.orders', { allowedTables: new Set(['orders']) });
+    ok('SELECT * FROM "ANALYTICS"."PUBLIC"."ORDERS"', {
+      allowedTables: new Set(['orders']),
+    });
+    ok('SELECT * FROM main.analytics.`orders`', {
+      allowedTables: new Set(['orders']),
+    });
   });
 });
 
@@ -194,6 +200,8 @@ describe('validateReadOnlySql — adversarial bypasses (2026-07-24 review)', () 
     rejected("SELECT system.main.read_blob('/etc/passwd') FROM orders", allowed);
     rejected("SELECT main.read_text('/etc/hosts') FROM orders", allowed);
     rejected("SELECT * FROM main.read_csv('/etc/passwd')", allowed);
+    rejected(`SELECT * FROM "SYSTEM"."unknown_scan"("https://example.test/private")`);
+    rejected('SELECT * FROM main.analytics.`unknown_scan`("https://example.test/private")');
   });
 
   // False positives the review flagged — these are legitimate reads that MUST pass.

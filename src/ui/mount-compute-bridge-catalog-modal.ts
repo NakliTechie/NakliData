@@ -104,9 +104,8 @@ function renderModal(handlers: MountComputeBridgeCatalogHandlers): HTMLElement {
         </label>
         <p class="mount-url-hint">
           Connect lists the tables the bridge exposes; pick any subset to
-          copy into this browser. Each selected table is capped at the row limit
-          configured by the bridge, so only a bounded result crosses from your
-          VPC.
+          copy into this browser. Each uses the row cap below, which a
+          conformant bridge must enforce before Arrow bytes cross from your VPC.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">

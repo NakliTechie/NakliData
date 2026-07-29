@@ -39,7 +39,7 @@ no NakliData relay. CORS or signed-URL access still applies.
 - **Advanced BYO Compute Bridge client** — use only with your own compatible
   endpoint. NakliData ships no bridge server, image, installer, or branded
   warehouse adapter. A bounded Arrow result is registered locally. Protocol:
-  [`plan/compute-bridge-protocol.md`](../plan/compute-bridge-protocol.md).
+  [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 
 **Unavailable in this build:** Iceberg table-by-URL and Iceberg REST Catalog
 entry points remain disabled until real endpoint smoke tests pass.
