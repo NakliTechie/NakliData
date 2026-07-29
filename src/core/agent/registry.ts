@@ -59,8 +59,10 @@ export interface DescribedColumn {
   sqlType: string;
   /** Taxonomy type id (the ~193-type semantic layer), or null if unclassified. */
   typeId: string | null;
-  /** Sensitivity tier — the redaction axis. */
-  sensitivity: 'public' | 'pii' | 'financial' | 'secret';
+  /** Sensitivity tier — the redaction axis. `unclassified` means no semantic
+   *  type proves the column public; `unavailable` means the sensitivity layer
+   *  did not load. Both states fail closed for values and ranges. */
+  sensitivity: 'public' | 'pii' | 'financial' | 'secret' | 'unclassified' | 'unavailable';
   /** Canonical universal-term id, if the column maps to one. */
   universalTerm: string | null;
   /** Fraction of rows that are NULL, 0..1 (a shape stat, not a value — always
@@ -226,7 +228,7 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
     {
       name: 'query',
       description:
-        'Run a READ-ONLY SQL query against the mounted tables and return rows. The query passes a strict validator first (SELECT-only, scoped to mounted tables, no writes/DDL/file access); columns whose sensitivity tier is not public are redacted in the output.',
+        'Run a bounded READ-ONLY SQL query and return direct columns from one mounted table. Aliases, expressions, CTEs, joins, and ambiguous projections are refused until their value provenance can be proven. The sensitivity layer must be available; non-public and unclassified values are redacted.',
       inputSchema: {
         type: 'object',
         properties: { sql: { type: 'string', description: 'A single read-only SQL SELECT.' } },

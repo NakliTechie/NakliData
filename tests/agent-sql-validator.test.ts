@@ -6,7 +6,10 @@
 // would fall for.
 
 import { describe, expect, it } from 'vitest';
-import { validateReadOnlySql } from '../src/core/agent/sql-validator.ts';
+import {
+  validateAgentValueProjection,
+  validateReadOnlySql,
+} from '../src/core/agent/sql-validator.ts';
 
 const ok = (sql: string, opts?: Parameters<typeof validateReadOnlySql>[1]) => {
   const r = validateReadOnlySql(sql, opts);
@@ -214,5 +217,54 @@ describe('validateReadOnlySql — degenerate input', () => {
   it('rejects a non-query leading token', () => {
     rejected('EXPLAIN SELECT 1'); // EXPLAIN is not in the read-query starter set
     rejected('garbage tokens here');
+  });
+});
+
+describe('validateAgentValueProjection — fail-closed value provenance', () => {
+  const allowed = { allowedTables: new Set(['people', 'orders']) };
+  const valueOk = (sql: string) => {
+    const result = validateAgentValueProjection(sql, allowed);
+    if (!result.ok) throw new Error(`expected value-safe query: ${result.reason}`);
+    return result;
+  };
+  const valueRejected = (sql: string) => {
+    const result = validateAgentValueProjection(sql, allowed);
+    expect(result.ok).toBe(false);
+    return result as { ok: false; reason: string };
+  };
+
+  it('accepts SELECT * and direct columns from one table', () => {
+    expect(valueOk('SELECT * FROM people')).toEqual({
+      ok: true,
+      table: 'people',
+      columns: null,
+    });
+    expect(valueOk('SELECT DISTINCT name, "email" FROM people')).toEqual({
+      ok: true,
+      table: 'people',
+      columns: ['name', 'email'],
+    });
+  });
+
+  it('rejects aliases, expressions, aggregates, literals, and duplicate projections', () => {
+    expect(valueRejected('SELECT email AS e FROM people').reason).toMatch(/aliases|direct/i);
+    expect(valueRejected('SELECT upper(email) FROM people').reason).toMatch(/expressions|direct/i);
+    expect(valueRejected('SELECT count(*) FROM people').reason).toMatch(/expressions|direct/i);
+    expect(valueRejected("SELECT 'constant' FROM people").reason).toMatch(/direct/i);
+    expect(valueRejected('SELECT email, email FROM people').reason).toMatch(/more than once/i);
+  });
+
+  it('rejects CTEs, joins, subqueries, and non-SELECT read forms', () => {
+    expect(
+      valueRejected('WITH p AS (SELECT email FROM people) SELECT email FROM p').reason,
+    ).toMatch(/must use SELECT/i);
+    expect(valueRejected('SELECT people.email FROM people JOIN orders ON true').reason).toMatch(
+      /one mounted table/i,
+    );
+    expect(valueRejected('SELECT email FROM (SELECT email FROM people) p').reason).toMatch(
+      /subqueries|one mounted table/i,
+    );
+    expect(valueRejected('TABLE people').reason).toMatch(/must use SELECT/i);
+    expect(valueRejected('DESCRIBE people').reason).toMatch(/must use SELECT/i);
   });
 });

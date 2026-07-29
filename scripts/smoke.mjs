@@ -1545,7 +1545,13 @@ async function main() {
     const nd = window.naklidata;
     if (!nd) return { error: 'window.naklidata is not bound' };
     const tools = (await nd.listTools()).map((t) => t.name).sort();
-    const okQuery = await nd.query({ sql: 'SELECT 1 AS x, 2 AS y' });
+    const okQuery = await nd.query({ sql: 'SELECT endpoint FROM access_logs LIMIT 1' });
+    const sensitiveQuery = await nd.query({
+      sql: 'SELECT contact_email FROM vendors LIMIT 1',
+    });
+    const aliasQuery = await nd.query({
+      sql: 'SELECT contact_email AS e FROM vendors LIMIT 1',
+    });
     const write = await nd.query({ sql: 'DROP TABLE something' });
     const scoped = await nd.query({ sql: 'SELECT * FROM definitely_not_a_mounted_table' });
     const fileScan = await nd.query({ sql: "SELECT * FROM 'file:///etc/passwd'" });
@@ -1568,6 +1574,8 @@ async function main() {
       version: nd.version,
       tools,
       okQuery,
+      sensitiveQuery,
+      aliasRejected: aliasQuery.ok === false ? aliasQuery.error : '(NOT REJECTED)',
       writeRejected: write.ok === false ? write.error : '(NOT REJECTED)',
       scopedRejected: scoped.ok === false ? scoped.error : '(NOT REJECTED)',
       fileScanRejected: fileScan.ok === false ? fileScan.error : '(NOT REJECTED)',
@@ -1586,12 +1594,28 @@ async function main() {
     !(
       agent.okQuery.ok &&
       agent.okQuery.data.rows.length === 1 &&
-      agent.okQuery.data.rows[0].x === 1
+      typeof agent.okQuery.data.rows[0].endpoint === 'string' &&
+      !agent.okQuery.data.redactedColumns.includes('endpoint')
     )
   ) {
     fail(
       `agent surface: read query did not return the expected row (${JSON.stringify(agent.okQuery)})`,
     );
+  }
+  if (
+    !(
+      agent.sensitiveQuery.ok &&
+      agent.sensitiveQuery.data.rows.length === 1 &&
+      agent.sensitiveQuery.data.rows[0].contact_email === '[redacted:pii]' &&
+      agent.sensitiveQuery.data.redactedColumns.includes('contact_email')
+    )
+  ) {
+    fail(
+      `agent surface: direct sensitive value was not redacted (${JSON.stringify(agent.sensitiveQuery)})`,
+    );
+  }
+  if (agent.aliasRejected === '(NOT REJECTED)') {
+    fail('agent surface: an aliased sensitive projection was NOT rejected');
   }
   if (agent.writeRejected === '(NOT REJECTED)')
     fail('agent surface: a write query was NOT rejected');
@@ -1605,7 +1629,7 @@ async function main() {
     fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
   }
   log(
-    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · read query → 1 row · write + out-of-scope + file-scan all rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
+    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · direct public query → 1 row · direct PII redacted · aliased PII + write + out-of-scope + file-scan rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
 
   // 10k. Accessibility legibility (Chunk 6). A DOM/ARIA-driving agent (Operator,

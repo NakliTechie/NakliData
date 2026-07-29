@@ -33,7 +33,7 @@ import {
   buildAgentTools,
   dispatchAgentTool,
 } from '../core/agent/registry.ts';
-import { validateReadOnlySql } from '../core/agent/sql-validator.ts';
+import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import type { Engine } from '../core/engine.ts';
 import type { WorkbookState } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSensitivity } from '../taxonomy/types.ts';
@@ -65,14 +65,7 @@ export interface AgentSurfaceDeps {
   getBundle: () => TaxonomyBundle | null;
 }
 
-/** Sensitivity ranking — higher is stricter, so the "worst tier wins" when a
- *  column name maps to more than one classification. */
-const TIER_RANK: Record<TypeSensitivity, number> = { public: 0, financial: 1, pii: 2, secret: 3 };
-
-function stricter(a: TypeSensitivity | undefined, b: TypeSensitivity): TypeSensitivity {
-  if (!a) return b;
-  return TIER_RANK[b] > TIER_RANK[a] ? b : a;
-}
+type AgentColumnSensitivity = TypeSensitivity | 'unclassified' | 'unavailable';
 
 /**
  * Build the `AgentHost` — the capability surface the registry verbs orchestrate.
@@ -91,26 +84,6 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     return names;
   }
 
-  /** Lowercased column name → strictest non-public sensitivity tier across all
-   *  classified columns. Drives output redaction (0c). Empty when no sensitivity
-   *  layer is loaded (redaction then can't apply — describe flags this). */
-  function sensitiveColumns(): Map<string, TypeSensitivity> {
-    const map = new Map<string, TypeSensitivity>();
-    const b = bundle();
-    if (!b || !hasSensitivityLayer(b)) return map;
-    const { assignments } = workbook();
-    for (const key of Object.keys(assignments)) {
-      const a = assignments[key];
-      const typeId = a?.assigned?.typeId;
-      if (!a || !typeId) continue;
-      const tier = sensitivityForType(b, typeId);
-      if (tier === 'public') continue;
-      const col = a.columnName.toLowerCase();
-      map.set(col, stricter(map.get(col), tier));
-    }
-    return map;
-  }
-
   async function describe(): Promise<DescribeResult> {
     const b = bundle();
     const layerLoaded = b ? hasSensitivityLayer(b) : false;
@@ -127,9 +100,13 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
             const name = String(row.column_name);
             const a = assignments[assignmentKey(src.id, t.id, name)];
             const typeId = a?.assigned?.typeId ?? null;
-            const sensitivity: TypeSensitivity =
-              b && typeId ? sensitivityForType(b, typeId) : 'public';
             const term = b && typeId ? universalTermForType(b, typeId) : null;
+            const sensitivity: AgentColumnSensitivity =
+              !b || !hasSensitivityLayer(b)
+                ? 'unavailable'
+                : !typeId || !term
+                  ? 'unclassified'
+                  : sensitivityForType(b, typeId);
             return {
               name,
               sqlType: String(row.column_type),
@@ -253,26 +230,62 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
   async function query(sql: string): Promise<QueryResult> {
     const verdict = validateReadOnlySql(sql, { allowedTables: allowedTableNames() });
     if (!verdict.ok) throw new Error(verdict.reason);
+    const b = bundle();
+    if (!b || !hasSensitivityLayer(b)) {
+      throw new Error(
+        'Agent value query refused because the sensitivity layer is unavailable. Schema-only verbs remain available.',
+      );
+    }
+    const projection = validateAgentValueProjection(sql, {
+      allowedTables: allowedTableNames(),
+    });
+    if (!projection.ok) throw new Error(projection.reason);
+    const matchingTables = workbook().sources.flatMap((source) =>
+      source.tables
+        .filter((table) => table.name.toLowerCase() === projection.table)
+        .map((table) => ({ source, table })),
+    );
+    if (matchingTables.length !== 1) {
+      throw new Error(
+        `Agent value query refused because mounted table "${projection.table}" does not have unique ownership.`,
+      );
+    }
+    const owned = matchingTables[0];
+    if (!owned) throw new Error('Agent value query refused because its table is unavailable.');
 
-    // Row cap. SELECT/WITH wrap cleanly in a bounding subquery; the FROM-first /
-    // TABLE / VALUES / DESCRIBE forms run as-is and are sliced in JS.
-    const wrappable = /^\s*(select|with)\b/i.test(sql);
-    const runSql = wrappable
-      ? `SELECT * FROM (${sql}) AS _agent_scope LIMIT ${AGENT_QUERY_ROW_CAP}`
-      : sql;
+    const runSql = `SELECT * FROM (${sql}) AS _agent_scope LIMIT ${AGENT_QUERY_ROW_CAP}`;
     const raw = await deps.engine.query(runSql);
     const rows = raw.slice(0, AGENT_QUERY_ROW_CAP) as Array<Record<string, unknown>>;
     const columns = rows.length > 0 ? Object.keys(rows[0] as object) : [];
 
-    // Redact output columns whose name maps to a non-public classified column
-    // (0c). Name-based: over-redacts a same-named public column rather than
-    // under-redacting a sensitive one — the safer default.
-    const sensitive = sensitiveColumns();
-    const redactedColumns = columns.filter((c) => sensitive.has(c.toLowerCase()));
+    const assignmentPrefix = `${owned.source.id}::${owned.table.id}::`;
+    const tableAssignments = new Map(
+      Object.entries(workbook().assignments)
+        .filter(([key]) => key.startsWith(assignmentPrefix))
+        .map(([, assignment]) => [assignment.columnName.toLowerCase(), assignment]),
+    );
+    const projected = projection.columns ? new Set(projection.columns) : null;
+    const sensitivity = new Map<string, AgentColumnSensitivity>();
+    for (const column of columns) {
+      const sourceName = column.toLowerCase();
+      if (projected && !projected.has(sourceName)) {
+        throw new Error(
+          `Agent value query refused because output column "${column}" cannot be traced to its source projection.`,
+        );
+      }
+      const typeId = tableAssignments.get(sourceName)?.assigned.typeId ?? null;
+      const term = typeId ? universalTermForType(b, typeId) : null;
+      const tier: AgentColumnSensitivity =
+        typeId && term ? sensitivityForType(b, typeId) : 'unclassified';
+      sensitivity.set(sourceName, tier);
+    }
+    const redactedColumns = columns.filter(
+      (column) => sensitivity.get(column.toLowerCase()) !== 'public',
+    );
     if (redactedColumns.length > 0) {
       for (const row of rows) {
         for (const c of redactedColumns) {
-          const tier = sensitive.get(c.toLowerCase());
+          const tier = sensitivity.get(c.toLowerCase()) ?? 'unclassified';
           row[c] = `[redacted:${tier}]`;
         }
       }

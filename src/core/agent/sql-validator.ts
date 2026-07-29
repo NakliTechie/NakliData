@@ -49,6 +49,21 @@ export interface ValidateOptions {
   allowedTables?: ReadonlySet<string>;
 }
 
+export interface AgentValueProjectionOk {
+  ok: true;
+  /** The single mounted table whose direct values the query projects. */
+  table: string;
+  /** Null means `SELECT *`; otherwise the direct source-column names. */
+  columns: string[] | null;
+}
+
+export interface AgentValueProjectionErr {
+  ok: false;
+  reason: string;
+}
+
+export type AgentValueProjectionResult = AgentValueProjectionOk | AgentValueProjectionErr;
+
 /** Write / DML / DDL / session / extension keywords that could hide inside a
  *  read query — a DML CTE (`WITH x AS (DELETE … RETURNING *)`) or a subquery —
  *  and so are rejected as whole unquoted tokens ANYWHERE. Deliberately does NOT
@@ -384,6 +399,144 @@ export function validateReadOnlySql(sql: string, opts: ValidateOptions = {}): Va
   if (!scan.ok) return { ok: false, reason: scan.reason };
 
   return { ok: true, sql, tables: scan.refs };
+}
+
+/**
+ * Apply the stricter contract for agent queries that can return row values.
+ *
+ * The read-only validator proves that a statement cannot write or reach outside
+ * the mounted schema. This second guard proves VALUE PROVENANCE: only direct
+ * columns from one mounted table may cross the agent boundary. Expressions,
+ * aliases, CTEs, joins, subqueries, and duplicate projections are rejected
+ * until the product carries explicit result-column lineage.
+ */
+export function validateAgentValueProjection(
+  sql: string,
+  opts: ValidateOptions = {},
+): AgentValueProjectionResult {
+  const readOnly = validateReadOnlySql(sql, opts);
+  if (!readOnly.ok) return readOnly;
+
+  const { tokens, error } = tokenize(sql);
+  if (error) return { ok: false, reason: `Could not parse the query (${error}).` };
+  const body = tokens.filter((t) => t.text !== ';');
+  const first = body[0];
+  if (!first || !isKeywordCandidate(first) || first.word !== 'select') {
+    return {
+      ok: false,
+      reason:
+        'Agent value queries must use SELECT with direct columns from one mounted table. CTE, TABLE, VALUES, FROM-first, and DESCRIBE forms are not value-safe yet.',
+    };
+  }
+
+  let depth = 0;
+  let fromIndex = -1;
+  for (let i = 1; i < body.length; i++) {
+    const token = body[i];
+    if (!token) continue;
+    if (token.text === '(') {
+      depth++;
+      continue;
+    }
+    if (token.text === ')') {
+      depth--;
+      continue;
+    }
+    if (token.word === 'select') {
+      return {
+        ok: false,
+        reason:
+          'Agent value queries cannot contain subqueries or CTEs until result-column provenance is available.',
+      };
+    }
+    if (depth === 0 && isKeywordCandidate(token) && token.word === 'from') {
+      fromIndex = i;
+      break;
+    }
+  }
+  if (fromIndex < 0) {
+    return {
+      ok: false,
+      reason: 'Agent value queries must read direct columns from one mounted table.',
+    };
+  }
+
+  const tableToken = body[fromIndex + 1];
+  if (
+    !tableToken ||
+    !isNameToken(tableToken) ||
+    tableToken.word === null ||
+    body[fromIndex + 2]?.text === '('
+  ) {
+    return {
+      ok: false,
+      reason:
+        'Agent value queries must read from one mounted table, not a subquery or table function.',
+    };
+  }
+  const table = lastSegment(tableToken.word);
+  if (readOnly.tables.length !== 1 || readOnly.tables[0] !== table) {
+    return {
+      ok: false,
+      reason:
+        'Agent value queries may read only one mounted table and cannot use joins or additional table references.',
+    };
+  }
+
+  // The projection must be either `*` or a comma-separated list of direct
+  // identifiers. Parentheses/operators/literals/aliases all make a segment
+  // longer than one token and are therefore refused.
+  let projection = body.slice(1, fromIndex);
+  if (projection[0]?.word === 'distinct' && isKeywordCandidate(projection[0])) {
+    projection = projection.slice(1);
+  }
+  if (projection.length === 1 && projection[0]?.text === '*') {
+    return { ok: true, table, columns: null };
+  }
+  if (projection.length === 0 || projection.some((t) => t.text === '(' || t.text === ')')) {
+    return {
+      ok: false,
+      reason:
+        'Agent value queries may project only direct source columns; expressions and aggregates are not value-safe yet.',
+    };
+  }
+
+  const segments: Token[][] = [[]];
+  for (const token of projection) {
+    if (token.text === ',') {
+      segments.push([]);
+    } else {
+      segments[segments.length - 1]?.push(token);
+    }
+  }
+  const columns: string[] = [];
+  const seen = new Set<string>();
+  for (const segment of segments) {
+    const token = segment[0];
+    if (
+      segment.length !== 1 ||
+      !token ||
+      !isNameToken(token) ||
+      token.word === null ||
+      (!token.isQuotedIdent && !/^[A-Za-z_]/.test(token.text))
+    ) {
+      return {
+        ok: false,
+        reason:
+          'Agent value queries may project only direct source columns without aliases or expressions.',
+      };
+    }
+    const column = lastSegment(token.word);
+    if (seen.has(column)) {
+      return {
+        ok: false,
+        reason: `Agent value query projects "${column}" more than once, so its output provenance is ambiguous.`,
+      };
+    }
+    seen.add(column);
+    columns.push(column);
+  }
+  return { ok: true, table, columns };
 }
 
 /** Names introduced by `WITH name AS (…)`, `WITH name (cols) AS (…)`, and

@@ -25,7 +25,7 @@ message). All verbs are async.
 | `describe()` | read | no | Every table + column with **semantic type, sensitivity tier, universal term, null %, cardinality, and (public columns only) min/max range**, plus source provenance and a versioned envelope. No values — this is the grounding, redacted by design. |
 | `listTables()` | read | no | Lightweight table index (row/column counts). |
 | `listCells()` | read | no | Notebook cells (id, kind, name, code). Never results. |
-| `query(sql)` | read | no | Runs a **read-only** SQL SELECT and returns rows. See the safety model below. Non-public columns are redacted in the output. Capped at 1000 rows. |
+| `query(sql)` | read | no | Runs a bounded **read-only** SQL SELECT that projects direct columns from one mounted table. See the safety model below. Non-public and unclassified columns are redacted. Capped at 1000 rows. |
 | `proposeCell(sql)` | write | **yes** | Adds an **un-run** SQL cell for the human to review and run. Returns `{ id, sql, editable: true }`. |
 | `runCell(id)` | write | **yes** | Runs an existing cell. |
 
@@ -35,15 +35,22 @@ sees the same verbs.
 
 ### The safety model (what `query` enforces)
 
-Every SQL string passes a read-only validator **before** the engine sees it:
+Every SQL string passes two guards **before** the engine sees it:
 
-- Only a **single read-only statement** — SELECT / WITH / FROM-first / VALUES /
-  TABLE / DESCRIBE. Any write, DDL, PRAGMA, ATTACH, COPY, INSTALL, or session
-  statement is rejected — including one buried in a CTE or subquery.
+- Only a **single read-only SELECT**. Any write, DDL, PRAGMA, ATTACH, COPY,
+  INSTALL, or session statement is rejected.
 - Every table position must be a **mounted table** (or a subquery). A string
   literal there (a file/URL scan) or a table function (`read_csv`,
   `parquet_metadata`, `sqlite_scan`, …) is rejected.
-- Output columns whose **sensitivity tier is not public** are redacted.
+- Value provenance must be direct and unambiguous: one mounted table, direct
+  source columns, and no aliases, expressions, aggregates, CTEs, joins,
+  subqueries, or duplicate projections.
+- The sensitivity layer must be loaded. Output columns whose tier is not public,
+  or whose semantic type is unclassified/unmapped, are redacted.
+
+The deliberately narrow value contract keeps schema and semantic grounding
+available while refusing a projection whose source cannot be proven. Derived
+values can expand later when result-column lineage is explicit.
 
 Rejections are loud (`{ ok: false, error }`), never silent. **Writes are your
 proposal; the human runs them** — `proposeCell` and `runCell` are off unless the
