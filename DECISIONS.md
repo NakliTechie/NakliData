@@ -2,6 +2,57 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 2A: transactional source refresh (EP)
+
+### Decision EP-1 — source IDs are the persisted lineage and refresh identity
+
+- **Context.** Mounted assignments and refresh fingerprints used stable source
+  IDs, while lineage source edges used SQL table names. A changed `src_*` node
+  therefore had no path to cells linked from `orders`, and saved pre-fix
+  lineage graphs retained the mismatch.
+- **Decision.** Resolve every mounted table input to its owning `source.id`
+  when recording lineage. Migrate legacy table-name source edges after
+  workspace restore and before a change check. Keep ad-hoc relations keyed by
+  table name only when no unique mounted owner exists.
+- **Consequence.** Mounts, persistence, lineage, fingerprint maps, and cascade
+  tests now share one identity. Old `.naklidata` files gain the corrected graph
+  without requiring the user to rerun every cell first.
+
+### Decision EP-2 — changed bytes stage first and live relations swap in one transaction
+
+- **Context.** The old action reran cells against the already-mounted bytes and
+  persisted fingerprints before learning whether a query succeeded. Folder
+  additions/removals and URL changes therefore could not produce a trustworthy
+  refreshed result.
+- **Decision.** Read every changed FSA-folder/HTTP source into collision-safe
+  staging relations. Reconcile stable table IDs by origin, then use one DuckDB
+  transaction to materialize replacements under their persisted names and
+  remove disappeared relations. Publish workbook metadata only after commit;
+  clean staging relations on success or rollback. First observations are
+  baselines immediately, while changed baselines advance only after remount and
+  every dependency-ordered rerun succeeds.
+- **Consequence.** A parse/read/swap failure leaves live relations and the old
+  baseline intact. A later cell failure may leave newly computed in-memory
+  results visible, but the old baseline deliberately forces the next check to
+  propose the source change again. No background polling was introduced.
+
+### Decision EP-3 — refresh and downstream actions consume discriminated run outcomes
+
+- **Context.** `Notebook.runCell()` caught its own errors and returned `void`,
+  so refresh and report actions incremented success counts or showed completion
+  even when the cell ended in `status: error`.
+- **Decision.** Return `success`, `failure`, `cancelled`, or `not-runnable`.
+  Refresh stops on every non-success; scoped report refresh and correlation
+  graph creation also refuse to announce success. Affected refresh cells are
+  filtered through whole-notebook topological order, with unmatched stale IDs
+  appended so they fail closed instead of disappearing.
+- **Consequence.** User-facing outcomes match cell state. Coverage locks the
+  first-baseline path, validator-less HTTP behavior, legacy identity migration,
+  transactional SQL rollback, failed-baseline retention, and baseline → changed
+  bytes → remount → ordered result change. Gate at documentation time:
+  **1,448 vitest**, **SMOKE PASSED**, bundle **770,422 / 786,432 bytes**
+  (15.6 KiB headroom); the final static check runs after documentation.
+
 ## 2026-07-29 — Goal Phase 1B: fail-closed result exports (EO)
 
 ### Decision EO-1 — direct projection is the first result-provenance contract

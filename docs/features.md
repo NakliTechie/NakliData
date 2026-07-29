@@ -101,9 +101,12 @@ Every SQL result carries one-click actions:
   emits a reproducible `CASE WHEN … END AS "col__merged"` SQL cell.
 - **Suggest a chart** — asks the sidecar for a strict JSON chart config (no prose;
   columns validated against the result), materialised as a chart cell.
-- **Check for source updates** (Refresh) — a single change-detection sweep (FSA
-  folders re-fingerprint; HTTP URLs HEAD-probe) showing which sources changed and
-  which cells are downstream; re-run the stale cells on click. No background polling.
+- **Check source changes** — a user-initiated change-detection sweep (FSA
+  metadata fingerprint; HTTP ETag/Last-Modified/Content-Length) showing changed,
+  affected, uncheckable, and first-baseline sources. Confirming stages and
+  atomically remounts changed bytes, then re-runs dependent cells in topological
+  order. The new baseline is accepted only after every step succeeds. No
+  background polling.
 - **Cell lineage** — a panel answering "where does this number come from?", built
   by walking the DuckDB `EXPLAIN (FORMAT JSON)` plan (CTEs shadow tables correctly).
   List view + a hand-rolled SVG (sources / cells / sinks); persists into `.naklidata`.
