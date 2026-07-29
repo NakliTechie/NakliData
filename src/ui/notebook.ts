@@ -191,7 +191,10 @@ export class Notebook {
         order,
         name: null,
         inputCell: null,
+        mapMode: 'geometry',
         geometryCol: null,
+        latitudeCol: null,
+        longitudeCol: null,
         colorBy: null,
       } satisfies MapCellState;
     } else if (kind === 'embedding') {

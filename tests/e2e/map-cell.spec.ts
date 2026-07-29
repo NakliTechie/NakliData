@@ -8,6 +8,9 @@ async function waitForEngineReady(page: Page): Promise<void> {
     null,
     { timeout: 90_000 },
   );
+  await page.waitForSelector('.help-overlay', { timeout: 15_000 });
+  await page.click('.help-overlay [data-close]');
+  await page.waitForFunction(() => document.querySelector('.help-overlay') === null);
 }
 
 test.describe('map cell (Theme 2 wave 4)', () => {
@@ -196,6 +199,81 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
       null,
       { timeout: 5_000 },
     );
+
+    await context.close();
+    await server.close();
+  });
+
+  test('recognized latitude and longitude auto-bind with invalid rows disclosed', async ({
+    browser,
+  }) => {
+    const server = await startStaticServer();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    await page.goto(`${server.url}/index.html?offline=1`);
+    await waitForEngineReady(page);
+    await page.click('[data-action="browse-examples"]');
+    await page.waitForFunction(
+      () => document.querySelectorAll('.schema-column').length >= 10,
+      null,
+      { timeout: 60_000 },
+    );
+
+    await page.evaluate(() => {
+      const sqlCell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
+      if (!sqlCell) throw new Error('SQL cell not found');
+      const code = `SELECT 40.7128::DOUBLE AS latitude, -74.0060::DOUBLE AS longitude, 'New York' AS city
+UNION ALL SELECT 12.9716, 77.5946, 'Bengaluru'
+UNION ALL SELECT 100.0, 0.0, 'Invalid latitude'`;
+      const ta = sqlCell.querySelector<HTMLTextAreaElement>('textarea');
+      const cm = sqlCell.querySelector<HTMLElement>('.cm-content');
+      if (ta) {
+        ta.value = code;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (cm) {
+        cm.textContent = code;
+        cm.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    await page.click('[data-nb-action="run-all"]');
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll('.cell[data-cell-kind="sql"] .result-table tbody tr').length ===
+        3,
+      null,
+      { timeout: 30_000 },
+    );
+    await page.click('[data-nb-action="add-map"]');
+
+    const sqlId = await page.evaluate(
+      () => document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]')?.dataset.cellId,
+    );
+    await page.evaluate((id) => {
+      const select = document.querySelector<HTMLSelectElement>(
+        '.cell[data-cell-kind="map"] [data-action="map-input"]',
+      );
+      if (!select) throw new Error('map-input select not found');
+      select.value = id ?? '';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }, sqlId);
+
+    const map = page.locator('.cell[data-cell-kind="map"]');
+    await expect(map.locator('[data-action="map-mode"]')).toHaveValue('coordinates');
+    await expect(map.locator('[data-action="map-latitude"]')).toHaveValue('latitude');
+    await expect(map.locator('[data-action="map-longitude"]')).toHaveValue('longitude');
+    await page.waitForFunction(
+      () => document.querySelector('.cell[data-cell-kind="map"] canvas') !== null,
+      null,
+      { timeout: 15_000 },
+    );
+    await expect(map.locator('[data-region="map-canvas"]')).toHaveAttribute(
+      'aria-label',
+      /2 geographic features.*1 row omitted/,
+    );
+    expect(pageErrors).toEqual([]);
 
     await context.close();
     await server.close();

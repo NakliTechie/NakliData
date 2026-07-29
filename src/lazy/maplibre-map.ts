@@ -14,6 +14,7 @@
 // declaration shim; not worth it for the minimal-controls map.
 
 import maplibre from 'maplibre-gl';
+import { loadChunk } from '../core/lazy-loader.ts';
 import { MapSeries, Neutral } from '../tokens/colors.ts';
 
 export type MapBasemap = 'none' | 'osm';
@@ -32,6 +33,8 @@ export interface MapRenderOpts {
    * instead (W2.6). Polygon + line layers still render natively.
    */
   skipNativePoints?: boolean;
+  /** Attach the lazy deck.gl point overlay after MapLibre's GL context loads. */
+  deckGlPoints?: boolean;
 }
 
 export interface MapHandle {
@@ -93,6 +96,7 @@ export function mountMap({
   colorBy,
   basemap,
   skipNativePoints,
+  deckGlPoints,
 }: MapRenderOpts): MapHandle {
   const features = data.type === 'FeatureCollection' ? data.features : [data];
   const collection: GeoJSON.FeatureCollection = {
@@ -183,7 +187,41 @@ export function mountMap({
     }
   });
 
-  return { destroy: () => map.remove(), map };
+  let overlayDestroy: (() => void) | null = null;
+  let destroyed = false;
+  if (deckGlPoints) {
+    // Attach only after MapLibre owns a live GL context.
+    map.on('load', () => {
+      void loadChunk('deckgl')
+        .then((deck) => {
+          if (destroyed) return;
+          const overlay = deck.mountDeckGlPoints({
+            map: map as unknown as {
+              addControl: (control: unknown) => unknown;
+              removeControl: (control: unknown) => unknown;
+            },
+            features,
+            colorBy: colorBy ?? null,
+          });
+          overlayDestroy = overlay.destroy;
+        })
+        .catch((err) => {
+          console.warn(
+            '[naklidata-map] deck.gl overlay failed; the native point layer is suppressed at this density',
+            err,
+          );
+        });
+    });
+  }
+
+  return {
+    destroy: () => {
+      destroyed = true;
+      overlayDestroy?.();
+      map.remove();
+    },
+    map,
+  };
 }
 
 function extendBounds(bounds: maplibre.LngLatBounds, geom: GeoJSON.Geometry | null): void {

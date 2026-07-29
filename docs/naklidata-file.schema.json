@@ -261,7 +261,10 @@
           "properties": {
             "kind": { "const": "map" },
             "inputCell": { "type": ["string", "null"] },
+            "mapMode": { "enum": ["geometry", "coordinates"] },
             "geometryCol": { "type": ["string", "null"] },
+            "latitudeCol": { "type": ["string", "null"] },
+            "longitudeCol": { "type": ["string", "null"] },
             "colorBy": { "type": ["string", "null"] }
           }
         }

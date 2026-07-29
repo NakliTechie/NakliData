@@ -114,6 +114,26 @@ Append-only. Format per AGENTHANDOFF §5.
   alias collisions, and silent fine-grained format loss; all are fixed with
   adversarial tests. Live deployment remains outside this adapter.
 
+### Decision FA-6 — recognized coordinate pairs are first-class map bindings
+
+- **Context.** The Airbnb muster classified `latitude` and `longitude` at full
+  confidence, but Map cells accepted only one geometry column. Users had to
+  discover and write a GeoJSON conversion even though the product already knew
+  the two fields were geographic coordinates.
+- **Decision.** Add explicit geometry and direct-coordinate modes. Auto-bind
+  only exact taxonomy-compatible latitude/longitude headers with at least one
+  jointly valid pair; allow manual binding; enforce latitude −90…90 and
+  longitude −180…180 per row; omit and disclose invalid pairs; and preserve
+  the existing GeoJSON path. Persist the mode and both columns additively,
+  migrating older map cells to geometry mode. Keep row preparation and
+  high-volume map orchestration behind lazy chunks.
+- **Consequence.** Common warehouse/CSV coordinate columns now render directly
+  without weakening the distinction between geographic maps and arbitrary x/y
+  projections. Three focused Chromium cases cover both modes and invalid
+  inputs; focused unit/persistence tests cover inference and migration. The
+  inlined shell is **767.2 / 768.0 KB** after moving map work behind the lazy
+  boundary.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

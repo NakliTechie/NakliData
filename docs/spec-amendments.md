@@ -47,6 +47,7 @@ The original spec stays authoritative for everything not listed here.
 | [A42](#a42--versioned-bounded-remote-catalog-boundary-amends-spec-41) | §4.1 | Compute Bridge negotiation is explicit and fail-closed; remote catalog HTTP is bounded/cancellable; catalog browsing uses a portable hierarchy. |
 | [A46](#a46--iceberg-rest-configuration-and-credential-vending-negotiation-amends-spec-41) | §4.1 | Iceberg REST reads negotiate server configuration, safe route prefixes, advertised endpoints, and opt-in credential-vending metadata without retaining credential values. |
 | [A47](#a47--current-vendor-semantic-imports-and-explicit-loss-accounting-amends-spec-38) | §3.8 | Current Databricks Metric View and Snowflake Semantic View imports preserve representable scoped concepts and diagnose every supported vendor-only shape they omit. |
+| [A48](#a48--direct-coordinate-map-bindings-amends-spec-33) | §3.3 | Map cells accept validated latitude/longitude pairs alongside the existing geometry-column mode. |
 
 ---
 
@@ -2049,6 +2050,40 @@ truncation-colliding Databricks aliases, schema-dependent wildcards, detailed
 format loss, Snowflake table/global metrics, primary keys, both filter forms,
 ASOF diagnostics, and verified queries. Independent fresh-eyes review passed
 after four adversarial gaps were found and closed.
+
+---
+
+## A48 — Direct coordinate map bindings (amends spec §3.3)
+
+**Original behavior:** a Map cell accepted one GeoJSON geometry column. Even
+when the taxonomy correctly recognized separate latitude and longitude
+columns, the cell displayed “Pick a geometry column” and required an
+undocumented SQL conversion.
+
+**Amended behavior:** Map cells expose explicit `Geometry` and
+`Latitude + longitude` modes. Selecting an upstream result auto-binds direct
+coordinates only when its headers match the shipped latitude/longitude
+vocabulary and at least one row is jointly valid. Users can also choose the two
+columns manually. Latitude must be within −90…90 and longitude within
+−180…180; invalid/null pairs are omitted and the count is disclosed in the
+canvas accessibility label. GeoJSON object/string parsing remains unchanged.
+
+The additive persisted fields are `mapMode`, `latitudeCol`, and
+`longitudeCol`. Older files default to geometry mode without a format-version
+bump. Row-to-GeoJSON preparation and high-volume deck.gl orchestration remain
+lazy so the inlined shell stays within its 768 KB budget.
+
+**Reasoning:** separate numeric coordinates are a common warehouse and CSV
+shape, including the Kaggle Airbnb corpus. Recognizing those semantics but
+making them unusable in the map was a broken product handoff. Header plus range
+corroboration provides convenience without treating arbitrary x/y projections
+as geography.
+
+**Status:** adopted 2026-07-29. Pure tests cover header inference, coordinate
+order, numeric coercion, and range rejection; persistence tests cover the new
+shape and legacy migration. The focused production-browser suite proves
+geometry rendering, invalid-geometry handling, coordinate auto-binding,
+invalid-row disclosure, and canvas rendering.
 
 ---
 

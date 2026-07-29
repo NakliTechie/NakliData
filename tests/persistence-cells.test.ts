@@ -192,11 +192,37 @@ describe('persistence round-trip — map cell', () => {
       order: 4,
       name: null,
       inputCell: 'c_sql_1',
-      geometryCol: 'geom',
+      mapMode: 'coordinates',
+      geometryCol: null,
+      latitudeCol: 'latitude',
+      longitudeCol: 'longitude',
       colorBy: 'service_name',
     };
     const [out] = roundTripCells([cell]);
     expect(out).toEqual(cell);
+  });
+
+  it('migrates a pre-coordinate map cell to geometry mode', () => {
+    const legacy = {
+      ...serialize({ ...baseInput, cells: [] }),
+      cells: [
+        {
+          id: 'c_map_legacy',
+          kind: 'map',
+          order: 0,
+          name: null,
+          inputCell: 'c_sql_1',
+          geometryCol: 'geom',
+          colorBy: null,
+        },
+      ],
+    };
+    expect(parse(JSON.stringify(legacy)).cells[0]).toEqual({
+      ...legacy.cells[0],
+      mapMode: 'geometry',
+      latitudeCol: null,
+      longitudeCol: null,
+    });
   });
 });
 
@@ -449,7 +475,10 @@ describe('persistence round-trip — mixed notebook', () => {
         order: 4,
         name: null,
         inputCell: 'c2',
+        mapMode: 'geometry',
         geometryCol: null,
+        latitudeCol: null,
+        longitudeCol: null,
         colorBy: null,
       },
       {

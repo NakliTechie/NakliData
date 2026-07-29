@@ -21,6 +21,7 @@ export interface LazyChunkRegistry {
   codemirror: typeof import('../lazy/codemirror.ts');
   'observable-plot': typeof import('../lazy/observable-plot.ts');
   'cytoscape-graph': typeof import('../lazy/cytoscape-graph.ts');
+  'map-data': typeof import('../lazy/map-data.ts');
   'maplibre-map': typeof import('../lazy/maplibre-map.ts');
   /**
    * The single deck.gl chunk — hosts all three Facet renderers behind separate

@@ -79,8 +79,14 @@ export interface MapCellState {
   name: string | null;
   /** Upstream SQL cell id whose lastResult provides the rows. */
   inputCell: string | null;
+  /** Geometry column or a direct latitude/longitude pair. */
+  mapMode: 'geometry' | 'coordinates';
   /** Column containing GeoJSON geometries (object or string). */
   geometryCol: string | null;
+  /** Latitude column used in direct-coordinate mode. */
+  latitudeCol: string | null;
+  /** Longitude column used in direct-coordinate mode. */
+  longitudeCol: string | null;
   /** Optional categorical property to drive feature colors. */
   colorBy: string | null;
 }

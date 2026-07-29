@@ -688,7 +688,19 @@ function validateCell(value: unknown, index: number): PersistedCell {
         ...base,
         kind,
         inputCell: inputCell(),
+        mapMode:
+          cell.mapMode === undefined
+            ? 'geometry'
+            : oneOf(cell.mapMode, ['geometry', 'coordinates'], `${path}.mapMode`),
         geometryCol: nullableString(cell.geometryCol, `${path}.geometryCol`),
+        latitudeCol:
+          cell.latitudeCol === undefined
+            ? null
+            : nullableString(cell.latitudeCol, `${path}.latitudeCol`),
+        longitudeCol:
+          cell.longitudeCol === undefined
+            ? null
+            : nullableString(cell.longitudeCol, `${path}.longitudeCol`),
         colorBy: nullableString(cell.colorBy, `${path}.colorBy`),
       };
     case 'embedding':
