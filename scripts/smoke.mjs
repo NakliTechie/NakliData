@@ -237,8 +237,6 @@ async function main() {
   const REMOTE_MODALS = [
     { trigger: 'mount-url', overlay: '.mount-url-overlay' },
     { trigger: 'mount-s3', overlay: '.mount-s3-overlay' },
-    { trigger: 'mount-iceberg', overlay: '.mount-iceberg-overlay' },
-    { trigger: 'mount-iceberg-catalog', overlay: '.mount-iceberg-catalog-overlay' },
     { trigger: 'mount-compute-bridge', overlay: '.mount-bridge-overlay' },
     { trigger: 'mount-compute-bridge-catalog', overlay: '.mount-bridge-catalog-overlay' },
   ];
@@ -257,6 +255,45 @@ async function main() {
   }
   log(`✓ remote-source modals open + Escape-close cleanly (${REMOTE_MODALS.length} modals)`);
 
+  const sourcePickerTruth = await page.evaluate(() => {
+    const groupLabels = Array.from(document.querySelectorAll('.source-option-group h2')).map(
+      (el) => el.textContent?.trim() ?? '',
+    );
+    const iceberg = document.querySelector('[data-action="mount-iceberg"]');
+    const catalog = document.querySelector('[data-action="mount-iceberg-catalog"]');
+    const bridge = document.querySelector('[data-action="mount-compute-bridge"]');
+    const demo = document.querySelector('[data-action="browse-examples"]');
+    return {
+      groupLabels,
+      icebergDisabled: iceberg instanceof HTMLButtonElement && iceberg.disabled,
+      catalogDisabled: catalog instanceof HTMLButtonElement && catalog.disabled,
+      icebergHint: iceberg?.textContent ?? '',
+      bridgeCopy: bridge?.textContent ?? '',
+      demoCopy: demo?.textContent ?? '',
+      version: document.querySelector('.shell-header .crumb')?.textContent ?? '',
+    };
+  });
+  const expectedGroups = ['Local data', 'Object storage', 'Catalogs', 'Warehouse compute'];
+  if (JSON.stringify(sourcePickerTruth.groupLabels) !== JSON.stringify(expectedGroups)) {
+    fail(`source picker groups drifted: ${JSON.stringify(sourcePickerTruth.groupLabels)}`);
+  }
+  if (!sourcePickerTruth.icebergDisabled || !sourcePickerTruth.catalogDisabled) {
+    fail('source picker exposes an unverified Iceberg action');
+  }
+  if (!/Unavailable/i.test(sourcePickerTruth.icebergHint)) {
+    fail(`Iceberg card lacks an explicit unavailable reason: ${sourcePickerTruth.icebergHint}`);
+  }
+  if (!/Advanced/i.test(sourcePickerTruth.bridgeCopy)) {
+    fail(`Compute Bridge is not labelled advanced/BYO: ${sourcePickerTruth.bridgeCopy}`);
+  }
+  if (!/Try the demo/i.test(sourcePickerTruth.demoCopy)) {
+    fail(`demo CTA still uses stale wording: ${sourcePickerTruth.demoCopy}`);
+  }
+  if (!/^v\d+\.\d+\.\d+-\d+-g[0-9a-f]+(?:-dirty)?$/.test(sourcePickerTruth.version)) {
+    fail(`header does not show a real git-derived build: ${sourcePickerTruth.version}`);
+  }
+  log('✓ source picker readiness: grouped, Iceberg disabled, Bridge advanced, real build shown');
+
   // 3b. Real remote-mount attempts (M30/SB2, DECISIONS 2026-07-09) — these
   // exercise the mount *machinery*, not just modal open/close, guarding two
   // regressions the hygiene leg above cannot see:
@@ -269,10 +306,8 @@ async function main() {
   //        fails at the *network* stage (some IO error), NOT at extension
   //        load ("Could not load DuckDB extension"). Reaching the network
   //        stage proves httpfs loaded.
-  //   (ii) The iceberg mount kinds must fail fast with the honest
-  //        "not available in this build" message — the iceberg extension
-  //        has no wasm_eh build until DuckDB core v1.3.1 (our pin is
-  //        v1.1.1), so the mount is flagged in src/core/mount.ts.
+  // Iceberg is deliberately absent from this machinery leg: its cards are
+  // disabled above until real URL + REST Catalog endpoints pass release smoke.
   const s3Host = new URL(url).host;
   await page.click('[data-action="mount-s3"]');
   await page.waitForSelector('.mount-s3-overlay', { timeout: 3000 });
@@ -304,32 +339,7 @@ async function main() {
     timeout: 2000,
   });
 
-  await page.click('[data-action="mount-iceberg"]');
-  await page.waitForSelector('.mount-iceberg-overlay', { timeout: 3000 });
-  await page.fill(
-    '.mount-iceberg-overlay [data-region="metadata-url-input"]',
-    'https://example.com/warehouse/sales/metadata/v3.metadata.json',
-  );
-  await page.click('.mount-iceberg-overlay [data-action="confirm-mount-iceberg"]');
-  await page.waitForFunction(
-    () => {
-      const el = document.querySelector('.mount-iceberg-overlay [data-region="error"]');
-      return !!el && !el.hidden && /not available in this build/i.test(el.textContent ?? '');
-    },
-    null,
-    { timeout: 5000 },
-  );
-  log(`✓ iceberg mount fails fast with the honest "not available in this build" error`);
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(
-    () => document.querySelector('.mount-iceberg-overlay') === null,
-    null,
-    {
-      timeout: 2000,
-    },
-  );
-
-  // 4. Click "Browse example data" to mount the bundled sources.
+  // 4. Click "Try the demo" to mount the bundled sources.
   await page.click('[data-action="browse-examples"]');
   log('clicked browse-examples');
 
@@ -652,21 +662,31 @@ async function main() {
   await page.click('[data-action="close-lineage"]').catch(() => {});
   await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});
 
-  // 9b. Cloud-BYOK sidecar path — exercised end-to-end against a MOCKED
+  // 9b. Prepare the Cloud-BYOK sidecar path against a MOCKED
   //     transport. The local-model provider can't run headless (needs
   //     WebGPU + a multi-GB download), and we never put a real BYOK key in
   //     CI (secrets/telemetry are Hard NOTs). So we monkeypatch
   //     `window.fetch` to return a canned chat-completion (a JS-returned
   //     Response makes no real request — CSP-clean), set a dummy key, and
-  //     drive a real job through the WHOLE path we own: dispatch → provider
-  //     call → response parse → render. This is what catches a regression
+  //     drive the syntax-error job below through the WHOLE path we own:
+  //     disclosure → consent → dispatch → provider call → parse → render.
+  //     This is what catches a regression
   //     in that wiring; the live network/auth leg stays a manual BYOK check.
   //     Handles both the Anthropic + OpenAI response shapes so it works
   //     against whatever the default provider is. (Added 2026-06-13 after
   //     the cloud path was asserted-but-not-verified — DECISIONS AU.)
   await page.evaluate(() => {
-    const CANNED = JSON.stringify({ observation: 'SMOKE_SIDECAR_OK — top vendor leads total.' });
+    const CANNED = JSON.stringify({
+      explanation: 'SMOKE_SIDECAR_OK — use SELECT instead of SELEKT.',
+      suggested_fix: 'SELECT * FROM invoices LIMIT 1',
+    });
     window.__origFetch = window.fetch.bind(window);
+    window.__origConfirm = window.confirm.bind(window);
+    window.__cloudSidecarDisclosure = '';
+    window.confirm = (message) => {
+      window.__cloudSidecarDisclosure = String(message);
+      return true;
+    };
     window.fetch = (input, init) => {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
       if (/api\.anthropic\.com|\/v1\/messages/i.test(url)) {
@@ -708,34 +728,6 @@ async function main() {
   });
   await page.click('[data-action="close-settings"]').catch(() => {});
   await delay(300);
-  // Re-run the first SQL cell so its result re-renders with the (now-enabled)
-  // sidecar chips, then click Summarise.
-  await page.evaluate(() => {
-    document
-      .querySelector('.cell[data-cell-kind="sql"]')
-      ?.querySelector('[data-action="cell-run"]')
-      ?.click();
-  });
-  await page.waitForFunction(
-    () =>
-      [...document.querySelectorAll('button,[data-action]')].some((e) =>
-        /summaris/i.test(e.textContent || ''),
-      ),
-    null,
-    { timeout: 10000 },
-  );
-  await page.evaluate(() => {
-    [...document.querySelectorAll('button,[data-action]')]
-      .find((e) => /summaris/i.test(e.textContent || ''))
-      ?.click();
-  });
-  await page.waitForFunction(() => document.body.innerText.includes('SMOKE_SIDECAR_OK'), null, {
-    timeout: 15000,
-  });
-  await page.evaluate(() => {
-    if (window.__origFetch) window.fetch = window.__origFetch;
-  });
-  log('✓ cloud-BYOK sidecar path (mocked transport): summarise dispatched → parsed → rendered');
 
   // 10. Add a SQL cell with a syntax error to verify error UX.
   const sqlCellCountBefore = await page.evaluate(
@@ -774,6 +766,25 @@ async function main() {
   );
   const errText = await page.textContent('.cell.errored .cell-output-error');
   log(`✓ syntax error surfaced inline: "${errText?.slice(0, 60)}…"`);
+  await page.click('.cell.errored [data-action="explain-error"]');
+  await page.waitForFunction(() => document.body.innerText.includes('SMOKE_SIDECAR_OK'), null, {
+    timeout: 15000,
+  });
+  const cloudDisclosure = await page.evaluate(() => window.__cloudSidecarDisclosure ?? '');
+  if (
+    !/Provider: (anthropic|openai)/.test(cloudDisclosure) ||
+    !/Payload: SQL text, error message, table and column names/.test(cloudDisclosure) ||
+    !/still a network request/.test(cloudDisclosure)
+  ) {
+    fail(`cloud sidecar disclosure was missing or incomplete: ${cloudDisclosure}`);
+  }
+  await page.evaluate(() => {
+    if (window.__origFetch) window.fetch = window.__origFetch;
+    if (window.__origConfirm) window.confirm = window.__origConfirm;
+  });
+  log(
+    '✓ cloud-BYOK sidecar: provider/payload disclosure → consent → mocked explain → parsed → rendered',
+  );
 
   // 10b. Facet Embedding cell — add via the toolbar, verify the button wires
   // through addCell → renderEmbeddingCell and the column-picker chrome renders.

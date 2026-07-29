@@ -1,5 +1,10 @@
 import { maskLabel } from '../core/demo-mode.ts';
 import type { MountedSource } from '../core/mount.ts';
+import {
+  PRIVACY_POSTURE_COPY,
+  SOURCE_GROUPS,
+  SOURCE_OPTIONS,
+} from '../core/product-capabilities.ts';
 import type { SessionsIndex } from '../core/sessions.ts';
 import { provenanceSummary } from '../core/source-provenance.ts';
 import { iconSvg } from '../tokens/icons.ts';
@@ -35,7 +40,7 @@ function renderHeader(state: ShellState): HTMLElement {
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">${iconSvg('search', 18)}</span>
       <span>NakliData</span>
-      <span class="crumb">v${state.buildVersion}</span>
+      <span class="crumb" title="Release tag and build revision">${escapeHtml(state.buildVersion)}</span>
     </div>
     <div class="session-switcher" data-region="session-switcher"></div>
     <div class="selections-bar" data-region="selections-bar" hidden></div>
@@ -209,57 +214,36 @@ function renderCenterInner(el: HTMLElement, hasMounts: boolean): void {
 }
 
 /**
- * The mount-options grid (folder / file / URL / bucket / Iceberg / bridge)
- * plus the "browse example data" link. Shared by the first-run empty state
+ * The readiness-grouped mount options plus the "Try the demo" link. Shared
+ * by the first-run empty state
  * AND the "+ Add source" modal (main.ts `openAddSourceModal`) so the two
  * offer an identical set of mount choices and never drift.
  */
 export function mountOptionsHtml(): string {
+  const groups = SOURCE_GROUPS.map((group) => {
+    const options = SOURCE_OPTIONS.filter((option) => option.group === group.id)
+      .map((option) => {
+        const unavailable = option.readiness === 'unavailable';
+        return `
+          <button class="opt" data-action="${option.action}" data-readiness="${option.readiness}"
+            title="${escapeHtml(option.title)}"${unavailable ? ' disabled aria-disabled="true"' : ''}>
+            ${iconSvg(option.group === 'local' ? (option.id === 'folder' ? 'folder' : 'file') : 'link', 24)}
+            <span class="label">${escapeHtml(option.label)}</span>
+            <span class="hint">${escapeHtml(option.hint)}</span>
+          </button>`;
+      })
+      .join('');
+    return `
+      <section class="source-option-group" aria-labelledby="source-group-${group.id}">
+        <h2 id="source-group-${group.id}">${escapeHtml(group.label)}</h2>
+        <p>${escapeHtml(group.description)}</p>
+        <div class="options">${options}</div>
+      </section>`;
+  }).join('');
   return `
-    <div class="options">
-      <button class="opt" data-action="mount-folder">
-        ${iconSvg('folder', 28)}
-        <span class="label">Add folder</span>
-        <span class="hint">Multi-file. Recommended.</span>
-      </button>
-      <button class="opt" data-action="mount-file">
-        ${iconSvg('file', 28)}
-        <span class="label">Add file</span>
-        <span class="hint">Single CSV, Parquet, .xlsx, or SQLite.</span>
-      </button>
-      <button class="opt" data-action="mount-url" title="Mount a public HTTPS URL (CSV / TSV / JSONL / Parquet)">
-        ${iconSvg('link', 28)}
-        <span class="label">Paste URL</span>
-        <span class="hint">Public CSV / Parquet over HTTPS.</span>
-      </button>
-      <button class="opt" data-action="mount-s3" title="Mount an S3-compatible bucket (AWS / R2 / B2 / MinIO / Wasabi)">
-        ${iconSvg('link', 28)}
-        <span class="label">Mount bucket</span>
-        <span class="hint">S3-compatible. Keys session-default.</span>
-      </button>
-      <button class="opt" data-action="mount-iceberg" title="Mount an Apache Iceberg table by metadata URL (Bearer auth optional)">
-        ${iconSvg('link', 28)}
-        <span class="label">Iceberg table</span>
-        <span class="hint">By metadata URL. Bearer optional.</span>
-      </button>
-      <button class="opt" data-action="mount-iceberg-catalog" title="Mount via an Apache Iceberg REST Catalog (Bearer auth)">
-        ${iconSvg('link', 28)}
-        <span class="label">Iceberg catalog</span>
-        <span class="hint">REST + namespace.table.</span>
-      </button>
-      <button class="opt" data-action="mount-compute-bridge" title="Run SQL against a Compute Bridge in your VPC; result lands as a local DuckDB table">
-        ${iconSvg('link', 28)}
-        <span class="label">Compute Bridge</span>
-        <span class="hint">SQL in your VPC. Results only.</span>
-      </button>
-      <button class="opt" data-action="mount-compute-bridge-catalog" title="Pick multiple tables from a Compute Bridge catalog; each becomes a local DuckDB table">
-        ${iconSvg('link', 28)}
-        <span class="label">Bridge catalog</span>
-        <span class="hint">Browse + pick tables.</span>
-      </button>
-    </div>
+    <div class="source-option-groups">${groups}</div>
     <div class="examples-link">
-      Or <button data-action="browse-examples">browse example data</button>.
+      New here? <button data-action="browse-examples">Try the demo</button>.
     </div>
   `;
 }
@@ -270,7 +254,7 @@ function renderEmptyState(): HTMLElement {
   el.innerHTML = `
     <span aria-hidden="true" style="color: var(--accent);">${iconSvg('search', 36)}</span>
     <h1>What do you have?</h1>
-    <p>Point NakliData at a folder, a file, or paste a public data URL. Your data never leaves the tab.</p>
+    <p>Inspect local data, connect object storage, or try a deterministic demo. Remote connections are always explicit.</p>
     ${mountOptionsHtml()}
   `;
   return el;
@@ -311,7 +295,7 @@ function renderFooter(state: ShellState): HTMLElement {
   el.innerHTML = `
     <span class="status-dot ${state.engineStatus === 'ready' ? 'ready' : state.engineStatus === 'error' ? 'error' : 'busy'}" aria-hidden="true"></span>
     <span data-region="engine-status">${escapeHtml(engineLabel(state))}</span>
-    <span style="margin-left: auto;">Your data never leaves the tab.</span>
+    <span class="privacy-summary" title="${escapeHtml(PRIVACY_POSTURE_COPY)}">Browser-local by default · remote and cloud actions are explicit</span>
   `;
   return el;
 }

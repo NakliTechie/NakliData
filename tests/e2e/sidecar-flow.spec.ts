@@ -10,6 +10,15 @@ async function waitForEngineReady(page: Page): Promise<void> {
   );
 }
 
+async function tryDemo(page: Page): Promise<void> {
+  const welcomeCta = page.locator('[data-welcome-examples]');
+  if (await welcomeCta.isVisible()) {
+    await welcomeCta.click();
+    return;
+  }
+  await page.click('[data-action="browse-examples"]');
+}
+
 /**
  * Wait until the classifier stops producing new schema-column rows for
  * `stableMs`. Cloned from auto-restore.spec — avoiding a shared helper
@@ -69,6 +78,16 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     const server = await startStaticServer();
     const context = await browser.newContext();
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      localStorage.setItem('naklidata.welcomed', '1');
+      (window as typeof window & { __cloudDisclosures?: string[] }).__cloudDisclosures = [];
+      window.confirm = (message?: string) => {
+        (window as typeof window & { __cloudDisclosures: string[] }).__cloudDisclosures.push(
+          message ?? '',
+        );
+        return true;
+      };
+    });
 
     // Stub the Anthropic API endpoint with a canned JSON response so the
     // test doesn't need a real key + the network.
@@ -92,7 +111,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await tryDemo(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,
@@ -172,6 +191,13 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       { timeout: 5_000 },
     );
     expect(anthropicCalls).toBe(1);
+    const disclosures = await page.evaluate(
+      () => (window as typeof window & { __cloudDisclosures?: string[] }).__cloudDisclosures ?? [],
+    );
+    expect(disclosures).toHaveLength(1);
+    expect(disclosures[0]).toContain('Provider: anthropic');
+    expect(disclosures[0]).toContain('Payload: SQL text, error message, table and column names');
+    expect(disclosures[0]).toContain('still a network request');
     const explanationText = await page.textContent('.cell-sidecar-explanation');
     expect(explanationText).toContain('SELEKT');
     expect(explanationText).toContain('SELECT');
@@ -188,9 +214,13 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     const server = await startStaticServer();
     const context = await browser.newContext();
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      localStorage.setItem('naklidata.welcomed', '1');
+      window.confirm = () => true;
+    });
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await tryDemo(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,

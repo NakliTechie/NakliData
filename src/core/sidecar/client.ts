@@ -47,6 +47,35 @@ export interface SidecarDispatchOpts {
   transport?: SidecarTransport;
 }
 
+export interface CloudSidecarDisclosure {
+  provider: SidecarProvider;
+  model: string;
+  payloadCategories: readonly string[];
+}
+
+type CloudActionConfirmer = (disclosure: CloudSidecarDisclosure) => boolean | Promise<boolean>;
+
+const CLOUD_CONFIRMER_KEY = '__naklidataCloudActionConfirmer';
+
+function readCloudActionConfirmer(): CloudActionConfirmer | null {
+  const shared = globalThis as typeof globalThis & {
+    [CLOUD_CONFIRMER_KEY]?: CloudActionConfirmer | null;
+  };
+  return shared[CLOUD_CONFIRMER_KEY] ?? null;
+}
+
+/**
+ * Install the browser-owned disclosure/confirmation surface. Cloud transports
+ * fail closed when the app has not installed one. A test transport is
+ * in-process and deliberately bypasses this browser interaction.
+ */
+export function configureCloudActionConfirmation(confirmer: CloudActionConfirmer | null): void {
+  const shared = globalThis as typeof globalThis & {
+    [CLOUD_CONFIRMER_KEY]?: CloudActionConfirmer | null;
+  };
+  shared[CLOUD_CONFIRMER_KEY] = confirmer;
+}
+
 export interface SidecarTransportRequest {
   provider: SidecarProvider;
   model: string;
@@ -122,49 +151,50 @@ export async function dispatchJob(
   job: SidecarJob,
   opts: SidecarDispatchOpts,
 ): Promise<SidecarResponse> {
+  const safeJob = await prepareCloudDispatch(job, opts);
   // All jobs share the same key-resolution + transport plumbing via
   // `sendPrompt` (below) — each branch just builds its prompt and parses
   // the raw string into its structured shape.
-  if (job.kind === 'explain-error') {
-    const { system, user } = buildExplainErrorPrompt(job);
+  if (safeJob.kind === 'explain-error') {
+    const { system, user } = buildExplainErrorPrompt(safeJob);
     return parseExplainErrorResponse(await sendPrompt(system, user, opts));
   }
-  if (job.kind === 'disambiguate-type') {
-    const { system, user } = buildDisambiguateTypePrompt(job);
-    return parseDisambiguateTypeResponse(await sendPrompt(system, user, opts), job.candidates);
+  if (safeJob.kind === 'disambiguate-type') {
+    const { system, user } = buildDisambiguateTypePrompt(safeJob);
+    return parseDisambiguateTypeResponse(await sendPrompt(system, user, opts), safeJob.candidates);
   }
-  if (job.kind === 'define-type') {
-    const { system, user } = buildDefineTypePrompt(job);
+  if (safeJob.kind === 'define-type') {
+    const { system, user } = buildDefineTypePrompt(safeJob);
     return parseDefineTypeResponse(await sendPrompt(system, user, opts));
   }
-  if (job.kind === 'recommend-reports') {
-    const { system, user } = buildRecommendReportsPrompt(job);
+  if (safeJob.kind === 'recommend-reports') {
+    const { system, user } = buildRecommendReportsPrompt(safeJob);
     return parseRecommendReportsResponse(
       await sendPrompt(system, user, opts),
-      job.candidates.map((c) => c.templateId),
+      safeJob.candidates.map((c) => c.templateId),
     );
   }
-  if (job.kind === 'summarise-result') {
-    const { system, user } = buildSummariseResultPrompt(job);
-    return parseSummariseResultResponse(await sendPrompt(system, user, opts), job.columns);
+  if (safeJob.kind === 'summarise-result') {
+    const { system, user } = buildSummariseResultPrompt(safeJob);
+    return parseSummariseResultResponse(await sendPrompt(system, user, opts), safeJob.columns);
   }
-  if (job.kind === 'nl-to-sql') {
-    const { system, user } = buildNlToSqlPrompt(job);
+  if (safeJob.kind === 'nl-to-sql') {
+    const { system, user } = buildNlToSqlPrompt(safeJob);
     return parseNlToSqlResponse(
       await sendPrompt(system, user, opts),
-      job.tables.map((t) => t.name),
+      safeJob.tables.map((t) => t.name),
     );
   }
-  if (job.kind === 'propose-chart') {
-    const { system, user } = buildProposeChartPrompt(job);
+  if (safeJob.kind === 'propose-chart') {
+    const { system, user } = buildProposeChartPrompt(safeJob);
     return parseProposeChartResponse(
       await sendPrompt(system, user, opts),
-      job.columns.map((c) => c.name),
+      safeJob.columns.map((c) => c.name),
     );
   }
-  if (job.kind === 'propose-merge') {
-    const { system, user } = buildProposeMergePrompt(job);
-    return parseProposeMergeResponse(await sendPrompt(system, user, opts), job.pairs);
+  if (safeJob.kind === 'propose-merge') {
+    const { system, user } = buildProposeMergePrompt(safeJob);
+    return parseProposeMergeResponse(await sendPrompt(system, user, opts), safeJob.pairs);
   }
   // 'assign-type' + 'nl-to-schema' (Jobs 9 & 10) are handled off-shell by
   // `dispatchOntologyJob` in ./ontology-jobs.ts — they're user-triggered
@@ -172,7 +202,97 @@ export async function dispatchJob(
   // prompts/parsers ship in the lazy `sidecar-ontology` chunk, not the
   // inlined shell (spec §7.1 / A35). dispatchJob throwing here is fine: no
   // caller routes those kinds through it (see main.ts + the modal).
-  throw new SidecarError(`Unsupported job kind: ${(job as { kind: string }).kind}`, 'unsupported');
+  throw new SidecarError(
+    `Unsupported job kind: ${(safeJob as { kind: string }).kind}`,
+    'unsupported',
+  );
+}
+
+/**
+ * Cloud prompts fail closed around row/sample values. Jobs that still work
+ * from schema/metadata have their samples stripped; jobs whose purpose
+ * fundamentally requires raw values are blocked and direct the user to the
+ * in-browser local provider. The disclosure is generated after redaction, so
+ * it describes the payload that will actually cross the boundary.
+ */
+export async function prepareCloudDispatch(
+  job: SidecarJob,
+  opts: SidecarDispatchOpts,
+): Promise<SidecarJob> {
+  if (opts.provider === 'local' || opts.transport) return job;
+  if (
+    (opts.provider === 'anthropic' || opts.provider === 'openai') &&
+    (await loadKey(opts.provider)) === null
+  ) {
+    throw new SidecarError(
+      `No API key configured for ${opts.provider}. Open Settings → AI sidecar.`,
+      'no-key',
+    );
+  }
+
+  let protectedJob: SidecarJob = job;
+  switch (job.kind) {
+    case 'disambiguate-type':
+    case 'define-type':
+    case 'assign-type':
+      protectedJob = { ...job, samples: [] };
+      break;
+    case 'propose-chart':
+      protectedJob = { ...job, sampleRows: [] };
+      break;
+    case 'summarise-result':
+      throw new SidecarError(
+        'Cloud summarisation is blocked because it requires row samples. Use the in-browser Local provider instead.',
+        'privacy',
+      );
+    case 'propose-merge':
+      throw new SidecarError(
+        'Cloud merge adjudication is blocked because it requires raw values. Use the in-browser Local provider instead.',
+        'privacy',
+      );
+  }
+
+  const confirmCloudAction = readCloudActionConfirmer();
+  if (!confirmCloudAction) {
+    throw new SidecarError(
+      'Cloud sidecar disclosure is unavailable. No request was sent.',
+      'privacy',
+    );
+  }
+  const accepted = await confirmCloudAction({
+    provider: opts.provider,
+    model: opts.model,
+    payloadCategories: payloadCategories(protectedJob),
+  });
+  if (!accepted) {
+    throw new SidecarError('Cloud sidecar action cancelled. No request was sent.', 'privacy');
+  }
+  return protectedJob;
+}
+
+export function payloadCategories(job: SidecarJob): readonly string[] {
+  switch (job.kind) {
+    case 'explain-error':
+      return ['SQL text', 'error message', ...(job.schemaHint ? ['table and column names'] : [])];
+    case 'disambiguate-type':
+      return ['column name', 'SQL type', 'candidate semantic types'];
+    case 'define-type':
+      return ['column name', 'SQL type'];
+    case 'recommend-reports':
+      return ['report metadata', 'semantic-type summary'];
+    case 'summarise-result':
+      return ['SQL text', 'column names', 'row samples', 'row count'];
+    case 'nl-to-sql':
+      return ['user question', 'table and column names'];
+    case 'propose-chart':
+      return ['SQL text', 'column names and SQL types', 'row count'];
+    case 'propose-merge':
+      return ['raw value pairs', 'value counts'];
+    case 'assign-type':
+      return ['column name', 'SQL type', 'semantic-type catalog'];
+    case 'nl-to-schema':
+      return ['dataset description', 'requested table name', 'semantic-type catalog'];
+  }
 }
 
 /**

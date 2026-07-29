@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -10,6 +11,15 @@ const DEV = process.argv.includes('--dev');
 const OUT_DIR = 'dist';
 const LAZY_DIR = 'src/lazy';
 const CHUNKS_OUT = `${OUT_DIR}/chunks`;
+const BUILD_VERSION = (() => {
+  try {
+    return execFileSync('git', ['describe', '--tags', '--always', '--dirty'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return 'development';
+  }
+})();
 
 const COMMON = {
   bundle: true,
@@ -22,6 +32,7 @@ const COMMON = {
   loader: { '.svg': 'text', '.css': 'text' },
   define: {
     'process.env.NODE_ENV': DEV ? '"development"' : '"production"',
+    __NAKLIDATA_BUILD_VERSION__: JSON.stringify(BUILD_VERSION),
   },
 };
 

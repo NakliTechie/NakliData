@@ -47,6 +47,7 @@ import {
   saveToFile,
   serialize,
 } from './core/persistence.ts';
+import { sourceOptionForAction } from './core/product-capabilities.ts';
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
@@ -80,7 +81,7 @@ import {
 } from './core/sessions.ts';
 import { type Settings, currentSettings, loadSettings, saveSettings } from './core/settings.ts';
 import { loadKey } from './core/sidecar/byok.ts';
-import { dispatchJob } from './core/sidecar/client.ts';
+import { configureCloudActionConfirmation, dispatchJob } from './core/sidecar/client.ts';
 import { getLocalGenerator, registerLocalGenerator } from './core/sidecar/local-runtime.ts';
 import { SidecarError } from './core/sidecar/types.ts';
 import { provenanceMarkdown } from './core/source-provenance.ts';
@@ -144,7 +145,23 @@ import {
 import { SINKS } from './ui/sinks/catalog.ts';
 import { renderTemplatePanel } from './ui/templates/templates-panel.ts';
 
-const BUILD_VERSION = '0.1.0';
+declare const __NAKLIDATA_BUILD_VERSION__: string;
+const BUILD_VERSION =
+  typeof __NAKLIDATA_BUILD_VERSION__ === 'string' ? __NAKLIDATA_BUILD_VERSION__ : 'development';
+
+configureCloudActionConfirmation(({ provider, model, payloadCategories }) =>
+  window.confirm(
+    [
+      'Send this sidecar request?',
+      '',
+      `Provider: ${provider}`,
+      `Model: ${model}`,
+      `Payload: ${payloadCategories.join(', ')}`,
+      '',
+      'BYOK selects the endpoint credentials; this is still a network request.',
+    ].join('\n'),
+  ),
+);
 
 function detectSupport(): { supported: boolean; reason?: string } {
   // Browser floor per spec §1.3: Chrome/Edge/Opera 122+, Firefox partial, Safari unsupported.
@@ -2123,6 +2140,11 @@ function wireActions(root: HTMLElement): void {
 async function handleAction(action: string, el: HTMLElement | null): Promise<void> {
   const engine = getEngine();
   const workbook = getWorkbook();
+  const sourceOption = sourceOptionForAction(action);
+  if (sourceOption?.readiness === 'unavailable') {
+    toast(sourceOption.unavailableReason ?? `${sourceOption.label} is unavailable.`, 'error');
+    return;
+  }
   switch (action) {
     case 'browse-examples': {
       if (engine.getStatus() !== 'ready') {

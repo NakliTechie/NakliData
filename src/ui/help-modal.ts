@@ -14,6 +14,7 @@
 // the app when deployed, so we open it with a RELATIVE URL that resolves both
 // locally (served from the same root) and on the Cloudflare deploy.
 
+import { PRIVACY_POSTURE_COPY } from '../core/product-capabilities.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
@@ -115,7 +116,7 @@ export function openHelpModal(): void {
     [
       'folder',
       'Sources',
-      'Mount a folder, file, public URL, or remote store. Your data never leaves the tab.',
+      'Mount local files and folders, or explicitly connect an HTTPS or S3-compatible source. Unverified catalog paths stay disabled.',
     ],
     [
       'table',
@@ -174,12 +175,16 @@ export function openHelpModal(): void {
     </div>
     <div style="padding:var(--space-4) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4);">
       <p style="margin:0;font-size:13px;line-height:1.5;color:var(--text);">
-        <strong>NakliData</strong> is a browser-native semantic data workbench — it runs entirely in this tab,
-        with no server, no upload, and no account. Here's the lay of the land:
+        <strong>NakliData</strong> is a browser-native semantic data workbench with no NakliData
+        account or relay server. Local work runs in this tab; remote and cloud actions are explicit.
+        Here's the lay of the land:
       </p>
       <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-3);font-size:13px;line-height:1.45;">
         ${surfacesHtml}
       </ul>
+      <p style="margin:0;padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-alt);font-size:12px;line-height:1.45;">
+        <strong>Privacy boundary.</strong> ${PRIVACY_POSTURE_COPY}
+      </p>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:6px;">Keyboard shortcuts</div>
         <div style="font-size:12px;">${shortcutsHtml}</div>
@@ -196,7 +201,7 @@ export function openHelpModal(): void {
 /**
  * Show the first-run welcome splash, but only on a genuine first visit and
  * only once (localStorage-gated). `onBrowseExamples` is invoked (and the
- * splash closed) if the user takes the "browse example data" CTA — main.ts
+ * splash closed) if the user takes the "Try the demo" CTA — main.ts
  * passes the same handler the empty-state button uses.
  */
 export function maybeOpenWelcomeSplash(opts: { onBrowseExamples: () => void }): void {
@@ -206,7 +211,7 @@ export function maybeOpenWelcomeSplash(opts: { onBrowseExamples: () => void }): 
     [
       'folder',
       'Bring your data in',
-      'A folder, a file, a public URL, or a remote store — read in-tab, and it never leaves.',
+      'Use a local file or folder, or explicitly connect a remote source from this browser.',
     ],
     [
       'table',
@@ -240,7 +245,7 @@ export function maybeOpenWelcomeSplash(opts: { onBrowseExamples: () => void }): 
     </div>
     <div style="padding:var(--space-4) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4);">
       <p style="margin:0;font-size:13px;line-height:1.5;color:var(--text);">
-        A semantic data workbench that runs entirely in your browser — no server, no upload, no account.
+        A browser-native semantic data workbench with no NakliData account or relay server.
         Three steps to your first result:
       </p>
       <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-3);font-size:13px;line-height:1.45;">
@@ -248,7 +253,7 @@ export function maybeOpenWelcomeSplash(opts: { onBrowseExamples: () => void }): 
       </ol>
       <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;padding-top:var(--space-2);border-top:1px solid var(--border);">
         <button class="btn btn-primary" data-welcome-examples style="justify-content:center;">
-          ${iconSvg('table', 14)} Browse example data
+          ${iconSvg('table', 14)} Try the demo
         </button>
         <a class="btn btn-ghost" href="${GUIDE_URL}" target="_blank" rel="noopener" style="text-decoration:none;">
           ${iconSvg('chart', 14)} Open the full guide

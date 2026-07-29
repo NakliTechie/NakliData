@@ -33,6 +33,20 @@ export const DEFAULT_PROVIDER_CONFIG: Record<SidecarProvider, SidecarProviderCon
   local: { provider: 'local', model: '' },
 };
 
+/** Canonical product-facing inventory used by capability docs and tests. */
+export const SIDECAR_JOB_KINDS = [
+  'explain-error',
+  'disambiguate-type',
+  'define-type',
+  'recommend-reports',
+  'summarise-result',
+  'nl-to-sql',
+  'propose-chart',
+  'propose-merge',
+  'assign-type',
+  'nl-to-schema',
+] as const;
+
 /** A sidecar job is a tagged input asking the model to do one specific thing. */
 export type SidecarJob =
   | ExplainErrorJob
@@ -403,7 +417,8 @@ export class SidecarError extends Error {
       | 'http'
       | 'parse'
       | 'rate-limit'
-      | 'unsupported',
+      | 'unsupported'
+      | 'privacy',
   ) {
     super(message);
     this.name = 'SidecarError';

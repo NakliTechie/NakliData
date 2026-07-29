@@ -13,22 +13,9 @@ import {
   newHandleId,
   putHandle,
 } from './handles.ts';
+import type { FileFormat } from './product-capabilities.ts';
 
-export type FileFormat =
-  | 'csv'
-  | 'tsv'
-  | 'jsonl'
-  | 'parquet'
-  | 'sqlite'
-  | 'duckdb'
-  | 'xlsx'
-  | 'arrow'
-  | 'sav'
-  | 'dta'
-  | 'sas7bdat'
-  | 'xpt'
-  | 'geojson'
-  | 'kml';
+export type { FileFormat } from './product-capabilities.ts';
 
 export type SourceKind =
   | 'example-bundle'

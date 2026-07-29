@@ -6,7 +6,7 @@
 // use is free. The builders/parsers are exported + unit/eval-tested
 // directly; runtime dispatch goes through `dispatchOntologyJob`, which
 // reuses client.ts's shared key-resolution + transport via `sendPrompt`.
-import { type SidecarDispatchOpts, sendPrompt } from './client.ts';
+import { type SidecarDispatchOpts, prepareCloudDispatch, sendPrompt } from './client.ts';
 import {
   type AssignTypeJob,
   type AssignTypeResponse,
@@ -277,13 +277,14 @@ export async function dispatchOntologyJob(
   job: AssignTypeJob | NlToSchemaJob,
   opts: SidecarDispatchOpts,
 ): Promise<AssignTypeResponse | NlToSchemaResponse> {
-  if (job.kind === 'assign-type') {
-    const { system, user } = buildAssignTypePrompt(job);
-    return parseAssignTypeResponse(await sendPrompt(system, user, opts), job.catalog);
+  const safeJob = (await prepareCloudDispatch(job, opts)) as AssignTypeJob | NlToSchemaJob;
+  if (safeJob.kind === 'assign-type') {
+    const { system, user } = buildAssignTypePrompt(safeJob);
+    return parseAssignTypeResponse(await sendPrompt(system, user, opts), safeJob.catalog);
   }
-  const { system, user } = buildNlToSchemaPrompt(job);
+  const { system, user } = buildNlToSchemaPrompt(safeJob);
   return parseNlToSchemaResponse(
     await sendPrompt(system, user, opts),
-    job.knownTypes.map((t) => t.typeId),
+    safeJob.knownTypes.map((t) => t.typeId),
   );
 }
