@@ -2,6 +2,48 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 3A: verified product truth and cloud boundary (ET)
+
+### Decision ET-1 — product surfaces describe verified readiness, not latent code
+
+- **Context.** Iceberg actions appeared usable even though current builds fail;
+  Compute Bridge looked turnkey despite shipping no server or branded adapter;
+  README/UI counts and `v0.1.0` drifted from the taxonomy, job catalogue, and
+  release history.
+- **Decision.** Group source choices into Local data, Object storage, Catalogs,
+  and Warehouse compute. Disable both Iceberg cards until real endpoint smoke
+  passes. Label both bridge clients Advanced/BYO. Make one registry authoritative
+  for source readiness and file-format IDs; make the sidecar job-kind tuple
+  authoritative; generate docs from those registries plus the taxonomy bundle.
+  Fail build/check when generated docs drift. Inject `git describe` into the app
+  header.
+- **Consequence.** The picker no longer markets unavailable paths or branded
+  connectivity. README and feature reference now report 204 types, 29 domains,
+  14 logical file formats, 10 sidecar jobs, exact source readiness, and a real
+  build identity from the same sources the product uses.
+
+### Decision ET-2 — cloud sidecar requests disclose and minimize before transport
+
+- **Context.** “Data never leaves the tab” ignored remote sources, OSM tiles,
+  and cloud sidecar prompts. BYOK was easy to misread as offline, and row/value
+  samples could reach a cloud provider without a per-action disclosure.
+- **Decision.** Use the precise browser-local-by-default statement throughout.
+  Before every configured cloud transport, disclose provider, model, and actual
+  payload categories and require confirmation. Strip sample values from
+  classification/type-definition jobs and row samples from chart proposals.
+  Block cloud summarisation and merge adjudication because those jobs require
+  row/raw values; direct users to the in-browser Local provider. Missing keys,
+  missing disclosure UI, and cancellation send nothing.
+- **Consequence.** Cloud actions are explicit and their advertised payload
+  matches the post-redaction prompt. BYOK is described as endpoint credential
+  control, not an offline guarantee. Local inference remains unchanged.
+  Regression coverage includes disclosure, cancellation, missing UI, sample
+  removal, value-dependent blocking, and real browser transport. Gate:
+  **1,488 vitest**, focused browser **3/3**, **SMOKE PASSED** (including
+  readiness, disclosure, schema render/override, and service boundary), bundle
+  **779,778 / 786,432 bytes** (6.5 KiB headroom); final static check follows
+  the documentation update.
+
 ## 2026-07-29 — Goal Phase 2B: browser/service boundary (ES)
 
 ### Decision ES-1 — Cache Storage accepts named public assets, not same-origin traffic

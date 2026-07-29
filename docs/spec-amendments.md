@@ -42,6 +42,7 @@ The original spec stays authoritative for everything not listed here.
 | [A37](#a37--user-regex-admission-and-taxonomy-worker-lifecycle-amends-spec-32--34) | §3.2 + §3.4 | User regexes use a conservative safe subset; taxonomy worker boot is single-flight and every request has a deadline plus clean-restart semantics. |
 | [A38](#a38--proposal-only-agent-contract-v2-amends-the-agent-surface) | Agent surface | Agent contract v2 removes cell execution; proposals remain editable and un-run, while value queries reject alternate row forms and carry a pre-execution row cap. |
 | [A39](#a39--public-static-service-worker-cache-policy-amends-spec-71) | §7.1 | Cache Storage admits only named public application assets; authenticated, private, no-store, non-200, partial, and unlisted traffic bypasses it. Cloudflare observability is disabled. |
+| [A40](#a40--verified-readiness-and-cloud-disclosure-amends-spec-41--43) | §4.1 + §4.3 | Iceberg entry points are disabled pending real-endpoint verification; Bridge is advanced/BYO; cloud sidecar requests disclose and minimize payloads. |
 
 ---
 
@@ -1732,6 +1733,45 @@ persistent merely because they share the application host.
 e2e cover public static caching, offline shell fallback, immutable runtimes, and
 every bypass class. The Cloudflare dashboard state must be verified after an
 explicitly authorized deployment; no deploy occurred in this goal batch.
+
+---
+
+## A40 — Verified readiness and cloud disclosure (amends spec §4.1 + §4.3)
+
+**Original behavior:** A7/A8 described Iceberg URL and REST Catalog clients as
+shipped data-plane modes even though the current DuckDB-wasm build cannot
+complete those mounts. Compute Bridge appeared beside ordinary sources despite
+shipping no server or adapter. Sidecar prompts could include samples without a
+per-action provider/payload disclosure.
+
+**Amended behavior:** the source picker groups choices as Local data, Object
+storage, Catalogs, and Warehouse compute. Iceberg URL and REST Catalog actions
+remain disabled until real endpoints pass release smoke. Compute Bridge is
+labelled Advanced—bring your own compatible endpoint; NakliData makes no
+turnkey Databricks or Snowflake connector claim.
+
+Cloud sidecar transport requires a per-action disclosure naming provider,
+model, and payload categories. Declining sends nothing. Schema-oriented cloud
+jobs strip sample values and chart proposals strip result rows. Cloud result
+summarisation and merge adjudication are blocked because their purpose requires
+row/raw values; those jobs remain available through the in-browser Local
+provider. BYOK selects endpoint credentials and is not described as offline.
+
+Product-visible source readiness and file-format IDs live in
+`src/core/product-capabilities.ts`; sidecar job kinds live in
+`src/core/sidecar/types.ts`; taxonomy counts come from the bundle itself.
+`scripts/generate-product-truth.mjs` generates and verifies the README and
+feature-reference inventory during build/check. The app header is injected from
+`git describe` instead of the stale prototype version.
+
+**Reasoning:** implementation code is not a supported capability until its
+end-to-end path is verified. Privacy language must describe explicit network
+boundaries and the actual payload crossing them.
+
+**Status:** adopted 2026-07-29. DECISIONS ET. Unit tests cover readiness,
+registry counts, redaction/blocking, cancellation, and disclosure payloads.
+Focused browser tests cover disabled Iceberg entry points and a real cloud
+sidecar request with provider/payload disclosure.
 
 ---
 
