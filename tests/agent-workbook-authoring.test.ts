@@ -75,6 +75,26 @@ describe('agent-authored .naklidata workbook', () => {
       ),
     ).toThrow(/sensitivity has an unsupported value/);
   });
+
+  it('rejects unsafe user-type regexes before restoring the workbook', () => {
+    expect(() =>
+      parse(
+        JSON.stringify({
+          ...minimalWorkbook,
+          user_types: [
+            {
+              id: 'hostile',
+              display_name: 'Hostile',
+              category: 'Identifier',
+              regex: '^(a+)+$',
+              sensitivity: 'secret',
+              created: '2026-07-29T00:00:00.000Z',
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/regex is unsafe/);
+  });
 });
 
 describe('published JSON Schema stays honest vs parse()', () => {

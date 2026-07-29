@@ -184,8 +184,8 @@ function rangeNumeric(spec: DetectorSpec, sample: ColumnSample): DetectorResult 
   let parsed = 0;
   let inRange = 0;
   for (const v of sample.values) {
-    const n = Number(v);
-    if (Number.isFinite(n)) {
+    const n = parseNumericValue(v);
+    if (n !== null) {
       parsed++;
       if (n >= min && n <= max) inRange++;
     }
@@ -224,12 +224,15 @@ function distribution(spec: DetectorSpec, sample: ColumnSample): DetectorResult 
   }
   if (spec.numeric) {
     let n = 0;
+    let considered = 0;
     for (const v of sample.values) {
-      if (Number.isFinite(Number(v))) n++;
+      if (!v.trim()) continue;
+      considered++;
+      if (parseNumericValue(v) !== null) n++;
     }
-    const ratio = n / sample.values.length;
+    const ratio = considered === 0 ? 0 : n / considered;
     score *= ratio;
-    evidence.push(`numeric ${(ratio * 100).toFixed(0)}%`);
+    evidence.push(`numeric ${(ratio * 100).toFixed(0)}% (${n}/${considered} non-blank)`);
   }
   if (spec.min_length !== undefined || spec.max_length !== undefined) {
     const minL = spec.min_length ?? 0;
@@ -249,4 +252,10 @@ function distribution(spec: DetectorSpec, sample: ColumnSample): DetectorResult 
 
 function inapplicable(): DetectorResult {
   return { score: 0, applicable: false, evidence: '' };
+}
+
+function parseNumericValue(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

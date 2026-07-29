@@ -17,6 +17,7 @@ import { loadChunk } from './lazy-loader.ts';
 import { type LineageGraph, lineageGraphFromJson } from './lineage-store.ts';
 import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
+import { validateSafeRegexPattern } from './regex-safety.ts';
 import type { SegmentsFile } from './segments.ts';
 import type { SelectionsFile } from './selections.ts';
 import type { OverrideRule, UserType } from './workbook.ts';
@@ -752,11 +753,16 @@ function validateCell(value: unknown, index: number): PersistedCell {
 function validateUserType(value: unknown, index: number): UserType {
   const path = `user_types[${index}]`;
   const userType = objectValue(value, path);
+  const regex = stringValue(userType.regex, `${path}.regex`);
+  const regexSafety = validateSafeRegexPattern(regex);
+  if (!regexSafety.safe) {
+    throw new Error(`Malformed .naklidata: ${path}.regex is unsafe: ${regexSafety.reason}.`);
+  }
   return {
     id: stringValue(userType.id, `${path}.id`),
     display_name: stringValue(userType.display_name, `${path}.display_name`),
     category: stringValue(userType.category, `${path}.category`),
-    regex: stringValue(userType.regex, `${path}.regex`),
+    regex,
     // Legacy user types predate an explicit governance tier. Treat them as
     // secret instead of public so restoring an older workbook cannot weaken a
     // later anonymized export.

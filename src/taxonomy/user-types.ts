@@ -10,11 +10,15 @@
 //     + display_name + any space/underscore variants. So a column
 //     named `employee_id` fires the user type with id `employee_id`.
 
+import { validateSafeRegexPattern } from '../core/regex-safety.ts';
 import type { UserType } from '../core/workbook.ts';
 import type { DetectorSpec, TypeSpec } from './types.ts';
 
 const DEFAULT_CONFIDENCE_FLOOR = 0.5;
-const DEFAULT_SQL_COMPAT = ['VARCHAR'];
+// User-defined regex/header detectors operate on stringified samples and are
+// therefore compatible with any SQL family unless a richer authoring field is
+// added later.
+const DEFAULT_SQL_COMPAT: string[] = [];
 
 export function userTypeToTypeSpec(ut: UserType): TypeSpec {
   const detectors: DetectorSpec[] = [
@@ -69,6 +73,8 @@ export function mergeUserTypesIntoBundle<T extends { types: TypeSpec[] }>(
 ): T {
   if (userTypes.length === 0) return bundle;
   const bundledIds = new Set(bundle.types.map((type) => type.id));
-  const userSpecs = userTypes.filter((type) => !bundledIds.has(type.id)).map(userTypeToTypeSpec);
+  const userSpecs = userTypes
+    .filter((type) => !bundledIds.has(type.id) && validateSafeRegexPattern(type.regex).safe)
+    .map(userTypeToTypeSpec);
   return { ...bundle, types: [...bundle.types, ...userSpecs] };
 }

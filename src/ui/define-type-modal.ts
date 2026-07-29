@@ -8,6 +8,7 @@
 // (origin = 'user_override' via the existing overrideAssignment path).
 
 import { getEngine } from '../core/engine.ts';
+import { validateSafeRegexPattern } from '../core/regex-safety.ts';
 import { loadSettings } from '../core/settings.ts';
 import { dispatchJob } from '../core/sidecar/client.ts';
 import { SidecarError } from '../core/sidecar/types.ts';
@@ -254,11 +255,9 @@ async function runSave(overlay: HTMLElement, opts: OpenDefineTypeOpts): Promise<
         'id must be snake_case (lowercase letters, digits, underscores; starts with a letter).';
     return;
   }
-  try {
-    new RegExp(regex);
-  } catch (err) {
-    if (status)
-      status.textContent = `regex is invalid: ${err instanceof Error ? err.message : String(err)}`;
+  const regexSafety = validateSafeRegexPattern(regex);
+  if (!regexSafety.safe) {
+    if (status) status.textContent = `regex is unsafe: ${regexSafety.reason}.`;
     return;
   }
   const workbook = getWorkbook();

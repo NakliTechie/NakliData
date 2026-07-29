@@ -18,6 +18,7 @@ interface InitMessage {
 
 interface SetUserTypesMessage {
   type: 'set_user_types';
+  requestId: string;
   userTypes: UserType[];
 }
 
@@ -33,6 +34,7 @@ interface InitResponse {
 
 interface UserTypesAppliedResponse {
   type: 'user_types_applied';
+  requestId: string;
   count: number;
 }
 
@@ -77,7 +79,7 @@ w.onmessage = (ev: MessageEvent<Incoming>) => {
     if (msg.type === 'set_user_types') {
       userTypes = msg.userTypes;
       recomputeEffectiveBundle();
-      post({ type: 'user_types_applied', count: userTypes.length });
+      post({ type: 'user_types_applied', requestId: msg.requestId, count: userTypes.length });
       return;
     }
     if (msg.type === 'classify') {

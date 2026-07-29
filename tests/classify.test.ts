@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { classifyColumn } from '../src/taxonomy/classify.ts';
+import { classifyColumn, normalizeSqlBaseType, sqlCompatible } from '../src/taxonomy/classify.ts';
+import { runDetector } from '../src/taxonomy/detectors.ts';
 import type { ColumnSample, TaxonomyBundle, TypeSpec } from '../src/taxonomy/types.ts';
 
 const TYPES: TypeSpec[] = [
@@ -107,6 +108,54 @@ describe('classifyColumn', () => {
     // is bounded by the regex weight portion.
     expect(result.candidates[0]?.typeId).toBe('pan');
     expect(result.candidates[0]?.confidence).toBeGreaterThan(0.5);
+  });
+});
+
+describe('SQL compatibility', () => {
+  const integerType: TypeSpec = {
+    id: 'integer_identifier',
+    display_name: 'Integer identifier',
+    domain: 'test',
+    sql_compat: ['INTEGER'],
+    detectors: [{ kind: 'header_match', patterns: ['id'], weight: 1 }],
+    confidence_floor: 0.5,
+  };
+
+  it('normalizes aliases and parameterized base types explicitly', () => {
+    expect(normalizeSqlBaseType('INT')).toBe('INTEGER');
+    expect(normalizeSqlBaseType('DECIMAL(18, 2)')).toBe('DECIMAL');
+    expect(normalizeSqlBaseType('TIMESTAMP WITH TIME ZONE')).toBe('TIMESTAMPTZ');
+  });
+
+  it('does not confuse INTERVAL with an integer family', () => {
+    expect(sqlCompatible(integerType, 'INTERVAL')).toBe(false);
+    const result = classifyColumn(
+      { version: '0.1', released: '2026-05-15', domains: [], types: [integerType] },
+      sample('id', ['1 year'], 'INTERVAL'),
+    );
+    expect(result.candidates).toEqual([]);
+  });
+
+  it('recognizes compatible members of the same numeric family', () => {
+    const decimalType = { ...integerType, sql_compat: ['DECIMAL'] };
+    expect(sqlCompatible(decimalType, 'DOUBLE PRECISION')).toBe(true);
+    expect(sqlCompatible(integerType, 'UBIGINT')).toBe(true);
+  });
+});
+
+describe('numeric detectors', () => {
+  const numericSample = sample('amount', ['', '   ', '1', 'not-a-number']);
+
+  it('does not coerce blank strings to zero in range detectors', () => {
+    const result = runDetector({ kind: 'range_numeric', min: 0, max: 0, weight: 1 }, numericSample);
+    expect(result.score).toBe(0);
+    expect(result.evidence).toContain('1 parsed; 4 total');
+  });
+
+  it('excludes blank strings from numeric-distribution denominators', () => {
+    const result = runDetector({ kind: 'distribution', numeric: true, weight: 1 }, numericSample);
+    expect(result.score).toBe(0.5);
+    expect(result.evidence).toContain('1/2 non-blank');
   });
 });
 

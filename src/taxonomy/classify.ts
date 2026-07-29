@@ -32,22 +32,43 @@ export function classifyColumn(bundle: TaxonomyBundle, sample: ColumnSample): Cl
   return { column: sample, candidates, resolution: resolve(sample, candidates) };
 }
 
-function sqlCompatible(typeSpec: TypeSpec, sqlType: string): boolean {
+const SQL_FAMILIES: ReadonlyArray<ReadonlySet<string>> = [
+  new Set([
+    'TINYINT',
+    'SMALLINT',
+    'INTEGER',
+    'BIGINT',
+    'HUGEINT',
+    'UTINYINT',
+    'USMALLINT',
+    'UINTEGER',
+    'UBIGINT',
+  ]),
+  new Set(['DECIMAL', 'NUMERIC', 'REAL', 'FLOAT', 'DOUBLE']),
+  new Set(['VARCHAR', 'CHAR', 'BPCHAR', 'TEXT', 'STRING']),
+  new Set(['TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS', 'TIMESTAMPTZ']),
+  new Set(['BOOLEAN', 'BOOL']),
+  new Set(['BLOB', 'BYTEA', 'BINARY', 'VARBINARY']),
+];
+
+export function normalizeSqlBaseType(sqlType: string): string {
+  const upper = sqlType.trim().toUpperCase();
+  const withoutParameters = upper.replace(/\([^)]*\)/g, '').trim();
+  if (/^TIMESTAMP\s+WITH\s+TIME\s+ZONE$/.test(withoutParameters)) return 'TIMESTAMPTZ';
+  if (/^TIMESTAMP\s+WITHOUT\s+TIME\s+ZONE$/.test(withoutParameters)) return 'TIMESTAMP';
+  if (/^CHARACTER\s+VARYING$/.test(withoutParameters)) return 'VARCHAR';
+  if (/^DOUBLE\s+PRECISION$/.test(withoutParameters)) return 'DOUBLE';
+  if (/^INT$/.test(withoutParameters)) return 'INTEGER';
+  return withoutParameters;
+}
+
+export function sqlCompatible(typeSpec: TypeSpec, sqlType: string): boolean {
   if (typeSpec.sql_compat.length === 0) return true;
-  const norm = sqlType.toUpperCase();
-  // Treat the integer family as one bucket — taxonomy types that list
-  // INTEGER should also accept BIGINT / SMALLINT / TINYINT and vice versa.
-  const isIntegerActual =
-    norm.includes('INT') ||
-    norm.includes('BIGINT') ||
-    norm.includes('SMALLINT') ||
-    norm.includes('TINYINT');
+  const actual = normalizeSqlBaseType(sqlType);
   return typeSpec.sql_compat.some((t) => {
-    const u = t.toUpperCase();
-    if (norm.includes(u)) return true;
-    const isIntegerCompat =
-      u === 'INTEGER' || u === 'BIGINT' || u === 'SMALLINT' || u === 'TINYINT' || u === 'INT';
-    return isIntegerCompat && isIntegerActual;
+    const compatible = normalizeSqlBaseType(t);
+    if (actual === compatible) return true;
+    return SQL_FAMILIES.some((family) => family.has(actual) && family.has(compatible));
   });
 }
 

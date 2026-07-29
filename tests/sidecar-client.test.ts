@@ -379,7 +379,20 @@ describe('parseDefineTypeResponse', () => {
           regex: '[invalid(',
         }),
       ),
-    ).toThrow(/invalid regex/);
+    ).toThrow(/unsafe regex/);
+  });
+
+  it('throws on a catastrophic-backtracking regex', () => {
+    expect(() =>
+      parseDefineTypeResponse(
+        JSON.stringify({
+          id: 'hostile',
+          display_name: 'Hostile',
+          category: 'Code',
+          regex: '^(a+)+$',
+        }),
+      ),
+    ).toThrow(/unsafe regex/);
   });
 });
 

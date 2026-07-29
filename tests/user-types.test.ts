@@ -21,6 +21,7 @@ describe('userTypeToTypeSpec', () => {
     expect(spec.display_name).toBe('Employee ID');
     expect(spec.domain).toBe('user-defined');
     expect(spec.seed_origin).toBe('user-defined');
+    expect(spec.sql_compat).toEqual([]);
     expect(spec.detectors).toHaveLength(2);
     const regex = spec.detectors.find((d) => d.kind === 'regex');
     expect(regex?.pattern).toBe('^EMP-[0-9]{4}$');
@@ -75,6 +76,12 @@ describe('mergeUserTypesIntoBundle', () => {
     expect(gstin?.domain).toBe('india-smb-finance');
     expect(merged.types).toHaveLength(1);
   });
+
+  it('drops an imported user type with an unsafe regex', () => {
+    const unsafe = { ...EMPLOYEE_ID, id: 'unsafe_id', regex: '^(a+)+$' };
+    const merged = mergeUserTypesIntoBundle(bundle, [unsafe]);
+    expect(merged.types.find((type) => type.id === 'unsafe_id')).toBeUndefined();
+  });
 });
 
 describe('classifyColumn against a merged bundle', () => {
@@ -97,11 +104,11 @@ describe('classifyColumn against a merged bundle', () => {
     ],
   };
 
-  function sample(columnName: string, values: string[]): ColumnSample {
+  function sample(columnName: string, values: string[], sqlType = 'VARCHAR'): ColumnSample {
     return {
       tableName: 't',
       columnName,
-      sqlType: 'VARCHAR',
+      sqlType,
       values,
       totalSampled: values.length,
       nullCount: 0,
@@ -135,6 +142,20 @@ describe('classifyColumn against a merged bundle', () => {
     const candidate = result.candidates.find((c) => c.typeId === 'employee_id');
     expect(candidate).toBeDefined();
     expect(candidate?.confidence).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('classifies user-defined types over numeric SQL columns', () => {
+    const numericCode = {
+      ...EMPLOYEE_ID,
+      id: 'four_digit_code',
+      display_name: 'Four digit code',
+      regex: '^[0-9]{4}$',
+    };
+    const merged = mergeUserTypesIntoBundle(bundle, [numericCode]);
+    const result = classifyColumn(merged, sample('code', ['1001', '1002', '1003'], 'INTEGER'));
+    expect(
+      result.candidates.find((candidate) => candidate.typeId === 'four_digit_code'),
+    ).toBeDefined();
   });
 
   it('does not interfere with bundled types — a GSTIN column still classifies as GSTIN', () => {

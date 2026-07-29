@@ -5,6 +5,7 @@
 // Tests substitute the provider call via the `transport` option so
 // unit tests don't need real API access.
 
+import { validateSafeRegexPattern } from '../regex-safety.ts';
 import { loadKey } from './byok.ts';
 import { getLocalGenerator } from './local-runtime.ts';
 import { callAnthropic } from './providers/anthropic.ts';
@@ -380,15 +381,9 @@ export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
   if (!ID_REGEX.test(id)) {
     throw new SidecarError(`Sidecar returned a non-snake_case id: ${id}`, 'parse');
   }
-  // Verify the regex compiles. If it doesn't, surface the failure so the
-  // UI can show the user a helpful error before they save the type.
-  try {
-    new RegExp(regex);
-  } catch (err) {
-    throw new SidecarError(
-      `Sidecar returned an invalid regex: ${err instanceof Error ? err.message : String(err)}`,
-      'parse',
-    );
+  const regexSafety = validateSafeRegexPattern(regex);
+  if (!regexSafety.safe) {
+    throw new SidecarError(`Sidecar returned an unsafe regex: ${regexSafety.reason}.`, 'parse');
   }
   return {
     kind: 'define-type',
