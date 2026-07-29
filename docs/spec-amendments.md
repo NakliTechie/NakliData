@@ -2220,9 +2220,11 @@ contract.
 serialization, complete and incomplete S3/GCS/ADLS shapes, expiry, refresh,
 target replacement, cleanup failure paths, and revocation. Vendor-shaped
 conformance fixtures apply credentials to mock targets without network access
-or real secrets. No DuckDB target exists yet: the pinned DuckDB-WASM runtime
-cannot load the required Iceberg extension, so source cards remain disabled
-and `BLOCKER.md` defines the separately authorized migration gate.
+or real secrets. No checked-in DuckDB target exists yet: the pinned
+DuckDB-WASM runtime cannot load the required Iceberg extension. A no-install
+spike has proven stable 1.32.0 / DuckDB v1.4.3 plus dependency-complete EH and
+MVP Iceberg scans, but applying that runtime remains a separately authorized
+migration. Source cards remain disabled and `BLOCKER.md` defines the gate.
 
 ---
 

@@ -13,13 +13,21 @@ through an opaque, revocable target capability. Mock targets prove atomic
 replacement, expiry gating, load-table refresh, secret-free serialization, and
 cleanup on failure.
 
-The next checkpoint is a real bounded storage-read target. It is blocked on a
-separately authorized DuckDB-WASM/extension migration: the pinned
-`@duckdb/duckdb-wasm` 1.29.0 embeds DuckDB 1.1.1 and cannot load the Iceberg
-WASM extension. The migration must first prove a reviewed package pin, signed
-same-origin extension vendoring, public Iceberg scans, S3/GCS/ADLS target
-cleanup, cancellation, existing format behavior, supply-chain hashes, and the
-768 KiB shell budget. See [`BLOCKER.md`](../BLOCKER.md).
+The next checkpoint is a checked-in bounded storage-read target. A no-install
+spike selected stable `@duckdb/duckdb-wasm` 1.32.0 (DuckDB v1.4.3) and proved
+same-origin, dependency-complete Iceberg reads over both EH and MVP variants in
+real Chromium. The public-fixture probe returned the same five rows with zero
+console errors. It also exposed mandatory `httpfs`, `parquet`, and `avro`
+dependencies, variant-asymmetric current vendoring, and the need to test HTTP
+range behavior. See
+[`duckdb-wasm-iceberg-spike-2026-07-29.md`](duckdb-wasm-iceberg-spike-2026-07-29.md).
+
+The project still pins `@duckdb/duckdb-wasm` 1.29.0 / DuckDB 1.1.1. Applying
+the proven candidate is blocked on separate authorization because it changes
+the shared runtime dependency, workers/WASM, extension mirror and integrity
+hashes. The migration must preserve S3/GCS/ADLS cleanup, cancellation, existing
+format behavior, CSP, supply-chain integrity, and the 768 KiB shell budget. See
+[`BLOCKER.md`](../BLOCKER.md).
 
 Only after that local engine gate passes do the safe live catalog matrices
 begin. Real authentication, authorization, vendor errors, rate limits, token

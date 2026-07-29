@@ -212,6 +212,31 @@ Append-only. Format per AGENTHANDOFF §5.
   separately authorized DuckDB-WASM/extension migration and remains blocked in
   `BLOCKER.md`.
 
+### Decision FA-11 — migrate from a proven stable runtime, with complete dual-variant extensions
+
+- **Context.** The pinned DuckDB-WASM 1.29.0 / DuckDB v1.1.1 cannot load
+  Iceberg, while the npm `latest` tag currently points to a development build.
+  Choosing a package by version alone would not prove extension availability,
+  dependency closure, variant parity, same-origin delivery, or a browser data
+  scan. Current fallback assets include EH and MVP cores/workers, but the local
+  extension mirror contains only `v1.1.1/wasm_eh`.
+- **Decision.** Select exact stable `@duckdb/duckdb-wasm` 1.32.0, embedding
+  DuckDB v1.4.3, as the authorized-migration candidate. Require
+  SHA-384-pinned, same-origin `httpfs`, `iceberg`, `parquet`, and `avro`
+  artifacts for both EH and MVP. Treat range support, CORS, artifact absence,
+  metadata failure, and data-file failure as first-class regression cases.
+  Keep the package and runtime unchanged until the dependency migration is
+  explicitly authorized.
+- **Consequence.** A temporary no-install Chromium probe loaded the four
+  extensions and returned the same five ordered rows from DuckDB's official
+  Iceberg fixture on both variants, with zero console errors. The named
+  compromised 1.29.2 release is avoided; 1.32.0 is above the advisory's 1.30.0
+  patched floor. Package, core, worker, extension, and fixture hashes plus the
+  exact migration plan are tracked in
+  `docs/duckdb-wasm-iceberg-spike-2026-07-29.md`. Feasibility is proven, but no
+  real credential target, live vendor matrix, enabled source card, or
+  compatibility claim follows from the fixture.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts
