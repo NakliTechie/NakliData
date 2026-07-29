@@ -5,8 +5,8 @@
 //   - Refresh changed source relations, then re-run affected cells.
 //   - Close — changed fingerprints are NOT persisted.
 
-import { iconSvg } from '../tokens/icons.ts';
 import { Neutral, StatusColor } from '../tokens/colors.ts';
+import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
