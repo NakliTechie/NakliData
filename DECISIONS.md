@@ -2,6 +2,53 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 0: fail-closed agent values and prevalidated workspace loads (EM)
+
+### Decision EM-1 — agent values require direct, one-table provenance
+
+- **Context.** The read-only SQL validator prevented writes and file scans, but
+  value redaction reconstructed sensitivity from output column names. Aliases,
+  expressions, CTE aliases, duplicate names, and an unavailable sensitivity
+  layer made that reconstruction ambiguous or unsafe.
+- **Decision.** Keep the general read-only validator for schema-safe inspection,
+  but put value-bearing `query()` behind a narrower contract: one mounted table
+  and only direct columns or `*`. Refuse aliases, expressions, aggregates, CTEs,
+  joins, subqueries, duplicate projections, and alternate read forms. Refuse
+  all values until the sensitivity layer is available. Return direct public
+  values; redact PII, financial, secret, and unclassified values.
+- **Consequence.** `query()` is deliberately less expressive than the notebook.
+  Derived and multi-table agent values remain unavailable until result columns
+  carry explicit source provenance. This is a capability limit in service of a
+  testable fail-closed boundary, not a heuristic SQL-lineage claim.
+
+### Decision EM-2 — validate the complete `.naklidata` graph before mutation
+
+- **Context.** `parse()` checked only the envelope and top-level arrays. A
+  malformed nested cell, assignment, setting, or semantic definition could
+  survive parsing and fail after workspace teardown, while normal store
+  notifications allowed autosave to observe intermediate restoration state.
+- **Decision.** One pure validator now validates and normalizes the full
+  persisted graph, including every discriminated cell shape, before
+  `applyLoadedFile()` enters the serialized mutation queue. Session restore and
+  `?lens=` decoding use the same path. Restoration cancels pending autosave,
+  suspends new autosaves while applying, and persists only after the apply
+  completes.
+- **Consequence.** Invalid input cannot clear the live workbook, alter the
+  DuckDB catalog, or overwrite the active session snapshot. Backward-compatible
+  omissions are normalized; transient cell runtime state is discarded. Source
+  reconnection failures for otherwise valid files remain explicit reconnect
+  states, matching the existing portable-file contract.
+
+### Decision EM-3 — persistence validation is an on-demand chunk
+
+- **Context.** Shipping the complete validator in the shell raised
+  `dist/index.html` to 788,740 bytes, 2,308 bytes above the 768 KiB ceiling.
+- **Decision.** Load validation through the existing lazy-chunk registry only
+  when opening a file, restoring a stored session, or decoding a lens URL.
+- **Consequence.** The verified shell is 776,335 / 786,432 bytes, with 10,097
+  bytes of headroom; the validation chunk is 12,563 bytes and does not burden
+  first-run boot.
+
 ## 2026-07-28 — Role walkthrough: workspace boundaries and connector language (EL)
 
 ### Decision EL-1 — a workspace boundary owns DuckDB relations and registered files
