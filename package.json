@@ -13,6 +13,7 @@
     "lint": "biome lint src tests eval",
     "test": "vitest run",
     "warehouse:conformance": "vitest run tests/warehouse-conformance.test.ts --reporter=verbose",
+    "warehouse:iceberg-candidate": "node scripts/probe-duckdb-iceberg-candidate.mjs",
     "test:e2e": "npm run build && npx playwright test --config tests/e2e/playwright.config.ts",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "eval": "node eval/run.mjs",

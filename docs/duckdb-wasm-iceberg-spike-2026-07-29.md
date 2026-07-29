@@ -1,8 +1,8 @@
 # DuckDB-WASM / Iceberg migration spike
 
 Date: 29 July 2026  
-Status: candidate and browser compatibility proven; checked-in runtime migration
-not yet authorized
+Status: candidate and repeatable browser compatibility gate proven; checked-in
+runtime migration not yet authorized
 
 ## Outcome
 
@@ -11,10 +11,11 @@ reviewed migration candidate. Do not follow the npm `latest` tag: on the day of
 the spike it pointed to a development build (`1.33.1-dev57.0`), while 1.32.0
 was the newest stable package version.
 
-A no-install, temporary probe proved that the candidate can load a
-same-origin, dependency-complete Iceberg extension mirror and read bounded rows
-from DuckDB's official Iceberg fixture in real headless Chromium. Both shipped
-compatibility variants passed:
+A no-install probe proved that the candidate can load a same-origin,
+dependency-complete Iceberg extension mirror and read bounded rows from
+DuckDB's official Iceberg fixture in real headless Chromium. The proof is now
+checked in as `npm run warehouse:iceberg-candidate`. Both shipped compatibility
+variants passed:
 
 | Variant | Engine | Extensions loaded | Bounded result | Console errors |
 | --- | --- | --- | --- | --- |
@@ -117,6 +118,39 @@ Both variants returned the same first key pairs:
 the version hint, v2 metadata JSON, snapshot and manifest Avro files, and a
 Parquet data file. No browser console errors occurred.
 
+## Repeatable credential-free gate
+
+Run:
+
+```sh
+npm run warehouse:iceberg-candidate
+```
+
+The gate writes only to an owned operating-system temporary directory, deletes
+it on completion, and never modifies `node_modules`, `package.json`, the
+lockfile, or `public/`. It downloads the exact npm tarball, all eight EH/MVP
+extension artifacts, and the official fixture under byte/time ceilings. Before
+extraction it rejects unsafe archive paths; before execution it verifies the
+npm SHA-512 plus 13 SHA-384 pins covering core/worker files, extensions, and
+fixture.
+
+The successful leg runs the bounded cross-origin scan on both variants, asserts
+the exact five-row sample, confirms all eight extension requests, requires
+ranged metadata/Avro/Parquet traffic, and rejects browser console errors. Five
+credential-free negative legs must also fail with matching network evidence:
+
+| Case | Expected evidence |
+| --- | --- |
+| Iceberg artifact missing | same-origin extension request returns 404 |
+| Range ignored | a ranged fixture request receives an invalid full 200 response |
+| CORS denied | the cross-origin fixture is contacted without an allow-origin grant |
+| Metadata missing | the v2 metadata request returns 404 |
+| Data missing | the selected Parquet request returns 404 |
+
+An optional `NAKLIDATA_KEEP_ICEBERG_PROBE=1` preserves the owned temporary
+directory for debugging; the default is cleanup. This is an opt-in network
+gate, not part of `npm install`, ordinary unit tests, or the production bundle.
+
 ## Issues found
 
 1. **The extension mirror must include dependency closure.** Mirroring only
@@ -139,6 +173,12 @@ Parquet data file. No browser console errors occurred.
    can affect every reader, SQL plan, type conversion, worker bootstrap, CSP
    hash, and persisted relation path; the complete regression gate remains
    mandatory.
+7. **CORS failures need product-level translation.** With the response header
+   removed, Chromium blocks the version hint, but DuckDB reports that no
+   version hint could be found and mentions unsafe version guessing. That is
+   technically downstream-correct but operationally misleading. The future
+   adapter should identify likely CORS/network denial without recommending
+   unsafe guessing.
 
 ## Authorized migration plan
 
@@ -151,8 +191,9 @@ When the runtime change is explicitly approved:
 5. make extension lookup variant-aware and fail closed on an incomplete mirror;
 6. implement the real DuckDB `VendedCredentialTarget` with atomic replace and
    clear for S3, GCS, and ADLS;
-7. add the public Iceberg Chromium probe to the production smoke surface,
-   including range/CORS/404/metadata/data failure cases;
+7. retain `warehouse:iceberg-candidate` as the supply-chain/candidate gate and
+   promote its public scan plus range/CORS/404/metadata/data failures to the
+   checked-in runtime's production smoke surface;
 8. rerun all local and remote-source regressions, manual schema override,
    complete tests, smoke, CSP, integrity, static, and 768 KiB shell gates;
 9. keep generic and branded Iceberg cards disabled until their separate live

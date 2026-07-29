@@ -27,6 +27,9 @@ DuckDB's official Iceberg fixture in real headless Chromium with zero console
 errors. Exact candidate and artifact hashes, dependency closure, issues, and
 migration steps are recorded in
 [`docs/duckdb-wasm-iceberg-spike-2026-07-29.md`](docs/duckdb-wasm-iceberg-spike-2026-07-29.md).
+`npm run warehouse:iceberg-candidate` now reproduces that proof from pinned
+upstream bytes and also requires fail-closed behavior for extension 404, ignored
+ranges, denied CORS, missing metadata, and missing data.
 
 That proof did not change the dependency or vendored runtime. The project still
 requires explicit authorization because upgrading the shared engine can affect
@@ -55,9 +58,9 @@ remote writes, or enabling generic or branded Iceberg source cards.
 2. Vendor the dependency-complete `httpfs` + `iceberg` + `parquet` + `avro`
    mirror for both shipped EH and MVP variants under the approved same-origin
    path.
-3. Promote the successful public, read-only Chromium scan to a regression and
-   fail closed when range/CORS, extension, metadata, or data files are
-   unavailable.
+3. Retain the credential-free candidate gate and promote its successful public
+   Chromium scan plus range/CORS/extension/metadata/data failures to the
+   migrated runtime's production regression surface.
 4. Implement the `VendedCredentialTarget` adapter with atomic replacement and
    clearing for S3, GCS, and ADLS; prove that refresh failure and workspace
    teardown remove engine credentials.

@@ -237,6 +237,30 @@ Append-only. Format per AGENTHANDOFF §5.
   real credential target, live vendor matrix, enabled source card, or
   compatibility claim follows from the fixture.
 
+### Decision FA-12 — candidate evidence is executable and fail-closed
+
+- **Context.** FA-11's successful probe and hashes were recorded, but the
+  implementation lived in a temporary directory. That was adequate discovery
+  evidence and inadequate as a repeatable migration gate. It also did not
+  assert what happens when a remote bucket has incomplete CORS/range behavior
+  or loses metadata/data files.
+- **Decision.** Add an opt-in `warehouse:iceberg-candidate` command that changes
+  no dependency or vendored runtime. Download only the exact SHA-512-pinned npm
+  tarball, eight SHA-384-pinned extension artifacts, and SHA-384-pinned official
+  fixture under byte/time ceilings; validate archive paths before extraction;
+  stage everything in an owned temporary directory; and run real Chromium.
+  Require the same exact bounded sample on EH and MVP plus network-evidenced
+  failures for a missing Iceberg artifact, ignored ranges, denied CORS, missing
+  metadata, and missing Parquet data.
+- **Consequence.** The candidate can now be independently re-proven with one
+  command while the product stays on 1.29.0. The successful run verifies all
+  eight extension requests and ranged cross-origin metadata, Avro, and Parquet
+  traffic; every negative leg fails. It also reveals that a CORS denial appears
+  as DuckDB's “no version-hint” error, so the future product adapter must
+  translate likely CORS/network denial without suggesting unsafe version
+  guessing. This gate complements rather than replaces the checked-in
+  runtime's full production smoke and live vendor matrices.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

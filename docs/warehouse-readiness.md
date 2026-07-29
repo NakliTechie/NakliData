@@ -17,9 +17,12 @@ The next checkpoint is a checked-in bounded storage-read target. A no-install
 spike selected stable `@duckdb/duckdb-wasm` 1.32.0 (DuckDB v1.4.3) and proved
 same-origin, dependency-complete Iceberg reads over both EH and MVP variants in
 real Chromium. The public-fixture probe returned the same five rows with zero
-console errors. It also exposed mandatory `httpfs`, `parquet`, and `avro`
-dependencies, variant-asymmetric current vendoring, and the need to test HTTP
-range behavior. See
+console errors. `npm run warehouse:iceberg-candidate` now repeats the proof
+from pinned upstream bytes and requires network-evidenced failure for a missing
+extension, ignored ranges, denied CORS, missing metadata, and missing Parquet
+data. It also exposed mandatory `httpfs`, `parquet`, and `avro` dependencies,
+variant-asymmetric current vendoring, and misleading “no version-hint”
+diagnostics when CORS is denied. See
 [`duckdb-wasm-iceberg-spike-2026-07-29.md`](duckdb-wasm-iceberg-spike-2026-07-29.md).
 
 The project still pins `@duckdb/duckdb-wasm` 1.29.0 / DuckDB 1.1.1. Applying
