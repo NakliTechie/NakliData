@@ -1,18 +1,30 @@
 # Warehouse readiness
 
-Status: the portable Iceberg REST control plane and credential-free
-vendor-shaped fixtures are implemented, and the current Databricks/Snowflake
-semantic-model formats have explicit compatibility accounting. This is not a
-claim of live Databricks or Snowflake compatibility. Both branded entry points
-remain disabled.
+Status: the portable Iceberg REST control plane, opaque in-memory
+credential-lease boundary, credential-free vendor-shaped fixtures, and current
+Databricks/Snowflake semantic-model compatibility accounting are implemented.
+This is not a claim of live Databricks or Snowflake compatibility. Both branded
+entry points remain disabled.
 
 ## Next implementation boundary
 
-The next local checkpoint is the bounded storage-read data plane: apply vended
-S3/GCS/ADLS credentials in memory, own their provider-specific expiry and
-refresh lifecycle, cancel reads cleanly, and keep diagnostics redacted. Live
-catalog matrices follow only when safe test endpoints and credentials are
-available.
+The catalog client can now apply short-lived S3/GCS/ADLS credentials only
+through an opaque, revocable target capability. Mock targets prove atomic
+replacement, expiry gating, load-table refresh, secret-free serialization, and
+cleanup on failure.
+
+The next checkpoint is a real bounded storage-read target. It is blocked on a
+separately authorized DuckDB-WASM/extension migration: the pinned
+`@duckdb/duckdb-wasm` 1.29.0 embeds DuckDB 1.1.1 and cannot load the Iceberg
+WASM extension. The migration must first prove a reviewed package pin, signed
+same-origin extension vendoring, public Iceberg scans, S3/GCS/ADLS target
+cleanup, cancellation, existing format behavior, supply-chain hashes, and the
+768 KiB shell budget. See [`BLOCKER.md`](../BLOCKER.md).
+
+Only after that local engine gate passes do the safe live catalog matrices
+begin. Real authentication, authorization, vendor errors, rate limits, token
+refresh behavior, and storage reads still need user-supplied test endpoints and
+credentials.
 
 Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
 separate packaged Compute Bridge concern; success on the Iceberg REST path must
@@ -28,7 +40,7 @@ A safe live endpoint must prove:
 4. the returned or documented `catalogs/<catalog>` prefix;
 5. namespace and table browsing;
 6. load-table with explicitly requested vended credentials;
-7. in-memory credential application, expiry, and refresh;
+7. live in-memory credential application, expiry, refresh, and engine cleanup;
 8. bounded storage read, cancellation, redacted errors, and payload disclosure;
 9. read-only NakliData behavior—no generated SQL execution or remote writes.
 
@@ -50,8 +62,8 @@ A safe live endpoint must prove:
 4. server prefix override and nested namespace encoding;
 5. namespace and table browsing;
 6. load-table with explicitly requested vended credentials;
-7. in-memory S3, GCS, or ADLS credential application and provider-specific
-   expiry/refresh handling;
+7. live in-memory S3, GCS, or ADLS credential application and provider-specific
+   expiry/refresh plus engine cleanup;
 8. bounded storage read, cancellation, redacted errors, and payload disclosure;
 9. read-only behavior.
 

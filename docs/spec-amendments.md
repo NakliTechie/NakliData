@@ -51,6 +51,7 @@ The original spec stays authoritative for everything not listed here.
 | [A49](#a49--portable-warehouse-and-business-vocabulary-amends-spec-32) | §3.2 | Shipped semantics cover common HR, country-indicator, commerce-lifecycle, and unit-bearing product fields without treating vendor jargon as connector support. |
 | [A50](#a50--semantic-gating-for-number-extraction-amends-spec-32) | §3.2 | Number-extraction cleaning advice requires numeric semantic/header intent and never fires on recognized narrative fields. |
 | [A51](#a51--canonical-chart-channel-inference-amends-spec-33) | §3.3 | Heuristically inferred chart axes are written into cell state before rendering so controls, shelves, saves, and output agree. |
+| [A52](#a52--opaque-vended-credential-leases-amends-spec-41) | §4.1 | Short-lived S3/GCS/ADLS credentials cross an opaque, revocable, in-memory target boundary with expiry and refresh ownership. |
 
 ---
 
@@ -2183,6 +2184,45 @@ uses it to render.
 manual-binding preservation, and distinct scatter channels. A production
 Chromium regression proves the inferred selectors populate and survive an
 unrelated full notebook re-render.
+
+---
+
+## A52 — Opaque vended credential leases (amends spec §4.1)
+
+**Original behavior:** A46 negotiated access delegation and reduced
+load-table credentials to non-secret metadata. It deliberately had no
+secret-bearing data-plane object, expiry owner, or application contract.
+
+**Amended behavior:** when and only when `vended-credentials` was requested
+and a load-table response contains actual credential keys, the result carries
+a non-enumerable `VendedCredentialLease`. Credential values and scoped prefixes
+live in JavaScript private slots and remain absent from JSON, object spread,
+workbook state, source persistence, and diagnostics. The safe public surface
+still exposes only requested/provided state, provider families, earliest
+expiry, configuration key names, and envelope count.
+
+Application requires a trusted in-memory target with atomic `replace()` and
+`clear()` operations. S3 requires an access key, secret key, and session token;
+GCS requires an OAuth2 token; ADLS requires a non-empty host/account-scoped SAS
+token. Missing, invalid, unsupported, expired, and near-expiry shapes fail
+before replacement. A per-table session reacquires load-table when fewer than
+60 seconds remain and clears previously applied target state on refresh
+failure, target change, apply failure, or explicit revocation. Refresh endpoint
+metadata alone is not treated as a credential.
+
+**Reasoning:** plain credential maps would be easy to serialize or persist,
+while revoking only the catalog response would not revoke credentials already
+installed in an engine. The capability-and-target split constrains when
+secrets become observable and gives the future data plane an explicit cleanup
+contract.
+
+**Status:** adopted 2026-07-29. Unit tests cover non-enumerability, safe
+serialization, complete and incomplete S3/GCS/ADLS shapes, expiry, refresh,
+target replacement, cleanup failure paths, and revocation. Vendor-shaped
+conformance fixtures apply credentials to mock targets without network access
+or real secrets. No DuckDB target exists yet: the pinned DuckDB-WASM runtime
+cannot load the required Iceberg extension, so source cards remain disabled
+and `BLOCKER.md` defines the separately authorized migration gate.
 
 ---
 

@@ -51,6 +51,123 @@ export interface VendedCredentialMetadata {
   storageCredentialCount: number;
 }
 
+export type VendedCredentialProvider = 's3' | 'gcs' | 'azure' | 'unknown';
+
+/**
+ * Secret-bearing access is only handed to a trusted data-plane target during
+ * `replace()`. It is never enumerable on a catalog result or persisted.
+ */
+export interface VendedStorageCredential {
+  provider: VendedCredentialProvider;
+  prefix: string | null;
+  config: Readonly<Record<string, string>>;
+}
+
+export interface VendedCredentialTarget {
+  /** Atomically replace all active table-scoped credentials. */
+  replace(credentials: readonly VendedStorageCredential[]): Promise<void>;
+  /** Clear any partially or previously applied credentials. */
+  clear(): Promise<void>;
+}
+
+export interface CredentialApplyOptions {
+  nowMs?: number;
+  /** Refuse credentials that will expire before a bounded read can start. */
+  minValidityMs?: number;
+}
+
+const DEFAULT_MIN_CREDENTIAL_VALIDITY_MS = 60_000;
+
+/**
+ * Opaque, revocable storage access. `#entries` are true JS private slots, so
+ * JSON/string spread/structured enumeration cannot copy credential values.
+ */
+export class VendedCredentialLease {
+  #entries: VendedStorageCredential[];
+  readonly expiresAtMs: number | null;
+
+  constructor(entries: VendedStorageCredential[], expiresAtMs: number | null) {
+    this.#entries = entries.map((entry) => ({
+      provider: entry.provider,
+      prefix: entry.prefix,
+      config: { ...entry.config },
+    }));
+    this.expiresAtMs = expiresAtMs;
+  }
+
+  get revoked(): boolean {
+    return this.#entries.length === 0;
+  }
+
+  needsRefresh(nowMs = Date.now(), minValidityMs = DEFAULT_MIN_CREDENTIAL_VALIDITY_MS): boolean {
+    const normalizedNowMs = credentialNow(nowMs);
+    const normalizedMinValidityMs = credentialMinValidity(minValidityMs);
+    return (
+      this.revoked ||
+      this.expiresAtMs === null ||
+      !Number.isSafeInteger(this.expiresAtMs) ||
+      this.expiresAtMs <= 0 ||
+      this.expiresAtMs <= normalizedNowMs + normalizedMinValidityMs
+    );
+  }
+
+  revoke(): void {
+    this.#entries = [];
+  }
+
+  async applyTo(
+    target: VendedCredentialTarget,
+    options: CredentialApplyOptions = {},
+  ): Promise<void> {
+    const nowMs = credentialNow(options.nowMs);
+    const minValidityMs = credentialMinValidity(options.minValidityMs);
+    if (this.revoked) {
+      throw new IcebergCatalogError(
+        'Vended credentials have been revoked.',
+        0,
+        'credential_revoked',
+      );
+    }
+    if (this.needsRefresh(nowMs, minValidityMs)) {
+      throw new IcebergCatalogError(
+        'Vended credentials are missing a usable expiry or need refresh.',
+        0,
+        'credential_refresh_required',
+      );
+    }
+    for (const entry of this.#entries) validateCredentialEntry(entry);
+    const credentials = this.#entries.map((entry) => ({
+      provider: entry.provider,
+      prefix: entry.prefix,
+      config: { ...entry.config },
+    }));
+    try {
+      await target.replace(credentials);
+    } catch {
+      try {
+        await target.clear();
+      } catch {
+        // Keep the original fail-closed application error.
+      }
+      throw new IcebergCatalogError(
+        'Vended credential application failed; the target was cleared.',
+        0,
+        'credential_apply_failed',
+      );
+    }
+  }
+
+  /** Defensive safe serialization if a lease is ever logged directly. */
+  toJSON(): Record<string, unknown> {
+    return {
+      opaque: true,
+      expiresAtMs: this.expiresAtMs,
+      credentialCount: this.#entries.length,
+      revoked: this.revoked,
+    };
+  }
+}
+
 export interface LoadTableResult {
   metadataLocation: string;
   /**
@@ -58,6 +175,86 @@ export interface LoadTableResult {
    * Credential values and storage prefixes are deliberately not exposed.
    */
   credentialVending: VendedCredentialMetadata;
+  /**
+   * Non-enumerable secret capability. Callers can apply it to a trusted,
+   * in-memory data-plane target but cannot accidentally serialize/spread it.
+   */
+  credentialLease: VendedCredentialLease | null;
+}
+
+export interface AppliedTableAccess {
+  metadataLocation: string;
+  credentialVending: VendedCredentialMetadata;
+}
+
+/**
+ * Refresh owner for one table. A near-expiry lease is revoked and replaced by
+ * a fresh load-table response before any target sees credential values.
+ */
+export class VendedCredentialSession {
+  #current: LoadTableResult | null = null;
+  #target: VendedCredentialTarget | null = null;
+  readonly #load: () => Promise<LoadTableResult>;
+
+  constructor(load: () => Promise<LoadTableResult>) {
+    this.#load = load;
+  }
+
+  async applyTo(
+    target: VendedCredentialTarget,
+    options: CredentialApplyOptions = {},
+  ): Promise<AppliedTableAccess> {
+    const nowMs = credentialNow(options.nowMs);
+    const minValidityMs = credentialMinValidity(options.minValidityMs);
+    if (this.#target && this.#target !== target) {
+      await clearCredentialTarget(this.#target);
+      this.#target = null;
+    }
+    if (
+      !this.#current?.credentialLease ||
+      this.#current.credentialLease.needsRefresh(nowMs, minValidityMs)
+    ) {
+      this.#current?.credentialLease?.revoke();
+      try {
+        this.#current = await this.#load();
+      } catch (error) {
+        await clearCredentialTarget(target);
+        this.#target = null;
+        this.#current = null;
+        throw error;
+      }
+    }
+    const lease = this.#current.credentialLease;
+    if (!lease) {
+      await clearCredentialTarget(target);
+      this.#target = null;
+      throw new IcebergCatalogError(
+        'Catalog did not provide vended storage credentials.',
+        0,
+        'credentials_not_provided',
+      );
+    }
+    try {
+      await lease.applyTo(target, { nowMs, minValidityMs });
+    } catch (error) {
+      await clearCredentialTarget(target);
+      this.#target = null;
+      throw error;
+    }
+    this.#target = target;
+    return {
+      metadataLocation: this.#current.metadataLocation,
+      credentialVending: this.#current.credentialVending,
+    };
+  }
+
+  async revoke(): Promise<void> {
+    this.#current?.credentialLease?.revoke();
+    this.#current = null;
+    if (!this.#target) return;
+    await clearCredentialTarget(this.#target);
+    this.#target = null;
+  }
 }
 
 export class IcebergCatalogError extends Error {
@@ -210,10 +407,30 @@ export class IcebergCatalogClient {
         'invalid_catalog',
       );
     }
-    return {
-      metadataLocation: location.trim(),
-      credentialVending: credentialMetadata(data, this.accessDelegation === 'vended-credentials'),
-    };
+    const metadataLocation = location.trim();
+    const access = credentialAccess(
+      data,
+      this.accessDelegation === 'vended-credentials',
+      metadataLocation,
+    );
+    const result = {
+      metadataLocation,
+      credentialVending: access.metadata,
+    } as LoadTableResult;
+    Object.defineProperty(result, 'credentialLease', {
+      value: access.lease,
+      enumerable: false,
+      writable: false,
+    });
+    return result;
+  }
+
+  credentialSession(
+    namespace: string,
+    table: string,
+    options: IcebergRequestOptions = {},
+  ): VendedCredentialSession {
+    return new VendedCredentialSession(() => this.loadTable(namespace, table, options));
   }
 
   private async fetchConfiguration(
@@ -465,10 +682,11 @@ function requireEndpoint(configuration: IcebergCatalogConfiguration, expected: s
   }
 }
 
-function credentialMetadata(
+function credentialAccess(
   data: Record<string, unknown>,
   requested: boolean,
-): VendedCredentialMetadata {
+  metadataLocation: string,
+): { metadata: VendedCredentialMetadata; lease: VendedCredentialLease | null } {
   const tableConfig = stringRecord(data.config ?? {}, 'load-table config');
   const rawCredentials = data['storage-credentials'] ?? [];
   if (!Array.isArray(rawCredentials)) {
@@ -481,9 +699,18 @@ function credentialMetadata(
   const providers = new Set<string>();
   const configKeys = new Set<string>(Object.keys(tableConfig));
   const expirations: number[] = [];
+  const entries: VendedStorageCredential[] = [];
+  let hasStorageCredential = false;
 
   detectProvider('', tableConfig, providers);
   collectExpiration(tableConfig, expirations);
+  if (requested && Object.keys(tableConfig).some(isCredentialKey)) {
+    entries.push({
+      provider: providerFor(metadataLocation, tableConfig),
+      prefix: null,
+      config: tableConfig,
+    });
+  }
   for (const [index, raw] of rawCredentials.entries()) {
     const credential = objectValue(raw, `storage-credentials[${index}]`);
     const prefix = stringValue(credential.prefix, `storage-credentials[${index}].prefix`);
@@ -491,17 +718,33 @@ function credentialMetadata(
     for (const key of Object.keys(config)) configKeys.add(key);
     detectProvider(prefix, config, providers);
     collectExpiration(config, expirations);
+    const hasCredential = Object.keys(config).some(isCredentialKey);
+    hasStorageCredential ||= hasCredential;
+    if (requested && hasCredential) {
+      entries.push({
+        provider: providerFor(prefix, config),
+        prefix,
+        config,
+      });
+    }
   }
 
   const keys = [...configKeys].sort();
   const hasInlineCredential = keys.some(isCredentialKey);
-  return {
+  const metadata: VendedCredentialMetadata = {
     requested,
-    provided: rawCredentials.length > 0 || hasInlineCredential,
+    provided: hasStorageCredential || hasInlineCredential,
     providers: [...providers].sort(),
     expiresAtMs: expirations.length > 0 ? Math.min(...expirations) : null,
     configKeys: keys,
     storageCredentialCount: rawCredentials.length,
+  };
+  return {
+    metadata,
+    lease:
+      requested && entries.length > 0
+        ? new VendedCredentialLease(entries, metadata.expiresAtMs)
+        : null,
   };
 }
 
@@ -527,6 +770,37 @@ function detectProvider(
   if (prefix && !detected) providers.add('unknown');
 }
 
+function providerFor(prefix: string, config: Record<string, string>): VendedCredentialProvider {
+  const providers = new Set<string>();
+  detectProvider(prefix, config, providers);
+  const provider = [...providers];
+  return provider.length === 1 && ['s3', 'gcs', 'azure'].includes(provider[0] ?? '')
+    ? (provider[0] as VendedCredentialProvider)
+    : 'unknown';
+}
+
+function validateCredentialEntry(entry: VendedStorageCredential): void {
+  let valid = false;
+  if (entry.provider === 's3') {
+    valid = ['s3.access-key-id', 's3.secret-access-key', 's3.session-token'].every((key) =>
+      Boolean(entry.config[key]?.trim()),
+    );
+  } else if (entry.provider === 'gcs') {
+    valid = Boolean(entry.config['gcs.oauth2.token']?.trim());
+  } else if (entry.provider === 'azure') {
+    valid = Object.entries(entry.config).some(
+      ([key, value]) => /^adls\.sas-token(?:\.|$)/.test(key) && Boolean(value.trim()),
+    );
+  }
+  if (!valid) {
+    throw new IcebergCatalogError(
+      `Catalog returned an incomplete or unsupported ${entry.provider} credential shape.`,
+      200,
+      entry.provider === 'unknown' ? 'unsupported_credential_provider' : 'incomplete_credentials',
+    );
+  }
+}
+
 function collectExpiration(config: Record<string, string>, expirations: number[]): void {
   for (const [key, value] of Object.entries(config)) {
     if (!isCredentialExpirationKey(key)) continue;
@@ -547,12 +821,38 @@ function isCredentialExpirationKey(key: string): boolean {
     key === 'expires-at-ms' ||
     key === 's3.session-token-expires-at-ms' ||
     key === 'gcs.oauth2.token-expires-at' ||
+    key === 'adls.sas-token-expires-at-ms' ||
     key.startsWith('adls.sas-token-expires-at-ms.')
   );
 }
 
 function isCredentialKey(key: string): boolean {
+  if (/refresh-credentials-endpoint|expires-at/i.test(key)) return false;
   return /(^token$|secret|access-key|session-token|credential|oauth|sas-token)/i.test(key);
+}
+
+function credentialNow(value: number | undefined): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : Date.now();
+}
+
+function credentialMinValidity(value: number | undefined): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : DEFAULT_MIN_CREDENTIAL_VALIDITY_MS;
+}
+
+async function clearCredentialTarget(target: VendedCredentialTarget): Promise<void> {
+  try {
+    await target.clear();
+  } catch {
+    throw new IcebergCatalogError(
+      'Vended credential target could not be cleared.',
+      0,
+      'credential_clear_failed',
+    );
+  }
 }
 
 function containsControlCharacter(value: string): boolean {

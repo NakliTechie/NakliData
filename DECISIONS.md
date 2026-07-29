@@ -186,6 +186,32 @@ Append-only. Format per AGENTHANDOFF §5.
   A focused Chromium case proves HR-style axes remain selected after a full
   notebook re-render. The implementation stays within the hard shell budget.
 
+### Decision FA-10 — vended storage access is an opaque, target-owned lease
+
+- **Context.** The Iceberg REST client could request and summarize short-lived
+  storage credentials, but no safe object could carry them to a future data
+  plane. Returning a plain configuration map would make secrets enumerable,
+  spreadable, loggable, and easy to persist. Dropping the JavaScript reference
+  alone would also leave a previously configured engine credential active.
+- **Decision.** Attach a non-enumerable `VendedCredentialLease` capability to
+  load-table results only when delegation was requested and actual
+  secret-bearing keys were returned. Keep credential entries in JavaScript
+  private slots; expose only safe provider/expiry/key-name/count metadata.
+  Validate complete S3, GCS, and host-scoped ADLS shapes immediately before
+  application, require a usable expiry, and hand values only to a trusted
+  target's atomic `replace()` method. A per-table session reloads load-table
+  before the lease enters its 60-second validity floor and clears the active
+  target on refresh failure, target change, application failure, or explicit
+  revocation. A refresh endpoint without credential values is not a lease.
+- **Consequence.** Databricks-shaped inline S3 and Polaris-shaped GCS/ADLS
+  fixtures can cross a tested in-memory control-plane/data-plane seam without
+  exposing secrets through JSON or object spread. JavaScript strings cannot be
+  zeroized, so revocation drops references and requires the target to clear its
+  own engine state. This is not an engine adapter, bounded Iceberg read, live
+  authentication test, or branded-connector claim. That next step requires a
+  separately authorized DuckDB-WASM/extension migration and remains blocked in
+  `BLOCKER.md`.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

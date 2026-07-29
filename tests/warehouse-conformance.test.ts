@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { SOURCE_OPTIONS, sourceOptionForAction } from '../src/core/product-capabilities.ts';
-import { IcebergCatalogClient, type LoadTableResult } from '../src/lazy/iceberg-rest-client.ts';
+import {
+  IcebergCatalogClient,
+  type LoadTableResult,
+  type VendedStorageCredential,
+} from '../src/lazy/iceberg-rest-client.ts';
 
 const FIXTURE_TOKEN = 'fixture-bearer-token-never-use';
 const REQUIRED_ENDPOINTS = [
@@ -209,6 +213,29 @@ describe('credential-free warehouse conformance fixtures', () => {
         expiresAtMs: profile.expectedExpiry,
         storageCredentialCount: profile.storageCredentials.length,
       });
+      const appliedCredentials: VendedStorageCredential[][] = [];
+      await result.load.credentialLease?.applyTo(
+        {
+          replace: async (credentials) => {
+            appliedCredentials.push(
+              credentials.map((credential) => ({
+                provider: credential.provider,
+                prefix: credential.prefix,
+                config: { ...credential.config },
+              })),
+            );
+          },
+          clear: async () => {
+            appliedCredentials.length = 0;
+          },
+        },
+        {
+          nowMs: profile.expectedExpiry - 120_000,
+          minValidityMs: 60_000,
+        },
+      );
+      expect(appliedCredentials).toHaveLength(1);
+      expect(appliedCredentials[0]?.[0]?.provider).toBe(profile.expectedProviders[0]);
 
       expect(result.requests).toHaveLength(4);
       expect(result.requests.map((request) => request.url)).toEqual(profile.expectedRequestUrls);
