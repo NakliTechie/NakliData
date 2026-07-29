@@ -49,6 +49,7 @@ The original spec stays authoritative for everything not listed here.
 | [A47](#a47--current-vendor-semantic-imports-and-explicit-loss-accounting-amends-spec-38) | §3.8 | Current Databricks Metric View and Snowflake Semantic View imports preserve representable scoped concepts and diagnose every supported vendor-only shape they omit. |
 | [A48](#a48--direct-coordinate-map-bindings-amends-spec-33) | §3.3 | Map cells accept validated latitude/longitude pairs alongside the existing geometry-column mode. |
 | [A49](#a49--portable-warehouse-and-business-vocabulary-amends-spec-32) | §3.2 | Shipped semantics cover common HR, country-indicator, commerce-lifecycle, and unit-bearing product fields without treating vendor jargon as connector support. |
+| [A50](#a50--semantic-gating-for-number-extraction-amends-spec-32) | §3.2 | Number-extraction cleaning advice requires numeric semantic/header intent and never fires on recognized narrative fields. |
 
 ---
 
@@ -2124,6 +2125,32 @@ turning generic names into confident false positives.
 country-indicator, and Olist corpus. Thirty-five exact-header, sensitivity, and
 collision tests cover the new vocabulary; universal-layer tests require every
 role to have one crosswalk.
+
+---
+
+## A50 — Semantic gating for number extraction (amends spec §3.2)
+
+**Original behavior:** the cleaning registry offered “Extract the number”
+whenever enough text values contained one whitespace-delimited number. This
+excluded identifiers such as `V0001`, but still treated incidental digits in
+listing names, titles, descriptions, and notes as measures.
+
+**Amended behavior:** number extraction requires a textual source plus either
+a recognized `measure`/`metric` role or a conservative measure-bearing header
+such as duration, count, amount, price, quantity, score, weight, or physical
+dimension. Recognized narrative roles—names, titles, descriptions, reasons,
+addresses, JSON/text, comments, and notes—are an explicit stop. The visible
+suggestion is “Extract as numeric measure,” and its rationale identifies the
+target output role. It still emits reviewable, un-run SQL and keeps the
+original column.
+
+**Reasoning:** a digit in “Large Cozy 1 BR Apartment” describes prose; taking
+the first digit does not clean the listing name. Numeric intent must belong to
+the column, not merely appear in a sampled value.
+
+**Status:** adopted 2026-07-29 from KAG-05. Exact Airbnb-style names, media
+titles, generic descriptions/notes, and identifier negatives are locked beside
+recognized and header-signalled measure positives.
 
 ---
 

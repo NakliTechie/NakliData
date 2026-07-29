@@ -216,19 +216,25 @@ describe('C2 — split a delimited column', () => {
 });
 
 describe('C2 — extract a number trapped in text', () => {
-  const trapped = facts({ sampleValues: ['Stay 5 days', 'Stay 12 days', 'Stay 3 days'] });
+  const trapped = facts({
+    column: 'stay_duration',
+    typeId: 'minimum_stay_nights',
+    roleFamily: 'measure',
+    sampleValues: ['Stay 5 days', 'Stay 12 days', 'Stay 3 days'],
+  });
 
-  it('fires when values hold a number inside text', () => {
+  it('fires when a numeric semantic role holds a measure inside text', () => {
     const f = suggestFixes(trapped).find((x) => x.id === 'extract-number');
     expect(f).toBeDefined();
-    expect(f?.rationale).toMatch(/can't be summed|cannot be summed/i);
+    expect(f?.label).toBe('Extract as numeric measure');
+    expect(f?.rationale).toMatch(/numeric measure.*summed or compared/i);
   });
 
   it('emits TRY_CAST + REGEXP_EXTRACT into a new column, keeping the original', () => {
     const sql = suggestFixes(trapped).find((x) => x.id === 'extract-number')?.sql ?? '';
     expect(sql).toContain('REGEXP_EXTRACT');
     expect(sql).toContain('TRY_CAST');
-    expect(sql).toContain('"city_number"');
+    expect(sql).toContain('"stay_duration_number"');
     expect(sql).toContain('SELECT *,');
   });
 
@@ -260,15 +266,62 @@ describe('C2 — extract a number trapped in text', () => {
     }
   });
 
-  it('still fires on genuine measures written as text', () => {
-    for (const vals of [
-      ['Stay 5 days', 'Stay 12 days'],
-      ['12 kg', '7 kg'],
-      ['about 3 hours', 'about 9 hours'],
+  it('KAG-05 — suppresses digits in recognized names, titles, and narrative fields', () => {
+    for (const narrative of [
+      facts({
+        column: 'name',
+        typeId: 'listing_name',
+        roleFamily: 'dimension',
+        sampleValues: [
+          'Large Cozy 1 BR Apartment In Midtown East',
+          'Only 2 stops to Manhattan studio',
+          'Modern 3 bedroom loft',
+        ],
+      }),
+      facts({
+        column: 'movie_title',
+        typeId: 'content_title',
+        roleFamily: 'dimension',
+        sampleValues: ['Apollo 13', 'Ocean’s 8', 'District 9'],
+      }),
+      facts({
+        column: 'description',
+        typeId: null,
+        roleFamily: null,
+        sampleValues: ['Only 2 stops away', 'Sleeps 4 guests', 'Floor 3 walk-up'],
+      }),
     ]) {
-      expect(suggestFixes(facts({ sampleValues: vals })).map((f) => f.id)).toContain(
-        'extract-number',
-      );
+      expect(suggestFixes(narrative).map((f) => f.id)).not.toContain('extract-number');
+    }
+  });
+
+  it('requires a recognized measure/metric or an explicitly numeric header', () => {
+    expect(
+      suggestFixes(
+        facts({
+          column: 'notes',
+          sampleValues: ['Stay 5 days', 'Stay 12 days', 'Stay 3 days'],
+        }),
+      ).map((f) => f.id),
+    ).not.toContain('extract-number');
+
+    for (const numeric of [
+      facts({
+        column: 'stay_duration',
+        typeId: 'minimum_stay_nights',
+        roleFamily: 'measure',
+        sampleValues: ['Stay 5 days', 'Stay 12 days'],
+      }),
+      facts({
+        column: 'package_weight',
+        sampleValues: ['12 kg', '7 kg'],
+      }),
+      facts({
+        column: 'response_hours',
+        sampleValues: ['about 3 hours', 'about 9 hours'],
+      }),
+    ]) {
+      expect(suggestFixes(numeric).map((f) => f.id)).toContain('extract-number');
     }
   });
 });

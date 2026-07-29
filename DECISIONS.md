@@ -155,6 +155,21 @@ Append-only. Format per AGENTHANDOFF §5.
   new roles, and universal-layer coverage is complete. Databricks/Snowflake
   branded entry points remain disabled pending live verification.
 
+### Decision FA-8 — number extraction requires column-level numeric intent
+
+- **Context.** The cleaning detector correctly rejected digits glued into
+  identifiers, but still offered to extract incidental numbers from Airbnb
+  listing names such as “Large Cozy 1 BR Apartment” and “Only 2 stops…”.
+  Value shape alone cannot distinguish a text-encoded measure from narrative.
+- **Decision.** Require a recognized measure/metric role or a conservative
+  measure-bearing header before offering number extraction. Treat recognized
+  narrative type families as an unconditional stop. Rename the action to
+  “Extract as numeric measure” and state that output role in its rationale.
+- **Consequence.** Names, titles, descriptions, notes, and identifiers no
+  longer receive semantically destructive advice. Text-encoded durations,
+  weights, and other explicitly signalled measures retain the proposal-only
+  path, preview, original column, and un-run SQL output.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

@@ -309,6 +309,30 @@ function embeddedNumber(value: string): string | null {
   return nums.length === 1 ? (nums[0] ?? null) : null;
 }
 
+/**
+ * Extracting an arbitrary digit is only useful when the column itself signals
+ * a numeric output. Narrative semantics are an explicit stop even if a future
+ * alias happens to contain a numeric-looking word. Unknown columns need a
+ * conservative measure-bearing header; recognized measures/metrics already
+ * provide stronger semantic evidence.
+ */
+function signalsNumericOutput(facts: ColumnFacts): boolean {
+  if (
+    facts.typeId &&
+    /(?:name|title|description|reason|address|json|text|comment|note)$/.test(facts.typeId)
+  ) {
+    return false;
+  }
+  if (facts.roleFamily === 'measure' || facts.roleFamily === 'metric') return true;
+  const header = facts.column
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_');
+  return /(?:^|_)(?:amount|age|count|days?|distance|duration|fare|hours?|installments?|latency|length|minutes?|price|quantity|rate|score|seconds?|size|tenure|weight|width|height)(?:_|$)/.test(
+    header,
+  );
+}
+
 // C3 (row dedupe) is PARKED — see plan/pending.md and DECISIONS EK.
 //
 // A per-column registry cannot tell a PRIMARY key from a FOREIGN key, and a
@@ -359,9 +383,15 @@ const C2_FIXES: FixDefinition[] = [
   },
   {
     id: 'extract-number',
-    label: 'Extract the number',
+    label: 'Extract as numeric measure',
     detect(facts) {
-      if (!isTextual(facts.sqlType) || facts.sampleValues.length === 0) return null;
+      if (
+        !isTextual(facts.sqlType) ||
+        facts.sampleValues.length === 0 ||
+        !signalsNumericOutput(facts)
+      ) {
+        return null;
+      }
       let affected = 0;
       let purelyNumeric = 0;
       for (const v of facts.sampleValues) {
@@ -380,7 +410,7 @@ const C2_FIXES: FixDefinition[] = [
       return {
         affected,
         fraction,
-        rationale: `${affected} of ${facts.sampleValues.length} sampled values hold a number inside text (e.g. "${facts.sampleValues.find((v) => embeddedNumber(v) !== null) ?? ''}") — it can't be summed or compared while it's a string.`,
+        rationale: `${affected} of ${facts.sampleValues.length} sampled values hold a numeric measure inside text (e.g. "${facts.sampleValues.find((v) => embeddedNumber(v) !== null) ?? ''}") — the extracted output would be a numeric measure that can be summed or compared.`,
       };
     },
     emit(facts, ev) {
