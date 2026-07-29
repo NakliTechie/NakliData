@@ -44,6 +44,7 @@ The original spec stays authoritative for everything not listed here.
 | [A39](#a39--public-static-service-worker-cache-policy-amends-spec-71) | §7.1 | Cache Storage admits only named public application assets; authenticated, private, no-store, non-200, partial, and unlisted traffic bypasses it. Cloudflare observability is disabled. |
 | [A40](#a40--verified-readiness-and-cloud-disclosure-amends-spec-41--43) | §4.1 + §4.3 | Iceberg entry points are disabled pending real-endpoint verification; Bridge is advanced/BYO; cloud sidecar requests disclose and minimize payloads. |
 | [A41](#a41--deterministic-first-value-and-analytical-presentation-amends-spec-32--33--38) | §3.2 + §3.3 + §3.8 | The bundled demo creates an AI-free starter workbook; desktop navigation is grouped/collapsible; numbers, evidence, and semantic overrides use analyst-facing presentation. |
+| [A42](#a42--versioned-bounded-remote-catalog-boundary-amends-spec-41) | §4.1 | Compute Bridge negotiation is explicit and fail-closed; remote catalog HTTP is bounded/cancellable; catalog browsing uses a portable hierarchy. |
 
 ---
 
@@ -1812,6 +1813,45 @@ the implementation catalogue all at once.
 number precision, and evidence translation. Production smoke covers the target
 viewport, both rails, demo result/chart/assertion, Settings structure, number
 tooltips, evidence drill-down, and grouped semantic override.
+
+---
+
+## A42 — Versioned, bounded remote-catalog boundary (amends spec §4.1)
+
+**Original behavior:** Compute Bridge health tolerated missing fields and did
+not identify a wire protocol/version. Bridge and Iceberg responses had no
+client deadline, byte ceiling, success-media validation, bounded streaming, or
+caller cancellation. Bridge catalog objects were presented as one flat list,
+and partial table failures were console-only.
+
+**Amended behavior:** Compute Bridge health must declare
+`naklidata-compute-bridge` protocol version 1 and every capability required by
+the selected flow. Successful JSON and Arrow responses must use the declared
+media type. Requests keep a deadline through body consumption, accept an
+external abort signal, and enforce incremental byte ceilings (2 MiB JSON,
+256 MiB Arrow by default). Iceberg REST listings follow server page tokens with
+a bounded page count.
+
+Catalog descriptors use the portable shape
+`catalog/database → schema/namespace → table/view`, retain an opaque qualified
+identifier for bridge SQL, and render as a hierarchy. A multi-object mount may
+commit successful objects, but it must return structured failures and name them
+in user-visible feedback. Both clients ship as lazy chunks. Databricks Unity
+Catalog, Snowflake Open Catalog/Polaris, and direct warehouse adapters remain
+disabled/unclaimed until user-supplied real endpoints pass authentication,
+browse, bounded-read, cancellation, and disclosure verification.
+
+**Reasoning:** an HTTPS endpoint is not proof that it implements the intended
+service, and response headers are not a sufficient resource boundary.
+Portable catalog vocabulary lets one browser surface serve warehouse and
+lakehouse systems without making a vendor-specific object model canonical.
+
+**Status:** adopted 2026-07-29. DECISIONS EV. Unit tests cover negotiation,
+capabilities, response media and byte limits, streaming deadlines,
+cancellation, pagination, hierarchy parsing, and structured partial failures.
+Production-browser tests cover hierarchical rendering, protocol rejection, and
+dialog-close cancellation against mocked endpoints. No live branded endpoint
+was available or enabled.
 
 ---
 

@@ -2,6 +2,56 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 4A: generic platform boundary (EV)
+
+### Decision EV-1 — remote clients negotiate and consume within one bounded request lifecycle
+
+- **Context.** Bridge health accepted missing identity fields and neither
+  Bridge nor Iceberg clients bounded the whole response lifecycle. A fetch
+  could return headers and then stream indefinitely or exceed tab memory; a
+  different JSON service at the configured URL could be mistaken for a bridge.
+- **Decision.** Require `naklidata-compute-bridge` protocol v1 plus
+  flow-specific capabilities. Keep one deadline active through response-body
+  consumption, propagate external cancellation, validate success media types,
+  cap JSON at 2 MiB and Arrow at 256 MiB by default, and read incrementally.
+  Bound and redact error bodies. Follow Iceberg page tokens under a 100-page
+  ceiling. Classify protocol, capability, content, size, timeout, cancellation,
+  network, and server failures explicitly.
+- **Consequence.** Remote traffic fails closed before registration and cannot
+  grow or wait without a client ceiling. Closing either bridge dialog aborts
+  the request and stream. Both implementations are lazy chunks, leaving the
+  inlined shell under budget.
+
+### Decision EV-2 — portable hierarchy is canonical; qualified identifiers remain opaque
+
+- **Context.** A flat table-name list obscured catalog/database and
+  schema/namespace boundaries. Deriving SQL identifiers from display labels
+  would also embed one vendor's quoting or naming rules into the browser model.
+- **Decision.** Represent remote objects as catalog or database,
+  schema/namespace path, table/view kind, leaf name, and an opaque qualified
+  query identifier. Render catalog → namespace → object groups and use the
+  server identifier for generated bridge SQL. Return non-fatal per-object
+  mount failures structurally and name them in the success feedback.
+- **Consequence.** One UI vocabulary fits Databricks, Snowflake, Iceberg, and
+  neutral bridge adapters without pretending their object models are
+  identical. Partial success is visible rather than console-only.
+
+### Decision EV-3 — generic readiness does not enable a branded connector
+
+- **Context.** Mocked protocol coverage can prove the NakliData boundary but
+  cannot prove a vendor's auth, catalog semantics, credential vending,
+  cancellation behavior, egress, or read-only enforcement.
+- **Decision.** Keep Iceberg/Databricks/Snowflake cards disabled and direct
+  warehouse adapters unclaimed until a user-supplied real endpoint and
+  credentials pass the recorded live matrix. Continue locally with Phase 5
+  work that has no external dependency.
+- **Consequence.** Phase 4A closes the generic implementation prerequisite,
+  while Unity Catalog, Open Catalog/Polaris, SQL Warehouse, and Virtual
+  Warehouse remain honest external verification gates. Gate: **1,504 vitest**,
+  focused production browser **3/3**, **SMOKE PASSED**, bundle
+  **784,407 / 786,432 bytes** (2,025 bytes headroom), final static check exit 0
+  with 34 pre-existing warnings.
+
 ## 2026-07-29 — Goal Phase 3B: deterministic first value and analytical UX (EU)
 
 ### Decision EU-1 — the bundled demo is one coherent, deterministic workbook
