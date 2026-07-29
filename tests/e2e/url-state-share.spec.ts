@@ -51,6 +51,7 @@ test.describe('?lens=<base64> share link round-trips workbook state', () => {
     // than rely on clipboard read permission, which is flaky under headless
     // chromium.
     const producerCtx = await browser.newContext();
+    await producerCtx.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
     const producerPage = await producerCtx.newPage();
     await producerPage.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(producerPage);
@@ -80,6 +81,7 @@ test.describe('?lens=<base64> share link round-trips workbook state', () => {
         w.__capturedShareUrl = text;
       };
     });
+    await producerPage.click('[data-header-menu="workbook"] > summary');
     await producerPage.click('[data-action="share-link"]');
     // Handler awaits buildShareUrl (gzip compression) before writing — give
     // it a beat.
@@ -104,9 +106,14 @@ test.describe('?lens=<base64> share link round-trips workbook state', () => {
     expect(lensParam.length).toBeGreaterThan(0);
 
     const consumerCtx = await browser.newContext();
+    await consumerCtx.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
     const consumerPage = await consumerCtx.newPage();
     await consumerPage.goto(`${server.url}/index.html?offline=1&lens=${lensParam}`);
     await waitForEngineReady(consumerPage);
+    await consumerPage.waitForSelector('[data-action="lens-confirm-continue"]', {
+      timeout: 5_000,
+    });
+    await consumerPage.click('[data-action="lens-confirm-continue"]');
 
     // Restored sources + schema columns should match the producer.
     await waitForClassificationStable(consumerPage, 30_000);

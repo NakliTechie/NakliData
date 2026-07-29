@@ -128,7 +128,7 @@ async function main() {
     ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
-  const context = await browser.newContext();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
 
   const consoleErrors = [];
@@ -168,6 +168,56 @@ async function main() {
   await page.waitForSelector('.shell-header', { timeout: 5000 });
   const brand = await page.textContent('.brand');
   if (!brand || !brand.includes('NakliData')) fail(`brand not found: ${brand}`);
+  const headerAt1280 = await page.evaluate(() => {
+    const header = document.querySelector('.shell-header');
+    const visible = (selector) => {
+      const el = document.querySelector(selector);
+      if (!(el instanceof HTMLElement)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth;
+    };
+    return {
+      noOverflow: !!header && header.scrollWidth <= header.clientWidth,
+      primariesVisible: [
+        '[data-action="load"]',
+        '[data-action="save"]',
+        '[data-action="open-settings"]',
+        '[data-action="open-help"]',
+      ].every(visible),
+      menus: Array.from(document.querySelectorAll('.header-menu > summary')).map(
+        (summary) => summary.textContent?.trim() ?? '',
+      ),
+    };
+  });
+  if (!headerAt1280.noOverflow || !headerAt1280.primariesVisible) {
+    fail(`1280px header overflow/visibility regression: ${JSON.stringify(headerAt1280)}`);
+  }
+  if (JSON.stringify(headerAt1280.menus) !== JSON.stringify(['Workbook', 'Explore', 'Model'])) {
+    fail(`header information architecture drifted: ${JSON.stringify(headerAt1280.menus)}`);
+  }
+  log('✓ 1280×720 header: primary actions visible; Workbook/Explore/Model menus fit');
+  const railWidths = [];
+  for (const action of ['toggle-sources-rail', 'toggle-schema-rail']) {
+    const before = await page.locator('.center').evaluate((node) => node.getBoundingClientRect().width);
+    await page.click(`[data-action="${action}"]`);
+    const collapsed = await page
+      .locator('.center')
+      .evaluate((node) => node.getBoundingClientRect().width);
+    await page.click(`[data-action="${action}"]`);
+    const restored = await page
+      .locator('.center')
+      .evaluate((node) => node.getBoundingClientRect().width);
+    railWidths.push({ action, before, collapsed, restored });
+  }
+  if (
+    railWidths.some(
+      ({ before, collapsed, restored }) =>
+        collapsed <= before || Math.abs(restored - before) > 1,
+    )
+  ) {
+    fail(`rail collapse/restore regression: ${JSON.stringify(railWidths)}`);
+  }
+  log('✓ Sources and Schema rails collapse and restore notebook width');
   log('✓ shell mounted');
 
   // 2. Engine boots — wait for the footer to read "ready". This pulls
@@ -354,6 +404,29 @@ async function main() {
   // into `public/duckdb-extensions/` so the JSONL load works fully
   // offline; before that landed, this assertion was a tolerant `>= 3`.
   if (sourceRowCount < 4) fail(`expected ≥4 tables, got ${sourceRowCount}`);
+  await page.waitForSelector(
+    '.cell[data-cell-id="demo_vendor_spend"] .result-table tbody tr',
+    { timeout: 30000 },
+  );
+  await page.waitForSelector('.cell[data-cell-id="demo_vendor_chart"] svg', { timeout: 30000 });
+  await page.waitForSelector(
+    '.cell[data-cell-id="demo_quality"] .assertion-verdict--pass',
+    { timeout: 30000 },
+  );
+  const demoNumber = await page.evaluate(() => {
+    const cell = document.querySelector('.cell[data-cell-id="demo_vendor_spend"]');
+    const columns = Array.from(cell?.querySelectorAll('th') ?? []).map(
+      (header) => header.textContent?.trim() ?? '',
+    );
+    const idx = columns.indexOf('total_billed');
+    const td =
+      idx >= 0 ? cell?.querySelector(`tbody tr td:nth-child(${idx + 1})`) : null;
+    return { text: td?.textContent ?? '', title: td?.getAttribute('title') ?? '' };
+  });
+  if (!demoNumber.text.includes(',') || !/exact value:/i.test(demoNumber.title)) {
+    fail(`demo analytical number formatting regressed: ${JSON.stringify(demoNumber)}`);
+  }
+  log('✓ deterministic demo produced vendor-spend result, chart, PASS check, and formatted totals');
 
   // 5. Wait for the schema panel to classify at least some columns.
   log('waiting for classification');
@@ -388,6 +461,23 @@ async function main() {
     fail(`expected ≥15 typed columns, got ${classified.typed}`);
   }
   log('✓ ≥15 columns assigned a semantic type');
+  const evidencePresentation = await page.evaluate(() => {
+    const first = document.querySelector('.schema-column');
+    first?.querySelector('[data-action="evidence"]')?.click();
+    return {
+      summary: first?.querySelector('.evidence-bullets li > span')?.textContent?.trim() ?? '',
+      technical:
+        first?.querySelector('.evidence-technical code')?.textContent?.trim() ?? '',
+    };
+  });
+  if (
+    !evidencePresentation.summary ||
+    /header ==|regex match|value-set|cardinality|length∈/.test(evidencePresentation.summary) ||
+    !evidencePresentation.technical
+  ) {
+    fail(`classification evidence presentation regressed: ${JSON.stringify(evidencePresentation)}`);
+  }
+  log('✓ classification evidence leads with plain language and preserves technical detail');
 
   // 5b. Cleaning surface (C0). The fixture is clean, so EJ-3 says the panel
   // must show NOTHING — that silence is the feature, and a regression that
@@ -566,6 +656,7 @@ async function main() {
 
   // 9ab. Resolve M2 — the Semantic panel now manages Segments (SEGMENT(name))
   // alongside measures + dimensions. Verify the section + add-form render.
+  await page.click('[data-header-menu="model"] > summary');
   await page.click('[data-action="open-measures"]');
   await page.waitForSelector('.measures-overlay', { timeout: 10000 });
   const semanticPanel = await page.evaluate(() => {
@@ -635,6 +726,7 @@ async function main() {
   // finishes shortly after the rows render). ~6 s budget.
   let lineage = { empty: true, hasSource: false };
   for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.click('[data-header-menu="explore"] > summary');
     await page.click('[data-action="open-lineage"]');
     await page.waitForSelector('.lineage-list', { timeout: 5000 });
     lineage = await page.evaluate(() => {
@@ -715,6 +807,27 @@ async function main() {
   // Enable the sidecar (keeps the default provider) via the Settings UI.
   await page.click('[data-action="open-settings"]');
   await page.waitForSelector('[data-action="settings-enable"]', { timeout: 5000 });
+  const settingsGroups = await page
+    .locator('.settings-group > h2')
+    .allTextContents();
+  if (
+    JSON.stringify(settingsGroups) !==
+    JSON.stringify([
+      'AI sidecar',
+      'Privacy and display',
+      'Connections and credentials',
+      'Advanced / agents',
+    ])
+  ) {
+    fail(`settings information architecture regressed: ${JSON.stringify(settingsGroups)}`);
+  }
+  const settingsCopy = await page.locator('.settings-modal').textContent();
+  if (
+    !settingsCopy?.includes('ask for confirmation before sending') ||
+    !settingsCopy.includes('makes no basemap request')
+  ) {
+    fail('settings: cloud/basemap disclosure copy is missing');
+  }
   const agentProposalToggle = page.locator('[data-action="settings-agent-proposals"]');
   if ((await agentProposalToggle.count()) !== 1 || (await agentProposalToggle.isChecked())) {
     fail('settings: proposal-only agent permission is missing or not off by default');
@@ -1799,10 +1912,25 @@ async function main() {
     // Wait one tick via microtask.
     return new Promise((resolve) => {
       setTimeout(() => {
-        const firstOption = details.querySelector('.type-option');
+        const groupLabels = Array.from(details.querySelectorAll('.type-option-group'))
+          .map((group) => group.firstElementChild?.textContent?.trim())
+          .filter(Boolean);
+        const search = details.querySelector('input[aria-label="Filter types"]');
+        if (
+          !search ||
+          !groupLabels.includes('Suggested for this column') ||
+          !groupLabels.includes('Common')
+        ) {
+          return resolve({
+            colName,
+            id: null,
+            menuError: { groupLabels, hasSearch: !!search },
+          });
+        }
+        const firstOption = details.querySelector('.type-option[data-type-id]');
         const id = firstOption?.dataset.typeId ?? null;
         firstOption?.click();
-        resolve({ colName, id });
+        resolve({ colName, id, menuError: null });
       }, 50);
     });
   });
@@ -1811,6 +1939,11 @@ async function main() {
     const row = document.querySelector(`.schema-column[data-column="${col}"]`);
     return row?.dataset.origin === 'user_override';
   }, overridden?.colName);
+  if (overridden?.menuError) {
+    fail(
+      `semantic override information architecture regressed: ${JSON.stringify(overridden.menuError)}`,
+    );
+  }
   // SB6: the schema panel is the spec's single most important surface — a
   // failed override is a real regression, so fail hard instead of soft-logging.
   if (!overrodeOk) fail(`override did not stick for ${overridden?.colName}`);

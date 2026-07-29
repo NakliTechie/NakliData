@@ -53,31 +53,46 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="save" aria-keyshortcuts="Control+S" title="Save .naklidata (Ctrl+S)">
         ${iconSvg('download', 14)} <span>Save</span>
       </button>
-      <button class="btn btn-ghost" data-action="export-html" title="Export the notebook as a self-contained HTML file (markdown + charts + tables, no engine).">
-        ${iconSvg('download', 14)} <span>Export HTML</span>
-      </button>
-      <button class="btn btn-ghost" data-action="embed-snippet" title="Get a sandboxed <iframe> snippet to embed this notebook read-only in a wiki / intranet — no server.">
-        ${iconSvg('link', 14)} <span>Embed</span>
-      </button>
-      <button class="btn btn-ghost" data-action="share-link" title="Copy share link (no data, just the workbook description)">
-        ${iconSvg('link', 14)} <span>Share</span>
-      </button>
-      <button class="btn btn-ghost" data-action="open-lineage" title="Where does this number come from? — cell lineage panel">
-        ${iconSvg('chart', 14)} <span>Lineage</span>
-      </button>
-      <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources changed since the last successful check">
-        ${iconSvg('download', 14)} <span>Check changes</span>
-      </button>
-      <button class="btn btn-ghost" data-action="open-query-builder" title="Visual query builder — filter, sort, group, aggregate without writing SQL">
-        ${iconSvg('plus', 14)} <span>Build query</span>
-      </button>
-      <button class="btn btn-ghost" data-action="open-measures" title="Semantic layer — measures (MEASURE(name)) + dimensions (DIM(name)) for SQL cells">
-        ${iconSvg('table', 14)} <span>Semantic</span>
-      </button>
-      <button class="btn btn-ghost" data-action="open-associations" title="Link columns across cells so a selection in one cross-filters the others (associative model)">
-        ${iconSvg('link', 14)} <span>Associations</span>
-      </button>
-      <button class="btn btn-ghost" data-action="open-settings" title="Settings — sidecar provider + BYOK keys">
+      <details class="header-menu" data-header-menu="workbook">
+        <summary class="btn btn-ghost">${iconSvg('file', 14)} Workbook ${iconSvg('caret', 11)}</summary>
+        <div class="header-menu-panel">
+          <button class="btn btn-ghost" data-action="export-html" title="Export the notebook as a self-contained HTML file (markdown + charts + tables, no engine).">
+            ${iconSvg('download', 14)} <span>Export HTML</span>
+          </button>
+          <button class="btn btn-ghost" data-action="embed-snippet" title="Get a sandboxed iframe snippet to embed this notebook read-only in a wiki or intranet.">
+            ${iconSvg('link', 14)} <span>Embed read-only</span>
+          </button>
+          <button class="btn btn-ghost" data-action="share-link" title="Copy a data-free workbook-description link">
+            ${iconSvg('link', 14)} <span>Copy data-free link</span>
+          </button>
+        </div>
+      </details>
+      <details class="header-menu" data-header-menu="explore">
+        <summary class="btn btn-ghost">${iconSvg('chart', 14)} Explore ${iconSvg('caret', 11)}</summary>
+        <div class="header-menu-panel">
+          <button class="btn btn-ghost" data-action="open-query-builder" title="Visual query builder — filter, sort, group, and aggregate without writing SQL">
+            ${iconSvg('plus', 14)} <span>Build query</span>
+          </button>
+          <button class="btn btn-ghost" data-action="open-lineage" title="Where does this number come from?">
+            ${iconSvg('chart', 14)} <span>Lineage / impact</span>
+          </button>
+          <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources changed since the last successful check">
+            ${iconSvg('download', 14)} <span>Check changes</span>
+          </button>
+        </div>
+      </details>
+      <details class="header-menu" data-header-menu="model">
+        <summary class="btn btn-ghost">${iconSvg('table', 14)} Model ${iconSvg('caret', 11)}</summary>
+        <div class="header-menu-panel">
+          <button class="btn btn-ghost" data-action="open-measures" title="Measures, dimensions, and segments for SQL cells">
+            ${iconSvg('table', 14)} <span>Semantic model</span>
+          </button>
+          <button class="btn btn-ghost" data-action="open-associations" title="Link columns so selections cross-filter related results">
+            ${iconSvg('link', 14)} <span>Relationships</span>
+          </button>
+        </div>
+      </details>
+      <button class="btn btn-ghost" data-action="open-settings" title="Connections, privacy, AI sidecar, and advanced settings">
         ${iconSvg('info', 14)} <span>Settings</span>
       </button>
       <button class="btn btn-ghost" data-action="open-help" title="Help &amp; orientation — key surfaces, keyboard shortcuts, and the full illustrated guide">
@@ -175,12 +190,13 @@ function renderBody(state: ShellState): HTMLElement {
 
 function renderSourcesPanel(): HTMLElement {
   const el = document.createElement('aside');
-  el.className = 'panel';
+  el.className = 'panel sources-panel';
   el.setAttribute('aria-label', 'Sources');
   el.innerHTML = `
     <div class="panel-header">
-      <span>Sources</span>
-      <button class="btn btn-ghost" data-action="add-source" title="Add source">${iconSvg('plus', 14)}</button>
+      <button class="btn btn-ghost rail-toggle" data-action="toggle-sources-rail" title="Collapse Sources rail" aria-label="Collapse Sources rail" aria-expanded="true">${iconSvg('caret', 12)}</button>
+      <span class="rail-title">Sources</span>
+      <button class="btn btn-ghost rail-secondary" data-action="add-source" title="Add source">${iconSvg('plus', 14)}</button>
     </div>
     <div class="panel-body" data-region="sources-list">
       <p style="color: var(--text-muted); font-size: 12px; margin: 0;">No sources yet.</p>
@@ -262,12 +278,13 @@ function renderEmptyState(): HTMLElement {
 
 function renderSchemaPanel(): HTMLElement {
   const el = document.createElement('aside');
-  el.className = 'panel';
+  el.className = 'panel schema-panel-rail';
   el.setAttribute('aria-label', 'Schema');
   el.innerHTML = `
     <div class="panel-header">
-      <span>Schema</span>
-      <button class="btn btn-ghost" data-action="open-schema-graph" title="Show type relationships graph" aria-label="Show type relationships graph">
+      <button class="btn btn-ghost rail-toggle" data-action="toggle-schema-rail" title="Collapse Schema rail" aria-label="Collapse Schema rail" aria-expanded="true">${iconSvg('caret', 12)}</button>
+      <span class="rail-title">Schema</span>
+      <button class="btn btn-ghost rail-secondary" data-action="open-schema-graph" title="Show type relationships graph" aria-label="Show type relationships graph">
         ${iconSvg('chart', 12)}
       </button>
     </div>

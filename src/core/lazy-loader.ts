@@ -125,6 +125,14 @@ export interface LazyChunkRegistry {
    * ship off the inlined shell budget (spec §7.1 / A35).
    */
   'compare-tables': typeof import('../lazy/compare-tables.ts');
+  /**
+   * Deterministic bundled-data starter workbook. It is only needed after the
+   * user chooses the example bundle, so its explanatory copy and SQL stay out
+   * of the size-constrained inlined shell.
+   */
+  'demo-workbook': typeof import('../lazy/demo-workbook.ts');
+  /** Searchable, grouped 204-type override picker; paid only when opened. */
+  'schema-override': typeof import('../lazy/schema-override.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly

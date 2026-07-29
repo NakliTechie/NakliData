@@ -317,53 +317,53 @@ function renderModal(): HTMLElement {
   overlay.innerHTML = `
     <div class="schema-graph-modal settings-modal">
       <div class="schema-graph-header">
-        <strong>Settings — AI sidecar (BYOK)</strong>
-        <span class="schema-graph-status">Spec amendment A2: keys stay in sessionStorage by default.</span>
+        <strong>Settings</strong>
+        <span class="schema-graph-status">Connections, privacy, AI sidecar, and advanced controls.</span>
         <button class="btn btn-ghost schema-graph-close" data-action="close-settings" aria-label="Close">
           ${iconSvg('x', 14)}
         </button>
       </div>
       <div class="settings-body">
-        <section class="settings-section">
-          <h2>Sidecar</h2>
+        <section class="settings-group">
+          <h2>AI sidecar</h2>
+          <div class="settings-section">
+          <h3>Availability</h3>
           <label class="settings-remember">
             <input type="checkbox" data-action="settings-enable" />
             <span>Enable sidecar (shows the Explain button on errored SQL cells)</span>
           </label>
-          <p class="settings-hint">Per spec §4.3: the v1.1 sidecar is narrow — it explains query errors, helps disambiguate column types, and helps define new types. Any SQL it drafts (e.g. NL→SQL) is inserted as an unrun cell — it is never executed without your explicit click.</p>
+          <p class="settings-hint">The sidecar explains query errors, helps classify and define types, and can draft SQL as an editable, un-run cell. Cloud actions name the provider, model, and payload categories and ask for confirmation before sending. Schema jobs omit samples; cloud result summaries and merges are blocked because they require row values.</p>
+          </div>
         </section>
-        <section class="settings-section">
-          <h2>Demo / censor mode</h2>
+        <section class="settings-group">
+          <h2>Privacy and display</h2>
+          <div class="settings-section">
+          <h3>Demo / censor mode</h3>
           <label class="settings-remember">
             <input type="checkbox" data-action="settings-demo-mode" />
             <span>Mask source, table, and column names with stable tokens (<code>src_1</code>, <code>tbl_1</code>, <code>col_1</code>…)</span>
           </label>
           <p class="settings-hint">For screenshots and demos. Row values, SQL cell text, and the underlying engine queries are NOT masked — clear cells before screenshotting if they contain sensitive data. Toggle off any time to reveal real labels.</p>
-        </section>
-        <section class="settings-section">
-          <h2>Agent proposals</h2>
-          <label class="settings-remember">
-            <input type="checkbox" data-action="settings-agent-proposals" />
-            <span>Allow agents to add editable, un-run SQL cells</span>
-          </label>
-          <p class="settings-hint">Off by default. This permission allows proposals only: agents cannot run a cell, and every proposed query stays editable until you explicitly click Run.</p>
-        </section>
-        <section class="settings-section">
-          <h2>Map basemap</h2>
+          </div>
+          <div class="settings-section">
+          <h3>Map basemap</h3>
           <label class="settings-remember">
             <input type="checkbox" data-action="settings-map-basemap" />
             <span>Show OpenStreetMap tiles behind map cells <em>(opt-in — see below)</em></span>
           </label>
           <p class="settings-hint">
-            Default is a tile-less canvas: nothing leaves the tab. Enabling this
-            fetches raster tiles from <code>tile.openstreetmap.org</code> for
-            whichever extent each map cell renders — area-of-interest leaks to
-            OSM's servers. Tiles are images only (no scripts). Attribution shown
-            on the map. Spec amendment A13.
+            Default is a tile-less canvas and makes no basemap request.
+            Enabling this fetches raster tiles from
+            <code>tile.openstreetmap.org</code> for the extent each map cell
+            renders, disclosing that area of interest to OSM. Tiles are images,
+            not scripts, and attribution appears on the map.
           </p>
+          </div>
         </section>
-        <section class="settings-section">
-          <h2>Active provider</h2>
+        <section class="settings-group">
+          <h2>Connections and credentials</h2>
+          <div class="settings-section">
+          <h3>Active provider</h3>
           <div class="settings-radio-row">
             <label><input type="radio" name="settings-provider" value="anthropic" /> Anthropic (Claude)</label>
             <label><input type="radio" name="settings-provider" value="openai" /> OpenAI</label>
@@ -405,14 +405,27 @@ function renderModal(): HTMLElement {
             <div class="settings-local-status" data-region="settings-local-status" hidden></div>
             <div class="settings-local-cache" data-region="settings-local-cache"></div>
           </div>
-        </section>
-        <section class="settings-section">
-          <h2>API keys</h2>
+          </div>
+          <div class="settings-section">
+          <h3>API keys</h3>
+          <p class="settings-hint">Bring your own key. Keys stay in sessionStorage by default; any persistence choice is explicit.</p>
           <div data-region="provider-blocks"></div>
           <div class="settings-actions">
             <button class="btn btn-ghost" data-action="settings-forget-all" title="Drop every stored key from sessionStorage + IDB">
               ${iconSvg('warning', 12)} Forget all stored keys
             </button>
+          </div>
+          </div>
+        </section>
+        <section class="settings-group">
+          <h2>Advanced / agents</h2>
+          <div class="settings-section">
+          <h3>Agent proposals</h3>
+          <label class="settings-remember">
+            <input type="checkbox" data-action="settings-agent-proposals" />
+            <span>Allow agents to add editable, un-run SQL cells</span>
+          </label>
+          <p class="settings-hint">Off by default. This permission allows proposals only: agents cannot run a cell, and every proposed query stays editable until you explicitly click Run.</p>
           </div>
         </section>
       </div>

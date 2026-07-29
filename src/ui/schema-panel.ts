@@ -7,9 +7,11 @@
 import { getFixesFor } from '../core/cleaning/fix-cache.ts';
 import { maskLabel } from '../core/demo-mode.ts';
 import type { ColumnProfile } from '../core/engine.ts';
+import { humanizeEvidence } from '../core/evidence-labels.ts';
+import { loadChunk } from '../core/lazy-loader.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import type { OverrideRule, UserType } from '../core/workbook.ts';
-import type { TaxonomyBundle, TypeSpec } from '../taxonomy/types.ts';
+import type { TaxonomyBundle } from '../taxonomy/types.ts';
 import { sensitivityForType } from '../taxonomy/universal.ts';
 import { Monsoon, Neutral } from '../tokens/colors.ts';
 import { iconSvg } from '../tokens/icons.ts';
@@ -456,12 +458,15 @@ function renderColumnRow(
     if (!details.open) return;
     const menu = details.querySelector<HTMLElement>('[data-region="override-menu"]');
     if (menu && menu.childElementCount === 0 && bundle) {
-      menu.append(
-        renderOverrideMenu(bundle, userTypes, a, sourceId, tableId, (typeId) => {
-          details.open = false;
-          handlers.onOverride(sourceId, tableId, a.columnName, typeId);
-        }),
-      );
+      void loadChunk('schema-override').then(({ renderOverrideMenu }) => {
+        if (!details.open || menu.childElementCount > 0) return;
+        menu.append(
+          renderOverrideMenu(bundle, userTypes, a, sourceId, tableId, (typeId) => {
+            details.open = false;
+            handlers.onOverride(sourceId, tableId, a.columnName, typeId);
+          }),
+        );
+      });
     }
   });
 
@@ -644,116 +649,23 @@ function renderEvidence(a: ColumnAssignment): string {
             <span style="color: var(--text-muted);">${pct}%</span>
           </div>
           <ul class="evidence-bullets">
-            ${c.evidence.map((e) => `<li>${escapeHtml(e)}</li>`).join('')}
+            ${c.evidence
+              .map((e) => {
+                const label = humanizeEvidence(e);
+                return `<li>
+                  <span>${escapeHtml(label.summary)}</span>
+                  <details class="evidence-technical">
+                    <summary>Technical detail</summary>
+                    <code>${escapeHtml(label.technical)}</code>
+                  </details>
+                </li>`;
+              })
+              .join('')}
           </ul>
         </div>`;
     })
     .join('');
   return rows;
-}
-
-function renderOverrideMenu(
-  bundle: TaxonomyBundle,
-  userTypes: UserType[],
-  a: ColumnAssignment,
-  sourceId: string,
-  tableId: string,
-  onPick: (typeId: string | null) => void,
-): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;padding:4px;';
-  const search = document.createElement('input');
-  search.type = 'search';
-  search.placeholder = 'Filter types…';
-  search.style.cssText =
-    'padding:6px;border:1px solid var(--border);border-radius:4px;margin-bottom:4px;';
-  search.setAttribute('aria-label', 'Filter types');
-  wrap.append(search);
-
-  const list = document.createElement('div');
-  list.style.cssText = 'max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:1px;';
-  wrap.append(list);
-
-  // "Set to unknown" first.
-  const unknownBtn = document.createElement('button');
-  unknownBtn.className = 'btn btn-ghost';
-  unknownBtn.style.cssText = 'justify-content:flex-start;padding:4px 8px;font-size:12px;';
-  unknownBtn.textContent = 'unknown';
-  unknownBtn.addEventListener('click', () => onPick(null));
-  list.append(unknownBtn);
-
-  // User-defined types — always first since they're scoped to this workbook.
-  if (userTypes.length > 0) {
-    const hdr = document.createElement('div');
-    hdr.textContent = 'User types';
-    hdr.style.cssText =
-      'font-size:11px;color:var(--accent);padding:4px 8px;text-transform:uppercase;letter-spacing:0.05em;';
-    list.append(hdr);
-    for (const t of userTypes) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-ghost type-option';
-      btn.style.cssText = 'justify-content:flex-start;padding:4px 8px;font-size:12px;';
-      btn.dataset.typeId = t.id;
-      btn.dataset.label = t.display_name.toLowerCase();
-      btn.innerHTML = `${escapeHtml(t.display_name)} <span style="color:var(--text-muted);margin-left:auto;font-size:10px;">${escapeHtml(t.id)}</span>`;
-      btn.addEventListener('click', () => onPick(t.id));
-      list.append(btn);
-    }
-  }
-
-  const compatible = bundle.types.filter((t) =>
-    t.sql_compat.some((c) => a.sqlType.toUpperCase().includes(c.toUpperCase())),
-  );
-  const incompatible = bundle.types.filter((t) => !compatible.includes(t));
-  const groups: Array<[string, TypeSpec[]]> = [
-    ['Compatible types', compatible],
-    ['Other types', incompatible],
-  ];
-  for (const [label, items] of groups) {
-    if (items.length === 0) continue;
-    const hdr = document.createElement('div');
-    hdr.textContent = label;
-    hdr.style.cssText =
-      'font-size:11px;color:var(--text-muted);padding:4px 8px;text-transform:uppercase;letter-spacing:0.05em;';
-    list.append(hdr);
-    for (const t of items) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-ghost type-option';
-      btn.style.cssText = 'justify-content:flex-start;padding:4px 8px;font-size:12px;';
-      btn.dataset.typeId = t.id;
-      btn.dataset.label = t.display_name.toLowerCase();
-      btn.innerHTML = `${escapeHtml(t.display_name)} <span style="color:var(--text-muted);margin-left:auto;font-size:10px;">${escapeHtml(t.id)}</span>`;
-      btn.addEventListener('click', () => onPick(t.id));
-      list.append(btn);
-    }
-  }
-
-  // "Define new type from this column…" at the bottom. Bubbles a data-
-  // action up to main.ts, which opens the modal.
-  const defineBtn = document.createElement('button');
-  defineBtn.className = 'btn btn-ghost define-new-type-trigger';
-  defineBtn.dataset.action = 'define-new-type';
-  defineBtn.dataset.sourceId = sourceId;
-  defineBtn.dataset.tableId = tableId;
-  defineBtn.dataset.column = a.columnName;
-  defineBtn.dataset.sqlType = a.sqlType;
-  defineBtn.style.cssText =
-    'justify-content:flex-start;padding:6px 8px;font-size:12px;color:var(--accent);margin-top:6px;border-top:1px dashed var(--border);';
-  defineBtn.innerHTML = '+ Define new type from this column…';
-  list.append(defineBtn);
-
-  search.addEventListener('input', () => {
-    const q = search.value.trim().toLowerCase();
-    for (const b of list.querySelectorAll<HTMLElement>('.type-option')) {
-      const label = b.dataset.label ?? '';
-      const id = b.dataset.typeId ?? '';
-      const match = !q || label.includes(q) || id.includes(q);
-      b.style.display = match ? '' : 'none';
-    }
-  });
-
-  setTimeout(() => search.focus(), 0);
-  return wrap;
 }
 
 function confidenceToColor(conf: number): string {
@@ -793,6 +705,17 @@ const SCHEMA_CSS = `
   font-variant-numeric: tabular-nums;
 }
 .schema-table { margin-bottom: 16px; }
+.evidence-technical {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.evidence-technical summary { cursor: pointer; }
+.evidence-technical code {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
 .schema-table-header {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px;

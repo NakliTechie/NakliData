@@ -10,6 +10,7 @@ import {
 import { coerceNumeric } from '../../core/chart-columns.ts';
 import { getDemoMode, maskLabel } from '../../core/demo-mode.ts';
 import { loadChunk } from '../../core/lazy-loader.ts';
+import { formatAnalyticalNumber } from '../../core/number-display.ts';
 import { SNAPSHOT_ROW_CAP, isSnapshotStale } from '../../core/result-snapshots.ts';
 import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
 import { iconSvg } from '../../tokens/icons.ts';
@@ -185,7 +186,7 @@ export function renderSqlCell(
   });
 
   const out = el.querySelector<HTMLElement>('[data-region="cell-output"]');
-  if (out) renderSqlOutput(out, cell);
+  if (out) renderSqlOutput(out, cell, extra);
 
   if (cell.lastResult && extra) {
     el.append(renderSendToBar(cell, extra));
@@ -223,7 +224,7 @@ function renderSendToBar(cell: SqlCellState, extra: SqlCellExtra): HTMLElement {
   return wrap;
 }
 
-function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
+function renderSqlOutput(container: HTMLElement, cell: SqlCellState, extra?: SqlCellExtra): void {
   container.innerHTML = '';
   if (cell.status === 'running') {
     container.innerHTML = `<div class="cell-output-empty">Running…</div>`;
@@ -261,6 +262,12 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
     return;
   }
   const { columns, rows, rowCount, elapsedMs } = cell.lastResult;
+  const semanticTypes = new Map(
+    (extra?.assignmentsFor(cell.id) ?? []).map((assignment) => [
+      assignment.columnName,
+      assignment.assigned.typeId,
+    ]),
+  );
   if (rows.length === 0) {
     container.innerHTML = `<div class="cell-output-empty">No rows.</div>`;
   } else {
@@ -286,7 +293,7 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
       for (const col of columns) {
         const td = document.createElement('td');
         const v = r[col];
-        const display = formatCell(v);
+        const display = formatCell(v, semanticTypes.get(col) ?? null);
         td.textContent = display.text;
         if (display.numeric) td.classList.add('numeric');
         // v1.3 M1 — make the value clickable to toggle a selection.
@@ -301,8 +308,11 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState): void {
           td.dataset.action = 'toggle-selection';
           td.dataset.table = `cell_${cell.id}`;
           td.dataset.column = col;
-          td.dataset.value = display.text;
-          td.title = 'Click to select this value — Qlik-style cross-filter';
+          td.dataset.value = display.selectionText;
+          td.title =
+            display.exact !== display.text
+              ? `Displayed as ${display.text}; exact value: ${display.exact}. Click to select.`
+              : 'Click to select this value — Qlik-style cross-filter';
           td.style.cursor = 'pointer';
         }
         tr.appendChild(td);
@@ -395,7 +405,7 @@ export function paintResultSelectionStates(tableEl: HTMLElement, cell: SqlCellSt
 
   const rows = result.rows.map((r) => {
     const o: Record<string, string> = {};
-    for (const col of result.columns) o[col] = formatCell(r[col]).text;
+    for (const col of result.columns) o[col] = formatCell(r[col]).selectionText;
     return o;
   });
   const states = computeIntraCellValueStates(result.columns, rows, selections);
@@ -411,24 +421,54 @@ export function paintResultSelectionStates(tableEl: HTMLElement, cell: SqlCellSt
   }
 }
 
-function formatCell(v: unknown): { text: string; numeric: boolean } {
-  if (v === null || v === undefined) return { text: '∅', numeric: false };
-  if (typeof v === 'number') return { text: String(v), numeric: true };
-  if (typeof v === 'bigint') return { text: v.toString(), numeric: true };
-  if (typeof v === 'boolean') return { text: v ? '✓' : '×', numeric: false };
+function formatCell(
+  v: unknown,
+  semanticTypeId: string | null = null,
+): { text: string; selectionText: string; exact: string; numeric: boolean } {
+  if (v === null || v === undefined) {
+    return { text: '∅', selectionText: '', exact: '', numeric: false };
+  }
+  if (typeof v === 'number' || typeof v === 'bigint') {
+    const display = formatAnalyticalNumber(v, semanticTypeId);
+    return {
+      text: display.text,
+      selectionText: display.exact,
+      exact: display.exact,
+      numeric: true,
+    };
+  }
+  if (typeof v === 'boolean') {
+    return {
+      text: v ? '✓' : '×',
+      selectionText: String(v),
+      exact: String(v),
+      numeric: false,
+    };
+  }
   if (typeof v === 'object') {
     // DuckDB-wasm hands back HUGEINT/Int128 aggregates (SUM/AVG of ints) as an
     // apache-arrow limb object (`{"0":550,…}`), not a number — coerce it back
     // so the cell shows `550`, right-aligns, and reads as numeric downstream.
     const n = coerceNumeric(v);
-    if (n !== null) return { text: String(n), numeric: true };
+    if (n !== null) {
+      const display = formatAnalyticalNumber(n, semanticTypeId);
+      return {
+        text: display.text,
+        selectionText: display.exact,
+        exact: display.exact,
+        numeric: true,
+      };
+    }
     try {
-      return { text: JSON.stringify(v), numeric: false };
+      const text = JSON.stringify(v);
+      return { text, selectionText: text, exact: text, numeric: false };
     } catch {
-      return { text: String(v), numeric: false };
+      const text = String(v);
+      return { text, selectionText: text, exact: text, numeric: false };
     }
   }
-  return { text: String(v), numeric: false };
+  const text = String(v);
+  return { text, selectionText: text, exact: text, numeric: false };
 }
 
 function escapeAttr(s: string): string {

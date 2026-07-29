@@ -2117,6 +2117,7 @@ function wireActions(root: HTMLElement): void {
     ) {
       return;
     }
+    actionEl.closest<HTMLDetailsElement>('details.header-menu')?.removeAttribute('open');
     void handleAction(action, actionEl);
   });
 
@@ -2131,9 +2132,21 @@ function wireActions(root: HTMLElement): void {
   // Close the session-switcher dropdown when clicking outside it.
   document.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement | null;
-    if (!target || target.closest('.session-switcher')) return;
-    const menu = document.querySelector<HTMLElement>('[data-region="session-menu"]');
-    if (menu) menu.removeAttribute('data-open');
+    if (!target) return;
+    if (!target.closest('.session-switcher')) {
+      const menu = document.querySelector<HTMLElement>('[data-region="session-menu"]');
+      if (menu) menu.removeAttribute('data-open');
+    }
+    for (const details of document.querySelectorAll<HTMLDetailsElement>(
+      'details.header-menu[open]',
+    )) {
+      if (
+        !target.closest('details.header-menu') ||
+        target.closest('details.header-menu') !== details
+      ) {
+        details.removeAttribute('open');
+      }
+    }
   });
 }
 
@@ -2152,10 +2165,31 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         return;
       }
       try {
+        const shouldScaffold =
+          workbook.get().sources.length === 0 && getNotebook(engine).get().cells.length === 0;
         const sources = await mountExampleBundle(engine);
         workbook.addSources(sources);
-        toast(`Loaded ${sources.length} example source${sources.length === 1 ? '' : 's'}.`);
         void classifyMountedSources(engine, sources);
+        const scaffold = shouldScaffold
+          ? (await loadChunk('demo-workbook')).buildDemoScaffold(sources)
+          : null;
+        if (scaffold) {
+          const notebook = getNotebook(engine);
+          notebook.load(scaffold.cells);
+          let allSucceeded = true;
+          for (const cellId of scaffold.runnableCellIds) {
+            const outcome = await notebook.runCell(cellId);
+            if (outcome.status !== 'success') allSucceeded = false;
+          }
+          toast(
+            allSucceeded
+              ? 'Demo ready: vendor-spend result, chart, and quality check.'
+              : 'Demo loaded; one starter check needs attention.',
+            allSucceeded ? 'info' : 'error',
+          );
+        } else {
+          toast(`Loaded ${sources.length} example source${sources.length === 1 ? '' : 's'}.`);
+        }
       } catch (err) {
         const msg = err instanceof MountError || err instanceof Error ? err.message : String(err);
         toast(`Could not mount examples: ${msg}`, 'error');
@@ -2477,6 +2511,21 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-settings': {
       void openSettingsModal();
+      return;
+    }
+    case 'toggle-sources-rail':
+    case 'toggle-schema-rail': {
+      const app = document.getElementById('app');
+      if (!app) return;
+      const sources = action === 'toggle-sources-rail';
+      const className = sources ? 'sources-rail-collapsed' : 'schema-rail-collapsed';
+      const collapsed = app.classList.toggle(className);
+      const railName = sources ? 'Sources' : 'Schema';
+      if (el) {
+        el.setAttribute('aria-expanded', String(!collapsed));
+        el.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${railName} rail`);
+        el.title = `${collapsed ? 'Expand' : 'Collapse'} ${railName} rail`;
+      }
       return;
     }
     case 'open-help': {

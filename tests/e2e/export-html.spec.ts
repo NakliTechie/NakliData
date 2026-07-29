@@ -12,6 +12,7 @@ import { startStaticServer } from './fixtures/server.ts';
 
 async function bootWithSources(page: Page): Promise<void> {
   const server = await startStaticServer();
+  await page.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
   await page.goto(`${server.url}/index.html?offline=1`);
   await page.waitForSelector('.shell-header', { timeout: 5_000 });
   await page.waitForFunction(
@@ -30,6 +31,7 @@ test.describe('W6.3 — static-HTML export', () => {
   test('export with no mounts shows a toast and does NOT write a file', async ({ page }) => {
     const server = await startStaticServer();
     const fsa = await installFsaMocks(page);
+    await page.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
     await page.goto(`${server.url}/index.html?offline=1`);
     await page.waitForSelector('.shell-header', { timeout: 5_000 });
     await page.waitForFunction(
@@ -38,6 +40,7 @@ test.describe('W6.3 — static-HTML export', () => {
       null,
       { timeout: 90_000 },
     );
+    await page.click('[data-header-menu="workbook"] > summary');
     await page.click('[data-action="export-html"]');
     await page.waitForTimeout(500);
     const writes = await fsa.readAllWrites();
@@ -64,6 +67,7 @@ test.describe('W6.3 — static-HTML export', () => {
     await page.click('[data-nb-action="run-all"]');
     await page.waitForTimeout(4_000);
 
+    await page.click('[data-header-menu="workbook"] > summary');
     await page.click('[data-action="export-html"]');
     await page.waitForTimeout(800);
 
@@ -76,7 +80,7 @@ test.describe('W6.3 — static-HTML export', () => {
     expect(html).toContain('<svg'); // chart SVG
     expect(html).toContain('result-table'); // SQL result preview
     expect(html).toContain('<details>'); // SQL details block
-    expect(html).toContain('Your data never left'); // privacy footer
+    expect(html).toContain('remote sources and cloud sidecar actions are explicit');
     expect(html).toContain('<title>'); // valid title element
   });
 
@@ -95,6 +99,7 @@ test.describe('W6.3 — static-HTML export', () => {
     });
     await page.waitForTimeout(800);
 
+    await page.click('[data-header-menu="workbook"] > summary');
     await page.click('[data-action="export-html"]');
     await page.waitForTimeout(800);
 

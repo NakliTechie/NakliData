@@ -272,7 +272,7 @@ footer a{color:var(--accent);text-decoration:none}
 </header>
 ${buildSourcesHtml(opts.sources)}
 ${cellHtml.join('\n')}
-<footer>Prepared in NakliData — browser-native data workbench. Data processed locally; it never left the tab.</footer>
+<footer>Prepared in NakliData — browser-native data workbench. Local data is processed in this browser; remote sources and cloud sidecar actions are explicit.</footer>
 </main>
 </body>
 </html>
