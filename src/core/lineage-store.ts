@@ -19,6 +19,7 @@
 // the data itself — handoff Hard NOT #3 preserved.
 
 import type { LineageInput } from './lineage.ts';
+import type { MountedSource } from './mount.ts';
 
 export type LineageNodeKind = 'source' | 'cell' | 'sink';
 
@@ -163,6 +164,13 @@ export class LineageStore {
     cellId: string;
     cellLabel: string;
     inputs: ReadonlyArray<LineageInput>;
+    /**
+     * Canonical mounted-source identity for catalog table names. Lineage used
+     * to key source edges by `table.name`, while refresh starts from
+     * `source.id`; that split meant a changed source could cascade to zero
+     * cells. Ad-hoc tables remain keyed by their table name.
+     */
+    sourceForTable?: ReadonlyMap<string, { id: string; label: string; ref?: string }>;
     cellRefs?: ReadonlyArray<{ refCellId: string; refLabel: string }>;
     confidence: 'high' | 'low';
   }): void {
@@ -190,12 +198,17 @@ export class LineageStore {
             confidence: opts.confidence,
           });
         } else {
-          // Source node. Auto-register with the table name as label.
-          if (!this.nodes.has(inp.name)) {
-            this.upsertSource(inp.name, inp.name);
+          const mounted = opts.sourceForTable?.get(inp.name);
+          const sourceId = mounted?.id ?? inp.name;
+          // Mounted sources use the persisted source id everywhere. Ad-hoc
+          // relations keep the table name as their best available identity.
+          if (mounted) {
+            this.upsertSource(sourceId, mounted.label, mounted.ref);
+          } else if (!this.nodes.has(sourceId)) {
+            this.upsertSource(sourceId, inp.name);
           }
           edges.push({
-            from: inp.name,
+            from: sourceId,
             to: opts.cellId,
             confidence: opts.confidence,
           });
@@ -323,6 +336,35 @@ export class LineageStore {
         list.push(e);
         this.cellInbound.set(e.to, list);
       }
+    }
+  }
+
+  /**
+   * Upgrade pre-canonical lineage snapshots whose source nodes were persisted
+   * as table names. Mounted table names are unique in a live workspace, so
+   * they can be mapped back to their stable source id after remount.
+   */
+  canonicalizeMountedSources(sources: ReadonlyArray<MountedSource>): void {
+    const sourceForTable = new Map<string, MountedSource>();
+    const ambiguous = new Set<string>();
+    for (const source of sources) {
+      for (const table of source.tables) {
+        if (sourceForTable.has(table.name)) ambiguous.add(table.name);
+        else sourceForTable.set(table.name, source);
+      }
+    }
+    for (const name of ambiguous) sourceForTable.delete(name);
+
+    for (const [cellId, edges] of this.cellInbound) {
+      const rewritten = edges.map((edge) => {
+        const node = this.nodes.get(edge.from);
+        if (node?.kind !== 'source') return edge;
+        const source = sourceForTable.get(edge.from);
+        if (!source) return edge;
+        this.upsertSource(source.id, source.label, source.ref);
+        return { ...edge, from: source.id };
+      });
+      this.cellInbound.set(cellId, dedupeEdges(rewritten));
     }
   }
 

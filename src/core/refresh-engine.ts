@@ -2,29 +2,30 @@
 //
 // Coordinates the change-detection sweep:
 //   1. For each mounted source, compute a CURRENT fingerprint.
-//      - FSA-folder: walk the handle, aggregate file size + max
-//        lastModified across all files in the folder.
+//      - FSA-folder: aggregate supported-file metadata and hash the sorted
+//        filename + size + lastModified tuples.
 //      - HTTP: HEAD request → ETag + Last-Modified + Content-Length.
-//      - Others (iceberg, bridge, s3): unsupported → never flagged
-//        stale; recorded as `unsupported` sentinel.
+//      - Others (iceberg, bridge, s3): explicitly uncheckable.
 //   2. Compare against the persisted fingerprint map (IDB).
 //   3. Compute stale source IDs from the diff.
 //   4. Cascade via the M2 lineage graph to stale cell IDs.
 //   5. Return the diff for the UI to surface.
 //
-// The orchestrator is invoked ON USER ACTION (header "Check for
-// updates" button). Per handoff §10 Hard NOT: never on a timer, no
+// The orchestrator is invoked ON USER ACTION (header "Check changes"
+// button). Per handoff §10 Hard NOT: never on a timer, no
 // background polling.
 
 import { getHandle, queryReadPermissionQuiet } from './handles.ts';
 import type { LineageGraph } from './lineage-store.ts';
-import type { MountedSource } from './mount.ts';
+import { type MountedSource, detectFormat } from './mount.ts';
 import { loadFingerprints, saveFingerprints } from './refresh-store.ts';
 import {
   type SourceFingerprint,
   cascadeStaleness,
   fingerprintFromHeaders,
   fingerprintsEqual,
+  hashFingerprintMetadata,
+  isCheckableFingerprint,
   unsupportedFingerprint,
 } from './refresh.ts';
 
@@ -39,16 +40,19 @@ export interface RefreshDiff {
   uncheckableSourceIds: string[];
   /** Total sources scanned this pass. */
   scanned: number;
-  /** Fresh fingerprint map (caller persists this AFTER the user
-   *  confirms the refresh — otherwise the next check would think the
-   *  source is "up to date" while the stale cells are still untouched). */
+  /** Fresh fingerprint map. Existing-source entries are persisted only after
+   *  remount + recomputation succeeds; first observations are also copied into
+   *  `baselineFingerprints` and may be recorded immediately. */
   freshFingerprints: Record<string, SourceFingerprint>;
+  /** First successful observations. These are safe to persist immediately:
+   *  there is no older baseline or stale result to protect. */
+  baselineFingerprints: Record<string, SourceFingerprint>;
 }
 
 /**
- * Run the change-detection sweep. Returns the diff; does NOT persist
- * the new fingerprint map (the caller decides whether to write it,
- * based on whether the user accepts the refresh proposal).
+ * Run the change-detection sweep. Returns the diff; does NOT persist it. The
+ * caller may immediately record `baselineFingerprints`, but changed entries
+ * stay pending until remount + recomputation succeeds.
  */
 export async function computeRefreshDiff(opts: {
   sessionId: string;
@@ -56,23 +60,27 @@ export async function computeRefreshDiff(opts: {
   lineage: LineageGraph;
   /** Inject a custom HEAD fetcher for testing; defaults to global fetch. */
   fetchHead?: (url: string) => Promise<Response>;
+  /** Deterministic store snapshot for tests and non-IDB hosts. */
+  persistedFingerprints?: Readonly<Record<string, SourceFingerprint>>;
 }): Promise<RefreshDiff> {
-  const persisted = await loadFingerprints(opts.sessionId);
+  const persisted = opts.persistedFingerprints ?? (await loadFingerprints(opts.sessionId));
   const staleSourceIds: string[] = [];
   const uncheckableSourceIds: string[] = [];
   const freshFingerprints: Record<string, SourceFingerprint> = {};
+  const baselineFingerprints: Record<string, SourceFingerprint> = {};
 
   for (const source of opts.sources) {
     const current = await computeCurrentFingerprint(source, opts.fetchHead);
-    if (current === null) {
+    if (current === null || !isCheckableFingerprint(current)) {
       uncheckableSourceIds.push(source.id);
       continue;
     }
     freshFingerprints[source.id] = current;
     const prior = persisted[source.id];
     if (!prior) {
-      // First fingerprint for this source — write it on confirm, but
-      // don't treat as stale (we have no baseline).
+      // First successful observation establishes the baseline immediately;
+      // there is no stale result/baseline pair to keep coordinated yet.
+      baselineFingerprints[source.id] = current;
       continue;
     }
     if (!fingerprintsEqual(prior, current)) {
@@ -88,11 +96,12 @@ export async function computeRefreshDiff(opts: {
     uncheckableSourceIds,
     scanned: opts.sources.length,
     freshFingerprints,
+    baselineFingerprints,
   };
 }
 
-/** Persist the fresh fingerprint map — called after the user
- *  confirms the refresh proposal.
+/** Merge observations into the session's fingerprint map. Called immediately
+ *  for first baselines and after a confirmed changed-source refresh succeeds.
  *
  *  M9: MERGE over the persisted map rather than replacing it. The fresh map
  *  omits uncheckable sources (permission temporarily lost, HEAD failed); a
@@ -111,8 +120,8 @@ export async function persistFingerprints(
  * Compute the current fingerprint for one source. Returns null if
  * the fingerprint couldn't be obtained (handle revoked, HEAD failed).
  * Returns an `unsupported` sentinel for source kinds we don't yet
- * fingerprint — those NEVER produce a stale signal but are recorded
- * in the fingerprint map so the next M3 spec bump can light them up.
+ * fingerprint. The caller treats it as uncheckable and never records it as
+ * evidence that the source is current.
  */
 async function computeCurrentFingerprint(
   source: MountedSource,
@@ -128,10 +137,9 @@ async function computeCurrentFingerprint(
 }
 
 /**
- * For an FSA folder source, aggregate fingerprints across all files
- * in the directory. The aggregated fingerprint records the SUM of
- * sizes + the MAX of lastModified. A new file added, an old file
- * removed, or any file changed → the aggregate differs.
+ * For an FSA folder source, aggregate supported-file size/max-mtime and hash
+ * the sorted filename/size/mtime tuples. The tuple hash closes collisions where
+ * additions/removals preserve the old aggregate values.
  *
  * If the FSA handle is gone OR permission isn't already granted
  * (queryPermission only — no prompt; the check is opportunistic),
@@ -157,6 +165,9 @@ async function fingerprintFsaFolder(source: MountedSource): Promise<SourceFinger
 
   let totalSize = 0;
   let maxLastModified = 0;
+  const metadata: string[] = [];
+  const MAX_FOLDER_ENTRIES = 5000;
+  let walked = 0;
   try {
     // values() iterator is async on FileSystemDirectoryHandle.
     const iter = (
@@ -166,21 +177,28 @@ async function fingerprintFsaFolder(source: MountedSource): Promise<SourceFinger
     ).values();
     for await (const entry of iter) {
       if (entry.kind !== 'file') continue;
+      if (!detectFormat(entry.name)) continue;
+      if (++walked > MAX_FOLDER_ENTRIES) return null;
       try {
         const file = await (entry as FileSystemFileHandle).getFile();
         totalSize += file.size;
         if (file.lastModified > maxLastModified) maxLastModified = file.lastModified;
+        metadata.push(`${entry.name}\u0000${file.size}\u0000${file.lastModified}`);
       } catch {
-        // Skip files we can't read; the aggregate is still stable-enough.
+        // A partial scan is not evidence of freshness.
+        return null;
       }
     }
   } catch {
     return null;
   }
+  metadata.sort();
   return {
     kind: 'fsa',
     size: totalSize,
     lastModified: maxLastModified,
+    fileCount: metadata.length,
+    metadataHash: hashFingerprintMetadata(metadata),
     computedAt: new Date().toISOString(),
   };
 }

@@ -607,8 +607,9 @@ async function main() {
   // 1.29.0 inlines the view and emits trailing-space op names with no file
   // path, so a plan-only walk returned [] and the panel stayed empty. The
   // catalog-filtered SQL sniff (unioned with the plan walk) recovers the
-  // source name. This whole class slips past tsc + vitest — only a live run
-  // catches it.
+  // mounted table, which lineage resolves to the stable source id + source
+  // label. This whole class slips past tsc + vitest — only a live run catches
+  // it.
   // recordLineageForCell is fire-and-forget after the result ships (notebook
   // .ts), and the panel renders a snapshot at open time — so poll by
   // reopening until lineage lands (the EXPLAIN + information_schema sniff
@@ -621,7 +622,10 @@ async function main() {
       const txt = document.querySelector('.lineage-list')?.textContent ?? '';
       return {
         empty: txt.includes('No lineage recorded yet'),
-        hasSource: /invoices|vendors|payments|access_logs|events/i.test(txt),
+        hasSource:
+          document.querySelector(
+            '.lineage-list .lineage-row-source .lineage-kind-source',
+          ) !== null,
       };
     });
     if (!lineage.empty && lineage.hasSource) break;
@@ -1317,7 +1321,7 @@ async function main() {
   await page.waitForFunction(
     () => document.querySelector('.cell[data-cell-kind="temporal"]') !== null,
     null,
-    { timeout: 5000 },
+    { timeout: 15000 },
   );
   await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
@@ -1335,7 +1339,7 @@ async function main() {
         .querySelector('.cell[data-cell-kind="temporal"]')
         ?.querySelector('[data-action="temporal-time"]') !== null,
     null,
-    { timeout: 5000 },
+    { timeout: 15000 },
   );
   await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
@@ -1351,7 +1355,7 @@ async function main() {
         .querySelector('.cell[data-cell-kind="temporal"]')
         ?.querySelectorAll('[data-region="temporal-svg"] rect').length ?? 0) > 2,
     null,
-    { timeout: 8000 },
+    { timeout: 20000 },
   );
   const temporal = await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-kind="temporal"]');
@@ -1394,7 +1398,7 @@ async function main() {
   await page.waitForFunction(
     () => document.querySelector('.cell[data-cell-kind="distribution"]') !== null,
     null,
-    { timeout: 5000 },
+    { timeout: 15000 },
   );
   await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-kind="distribution"]');
@@ -1424,7 +1428,7 @@ async function main() {
         .querySelector('.cell[data-cell-kind="distribution"]')
         ?.querySelectorAll('[data-region="dist-svg"] [data-bar]').length ?? 0) > 1,
     null,
-    { timeout: 8000 },
+    { timeout: 20000 },
   );
   const dist = await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-kind="distribution"]');

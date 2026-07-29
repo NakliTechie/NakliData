@@ -60,8 +60,8 @@ function renderHeader(state: ShellState): HTMLElement {
       <button class="btn btn-ghost" data-action="open-lineage" title="Where does this number come from? — cell lineage panel">
         ${iconSvg('chart', 14)} <span>Lineage</span>
       </button>
-      <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources have changed since last save">
-        ${iconSvg('download', 14)} <span>Refresh</span>
+      <button class="btn btn-ghost" data-action="check-source-updates" title="Check whether mounted sources changed since the last successful check">
+        ${iconSvg('download', 14)} <span>Check changes</span>
       </button>
       <button class="btn btn-ghost" data-action="open-query-builder" title="Visual query builder — filter, sort, group, aggregate without writing SQL">
         ${iconSvg('plus', 14)} <span>Build query</span>

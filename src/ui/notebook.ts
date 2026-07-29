@@ -29,6 +29,7 @@ import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
 import { type DirectResultProjection, hashSql } from '../core/result-snapshots.ts';
 import { getSegmentsStore } from '../core/segments.ts';
+import { getWorkbook } from '../core/workbook.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
 import { renderChartCell } from './cells/chart-cell.ts';
@@ -118,6 +119,12 @@ function isDirectRunStatement(sql: string): boolean {
 export interface NotebookState {
   cells: CellState[];
 }
+
+export type CellRunOutcome =
+  | { status: 'success'; id: string }
+  | { status: 'failure'; id: string; error: string }
+  | { status: 'cancelled'; id: string; reason: 'aborted' | 'superseded' }
+  | { status: 'not-runnable'; id: string };
 
 export class Notebook {
   private state: NotebookState = { cells: [] };
@@ -450,13 +457,14 @@ LIMIT 100`,
     this.aborts.get(id)?.abort();
   }
 
-  async runCell(id: string, codeOverride?: string): Promise<void> {
+  async runCell(id: string, codeOverride?: string): Promise<CellRunOutcome> {
     const cell = this.state.cells.find((c) => c.id === id);
     // Cohort cells (W4.4) and assertion cells (W5.5) run the same
     // path as SQL cells — same view creation, same result shape;
     // only the rendered chrome differs.
-    if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion'))
-      return;
+    if (!cell || (cell.kind !== 'sql' && cell.kind !== 'cohort' && cell.kind !== 'assertion')) {
+      return { status: 'not-runnable', id };
+    }
     const code = codeOverride ?? cell.code;
     // Static @-graph check — catches self-references, cycles, and
     // unknown @names before DuckDB sees them. The engine would
@@ -477,7 +485,7 @@ LIMIT 100`,
         lastError: refIssueMessage(issue),
         lastResult: null,
       });
-      return;
+      return { status: 'failure', id, error: refIssueMessage(issue) };
     }
     // M16: a per-cell run generation. A newer run supersedes an older one —
     // abort the in-flight run for this cell, bump the generation, and only
@@ -518,7 +526,11 @@ LIMIT 100`,
           lastError: `Unknown ${unknownMacros.join(', ')}. Define them in the Semantic panel or remove the reference.`,
           lastResult: null,
         });
-        return;
+        return {
+          status: 'failure',
+          id,
+          error: `Unknown ${unknownMacros.join(', ')}. Define them in the Semantic panel or remove the reference.`,
+        };
       }
       const rewritten = this.rewriteReferences(measureExpanded.sql);
       // Capture provenance from the exact SQL that materialises the result,
@@ -566,7 +578,7 @@ LIMIT 100`,
       const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
       // M16: a superseding run has already claimed this cell — don't clobber
       // its (newer) result with our stale one.
-      if (!isLatest()) return;
+      if (!isLatest()) return { status: 'cancelled', id, reason: 'superseded' };
       this.patchCell(id, {
         status: 'success',
         lastResult: {
@@ -601,10 +613,14 @@ LIMIT 100`,
           resultMeta: { ...current.resultMeta, directProjection },
         });
       });
+      return { status: 'success', id };
     } catch (err) {
-      if (!isLatest()) return;
+      if (!isLatest()) return { status: 'cancelled', id, reason: 'superseded' };
       const msg = err instanceof Error ? err.message : String(err);
       this.patchCell(id, { status: 'error', lastError: msg, lastResult: null });
+      return ac.signal.aborted
+        ? { status: 'cancelled', id, reason: 'aborted' }
+        : { status: 'failure', id, error: msg };
     } finally {
       // Only clear the abort entry if it's still ours (a newer run may have
       // replaced it — deleting that would break its Esc-cancel).
@@ -758,10 +774,20 @@ LIMIT 100`,
       }
     }
 
+    const sourceForTable = new Map<string, { id: string; label: string; ref?: string }>();
+    for (const source of getWorkbook().get().sources) {
+      const identity =
+        source.ref !== undefined
+          ? { id: source.id, label: source.label, ref: source.ref }
+          : { id: source.id, label: source.label };
+      for (const table of source.tables) sourceForTable.set(table.name, identity);
+    }
+
     store.setCellInputs({
       cellId,
       cellLabel,
       inputs,
+      sourceForTable,
       cellRefs,
       confidence,
     });

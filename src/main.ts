@@ -50,6 +50,8 @@ import {
 import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
+import { commitStagedRefresh, stageSourceRefreshes } from './core/refresh-remount.ts';
+import { applyDetectedRefresh, orderAffectedCellIds } from './core/refresh-runner.ts';
 import type { KpiTile } from './core/report-measures.ts';
 import { resolveResultProvenance, unknownResultAssignment } from './core/result-provenance.ts';
 import {
@@ -121,7 +123,7 @@ import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
-import { reportRefreshOrder } from './ui/notebook-graph.ts';
+import { reportRefreshOrder, topoOrderRunnableCells } from './ui/notebook-graph.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
 import { type QueryBuilderTable, openQueryBuilderModal } from './ui/query-builder-modal.ts';
@@ -1088,15 +1090,12 @@ function installAutoSave(engine: Engine): void {
 /**
  * M3 — handle the "Refresh" header button.
  *
- * Runs the change-detection sweep, opens the result modal, and on
- * confirm:
- *   1. Persists the fresh fingerprints (so the next check has a new
- *      baseline; without this, every check would re-stale forever).
- *   2. Re-runs the cascaded stale cells via the notebook.
+ * Runs the change-detection sweep, records first observations as baselines,
+ * and offers a transactional remount + dependency-ordered recomputation.
  *
- * Best-effort: any error surfaces as a toast and the workbook stays
- * untouched. This is a user-initiated action; per handoff §10 Hard
- * NOT, there is NO timer-driven check anywhere.
+ * Any error surfaces as a toast and retains the prior fingerprint baseline.
+ * This is a user-initiated action; per handoff §10 Hard NOT, there is NO
+ * timer-driven check anywhere.
  */
 async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
   const wb = getWorkbook().get();
@@ -1104,15 +1103,27 @@ async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
     toast('No sources mounted yet.');
     return;
   }
-  toast('Checking sources for updates…');
+  toast('Checking sources for changes…');
   try {
+    const sessionId = getActiveSessionId();
+    getLineageStore().canonicalizeMountedSources(wb.sources);
     const diff = await computeRefreshDiff({
-      sessionId: getActiveSessionId(),
+      sessionId,
       sources: wb.sources,
       lineage: getLineageStore().toJSON(),
     });
+    // A first successful observation is the baseline; it does not need user
+    // confirmation because there is no older result/fingerprint pair to
+    // coordinate. Stale fingerprints remain untouched until recompute wins.
+    await persistFingerprints(sessionId, diff.baselineFingerprints);
     const sourceLabelFor = (id: string): string => wb.sources.find((s) => s.id === id)?.label ?? id;
     const nb = getNotebook(engine);
+    const staleSourceIds = new Set(diff.staleSourceIds);
+    const staleSources = wb.sources.filter((source) => staleSourceIds.has(source.id));
+    const orderedCellIds = orderAffectedCellIds(
+      diff.staleCellIds,
+      topoOrderRunnableCells(nb.get().cells),
+    );
     const cellLabelFor = (id: string): string => {
       const cell = nb.get().cells.find((c) => c.id === id);
       return cell?.name?.trim() || `cell ${id.slice(-6)}`;
@@ -1121,14 +1132,68 @@ async function handleCheckSourceUpdates(engine: Engine): Promise<void> {
       {
         scanned: diff.scanned,
         staleSourceLabels: diff.staleSourceIds.map(sourceLabelFor),
-        staleCellLabels: diff.staleCellIds.map(cellLabelFor),
+        staleCellLabels: orderedCellIds.map(cellLabelFor),
         uncheckableSourceLabels: diff.uncheckableSourceIds.map(sourceLabelFor),
+        baselineSourceLabels: Object.keys(diff.baselineFingerprints).map(sourceLabelFor),
       },
       () => {
-        // Persist fingerprints BEFORE re-running so the next check
-        // doesn't re-stale immediately.
-        void persistFingerprints(getActiveSessionId(), diff.freshFingerprints);
-        void runStaleCells(engine, diff.staleCellIds);
+        void (async () => {
+          if (getActiveSessionId() !== sessionId) {
+            toast('Workspace changed; run the source change check again.', 'error');
+            return;
+          }
+          const liveSources = getWorkbook().get().sources;
+          const sourceSetChanged = staleSources.some((captured) => {
+            const live = liveSources.find((source) => source.id === captured.id);
+            return (
+              !live ||
+              live.kind !== captured.kind ||
+              live.ref !== captured.ref ||
+              live.tables.length !== captured.tables.length ||
+              live.tables.some((table, index) => {
+                const prior = captured.tables[index];
+                return !prior || table.id !== prior.id || table.name !== prior.name;
+              })
+            );
+          });
+          if (sourceSetChanged) {
+            toast('Mounted sources changed; run the source change check again.', 'error');
+            return;
+          }
+          toast('Refreshing changed sources…');
+          try {
+            const result = await applyDetectedRefresh({
+              stage: async () => await stageSourceRefreshes(engine, staleSources),
+              commit: async (staged) => await commitStagedRefresh(engine, staged),
+              publish: (staged) => getWorkbook().replaceSources(staged.sources),
+              cellIds: orderedCellIds,
+              runCell: async (id) => await nb.runCell(id),
+              persistBaseline: async () =>
+                await persistFingerprints(sessionId, diff.freshFingerprints),
+            });
+            if (result.status === 'success') {
+              toast(
+                `Refreshed ${staleSources.length} source${staleSources.length === 1 ? '' : 's'} and ${result.refreshedCells} dependent cell${result.refreshedCells === 1 ? '' : 's'}.`,
+              );
+            } else {
+              const detail =
+                result.outcome.status === 'failure'
+                  ? result.outcome.error
+                  : result.outcome.status === 'cancelled'
+                    ? 'run was cancelled'
+                    : 'cell is no longer runnable';
+              toast(
+                `Source data changed, but recomputation stopped at ${cellLabelFor(result.outcome.id)}: ${detail}. The previous change baseline was retained.`,
+                'error',
+              );
+            }
+          } catch (err) {
+            toast(
+              `Refresh failed before the baseline changed: ${err instanceof Error ? err.message : String(err)}`,
+              'error',
+            );
+          }
+        })();
       },
     );
   } catch (err) {
@@ -1483,7 +1548,12 @@ async function handleCorrelationGraph(cellId: string): Promise<void> {
   const base = (cell.name?.trim() || `result_${cell.id}`).replace(/[^A-Za-z0-9_]/g, '_');
   const edges = nb.addCell('sql');
   nb.patchCell(edges.id, { name: `${base}_correlations`, code: plan.sql });
-  await nb.runCell(edges.id); // populate lastResult + the cell_<id> view
+  const edgeRun = await nb.runCell(edges.id); // populate lastResult + the cell_<id> view
+  if (edgeRun.status !== 'success') {
+    const detail = edgeRun.status === 'failure' ? edgeRun.error : edgeRun.status;
+    toast(`Could not build correlation edges: ${detail}.`, 'error');
+    return;
+  }
   const net = nb.addCell('network');
   nb.patchCell(net.id, {
     inputCell: edges.id,
@@ -1597,7 +1667,13 @@ async function handleScopedReportRefresh(reportCellId: string): Promise<void> {
   }
   toast(`Refreshing report data — ${order.length} cell${order.length === 1 ? '' : 's'}…`);
   try {
-    for (const id of order) await nb.runCell(id);
+    for (const id of order) {
+      const outcome = await nb.runCell(id);
+      if (outcome.status !== 'success') {
+        const detail = outcome.status === 'failure' ? outcome.error : outcome.status;
+        throw new Error(`${id}: ${detail}`);
+      }
+    }
     // A2 — recompute cached KPI values from the re-run source results.
     await refreshReportKpis(engine);
     toast('Report data refreshed.');
@@ -1851,25 +1927,6 @@ function bucketize(sqlType: string): QueryColumnType {
   if (t === 'BOOLEAN' || t === 'BOOL') return 'boolean';
   if (t.startsWith('DATE') || t.startsWith('TIMESTAMP')) return 'date';
   return 'string';
-}
-
-async function runStaleCells(engine: Engine, cellIds: ReadonlyArray<string>): Promise<void> {
-  const nb = getNotebook(engine);
-  let ok = 0;
-  let failed = 0;
-  for (const id of cellIds) {
-    try {
-      await nb.runCell(id);
-      ok++;
-    } catch {
-      failed++;
-    }
-  }
-  if (failed === 0) {
-    toast(`Re-ran ${ok} cell${ok === 1 ? '' : 's'}.`);
-  } else {
-    toast(`Re-ran ${ok} cell${ok === 1 ? '' : 's'}; ${failed} failed.`, 'error');
-  }
 }
 
 /**
@@ -3105,6 +3162,7 @@ async function doApplyLoadedFile(
   // lineage field, so the store stays empty until a cell runs).
   if (file.lineage) {
     getLineageStore().loadFromJson(file.lineage);
+    getLineageStore().canonicalizeMountedSources(restoredSources);
   } else {
     // Reset on load so a session-switch from a lineage-bearing notebook
     // doesn't leak edges into a lineage-less one.

@@ -80,6 +80,25 @@ class Workbook {
     this.notify();
   }
 
+  /** Replace mounted sources by stable source id in one notification. */
+  replaceSources(sources: ReadonlyArray<MountedSource>): void {
+    if (sources.length === 0) return;
+    const replacements = new Map(sources.map((source) => [source.id, source]));
+    const nextSources = this.state.sources.map((source) => replacements.get(source.id) ?? source);
+    const validTableIds = new Map(
+      sources.map((source) => [source.id, new Set(source.tables.map((table) => table.id))]),
+    );
+    const assignments: Record<string, ColumnAssignment> = {};
+    for (const [key, assignment] of Object.entries(this.state.assignments)) {
+      const [sourceId, tableId] = key.split('::');
+      const validForSource = sourceId ? validTableIds.get(sourceId) : undefined;
+      if (validForSource && (!tableId || !validForSource.has(tableId))) continue;
+      assignments[key] = assignment;
+    }
+    this.state = { ...this.state, sources: nextSources, assignments };
+    this.notify();
+  }
+
   removeSource(sourceId: string): void {
     const prefix = `${sourceId}::`;
     const assignments: Record<string, ColumnAssignment> = {};

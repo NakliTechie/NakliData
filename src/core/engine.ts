@@ -1491,6 +1491,82 @@ export class Engine {
     }
   }
 
+  /**
+   * Atomically replace live mounted relations from already-validated staging
+   * relations. Staging happens before this call, so a parse/read failure never
+   * disturbs the current workspace. The transaction then swaps every changed
+   * relation together; on rollback all original relations remain queryable.
+   *
+   * Replacements are materialised as tables. This deliberately severs their
+   * dependency on staging VFS files, allowing those temporary registrations to
+   * be cleaned after commit.
+   */
+  async replaceRelationsAtomically(
+    replacements: ReadonlyArray<{ stagedName: string; targetName: string }>,
+    removals: ReadonlyArray<string> = [],
+  ): Promise<void> {
+    for (const replacement of replacements) {
+      if (sanitizeIdent(replacement.stagedName) === sanitizeIdent(replacement.targetName)) {
+        throw new EngineError(
+          `Refresh staging relation "${replacement.stagedName}" must differ from its live target.`,
+        );
+      }
+    }
+    const targetNames = [...new Set([...replacements.map((r) => r.targetName), ...removals])];
+    const existingTypes = new Map<string, 'view' | 'table'>();
+    if (targetNames.length > 0) {
+      const wanted = targetNames
+        .map((name) => `'${escapeLiteral(sanitizeIdent(name))}'`)
+        .join(', ');
+      const rows = await this.query<{ table_name: string; table_type: string }>(
+        `SELECT table_name, table_type
+         FROM information_schema.tables
+         WHERE table_schema = 'main' AND table_name IN (${wanted})`,
+      );
+      for (const row of rows) {
+        existingTypes.set(
+          row.table_name,
+          row.table_type.toUpperCase().includes('VIEW') ? 'view' : 'table',
+        );
+      }
+    }
+
+    await this.exec('BEGIN TRANSACTION');
+    try {
+      for (const replacement of replacements) {
+        const target = sanitizeIdent(replacement.targetName);
+        const staged = sanitizeIdent(replacement.stagedName);
+        const type = existingTypes.get(target);
+        if (type === 'view') await this.exec(`DROP VIEW ${quoteIdent(target)}`);
+        else if (type === 'table') await this.exec(`DROP TABLE ${quoteIdent(target)}`);
+        await this.exec(
+          `CREATE TABLE ${quoteIdent(target)} AS SELECT * FROM ${quoteIdent(staged)}`,
+        );
+      }
+      for (const name of removals) {
+        const safe = sanitizeIdent(name);
+        if (replacements.some((replacement) => sanitizeIdent(replacement.targetName) === safe)) {
+          continue;
+        }
+        const type = existingTypes.get(safe);
+        if (type === 'view') await this.exec(`DROP VIEW ${quoteIdent(safe)}`);
+        else if (type === 'table') await this.exec(`DROP TABLE ${quoteIdent(safe)}`);
+      }
+      await this.exec('COMMIT');
+    } catch (err) {
+      try {
+        await this.exec('ROLLBACK');
+      } catch {
+        // Preserve the original swap error.
+      }
+      throw err;
+    }
+
+    // The targets are now materialised tables and no longer need the VFS
+    // registrations owned by their former views.
+    for (const name of targetNames) await this.dropFilesOwnedByRelation(name);
+  }
+
   /** Drop a previously registered table/view. Some register paths
    *  produce TABLEs (Arrow IPC via insertArrowFromIPCStream) and others
    *  produce VIEWs (the CSV/Parquet/Excel/SQLite paths); try both. */

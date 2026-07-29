@@ -289,6 +289,66 @@ describe('LineageStore — graph operations', () => {
     expect(g.nodes.some((n) => n.id === 'c1' && n.kind === 'cell')).toBe(true);
   });
 
+  it('uses the stable mounted source id instead of its mutable table name', () => {
+    const s = new LineageStore();
+    s.setCellInputs({
+      cellId: 'c1',
+      cellLabel: 'q1',
+      inputs: [{ kind: 'table', name: 'orders' }],
+      sourceForTable: new Map([
+        ['orders', { id: 'src-stable', label: 'Order exports', ref: 'handle-1' }],
+      ]),
+      confidence: 'high',
+    });
+    const g = s.toJSON();
+    expect(g.edges).toEqual([{ from: 'src-stable', to: 'c1', confidence: 'high' }]);
+    expect(g.nodes).toContainEqual({
+      id: 'src-stable',
+      kind: 'source',
+      label: 'Order exports',
+      ref: 'handle-1',
+    });
+    expect(g.nodes.some((node) => node.id === 'orders')).toBe(false);
+  });
+
+  it('migrates persisted table-name source edges after mounted sources restore', () => {
+    const s = new LineageStore();
+    s.loadFromJson({
+      version: 1,
+      nodes: [
+        { id: 'orders', kind: 'source', label: 'orders' },
+        { id: 'c1', kind: 'cell', label: 'query' },
+      ],
+      edges: [{ from: 'orders', to: 'c1', confidence: 'high' }],
+    });
+    s.canonicalizeMountedSources([
+      {
+        id: 'src-stable',
+        kind: 'http',
+        label: 'Order exports',
+        ref: 'https://example.com/orders.csv',
+        tables: [
+          {
+            id: 'tbl-stable',
+            sourceId: 'src-stable',
+            name: 'orders',
+            format: 'csv',
+            origin: 'https://example.com/orders.csv',
+            rowCount: 1,
+            registered: true,
+          },
+        ],
+      },
+    ]);
+
+    const graph = s.toJSON();
+    expect(graph.edges).toEqual([{ from: 'src-stable', to: 'c1', confidence: 'high' }]);
+    expect(graph.nodes.find((node) => node.id === 'src-stable')).toMatchObject({
+      kind: 'source',
+      label: 'Order exports',
+    });
+  });
+
   it('setCellInputs translates `cell_<id>` references into upstream cell edges', () => {
     const s = new LineageStore();
     s.upsertCell('upstream', 'q_upstream');

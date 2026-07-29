@@ -1,12 +1,9 @@
 // M3 — Refresh result modal.
 //
-// User clicks "Check for updates" → orchestrator runs → this modal
+// User clicks "Check for source changes" → orchestrator runs → this modal
 // shows the diff. User can:
-//   - Re-run stale cells (which fires the existing notebook re-run
-//     path; the orchestrator persists the fresh fingerprints when
-//     the user confirms).
-//   - Close — nothing is re-run; fingerprints are NOT persisted
-//     (so the next check still reports stale).
+//   - Refresh changed source relations, then re-run affected cells.
+//   - Close — changed fingerprints are NOT persisted.
 
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
@@ -20,6 +17,7 @@ export interface RefreshModalDescriptor {
   staleSourceLabels: string[];
   staleCellLabels: string[];
   uncheckableSourceLabels: string[];
+  baselineSourceLabels: string[];
 }
 
 export function openRefreshModal(desc: RefreshModalDescriptor, onConfirm: () => void): void {
@@ -56,7 +54,7 @@ function renderModal(desc: RefreshModalDescriptor, onConfirm: () => void): HTMLE
          style="width:min(640px,100%);height:auto;max-height:min(85vh,720px);">
       <header class="schema-graph-header">
         <h2 id="refresh-title" style="margin:0;font-size:var(--text-md,15px);display:flex;align-items:center;gap:6px;">
-          ${iconSvg('download', 14)} Check for source updates
+          ${iconSvg('download', 14)} Check for source changes
         </h2>
         <button class="btn btn-ghost schema-graph-close" data-action="refresh-close" aria-label="Close">
           ${iconSvg('x', 14)}
@@ -66,10 +64,10 @@ function renderModal(desc: RefreshModalDescriptor, onConfirm: () => void): HTMLE
         <p class="refresh-summary" style="margin:0 0 var(--space-3) 0;color:var(--text-muted);font-size:var(--text-sm,13px);">
           Scanned <strong>${desc.scanned}</strong> source${desc.scanned === 1 ? '' : 's'}.
         </p>
-        ${allClean ? renderCleanBody() : renderDiffBody(desc)}
+        ${allClean ? renderCleanBody(desc.baselineSourceLabels.length) : renderDiffBody(desc)}
       </div>
       <footer style="display:flex;gap:var(--space-2);justify-content:flex-end;padding:var(--space-3) var(--space-5);border-top:1px solid var(--border);">
-        ${desc.staleCellLabels.length > 0 ? `<button class="btn btn-primary" data-action="refresh-confirm">Re-run ${desc.staleCellLabels.length} stale cell${desc.staleCellLabels.length === 1 ? '' : 's'}</button>` : ''}
+        ${desc.staleSourceLabels.length > 0 ? `<button class="btn btn-primary" data-action="refresh-confirm">Refresh ${desc.staleSourceLabels.length} changed source${desc.staleSourceLabels.length === 1 ? '' : 's'}${desc.staleCellLabels.length > 0 ? ` + ${desc.staleCellLabels.length} cell${desc.staleCellLabels.length === 1 ? '' : 's'}` : ''}</button>` : ''}
         <button class="btn btn-ghost" data-action="refresh-close">Close</button>
       </footer>
     </div>
@@ -92,13 +90,18 @@ function renderModal(desc: RefreshModalDescriptor, onConfirm: () => void): HTMLE
   return overlay;
 }
 
-function renderCleanBody(): string {
+function renderCleanBody(baselineCount: number): string {
   return `
     <div class="refresh-clean" style="text-align:center;padding:var(--space-4);">
       ${iconSvg('check', 32)}
       <p style="font-size:var(--text-md,15px);margin:var(--space-2) 0 0 0;color:var(--text);">
-        All sources are up to date.
+        No detectable source changes.
       </p>
+      ${
+        baselineCount > 0
+          ? `<p style="font-size:var(--text-sm,13px);margin:var(--space-1) 0 0 0;color:var(--text-muted);">Recorded the first change baseline for ${baselineCount} source${baselineCount === 1 ? '' : 's'}.</p>`
+          : ''
+      }
     </div>
   `;
 }
@@ -109,6 +112,7 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
   const sources = [...new Set(desc.staleSourceLabels)];
   const cells = [...new Set(desc.staleCellLabels)];
   const unchecked = [...new Set(desc.uncheckableSourceLabels)];
+  const baselined = [...new Set(desc.baselineSourceLabels)];
   const sourceList =
     sources.length > 0
       ? `<ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${sources
@@ -129,10 +133,19 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
       : '';
   const uncheckList =
     unchecked.length > 0
-      ? `<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-2) 0 var(--space-1) 0;">Couldn't check (permission revoked or HEAD failed)</h3><ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${unchecked
+      ? `<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-2) 0 var(--space-1) 0;">Couldn't check (permission, network, or validator unavailable)</h3><ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${unchecked
           .map(
             (l) =>
               `<li style="padding:6px 8px;background:#f3f4f6;border-left:3px solid #6b7280;margin-bottom:4px;font-size:13px;color:#374151;border-radius:3px;">${escapeHtml(l)}</li>`,
+          )
+          .join('')}</ul>`
+      : '';
+  const baselineList =
+    baselined.length > 0
+      ? `<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-2) 0 var(--space-1) 0;">First change baseline recorded</h3><ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${baselined
+          .map(
+            (label) =>
+              `<li style="padding:6px 8px;background:var(--surface-raised);border-left:3px solid var(--text-muted);margin-bottom:4px;font-size:13px;color:var(--text);border-radius:3px;">${escapeHtml(label)}</li>`,
           )
           .join('')}</ul>`
       : '';
@@ -148,6 +161,7 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
         : ''
     }
     ${uncheckList}
+    ${baselineList}
   `;
 }
 

@@ -40,7 +40,16 @@ import type { LineageGraph } from './lineage-store.ts';
  *                     considered stale; never auto-refreshes.
  */
 export type SourceFingerprint =
-  | { kind: 'fsa'; size: number; lastModified: number; computedAt: string }
+  | {
+      kind: 'fsa';
+      size: number;
+      lastModified: number;
+      /** Added after v1.2; optional so persisted legacy baselines still load. */
+      fileCount?: number;
+      /** Hash of sorted filename + size + mtime metadata (not file contents). */
+      metadataHash?: string;
+      computedAt: string;
+    }
   | {
       kind: 'http';
       etag: string | null;
@@ -74,6 +83,14 @@ export function fingerprintsEqual(a: SourceFingerprint, b: SourceFingerprint): b
   if (a.kind !== b.kind) return false;
   if (a.kind === 'unsupported') return true;
   if (a.kind === 'fsa' && b.kind === 'fsa') {
+    if (a.metadataHash !== undefined || b.metadataHash !== undefined) {
+      return (
+        a.size === b.size &&
+        a.lastModified === b.lastModified &&
+        a.fileCount === b.fileCount &&
+        a.metadataHash === b.metadataHash
+      );
+    }
     return a.size === b.size && a.lastModified === b.lastModified;
   }
   if (a.kind === 'http' && b.kind === 'http') {
@@ -93,6 +110,26 @@ export function fingerprintsEqual(a: SourceFingerprint, b: SourceFingerprint): b
     return a.sqlHash === b.sqlHash;
   }
   return false;
+}
+
+/**
+ * Whether a fingerprint carries at least one signal that can distinguish a
+ * later scan. An HTTP 200 response with none of ETag, Last-Modified, or
+ * Content-Length is reachable, but it is not evidence of freshness.
+ */
+export function isCheckableFingerprint(fingerprint: SourceFingerprint): boolean {
+  if (fingerprint.kind === 'unsupported') return false;
+  if (fingerprint.kind === 'http') {
+    return (
+      fingerprint.etag !== null ||
+      fingerprint.lastModifiedHeader !== null ||
+      fingerprint.contentLength !== null
+    );
+  }
+  if (fingerprint.kind === 's3') {
+    return fingerprint.etag !== null || fingerprint.lastModifiedHeader !== null;
+  }
+  return true;
 }
 
 /**
@@ -161,12 +198,30 @@ export function cascadeStaleness(
  * fingerprint without leaking the kind into call sites.
  */
 export function fingerprintFromFile(file: File): SourceFingerprint {
+  const metadata = `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
   return {
     kind: 'fsa',
     size: file.size,
     lastModified: file.lastModified,
+    fileCount: 1,
+    metadataHash: hashFingerprintMetadata([metadata]),
     computedAt: new Date().toISOString(),
   };
+}
+
+/** Stable, small FNV-1a hash over metadata only; this is a change token, not a
+ * cryptographic integrity proof. */
+export function hashFingerprintMetadata(parts: ReadonlyArray<string>): string {
+  let hash = 0x811c9dc5;
+  for (const part of parts) {
+    for (let i = 0; i < part.length; i++) {
+      hash ^= part.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    hash ^= 0xff;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 /**

@@ -10,6 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type { LineageGraph } from '../src/core/lineage-store.ts';
+import type { MountedSource } from '../src/core/mount.ts';
+import { computeRefreshDiff } from '../src/core/refresh-engine.ts';
 import {
   cascadeStaleness,
   fingerprintFromFile,
@@ -17,6 +19,92 @@ import {
   fingerprintsEqual,
   unsupportedFingerprint,
 } from '../src/core/refresh.ts';
+
+const HTTP_SOURCE: MountedSource = {
+  id: 'src-http',
+  kind: 'http',
+  label: 'Orders',
+  ref: 'https://example.com/orders.csv',
+  tables: [
+    {
+      id: 'tbl-orders',
+      sourceId: 'src-http',
+      name: 'orders',
+      format: 'csv',
+      origin: 'https://example.com/orders.csv',
+      rowCount: 1,
+      registered: true,
+    },
+  ],
+};
+
+describe('computeRefreshDiff', () => {
+  it('returns the first successful observation as an immediate baseline', async () => {
+    const diff = await computeRefreshDiff({
+      sessionId: 'session',
+      sources: [HTTP_SOURCE],
+      lineage: { version: 1, nodes: [], edges: [] },
+      persistedFingerprints: {},
+      fetchHead: async () =>
+        new Response(null, {
+          headers: { etag: '"v1"', 'content-length': '10' },
+        }),
+    });
+
+    expect(diff.staleSourceIds).toEqual([]);
+    expect(diff.baselineFingerprints['src-http']).toMatchObject({
+      kind: 'http',
+      etag: '"v1"',
+      contentLength: 10,
+    });
+  });
+
+  it('marks a reachable HTTP source with no validators as uncheckable', async () => {
+    const diff = await computeRefreshDiff({
+      sessionId: 'session',
+      sources: [HTTP_SOURCE],
+      lineage: { version: 1, nodes: [], edges: [] },
+      persistedFingerprints: {},
+      fetchHead: async () => new Response(null),
+    });
+
+    expect(diff.uncheckableSourceIds).toEqual(['src-http']);
+    expect(diff.freshFingerprints).toEqual({});
+    expect(diff.baselineFingerprints).toEqual({});
+  });
+
+  it('cascades a changed canonical source id to dependent cells', async () => {
+    const diff = await computeRefreshDiff({
+      sessionId: 'session',
+      sources: [HTTP_SOURCE],
+      lineage: {
+        version: 1,
+        nodes: [
+          { id: 'src-http', kind: 'source', label: 'Orders' },
+          { id: 'cell-upstream', kind: 'cell', label: 'upstream' },
+        ],
+        edges: [{ from: 'src-http', to: 'cell-upstream', confidence: 'high' }],
+      },
+      persistedFingerprints: {
+        'src-http': {
+          kind: 'http',
+          etag: '"v1"',
+          lastModifiedHeader: null,
+          contentLength: 10,
+          computedAt: 'before',
+        },
+      },
+      fetchHead: async () =>
+        new Response(null, {
+          headers: { etag: '"v2"', 'content-length': '11' },
+        }),
+    });
+
+    expect(diff.staleSourceIds).toEqual(['src-http']);
+    expect(diff.staleCellIds).toEqual(['cell-upstream']);
+    expect(diff.baselineFingerprints).toEqual({});
+  });
+});
 
 describe('fingerprintsEqual', () => {
   it('FSA: same size + lastModified compare equal', () => {
@@ -64,6 +152,19 @@ describe('fingerprintsEqual', () => {
       lastModified: 1700_000_000_001,
       computedAt: 'A',
     };
+    expect(fingerprintsEqual(a, b)).toBe(false);
+  });
+
+  it('FSA: metadata hash catches same-size/same-max replacements', () => {
+    const a = {
+      kind: 'fsa' as const,
+      size: 100,
+      lastModified: 1700_000_000_000,
+      fileCount: 2,
+      metadataHash: 'aaaa1111',
+      computedAt: 'A',
+    };
+    const b = { ...a, metadataHash: 'bbbb2222', computedAt: 'B' };
     expect(fingerprintsEqual(a, b)).toBe(false);
   });
 

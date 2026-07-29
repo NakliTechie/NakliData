@@ -147,8 +147,65 @@ describe('reconcileRemountedFolder', () => {
       'stable-orders',
       'new-inventory',
     ]);
+    expect(result.source.tables.map((table) => table.name)).toEqual(['orders', 'inventory']);
     expect(result.addedOrigins).toEqual(['folder/inventory.csv']);
     expect(result.missingOrigins).toEqual(['folder/customers.csv']);
+    expect(result.relationReplacements).toEqual([{ stagedName: 'orders_2', targetName: 'orders' }]);
+    expect(result.removedRelationNames).toEqual(['customers']);
+  });
+
+  it('reconciles every table from the same multi-table file by member name', () => {
+    const result = reconcileRemountedFolder(
+      {
+        id: 'folder-source',
+        kind: 'fsa-folder',
+        label: 'folder',
+        ref: 'handle-1',
+        tables: [
+          {
+            id: 'new-a',
+            sourceId: 'folder-source',
+            name: 'ledger_2__accounts',
+            format: 'sqlite',
+            origin: 'folder/ledger.sqlite',
+            rowCount: 3,
+            registered: true,
+          },
+          {
+            id: 'new-b',
+            sourceId: 'folder-source',
+            name: 'ledger_2__entries',
+            format: 'sqlite',
+            origin: 'folder/ledger.sqlite',
+            rowCount: 8,
+            registered: true,
+          },
+        ],
+      },
+      [
+        {
+          id: 'stable-a',
+          name: 'ledger__accounts',
+          origin: 'folder/ledger.sqlite',
+        },
+        {
+          id: 'stable-b',
+          name: 'ledger__entries',
+          origin: 'folder/ledger.sqlite',
+        },
+      ],
+    );
+
+    expect(result.source.tables.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'stable-a', name: 'ledger__accounts' },
+      { id: 'stable-b', name: 'ledger__entries' },
+    ]);
+    expect(result.relationReplacements).toEqual([
+      { stagedName: 'ledger_2__accounts', targetName: 'ledger__accounts' },
+      { stagedName: 'ledger_2__entries', targetName: 'ledger__entries' },
+    ]);
+    expect(result.addedOrigins).toEqual([]);
+    expect(result.missingOrigins).toEqual([]);
   });
 });
 

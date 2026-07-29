@@ -623,6 +623,10 @@ export interface FolderReconciliation {
   source: MountedSource;
   addedOrigins: string[];
   missingOrigins: string[];
+  /** Validated staging relation → persisted live relation swaps. */
+  relationReplacements: Array<{ stagedName: string; targetName: string }>;
+  /** Persisted live relations whose files disappeared from the folder. */
+  removedRelationNames: string[];
 }
 
 interface PersistedTableIdentity {
@@ -641,23 +645,51 @@ export function reconcileRemountedFolder(
   remounted: MountedSource,
   persistedTables: ReadonlyArray<PersistedTableIdentity>,
 ): FolderReconciliation {
-  const byOrigin = new Map(persistedTables.map((table) => [table.origin, table]));
+  const byOrigin = new Map<string, PersistedTableIdentity[]>();
+  for (const table of persistedTables) {
+    const list = byOrigin.get(table.origin) ?? [];
+    list.push(table);
+    byOrigin.set(table.origin, list);
+  }
   const byName = new Map(persistedTables.map((table) => [table.name, table]));
   const matchedIds = new Set<string>();
   const addedOrigins: string[] = [];
+  const relationReplacements: Array<{ stagedName: string; targetName: string }> = [];
   const tables = remounted.tables.map((table) => {
-    const persisted = byOrigin.get(table.origin) ?? byName.get(table.name);
+    const originCandidates = (byOrigin.get(table.origin) ?? []).filter(
+      (candidate) => !matchedIds.has(candidate.id),
+    );
+    const memberName = relationMemberName(table.name);
+    const persisted =
+      (originCandidates.length === 1
+        ? originCandidates[0]
+        : originCandidates.find(
+            (candidate) => memberName !== null && relationMemberName(candidate.name) === memberName,
+          )) ?? byName.get(table.name);
     if (!persisted || matchedIds.has(persisted.id)) {
       addedOrigins.push(table.origin);
       return { ...table, sourceId: remounted.id };
     }
     matchedIds.add(persisted.id);
-    return { ...table, id: persisted.id, sourceId: remounted.id };
+    if (table.name !== persisted.name) {
+      relationReplacements.push({ stagedName: table.name, targetName: persisted.name });
+    }
+    return { ...table, id: persisted.id, sourceId: remounted.id, name: persisted.name };
   });
-  const missingOrigins = persistedTables
-    .filter((table) => !matchedIds.has(table.id))
-    .map((table) => table.origin);
-  return { source: { ...remounted, tables }, addedOrigins, missingOrigins };
+  const missing = persistedTables.filter((table) => !matchedIds.has(table.id));
+  return {
+    source: { ...remounted, tables },
+    addedOrigins,
+    missingOrigins: missing.map((table) => table.origin),
+    relationReplacements,
+    removedRelationNames: missing.map((table) => table.name),
+  };
+}
+
+/** Stable inner table/sheet name for `<mount-name>__<member>` relations. */
+function relationMemberName(name: string): string | null {
+  const separator = name.indexOf('__');
+  return separator >= 0 ? name.slice(separator + 2) : null;
 }
 
 /**

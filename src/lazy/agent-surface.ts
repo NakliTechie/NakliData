@@ -314,11 +314,8 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
   async function runCell(id: string): Promise<{ id: string; status: string }> {
     const exists = deps.notebook.get().cells.some((c) => c.id === id);
     if (!exists) throw new Error(`No cell with id "${id}".`);
-    await deps.notebook.runCell(id);
-    const cell = deps.notebook.get().cells.find((c) => c.id === id);
-    const status =
-      cell && 'status' in cell ? String((cell as { status?: unknown }).status) : 'unknown';
-    return { id, status };
+    const outcome = await deps.notebook.runCell(id);
+    return { id, status: outcome.status };
   }
 
   return {
