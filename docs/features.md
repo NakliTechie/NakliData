@@ -193,7 +193,9 @@ inspectable + deletable from Settings; auto-load at boot when cached. Runs on th
 - **PWA installable** — `manifest.webmanifest` + service worker; shell + lazy
   chunks precache; the large vendored runtimes (Pyodide / WebR / DuckDB-ext) cache
   in a separate deploy-independent runtime cache. Load with `?offline=1` once to
-  warm the DuckDB-fallback bytes.
+  warm the DuckDB-fallback bytes. Cache Storage accepts only explicit public
+  static paths; API/private/unlisted, authorized, explicitly credentialed,
+  `private`/`no-store`, non-200, and partial responses bypass it.
 
 ## The `.naklidata` file format
 

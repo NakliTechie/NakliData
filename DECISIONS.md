@@ -2,6 +2,58 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 2B: browser/service boundary (ES)
+
+### Decision ES-1 — Cache Storage accepts named public assets, not same-origin traffic
+
+- **Context.** The service worker applied stale-while-revalidate to every
+  same-origin GET. A future authenticated API, private download, partial
+  response, or credential-bearing request could therefore enter persistent
+  Cache Storage even though it was unrelated to offline application assets.
+- **Decision.** Resolve every path relative to the service-worker scope and
+  admit only exact public shell/worker paths or explicit chunk, taxonomy,
+  example, guide, engine, and runtime prefixes. Bypass unlisted/API/auth/private
+  paths, Authorization, Range, explicit credentials, sensitive query keys, and
+  request `private`/`no-store`. Cache responses only when they are full,
+  non-opaque 200s without Content-Range or response `private`/`no-store`.
+  Rotate a separate cache-policy version so the old generic cache is pruned.
+- **Consequence.** Public-shell offline navigation and immutable language
+  runtime caching remain. Same-origin no longer means cacheable. Production
+  smoke and targeted PWA browser tests prove the allowlist plus
+  auth/credentials/no-store/private/206/sensitive-query bypasses.
+
+### Decision ES-2 — engine fields publish only after a complete boot transaction
+
+- **Context.** Instantiate failure cleaned its worker, but `db.connect()` ran
+  after `this.db` and `this.worker` were assigned. A connect failure therefore
+  left a half-created database/worker in engine fields, and close/retry caches
+  could describe the previous runtime.
+- **Decision.** Keep worker, database, connection, and blob bootstrap URL local
+  through instantiate/connect/configuration. Publish them to `Engine` only on
+  success. On every failure and close, best-effort close/terminate all layers,
+  revoke the bootstrap in `finally`, and clear extension, VFS-ownership, and
+  sequence fields.
+- **Consequence.** Failed boot is an error state with no live runtime artifacts;
+  retry starts clean. Tests cover worker-construction, instantiate, and connect
+  failures plus successful retry and close.
+
+### Decision ES-3 — deployment defaults enforce the written privacy policy
+
+- **Context.** The repo's Hard NOT prohibits telemetry and error reporting, but
+  Wrangler explicitly enabled Cloudflare observability. Dependency advisories
+  also had no trusted-registry CI step.
+- **Decision.** Set `observability.enabled` to false and lock it with a unit
+  regression. Add `npm audit --audit-level=high` after install in trusted
+  GitHub CI; do not make local/offline builds depend on registry access.
+- **Consequence.** The deploy configuration now agrees with the product
+  contract, and future CI runs fail on high/critical advisories. The local audit
+  call was not performed because this environment did not authorize sending
+  lockfile-derived dependency metadata to npm. The config change is not live
+  until the user authorizes a push/deployment, so dashboard verification remains
+  a deployment-time check. Gate: **1,478 vitest**, targeted PWA e2e **3/3**,
+  **SMOKE PASSED**, bundle **774,537 / 786,432 bytes** (11.6 KiB headroom);
+  final static check runs after documentation.
+
 ## 2026-07-29 — Goal Phase 2B: proposal-only agent contract (ER)
 
 ### Decision ER-1 — remove agent execution instead of granting session-wide authority

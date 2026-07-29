@@ -41,6 +41,7 @@ The original spec stays authoritative for everything not listed here.
 | [A31](#a31--sidecar-jobs-9--10-assign-type--nl-to-schema-wave-7-amends-spec-43) | §4.3 | Two new sidecar jobs. Job 9 `assign-type`: column → semantic type from the full taxonomy vocabulary (complements Job 1, covers `unknown` columns; per-column + bulk surfaces). Job 10 `nl-to-schema`: NL dataset description → typed schema, inserted as an un-run CREATE TABLE cell. Both structured-output-only with parser-side hallucination guards. |
 | [A37](#a37--user-regex-admission-and-taxonomy-worker-lifecycle-amends-spec-32--34) | §3.2 + §3.4 | User regexes use a conservative safe subset; taxonomy worker boot is single-flight and every request has a deadline plus clean-restart semantics. |
 | [A38](#a38--proposal-only-agent-contract-v2-amends-the-agent-surface) | Agent surface | Agent contract v2 removes cell execution; proposals remain editable and un-run, while value queries reject alternate row forms and carry a pre-execution row cap. |
+| [A39](#a39--public-static-service-worker-cache-policy-amends-spec-71) | §7.1 | Cache Storage admits only named public application assets; authenticated, private, no-store, non-200, partial, and unlisted traffic bypasses it. Cloudflare observability is disabled. |
 
 ---
 
@@ -1695,6 +1696,42 @@ row forms never call the engine and an enabled proposal gate still cannot
 dispatch `runCell`. Production smoke proves the v2 five-verb catalogue, missing
 execution proxy, default-off proposal toggle, row/redaction boundary, and
 validator failures.
+
+---
+
+## A39 — Public-static service-worker cache policy (amends spec §7.1)
+
+**Original behavior:** navigation had a public-shell offline fallback, immutable
+runtime prefixes used cache-first, and every other same-origin GET used
+stale-while-revalidate.
+
+**Amended behavior:** same-origin is necessary but not sufficient. The service
+worker resolves requests relative to its deploy scope and handles only exact
+public shell/worker assets or explicit chunk, taxonomy, example, guide, engine,
+and runtime prefixes. Unlisted, API/auth/private, Authorization, explicit
+credentials, Range, sensitive-query, and request `private`/`no-store` traffic
+bypasses the service worker. Only full, non-opaque 200 responses without
+Content-Range or response `private`/`no-store` may enter Cache Storage. Public
+shell navigation retains network-first/offline-fallback behavior; immutable
+runtime assets retain a deploy-independent cache-first bucket.
+
+The shell cache includes a separate policy version, so changing cache
+eligibility rotates away entries created by the older generic rule even when
+the inlined application hash is unchanged.
+
+**Deployment privacy:** Wrangler sets `observability.enabled` to false to match
+the no-telemetry/no-error-reporting Hard NOT. Trusted GitHub CI runs npm's
+high-severity advisory gate; local/offline builds do not require registry
+access.
+
+**Reasoning:** an origin boundary is not a data-classification boundary. Future
+authenticated endpoints, private downloads, and range responses must not become
+persistent merely because they share the application host.
+
+**Status:** adopted 2026-07-29. DECISIONS ES. Production smoke and targeted PWA
+e2e cover public static caching, offline shell fallback, immutable runtimes, and
+every bypass class. The Cloudflare dashboard state must be verified after an
+explicitly authorized deployment; no deploy occurred in this goal batch.
 
 ---
 
