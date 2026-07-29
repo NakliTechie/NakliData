@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
+
+### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts
+
+- **Context.** Color literals had accumulated across shell CSS, modal strings,
+  chart/map adapters, report rendering, sensitivity badges, and the standalone
+  exporter. A source convention without a gate could not prevent drift, while
+  exempting generated HTML would leave a second design palette.
+- **Decision.** Centralize neutral, status, overlay, and stable map-series
+  values in `src/tokens/colors.ts`. Components consume exported tokens or root
+  CSS variables. The standalone exporter interpolates the same tokens, and the
+  build injects the document theme color from `Neutral.accent`. Add a
+  directory scan to `npm run check` that rejects hex, numeric RGB(A), and named
+  color declarations anywhere under `src` except the token and vendored
+  directories.
+- **Consequence.** Runtime and exported artifacts now share one palette, and a
+  future stray literal fails CI. The enforcement is build-time only; no
+  runtime dependency or shell-side parser was added.
+
+### Decision EZ-2 — extraction coverage is discovered; browser adapters are exceptional by name
+
+- **Context.** A hand-maintained file list omitted new taxonomy and sidecar
+  modules unless someone remembered to extend it. `listHandles()` exposed an
+  orphan-enumeration primitive with no production recovery caller, and the
+  refresh core depended on the DOM `File` type for three scalar fields.
+- **Decision.** Discover every TypeScript module recursively under taxonomy,
+  agent, cleaning, and sidecar. Exempt only six named browser adapters, each
+  with a checked reason; fail on stale or reasonless exceptions. Keep the
+  established pure core files as required paths, add Blob/File to the forbidden
+  boundary, and accept a structural `{name,size,lastModified}` fingerprint
+  input. Remove `listHandles()` until a conservative, user-visible recovery
+  policy actually needs enumeration.
+- **Consequence.** Thirty-five engine modules are now continuously checked and
+  newly added pure-directory modules enter the boundary automatically.
+  Browser ownership stays visible rather than implicit. The schema-override
+  smoke assertion now waits for its lazy menu under a bounded deadline instead
+  of assuming a 50 ms chunk load. Gate: **1,525 vitest**, production **SMOKE
+  PASSED** including schema evidence and override, color-token and
+  engine-boundary checks clean, bundle **784,240 / 786,432 bytes** (2,192 bytes
+  headroom), final static check exit 0 with 34 pre-existing warnings.
+
 ## 2026-07-29 — Goal Phase 5C: truthful notebook, charts, exports, and lineage (EY)
 
 ### Decision EY-1 — notebook actions stop on named failure and introspection results do not masquerade as relations
