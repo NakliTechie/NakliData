@@ -750,6 +750,16 @@ async function main() {
   if (!lineage.hasSource)
     fail('lineage panel recorded no mounted-source node (source→cell edge missing)');
   log('✓ source→cell lineage recorded (panel shows a mounted-source node)');
+  const annotations = page.locator('[data-action="toggle-lineage-edit"]');
+  if (!(await annotations.isVisible()))
+    fail('lineage visual-annotation control is missing for a populated graph');
+  if ((await annotations.textContent())?.trim() !== 'Annotations')
+    fail('lineage graph edits are not labeled as visual annotations');
+  await annotations.click();
+  const annotationHint = await page.locator('.lineage-edit-hint').textContent();
+  if (!annotationHint?.includes('do not create or delete notebook cells, sources, or data'))
+    fail('lineage annotation surface does not disclose its visual-only scope');
+  log('✓ lineage mutations are disclosed as visual-only annotations');
   // Close the panel so it doesn't overlay later steps.
   await page.click('[data-action="close-lineage"]').catch(() => {});
   await page.waitForSelector('.lineage-list', { state: 'detached', timeout: 5000 }).catch(() => {});

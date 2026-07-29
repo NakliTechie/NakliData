@@ -45,6 +45,17 @@ function roundTripCells(cells: CellState[]): CellState[] {
   return parsed.cells as CellState[];
 }
 
+describe('persistence timestamps', () => {
+  it('preserves original creation time while advancing modified on save', () => {
+    const created = '2020-01-02T03:04:05.000Z';
+    const file = serialize({ ...baseInput, cells: [], created });
+
+    expect(file.created).toBe(created);
+    expect(file.modified).not.toBe(created);
+    expect(Number.isNaN(Date.parse(file.modified))).toBe(false);
+  });
+});
+
 describe('persistence round-trip — SQL cell (W4 baseline)', () => {
   it('survives save/load with runtime state stripped', () => {
     const cell: SqlCellState = {

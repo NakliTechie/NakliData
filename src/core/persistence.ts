@@ -136,6 +136,8 @@ export type PersistedCell = CellState;
 
 export interface SerializeInput {
   notebookName: string;
+  /** Original workbook creation time. Omit only for a genuinely new workbook. */
+  created?: string;
   sources: MountedSource[];
   assignments: Record<string, ColumnAssignment>;
   cells: CellState[];
@@ -163,7 +165,7 @@ export function serialize(input: SerializeInput): NakliDataFile {
   return {
     format: 'naklidata',
     version: NAKLIDATA_VERSION,
-    created: now,
+    created: input.created ?? now,
     modified: now,
     name: input.notebookName,
     sources: input.sources.map((s) => ({

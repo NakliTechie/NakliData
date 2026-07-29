@@ -68,6 +68,7 @@ test.describe('W6.3 — static-HTML export', () => {
     await page.waitForTimeout(4_000);
 
     await page.click('[data-header-menu="workbook"] > summary');
+    page.once('dialog', (dialog) => dialog.accept());
     await page.click('[data-action="export-html"]');
     await page.waitForTimeout(800);
 
@@ -100,6 +101,7 @@ test.describe('W6.3 — static-HTML export', () => {
     await page.waitForTimeout(800);
 
     await page.click('[data-header-menu="workbook"] > summary');
+    page.once('dialog', (dialog) => dialog.accept());
     await page.click('[data-action="export-html"]');
     await page.waitForTimeout(800);
 
@@ -110,6 +112,58 @@ test.describe('W6.3 — static-HTML export', () => {
     // "Vendor concentration" — assert it survived to the export.
     expect(latest.text.toLowerCase()).toContain('vendor concentration');
     // No <script> tags — the export is JS-free.
+    expect(latest.text).not.toContain('<script');
+  });
+
+  test('previews omissions and represents every cell kind in a visible manifest', async ({
+    page,
+  }) => {
+    const fsa = await installFsaMocks(page);
+    await bootWithSources(page);
+
+    const kinds = [
+      'markdown',
+      'chart',
+      'pivot',
+      'map',
+      'embedding',
+      'network',
+      'temporal',
+      'distribution',
+      'cohort',
+      'assertion',
+      'input',
+      'dashboard',
+      'stats',
+      'python',
+      'r',
+      'report',
+    ];
+    for (const kind of kinds) {
+      await page.click(`[data-nb-action="add-${kind}"]`);
+    }
+
+    let preview = '';
+    page.once('dialog', async (dialog) => {
+      preview = dialog.message();
+      await dialog.accept();
+    });
+    await page.click('[data-header-menu="workbook"] > summary');
+    await page.click('[data-action="export-html"]');
+    await expect.poll(() => preview).toContain('as explicit placeholders');
+    await expect
+      .poll(async () => (await fsa.readLatestWriteText())?.text ?? '')
+      .toContain('Export manifest');
+
+    const latest = await fsa.readLatestWriteText();
+    expect(latest).not.toBeNull();
+    if (!latest) return;
+    expect(latest.text).toContain('Export manifest');
+    expect(latest.text).toContain('notebook cells are represented below');
+    for (const kind of ['sql', ...kinds]) {
+      expect(latest.text).toContain(`data-export-kind="${kind}"`);
+    }
+    expect(latest.text).toContain('Static placeholder:');
     expect(latest.text).not.toContain('<script');
   });
 });

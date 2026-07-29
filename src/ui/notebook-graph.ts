@@ -32,6 +32,7 @@
 //
 // The check is pure — call from runCell / runAll before executing.
 
+import { isDirectResultStatement, leadingSqlKeyword } from '../core/sql-statements.ts';
 import type {
   AssertionCellState,
   CellState,
@@ -85,6 +86,12 @@ export type RefIssue =
       cellId: string;
       /** Path of names forming the cycle, ending at the entry name. */
       path: string[];
+    }
+  | {
+      kind: 'non_referenceable';
+      cellId: string;
+      name: string;
+      keyword: string;
     };
 
 /**
@@ -111,7 +118,25 @@ export function detectRefIssue(targetId: string, cells: CellState[]): RefIssue |
     }
   }
 
-  // 2. Cycle. Walk the directed graph from `target` via @-refs in code.
+  // 2. Direct-result introspection cells return rows but cannot back a view.
+  for (const ref of extractRefs(target.code)) {
+    const refId = nameToId.get(ref);
+    const refCell = refId ? byId.get(refId) : null;
+    if (
+      refCell &&
+      (refCell.kind === 'sql' || refCell.kind === 'cohort' || refCell.kind === 'assertion') &&
+      isDirectResultStatement(refCell.code)
+    ) {
+      return {
+        kind: 'non_referenceable',
+        cellId: target.id,
+        name: ref,
+        keyword: leadingSqlKeyword(refCell.code),
+      };
+    }
+  }
+
+  // 3. Cycle. Walk the directed graph from `target` via @-refs in code.
   //    Only count view-materialising cells (input cells are leaves).
   const stack: string[] = []; // names along current DFS path
   const visited = new Set<string>(); // names fully explored (no cycle from here)
@@ -356,6 +381,9 @@ export function reportRefreshOrder(report: ReportCellState, cells: CellState[]):
 export function refIssueMessage(issue: RefIssue): string {
   if (issue.kind === 'self_ref') {
     return `Cell references itself (@${issue.name}). Reference a different cell, or remove the @${issue.name}.`;
+  }
+  if (issue.kind === 'non_referenceable') {
+    return `@${issue.name} is a ${issue.keyword} result and cannot be referenced. Copy its rows into a SELECT-backed table or view first.`;
   }
   // cycle
   return `Cycle in @-references: ${issue.path.map((n) => `@${n}`).join(' → ')}. Break one of these links.`;

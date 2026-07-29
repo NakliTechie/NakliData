@@ -12,6 +12,7 @@
 // resolved module without re-fetching.
 
 const cache = new Map<string, Promise<unknown>>();
+const failureCounts = new Map<string, number>();
 
 export interface LazyChunkRegistry {
   // Add entries here as chunks ship. The string keys must match the
@@ -141,6 +142,8 @@ export interface LazyChunkRegistry {
   'semantic-model': typeof import('../lazy/semantic-model.ts');
   /** Deterministic data-quality suggestions, contracts, and explicit-run UI. */
   'data-quality': typeof import('../lazy/data-quality.ts');
+  /** Complete static notebook renderer and export manifest; loaded on export/embed. */
+  'static-export': typeof import('../lazy/static-export.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly
@@ -165,17 +168,23 @@ export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRe
     // (e.g., GitHub Pages at `/NakliData/`) work — a leading-slash URL
     // would 404 there.
     const url = new URL(`./chunks/${name}.js`, document.baseURI).href;
+    const failureCount = failureCounts.get(name) ?? 0;
+    const importUrl =
+      failureCount > 0 ? `${url}${url.includes('?') ? '&' : '?'}retry=${failureCount}` : url;
     // Forward-pass L9 (2026-06-02): dropped the Vite-specific
     // `/* @vite-ignore */` magic comment — this project uses esbuild,
     // which ignores unknown comments. The dynamic URL itself is what
     // prevents the bundler from trying to resolve the import at build
     // time; no comment annotation is required.
-    p = import(url);
+    p = import(importUrl);
     // M5: don't cache a REJECTED import forever — one transient network failure
     // would otherwise brick this chunk for the whole session (every retry
     // re-awaits the same rejection). Evict on failure so a retry re-imports.
     p.catch(() => {
-      if (cache.get(name) === p) cache.delete(name);
+      if (cache.get(name) === p) {
+        cache.delete(name);
+        failureCounts.set(name, failureCount + 1);
+      }
     });
     cache.set(name, p);
   }
@@ -185,6 +194,7 @@ export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRe
 /** For tests — wipe the in-memory cache so each test sees fresh loads. */
 export function _resetChunkCacheForTests(): void {
   cache.clear();
+  failureCounts.clear();
 }
 
 /** For Node unit tests — provide a resolved chunk without requiring a browser
@@ -193,5 +203,6 @@ export function _primeChunkForTests<K extends LazyChunkName>(
   name: K,
   module: LazyChunkRegistry[K],
 ): void {
+  failureCounts.delete(name);
   cache.set(name, Promise.resolve(module));
 }

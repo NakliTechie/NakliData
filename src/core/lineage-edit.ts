@@ -1,10 +1,8 @@
-// v1.3 M6 — Lineage edit mode: pure projection logic.
+// Lineage visual annotations: pure projection logic.
 //
-// The lineage canvas is an EDITABLE PROJECTION of the notebook
-// (handoff §M6). Any canvas action — insert-on-edge, delete node,
-// reposition — is recorded as a cell operation; replaying the
-// notebook re-derives the identical canvas. The round-trip invariant
-// is the load-bearing test of this milestone.
+// These operations modify the saved lineage graph only. They do not create,
+// delete, or reposition actual notebook cells or sources. Observed lineage
+// from a later cell run can replace the annotated inbound edges.
 //
 // **Engine-boundary contract (v1.3 M0):** no DOM, no FSA, no browser
 // globals. Pure data + the canvas-op projection.
@@ -13,13 +11,7 @@ import { lineageGraphFromJson } from './lineage-store.ts';
 import type { LineageCellKind, LineageGraph, LineageNode } from './lineage-store.ts';
 
 /**
- * Canvas operations the user can perform in lineage edit mode. Each
- * maps to a concrete notebook-level cell op so the round-trip
- * invariant holds: canvas action → notebook diff → re-rendered
- * canvas identical.
- *
- * Per handoff §M6: NO canvas-only transform types. If a transform
- * can't exist as a cell, it can't exist on the canvas.
+ * Visual-only operations supported by the lineage annotation surface.
  */
 export type CanvasOp =
   | {
@@ -31,15 +23,12 @@ export type CanvasOp =
   | { kind: 'delete-node'; nodeId: string }
   | { kind: 'reposition'; nodeId: string; column?: number; row?: number };
 
-/** Cell kinds the canvas palette offers. NO canvas-only types. Aliases
- *  the single source of truth in lineage-store so the inserted node's
- *  `cellKind` and the op's `newCellKind` can't drift (H12). */
+/** Labels the annotation palette can apply to an inserted visual step. */
 export type NewCellKind = LineageCellKind;
 
 /**
  * Apply a canvas op to a `LineageGraph` to produce the next graph
- * state. Pure — same input → same output. Mirrors what the notebook
- * would produce after running the corresponding cell op.
+ * state. Pure — same input → same output. The result is not a notebook diff.
  *
  * `insert-on-edge`: insert a new cell between `edge.from` and
  * `edge.to`. The old edge is REMOVED; two new edges are added —
@@ -47,9 +36,8 @@ export type NewCellKind = LineageCellKind;
  * cell node.
  *
  * `delete-node`: remove the node + every edge it touches. Returns
- * the orphaned downstream nodes so the caller can decide whether
- * to confirm deletion (handoff §M6: dependents-listed-before-
- * confirmation).
+ * the visual paths touching the node. Callers list downstream nodes before
+ * confirmation so the view change is explicit.
  *
  * `reposition`: layout-only; no graph mutation. Returns the graph
  * unchanged (the canvas layout is computed from row/column hints
@@ -66,8 +54,7 @@ export function applyCanvasOp(graph: LineageGraph, op: CanvasOp): LineageGraph {
       id: op.newCellId,
       kind: 'cell',
       label: `cell_${op.newCellId}`,
-      // Carry the requested cell kind so a future canvas-to-cell
-      // materialisation knows what to create (H12).
+      // Preserve the selected visual step label across persistence.
       cellKind: op.newCellKind,
     };
     return {
@@ -92,10 +79,7 @@ export function applyCanvasOp(graph: LineageGraph, op: CanvasOp): LineageGraph {
 }
 
 /**
- * For a delete-node op, identify the downstream cells that depend on
- * the node being deleted. The handoff requires this list be shown
- * before confirmation (handoff §M6 — reuse the M2 measures-edit
- * pattern of "list dependents first").
+ * Identify downstream nodes whose visible paths are affected by hiding a node.
  */
 export function getDependentsOfNode(graph: LineageGraph, nodeId: string): string[] {
   const downstream = new Set<string>();
@@ -120,16 +104,13 @@ export function getDependentsOfNode(graph: LineageGraph, nodeId: string): string
  * graph), plus a layout layer (column / row hints) the caller stores
  * separately and the canvas reads.
  *
- * The Round-Trip Invariant (handoff §M6 — load-bearing test of the
- * milestone):
+ * Persistence invariant for visual annotations:
  *
  *   For any canvas op `op` applied to a graph `g`:
  *     project(apply(g, op)) === project(g) → then-applied-op
  *
- * Or in plain English: applying an op to the canvas, then re-
- * projecting the graph, produces the SAME canvas state as applying
- * the op to the underlying graph and re-projecting. Notebook and
- * canvas are two projections of one state.
+ * Applying an annotation, persisting the graph, and re-projecting it produces
+ * the same visual graph state.
  */
 export interface CanvasState {
   /** Same nodes as the graph; the canvas IS the graph. */

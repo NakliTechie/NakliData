@@ -13,6 +13,7 @@ import { loadChunk } from '../../core/lazy-loader.ts';
 import { formatAnalyticalNumber } from '../../core/number-display.ts';
 import { SNAPSHOT_ROW_CAP, isSnapshotStale } from '../../core/result-snapshots.ts';
 import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
+import { isDirectResultStatement } from '../../core/sql-statements.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
 import { SINKS, blockReasonFor } from '../sinks/catalog.ts';
@@ -331,6 +332,7 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState, extra?: Sql
     <span>${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'}</span>
     <span>${elapsedMs.toFixed(0)} ms</span>
     ${rows.length > 50 ? '<span>showing first 50</span>' : ''}
+    ${isDirectResultStatement(cell.code) ? '<span title="This direct introspection result is not materialized as a reusable cell view">non-referenceable result</span>' : ''}
     ${renderResultBadges(cell)}
     <button class="btn btn-ghost cell-sidecar-trigger" data-action="summarise-result" data-cell-id="${cell.id}" title="Ask the sidecar for a one-line observation about this result">
       ${iconSvg('info', 12)} <span>Summarise</span>

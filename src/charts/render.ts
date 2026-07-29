@@ -19,6 +19,82 @@ const PLOT_TYPES = new Set<ChartCellState['chartType']>(['stacked-bar', 'area-st
 // Threshold below which we don't split the pie into faceted small-multiples.
 const FACET_MIN_PARTITIONS = 2;
 const FACET_MAX_PARTITIONS = 9;
+export const CHART_A11Y_ROW_LIMIT = 100;
+
+export function chartAccessibleSubset(result: SqlResult): {
+  rows: SqlResult['rows'];
+  announcement: string;
+} {
+  const total = result.rows.length;
+  if (total <= CHART_A11Y_ROW_LIMIT) {
+    return {
+      rows: result.rows,
+      announcement: `Chart data table: all ${total.toLocaleString()} rows.`,
+    };
+  }
+  const rows = Array.from({ length: CHART_A11Y_ROW_LIMIT }, (_, index) => {
+    const sourceIndex = Math.round((index * (total - 1)) / Math.max(CHART_A11Y_ROW_LIMIT - 1, 1));
+    return result.rows[sourceIndex] as Record<string, unknown>;
+  });
+  return {
+    rows,
+    announcement: `Chart data table: representative sample of ${rows.length.toLocaleString()} of ${total.toLocaleString()} rows.`,
+  };
+}
+
+export interface HorizontalBarLayout {
+  zeroX: number;
+  bars: Array<{
+    x: number;
+    width: number;
+    valueX: number;
+    labelX: number;
+    labelAnchor: 'start' | 'end';
+  }>;
+}
+
+export function horizontalBarLayout(
+  values: readonly number[],
+  width = 720,
+  padLeft = 160,
+  padRight = 64,
+): HorizontalBarLayout {
+  let min = 0;
+  let max = 0;
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  const span = max - min || 1;
+  const innerWidth = width - padLeft - padRight;
+  const xFor = (value: number): number => padLeft + ((value - min) / span) * innerWidth;
+  const zeroX = xFor(0);
+  return {
+    zeroX,
+    bars: values.map((value) => {
+      const valueX = xFor(value);
+      return {
+        x: Math.min(zeroX, valueX),
+        width: Math.max(Math.abs(valueX - zeroX), 0.5),
+        valueX,
+        labelX: valueX + (value < 0 ? -4 : 4),
+        labelAnchor: value < 0 ? 'end' : 'start',
+      };
+    }),
+  };
+}
+
+export function ownsAsyncChartMount(
+  mount: HTMLElement,
+  wrap: HTMLElement,
+  cellId: string,
+): boolean {
+  return (
+    mount.isConnected &&
+    wrap.parentElement === mount &&
+    mount.closest<HTMLElement>('[data-cell-id]')?.dataset.cellId === cellId
+  );
+}
 
 export function renderChart(mount: HTMLElement, cell: ChartCellState, result: SqlResult): void {
   mount.innerHTML = '';
@@ -34,13 +110,32 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
   mount.append(wrap);
 
   if (PLOT_TYPES.has(cell.chartType)) {
-    wrap.innerHTML = '<div class="cell-output-empty">Loading chart…</div>';
-    // Fire-and-forget the lazy chunk load. Plot is heavy enough that
-    // pulling it into the main bundle would push us past the 600 KB
-    // shell budget; we accept a brief loading flash on first use.
-    void loadChunk('observable-plot').then((mod) => {
-      mod.mountPlotChart({ mount: wrap, cell, result });
-    });
+    const stillOwnsMount = (): boolean => ownsAsyncChartMount(mount, wrap, cell.id);
+    const loadPlot = async (): Promise<void> => {
+      wrap.innerHTML = '<div class="cell-output-empty">Loading chart…</div>';
+      try {
+        const mod = await loadChunk('observable-plot');
+        if (!stillOwnsMount()) return;
+        mod.mountPlotChart({ mount: wrap, cell, result });
+      } catch (error) {
+        if (!stillOwnsMount()) return;
+        wrap.innerHTML = '';
+        const state = document.createElement('div');
+        state.className = 'cell-output-error';
+        state.textContent = `Couldn't load the chart renderer: ${
+          error instanceof Error ? error.message : String(error)
+        } `;
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-ghost';
+        retry.dataset.action = 'retry-plot';
+        retry.textContent = 'Retry chart';
+        retry.addEventListener('click', () => void loadPlot());
+        state.append(retry);
+        wrap.append(state);
+      }
+    };
+    void loadPlot();
   } else {
     switch (cell.chartType) {
       case 'table':
@@ -77,7 +172,11 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
   // Accessible table mirror (spec §3.9).
   const a11y = document.createElement('table');
   a11y.className = 'visually-hidden';
-  a11y.setAttribute('aria-label', 'Chart data table');
+  const accessible = chartAccessibleSubset(result);
+  a11y.setAttribute('aria-label', accessible.announcement);
+  const caption = document.createElement('caption');
+  caption.textContent = accessible.announcement;
+  a11y.append(caption);
   const trh = document.createElement('tr');
   for (const c of result.columns) {
     const th = document.createElement('th');
@@ -88,7 +187,7 @@ export function renderChart(mount: HTMLElement, cell: ChartCellState, result: Sq
   thead.appendChild(trh);
   a11y.appendChild(thead);
   const tbody = document.createElement('tbody');
-  for (const row of result.rows) {
+  for (const row of accessible.rows) {
     const tr = document.createElement('tr');
     for (const c of result.columns) {
       const td = document.createElement('td');
@@ -180,18 +279,31 @@ function drawHorizontalBars(
   const width = 720;
   const rowH = 22;
   const padL = 160;
-  const padR = 24;
+  const padR = 64;
   const height = Math.max(rowH * data.length + 20, 80);
-  const maxV = data.reduce((m, d) => Math.max(m, d.value), 0);
+  const layout = horizontalBarLayout(
+    data.map((item) => item.value),
+    width,
+    padL,
+    padR,
+  );
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('width', '100%');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', `Bar chart of ${yLabel}`);
+  const zeroLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  zeroLine.dataset.zeroBaseline = 'true';
+  zeroLine.setAttribute('x1', String(layout.zeroX));
+  zeroLine.setAttribute('x2', String(layout.zeroX));
+  zeroLine.setAttribute('y1', '2');
+  zeroLine.setAttribute('y2', String(height - 2));
+  zeroLine.setAttribute('stroke', Neutral.borderStrong);
+  svg.append(zeroLine);
   for (let i = 0; i < data.length; i++) {
     const d = data[i];
-    if (!d) continue;
-    const w = maxV > 0 ? ((width - padL - padR) * d.value) / maxV : 0;
+    const geometry = layout.bars[i];
+    if (!d || !geometry) continue;
     const y = i * rowH + 6;
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.setAttribute('x', String(padL - 8));
@@ -203,16 +315,18 @@ function drawHorizontalBars(
     svg.appendChild(label);
 
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', String(padL));
+    rect.dataset.value = String(d.value);
+    rect.setAttribute('x', String(geometry.x));
     rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(Math.max(w, 0.5)));
+    rect.setAttribute('width', String(geometry.width));
     rect.setAttribute('height', String(rowH - 8));
     rect.setAttribute('fill', categorical(i));
     svg.appendChild(rect);
 
     const val = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    val.setAttribute('x', String(padL + w + 4));
+    val.setAttribute('x', String(geometry.labelX));
     val.setAttribute('y', String(y + rowH / 2 + 4));
+    val.setAttribute('text-anchor', geometry.labelAnchor);
     val.setAttribute('font-size', '11');
     val.setAttribute('fill', Neutral.textMuted);
     val.textContent = formatNumber(d.value);

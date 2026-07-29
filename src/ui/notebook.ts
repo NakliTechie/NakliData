@@ -29,6 +29,7 @@ import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
 import { type DirectResultProjection, hashSql } from '../core/result-snapshots.ts';
 import { getSegmentsStore } from '../core/segments.ts';
+import { isDirectResultStatement } from '../core/sql-statements.ts';
 import { getWorkbook } from '../core/workbook.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
@@ -82,40 +83,6 @@ import { notebookCss } from './notebook.css.ts';
 let _idSeq = 1;
 const genCellId = () => `c_${Date.now().toString(36)}_${_idSeq++}`;
 
-// Statements that return a result set but CANNOT be wrapped in
-// `CREATE VIEW AS …` — they must be executed directly. Read-only
-// introspection only; DDL/side-effecting statements stay on the
-// view-wrap path (where they fail loudly, as intended). Real-data
-// test finding #4: `SHOW TABLES` / `DESCRIBE` / `PRAGMA` otherwise
-// surfaced a baffling "syntax error at or near SHOW".
-const DIRECT_RUN_KEYWORDS = new Set(['SHOW', 'DESCRIBE', 'DESC', 'PRAGMA', 'EXPLAIN', 'SUMMARIZE']);
-
-/** Leading SQL keyword, uppercased, after stripping leading comments/space. */
-function leadingKeyword(sql: string): string {
-  let s = sql.trimStart();
-  // Peel any run of leading line (`--`) / block (`/* */`) comments.
-  for (;;) {
-    if (s.startsWith('--')) {
-      const nl = s.indexOf('\n');
-      s = nl === -1 ? '' : s.slice(nl + 1).trimStart();
-      continue;
-    }
-    if (s.startsWith('/*')) {
-      const end = s.indexOf('*/');
-      s = end === -1 ? '' : s.slice(end + 2).trimStart();
-      continue;
-    }
-    break;
-  }
-  const m = s.match(/^[a-zA-Z_]+/);
-  return m ? m[0].toUpperCase() : '';
-}
-
-/** True when the statement must run directly rather than via a `cell_<id>` view. */
-function isDirectRunStatement(sql: string): boolean {
-  return DIRECT_RUN_KEYWORDS.has(leadingKeyword(sql));
-}
-
 export interface NotebookState {
   cells: CellState[];
 }
@@ -125,6 +92,10 @@ export type CellRunOutcome =
   | { status: 'failure'; id: string; error: string }
   | { status: 'cancelled'; id: string; reason: 'aborted' | 'superseded' }
   | { status: 'not-runnable'; id: string };
+
+export type CellBatchRunOutcome =
+  | { status: 'success'; ran: number }
+  | { status: 'stopped'; cellId: string; cellName: string; outcome: CellRunOutcome };
 
 export class Notebook {
   private state: NotebookState = { cells: [] };
@@ -551,7 +522,7 @@ LIMIT 100`,
       // test finding #4). Run those directly and return their rows; skip
       // the view + lineage (nothing references an introspection cell).
       let rows: Array<Record<string, unknown>>;
-      if (isDirectRunStatement(rewritten)) {
+      if (isDirectResultStatement(rewritten)) {
         rows = (await this.engine.query(rewritten, { signal: ac.signal })) as Array<
           Record<string, unknown>
         >;
@@ -628,7 +599,7 @@ LIMIT 100`,
     }
   }
 
-  async runAll(): Promise<void> {
+  async runAll(): Promise<CellBatchRunOutcome> {
     // Run in @name-dependency (topological) order, not raw document order,
     // so a cell that references a @name defined LATER in the notebook
     // still runs after its input (forward-pass M14). Cycle-safe — cells in
@@ -642,13 +613,7 @@ LIMIT 100`,
     // matches what every notebook (Jupyter, Hex, Observable) does — the
     // "Run all" affordance treats empty cells as no-ops.
     // (Demo-verification finding 2026-05-31; see plan/pending.md.)
-    const byId = new Map(this.state.cells.map((c) => [c.id, c]));
-    for (const id of topoOrderRunnableCells(this.state.cells)) {
-      const c = byId.get(id);
-      if (!c || (c.kind !== 'sql' && c.kind !== 'cohort' && c.kind !== 'assertion')) continue;
-      if (!c.code.trim()) continue;
-      await this.runCell(id);
-    }
+    return await this.runCellsInOrder(topoOrderRunnableCells(this.state.cells));
   }
 
   /**
@@ -697,14 +662,25 @@ LIMIT 100`,
   /** Run the given cell ids sequentially, skipping any that vanished or are
    *  empty. Shared by the scoped crossfilter re-run; `runAll` is the
    *  whole-notebook case of the same loop. */
-  private async runCellsInOrder(ids: string[]): Promise<void> {
+  private async runCellsInOrder(ids: string[]): Promise<CellBatchRunOutcome> {
     const byId = new Map(this.state.cells.map((c) => [c.id, c]));
+    let ran = 0;
     for (const id of ids) {
       const c = byId.get(id);
       if (!c || (c.kind !== 'sql' && c.kind !== 'cohort' && c.kind !== 'assertion')) continue;
       if (!c.code.trim()) continue;
-      await this.runCell(id);
+      const outcome = await this.runCell(id);
+      if (outcome.status !== 'success') {
+        return {
+          status: 'stopped',
+          cellId: id,
+          cellName: c.name?.trim() || id,
+          outcome,
+        };
+      }
+      ran++;
     }
+    return { status: 'success', ran };
   }
 
   /**
@@ -981,7 +957,19 @@ export function renderNotebook(
     </div>
   `;
   toolbar.querySelector('[data-nb-action="run-all"]')?.addEventListener('click', () => {
-    void notebook.runAll();
+    void notebook.runAll().then((outcome) => {
+      if (outcome.status !== 'stopped') return;
+      const detail =
+        outcome.outcome.status === 'failure' ? outcome.outcome.error : outcome.outcome.status;
+      globalThis.dispatchEvent(
+        new CustomEvent('naklidata:toast', {
+          detail: {
+            message: `Run all stopped at "${outcome.cellName}": ${detail}.`,
+            kind: 'error',
+          },
+        }),
+      );
+    });
   });
   root.append(toolbar);
 

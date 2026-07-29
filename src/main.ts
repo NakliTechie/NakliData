@@ -108,7 +108,7 @@ import { type AiMergeDecision, openClusterModal } from './ui/cluster-modal.ts';
 // schema-panel open site — keeps the modal off the inlined shell budget.
 import { openDefineTypeModal } from './ui/define-type-modal.ts';
 import { openEmbedModal } from './ui/embed-modal.ts';
-import { buildStandaloneHtml, saveHtmlFile, saveTextFile } from './ui/export-html.ts';
+import { saveHtmlFile, saveTextFile } from './ui/export-html.ts';
 import { maybeOpenWelcomeSplash, openHelpModal } from './ui/help-modal.ts';
 import {
   type LensConfirmCell,
@@ -171,16 +171,10 @@ function detectSupport(): { supported: boolean; reason?: string } {
   if (isSafari) {
     return { supported: false, reason: 'safari' };
   }
-  // SB7: capability probe, not just a UA sniff. An old Chromium or a
-  // capability-stripped/embedded webview passes the UA check but then fails
-  // deep in a mount with a raw error. Feature-detect the load-bearing APIs so
-  // those land on the friendly unsupported page instead. WebAssembly is
-  // required for DuckDB; FSA (showOpenFilePicker) for mounting local data.
-  const w = window as unknown as { showOpenFilePicker?: unknown };
+  // WebAssembly is the load-bearing runtime. Native File System Access is a
+  // separate enhancement: Firefox and capability-stripped Chromium can boot,
+  // mount single files through <input type=file>, and use download fallbacks.
   if (typeof WebAssembly === 'undefined') {
-    return { supported: false, reason: 'capabilities' };
-  }
-  if (typeof w.showOpenFilePicker !== 'function') {
     return { supported: false, reason: 'capabilities' };
   }
   return { supported: true };
@@ -394,7 +388,7 @@ async function boot(): Promise<void> {
   document.addEventListener('keydown', (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && ev.key === 'Enter') {
       ev.preventDefault();
-      void nb.runAll();
+      document.querySelector<HTMLElement>('[data-nb-action="run-all"]')?.click();
     }
   });
 
@@ -457,6 +451,7 @@ async function boot(): Promise<void> {
   //   lens, fall back to the session's IDB snapshot.
   // - Otherwise, restore the active session's snapshot from IDB.
   _activeSession = await ensureActiveSession();
+  _workspaceCreated = _activeSession.created;
   await refreshSessionSwitcher(root);
 
   const lensParam = readLensFromLocation();
@@ -689,6 +684,7 @@ function installUserTypesSync(): void {
 }
 
 let _activeSession: SessionMeta | null = null;
+let _workspaceCreated: string | null = null;
 /** M7: has the current session held content since load? Gates whether an
  *  empty state is persisted (clearing a stale snapshot) vs skipped. */
 let _sessionWasNonEmpty = false;
@@ -985,6 +981,7 @@ async function switchToSession(engine: Engine, root: HTMLElement, id: string): P
   const idx = await loadIndex();
   const meta = idx.sessions.find((s) => s.id === id) ?? null;
   _activeSession = meta;
+  _workspaceCreated = meta?.created ?? null;
   // Drop the outgoing session's DuckDB relations before clearing state, so
   // neither mounted sources nor materialised cell results stay queryable from
   // the incoming session.
@@ -2049,8 +2046,10 @@ function bucketize(sqlType: string): QueryColumnType {
 function fullSerializeInput(engine: Engine, notebookName: string): SerializeInput {
   const wb = getWorkbook().get();
   const nb = getNotebook(engine);
+  const created = _workspaceCreated ?? _activeSession?.created ?? null;
   return {
     notebookName,
+    ...(created ? { created } : {}),
     sources: wb.sources,
     assignments: wb.assignments,
     cells: nb.get().cells,
@@ -2425,6 +2424,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       await dropCurrentWorkspaceArtifacts(engine);
       const meta = await createSession();
       _activeSession = meta;
+      _workspaceCreated = meta.created;
       getWorkbook().clear();
       getNotebook(engine).load([]);
       await refreshSessionSwitcher(root);
@@ -2481,6 +2481,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         if (nextActive) {
           await dropCurrentWorkspaceArtifacts(engine);
           _activeSession = nextActive;
+          _workspaceCreated = nextActive.created;
           getWorkbook().clear();
           getNotebook(engine).load([]);
           await restoreFromActiveSession(engine);
@@ -2667,7 +2668,21 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       try {
         const title = _activeSession?.name?.trim() || 'NakliData notebook';
-        const html = buildStandaloneHtml({ notebookRoot: notebookEl, title, sources: wb.sources });
+        const { buildStandaloneExport } = await loadChunk('static-export');
+        const exported = buildStandaloneExport({
+          notebookRoot: notebookEl,
+          title,
+          sources: wb.sources,
+        });
+        if (
+          exported.manifest.omittedCells > 0 &&
+          !window.confirm(
+            `Static export will represent all ${exported.manifest.totalCells} cells: ${exported.manifest.renderedCells} rendered and ${exported.manifest.omittedCells} as explicit placeholders. Continue?`,
+          )
+        ) {
+          toast('Static export cancelled.');
+          return;
+        }
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const fileName = `${
           title
@@ -2675,7 +2690,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '') || 'notebook'
         }-${stamp}.html`;
-        const written = await saveHtmlFile(html, fileName);
+        const written = await saveHtmlFile(exported.html, fileName);
         if (written) toast(`Exported ${written}.`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -2697,6 +2712,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       }
       try {
         const title = _activeSession?.name?.trim() || 'NakliData notebook';
+        const { buildStandaloneHtml } = await loadChunk('static-export');
         openEmbedModal(
           buildStandaloneHtml({ notebookRoot: notebookEl, title, sources: workbook.get().sources }),
         );
@@ -3364,6 +3380,8 @@ async function doApplyLoadedFile(
   getDimensionsStore().loadFromFile(file.dimensions);
   // Resolve M2 — restore segments (optional; pre-M2 files have no segments).
   getSegmentsStore().loadFromFile(file.segments);
+  // `modified` advances on every save; `created` belongs to this workbook.
+  _workspaceCreated = file.created;
   // M7: record whether the just-restored workspace has content, so a later
   // "delete everything" is persisted as empty (not skipped → resurrected).
   _sessionWasNonEmpty = restoredSources.length > 0 || file.cells.length > 0;

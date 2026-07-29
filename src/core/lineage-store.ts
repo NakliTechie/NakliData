@@ -24,10 +24,8 @@ import type { MountedSource } from './mount.ts';
 export type LineageNodeKind = 'source' | 'cell' | 'sink';
 
 /**
- * Cell kinds a lineage `cell` node can materialise as. Carried on
- * canvas-inserted nodes so a future canvas-to-cell action knows what to
- * create (M6 Phase 2 prep — forward-pass H12). Single source of truth;
- * `lineage-edit.ts` aliases this as `NewCellKind`.
+ * Cell-like labels available to a visual lineage annotation. An inserted
+ * graph node does not materialize a notebook cell.
  */
 export type LineageCellKind = 'sql' | 'chart' | 'pivot' | 'stats' | 'report';
 
@@ -39,8 +37,7 @@ export interface LineageNode {
   label: string;
   /** Optional path/URL/source-of-truth for the node. */
   ref?: string;
-  /** For `cell` nodes inserted via the lineage canvas: which cell kind
-   *  the node should materialise as (M6 Phase 2 prep, forward-pass H12). */
+  /** Visual kind selected for a lineage-only inserted step. */
   cellKind?: LineageCellKind;
 }
 

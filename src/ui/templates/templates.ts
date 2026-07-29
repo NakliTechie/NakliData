@@ -143,21 +143,23 @@ export function findApplicableTemplates(
       const matched: Record<string, ColumnRef | undefined> = {};
       for (const fam of t.requiredRoleFamilies)
         matched[fam] = (familyCols[fam] ?? []).find((r) => r.table === chosenTable);
-      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      bindOptionalTypes(matched, t.optionalTypes ?? [], chosenTable, perType, byType);
       out.push({ template: t, matched });
       continue;
     }
     if (t.requiredTypes.length === 0) {
-      // No required types — pass through with whatever optionals are present.
+      // No required types — choose one table for every optional binding.
       const matched: Record<string, ColumnRef | undefined> = {};
-      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      const selectedTable = pickOptionalTable(t.optionalTypes ?? [], perType);
+      bindOptionalTypes(matched, t.optionalTypes ?? [], selectedTable, perType, byType);
       out.push({ template: t, matched });
       continue;
     }
     const tableMatched = perType ? pickCohesiveTable(t.requiredTypes, perType) : null;
     if (tableMatched) {
       const matched: Record<string, ColumnRef | undefined> = { ...tableMatched };
-      for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+      const selectedTable = Object.values(tableMatched)[0]?.table ?? null;
+      bindOptionalTypes(matched, t.optionalTypes ?? [], selectedTable, perType, byType);
       out.push({ template: t, matched });
       continue;
     }
@@ -165,10 +167,68 @@ export function findApplicableTemplates(
     if (!ok) continue;
     const matched: Record<string, ColumnRef | undefined> = {};
     for (const req of t.requiredTypes) matched[req] = byType[req];
-    for (const opt of t.optionalTypes ?? []) matched[opt] = byType[opt];
+    const requiredTables = new Set(
+      t.requiredTypes.map((req) => matched[req]?.table).filter((table): table is string => !!table),
+    );
+    if (requiredTables.size !== 1) continue;
+    bindOptionalTypes(
+      matched,
+      t.optionalTypes ?? [],
+      requiredTables.values().next().value ?? null,
+      perType,
+      byType,
+    );
     out.push({ template: t, matched });
   }
   return out;
+}
+
+function bindOptionalTypes(
+  matched: Record<string, ColumnRef | undefined>,
+  optionalTypes: string[],
+  selectedTable: string | null,
+  perType: Record<string, Array<{ table: string; column: string; score: number }>> | undefined,
+  byType: Record<string, ColumnRef>,
+): void {
+  for (const typeId of optionalTypes) {
+    const candidates = perType?.[typeId] ?? [];
+    const sameTable = selectedTable
+      ? candidates
+          .filter((candidate) => candidate.table === selectedTable)
+          .sort((a, b) => b.score - a.score)[0]
+      : undefined;
+    const fallback = byType[typeId];
+    matched[typeId] =
+      (sameTable ? { table: sameTable.table, column: sameTable.column } : undefined) ??
+      (fallback && (!selectedTable || fallback.table === selectedTable) ? fallback : undefined);
+  }
+}
+
+function pickOptionalTable(
+  optionalTypes: string[],
+  perType: Record<string, Array<{ table: string; column: string; score: number }>> | undefined,
+): string | null {
+  if (!perType) return null;
+  const scores = new Map<string, { coverage: number; score: number }>();
+  for (const typeId of optionalTypes) {
+    const bestByTable = new Map<string, number>();
+    for (const candidate of perType[typeId] ?? []) {
+      bestByTable.set(
+        candidate.table,
+        Math.max(bestByTable.get(candidate.table) ?? -1, candidate.score),
+      );
+    }
+    for (const [table, score] of bestByTable) {
+      const current = scores.get(table) ?? { coverage: 0, score: 0 };
+      scores.set(table, { coverage: current.coverage + 1, score: current.score + score });
+    }
+  }
+  return (
+    [...scores.entries()].sort(
+      ([tableA, a], [tableB, b]) =>
+        b.coverage - a.coverage || b.score - a.score || tableA.localeCompare(tableB),
+    )[0]?.[0] ?? null
+  );
 }
 
 /** Find the single table that covers all required types with the highest
@@ -177,22 +237,20 @@ function pickCohesiveTable(
   requiredTypes: string[],
   perType: Record<string, Array<{ table: string; column: string; score: number }>>,
 ): Record<string, ColumnRef> | null {
-  const tableScores: Record<string, { total: number; picks: Record<string, ColumnRef> }> = {};
+  const tableScores: Record<
+    string,
+    { total: number; picks: Record<string, ColumnRef>; scores: Record<string, number> }
+  > = {};
   for (const reqType of requiredTypes) {
     const candidates = perType[reqType] ?? [];
     for (const cand of candidates) {
-      const entry = tableScores[cand.table] ?? { total: 0, picks: {} };
-      const existing = entry.picks[reqType];
+      const entry = tableScores[cand.table] ?? { total: 0, picks: {}, scores: {} };
       // Keep the highest-scoring column per (table, reqType).
-      const prev = candidates.find((c) => c.table === cand.table && c.column === existing?.column);
-      const prevScore = prev?.score ?? -1;
+      const prevScore = entry.scores[reqType] ?? -1;
       if (cand.score > prevScore) {
         entry.picks[reqType] = { table: cand.table, column: cand.column };
-        entry.total = Object.values(entry.picks)
-          .map(
-            (p) => candidates.find((c) => c.table === p.table && c.column === p.column)?.score ?? 0,
-          )
-          .reduce((s, n) => s + n, 0);
+        entry.scores[reqType] = cand.score;
+        entry.total += cand.score - Math.max(prevScore, 0);
       }
       tableScores[cand.table] = entry;
     }

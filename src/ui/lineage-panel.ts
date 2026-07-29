@@ -23,10 +23,8 @@ let _modalEl: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 
-// v1.3 M6 Phase 2 — edit-mode state. The panel keeps a working copy of
-// the graph; each canvas op is applied to it AND persisted to the store
-// (loadFromJson), so reopening the panel reflects the edit. The list is
-// the editable surface (accessible truth); the SVG re-renders read-only.
+// Visual-annotation state. These edits affect only the persisted lineage
+// projection; they never create/delete notebook cells, sources, or data.
 let _editMode = false;
 let _workingGraph: LineageGraph = { version: 1, nodes: [], edges: [] };
 let _pendingDeleteNodeId: string | null = null;
@@ -106,9 +104,9 @@ function renderModal(graph: LineageGraph): HTMLElement {
 
 function renderEditToggle(graph: LineageGraph): string {
   if (graph.nodes.length === 0) return '';
-  const label = _editMode ? 'Done' : 'Edit';
+  const label = _editMode ? 'Done' : 'Annotations';
   return `<button class="btn btn-ghost ${_editMode ? 'is-active' : ''}" data-action="toggle-lineage-edit"
-            aria-pressed="${_editMode}" title="Edit the lineage canvas — insert or delete nodes">${label}</button>`;
+            aria-pressed="${_editMode}" title="Add or hide visual annotations; notebook cells and sources are unchanged">${label}</button>`;
 }
 
 // ── Edit-mode plumbing (M6 Phase 2) ──────────────────────────────────
@@ -125,14 +123,12 @@ function rerenderLineageBody(): void {
   if (body) body.innerHTML = renderList(_workingGraph, _editMode) + renderSvg(_workingGraph);
 }
 
-/** Apply a canvas op to the working graph, persist it, re-render. */
+/** Apply and persist a visual-only lineage annotation, then re-render. */
 function applyOpAndRerender(op: CanvasOp): void {
   _workingGraph = applyCanvasOp(_workingGraph, op);
-  // Persist into the store so the edit survives panel close/reopen + is
-  // serialised with the workbook. NOTE: re-running a cell recomputes its
-  // inbound edges from EXPLAIN and will overwrite that cell's edits — the
-  // canvas is a projection (handoff §M6); materialising graph edits back
-  // into notebook cells is the documented follow-up.
+  // This survives close/reopen and is serialized with the workbook, but remains
+  // a graph annotation. Re-running a cell may replace its annotated inbound
+  // edges with observed EXPLAIN lineage.
   getLineageStore().loadFromJson(_workingGraph);
   _workingGraph = getLineageStore().toJSON();
   rerenderLineageBody();
@@ -217,31 +213,31 @@ function renderList(graph: LineageGraph, editMode: boolean): string {
     return graph.nodes.find((n) => n.id === id)?.label ?? id;
   };
 
-  // Edit-mode affordances (M6 Phase 2). Only rendered in edit mode.
+  // Visual-annotation affordances. They mutate only the saved lineage graph.
   const deleteControl = (node: LineageNode): string => {
     if (!editMode) return '';
     if (_pendingDeleteNodeId === node.id) {
       const deps = getDependentsOfNode(graph, node.id);
       const depNote = deps.length
-        ? ` Also orphans ${deps.length} downstream node${deps.length === 1 ? '' : 's'}: ${deps
+        ? ` This also removes the visible path to ${deps.length} downstream node${deps.length === 1 ? '' : 's'}: ${deps
             .map((d) => escapeHtml(nodeLabel(d)))
             .join(', ')}.`
         : '';
-      return `<span class="lineage-del-confirm" role="alertdialog" aria-label="Confirm delete">
-        <span class="lineage-del-msg">Delete “${escapeHtml(node.label)}”?${depNote}</span>
-        <button class="btn btn-ghost lineage-del-go" data-confirm-del="${escapeAttr(node.id)}">Delete</button>
+      return `<span class="lineage-del-confirm" role="alertdialog" aria-label="Confirm hide from lineage view">
+        <span class="lineage-del-msg">Hide “${escapeHtml(node.label)}” from this lineage view? This does not delete a source or notebook cell.${depNote}</span>
+        <button class="btn btn-ghost lineage-del-go" data-confirm-del="${escapeAttr(node.id)}">Hide</button>
         <button class="btn btn-ghost" data-cancel-del="1">Cancel</button>
       </span>`;
     }
-    return `<button class="btn btn-ghost lineage-del-btn" data-del-node="${escapeAttr(node.id)}" title="Delete node" aria-label="Delete ${escapeHtml(node.label)}">${iconSvg('trash', 11)}</button>`;
+    return `<button class="btn btn-ghost lineage-del-btn" data-del-node="${escapeAttr(node.id)}" title="Hide from lineage view" aria-label="Hide ${escapeHtml(node.label)} from lineage view">${iconSvg('trash', 11)}</button>`;
   };
 
   const insertControl = (from: string, to: string): string => {
     if (!editMode) return '';
     const opts = INSERT_KINDS.map((k) => `<option value="${k}">${k}</option>`).join('');
     return `<span class="lineage-insert">
-      <select class="lineage-insert-kind" aria-label="Cell kind to insert">${opts}</select>
-      <button class="btn btn-ghost lineage-insert-go" data-insert-from="${escapeAttr(from)}" data-insert-to="${escapeAttr(to)}" title="Insert a cell on this edge">+ insert</button>
+      <select class="lineage-insert-kind" aria-label="Visual annotation kind">${opts}</select>
+      <button class="btn btn-ghost lineage-insert-go" data-insert-from="${escapeAttr(from)}" data-insert-to="${escapeAttr(to)}" title="Add a visual-only step on this edge">+ visual step</button>
     </span>`;
   };
 
@@ -315,7 +311,7 @@ function renderList(graph: LineageGraph, editMode: boolean): string {
     .join('');
 
   const editHint = editMode
-    ? `<p class="lineage-edit-hint" role="note">Editing the canvas — insert a cell on an edge or delete a node. Re-running a cell re-derives its inbound edges.</p>`
+    ? `<p class="lineage-edit-hint" role="note">Visual annotations only — these controls do not create or delete notebook cells, sources, or data. Re-running a cell may replace its annotated inbound edges with observed lineage.</p>`
     : '';
 
   return `

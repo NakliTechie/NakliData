@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { installFsaMocks } from './fixtures/fsa-mocks.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -15,7 +16,8 @@ test.describe('Observable Plot chart types (Theme 2 wave 1)', () => {
     browser,
   }) => {
     const server = await startStaticServer();
-    const context = await browser.newContext();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    await context.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
     const page = await context.newPage();
 
     // Capture chunk-load requests so we can assert the lazy chunk fires.
@@ -143,6 +145,7 @@ test.describe('Observable Plot chart types (Theme 2 wave 1)', () => {
   }) => {
     const server = await startStaticServer();
     const context = await browser.newContext();
+    await context.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
     const page = await context.newPage();
 
     await page.goto(`${server.url}/index.html?offline=1`);
@@ -195,6 +198,77 @@ test.describe('Observable Plot chart types (Theme 2 wave 1)', () => {
     // acceptable; the contract is "no uncaught error."
     await page.waitForTimeout(2_000);
     expect(pageErrors).toEqual([]);
+
+    await context.close();
+    await server.close();
+  });
+
+  test('a failed Plot chunk exposes an actionable retry that renders after recovery', async ({
+    browser,
+  }) => {
+    const server = await startStaticServer();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    await context.addInitScript(() => localStorage.setItem('naklidata.welcomed', '1'));
+    const page = await context.newPage();
+    const fsa = await installFsaMocks(page);
+    let failNextChunk = true;
+
+    await page.goto(`${server.url}/index.html?offline=1`);
+    await waitForEngineReady(page);
+    await fsa.stageOpenFile(
+      'retry-chart.csv',
+      'category,amount\nalpha,10\nbeta,20\ngamma,15\n',
+      'text/csv',
+    );
+    await page.click('.empty-state [data-action="mount-file"]');
+    await page.waitForSelector('.cell[data-cell-kind="sql"]');
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      const cell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
+      const code = 'SELECT * FROM retry_chart';
+      const textarea = cell?.querySelector<HTMLTextAreaElement>('textarea');
+      const editor = cell?.querySelector<HTMLElement>('.cm-content');
+      if (textarea) {
+        textarea.value = code;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (editor) {
+        editor.textContent = code;
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    await page.waitForTimeout(300);
+    await page.click('.cell[data-cell-kind="sql"] [data-action="cell-run"]');
+    await page.waitForSelector('.cell[data-cell-kind="sql"] .result-table', {
+      timeout: 15_000,
+    });
+    const sqlId = await page.locator('.cell[data-cell-kind="sql"]').getAttribute('data-cell-id');
+    if (!sqlId) throw new Error('seed SQL cell has no id');
+    await page.click('[data-nb-action="add-chart"]');
+    const chart = page.locator('.cell[data-cell-kind="chart"]').last();
+    await chart.locator('[data-action="chart-input"]').selectOption(sqlId);
+    await chart.locator('[data-action="chart-x"]').selectOption('category');
+    await chart.locator('[data-action="chart-y"]').selectOption('amount');
+    await expect(chart.locator('[data-region="chart-canvas"] svg')).toBeVisible();
+
+    await page.route('**/chunks/observable-plot.js*', async (route) => {
+      if (failNextChunk) {
+        failNextChunk = false;
+        await route.fulfill({
+          status: 503,
+          contentType: 'text/javascript',
+          body: 'temporary chart chunk failure',
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    await chart.locator('select[data-action="chart-type"]').selectOption('stacked-bar');
+    const retry = chart.locator('button[data-action="retry-plot"]');
+    await expect(retry).toBeVisible();
+    await retry.click();
+    await expect(chart.locator('[data-region="chart-canvas"] svg').last()).toBeVisible({
+      timeout: 15_000,
+    });
 
     await context.close();
     await server.close();
