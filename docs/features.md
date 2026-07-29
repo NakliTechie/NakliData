@@ -56,7 +56,9 @@ An ordered list of cells. Reference other cells by `@cellName`.
 - **Chart cell** — eleven types: bar, line, area, scatter, histogram, stat,
   table, pie, plus stacked-bar / area-stacked / heatmap. A `facet-by` picker draws
   small-multiples. A **Manual | Shelves** toggle adds VizQL-style drag authoring
-  (Columns / Rows / Color drop-zones compile to the same chart config).
+  (Columns / Rows / Color drop-zones compile to the same chart config). Its
+  screen-reader mirror is capped to a representative 100-row sample and
+  announces the sample and total; signed bars share a visible zero baseline.
 - **Stats cell** — descriptive statistics + a correlation matrix over an upstream
   cell's numeric columns, all in DuckDB SQL.
 - **Report cell** — a paginated surface (KPI tiles + embedded cells); print to PDF
@@ -87,8 +89,10 @@ An ordered list of cells. Reference other cells by `@cellName`.
 
 Every SQL result carries one-click actions:
 
-- **Save HTML** — export the notebook as a self-contained `.html` (markdown +
-  chart SVGs + tables, no JS, no engine). Email it, drop it in a doc.
+- **Save HTML** — export the notebook as a self-contained `.html` (no JS, no
+  engine). Every current cell is rendered or represented by an explicit
+  placeholder; omission counts appear before save and a visible per-cell
+  manifest travels with the artifact.
 - **Embed** — wrap that export in a sandboxed `<iframe srcdoc>` snippet for a
   wiki / intranet (read-only, server-free, offline).
 - **Export anonymized** — a per-column dialog (keep / hash / redact / bucket /
@@ -120,7 +124,9 @@ Every SQL result carries one-click actions:
   background polling.
 - **Cell lineage** — a panel answering "where does this number come from?", built
   by walking the DuckDB `EXPLAIN (FORMAT JSON)` plan (CTEs shadow tables correctly).
-  List view + a hand-rolled SVG (sources / cells / sinks); persists into `.naklidata`.
+  List view + a hand-rolled SVG (sources / cells / sinks); persists into
+  `.naklidata`. “Annotations” can add a visual step or hide a node from the
+  view, but never create/delete notebook cells, sources, or data.
 - **Semantic layer** — named, versioned **measures** (`MEASURE(revenue)`),
   **dimensions** (`DIM(gstin_state)`), and **segments** (`SEGMENT(name)` WHERE
   predicates). All macro-expand in one audited pass; a "View as code" toggle shows

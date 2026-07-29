@@ -92,8 +92,9 @@ with `npm run gen-examples`.
 - **Data quality** — suggest completeness, uniqueness, accepted-value, range,
   format, referential, and semantic-drift checks from classified fields. Add
   them as editable, un-run assertions and save a portable explicit-run contract.
-- **Sinks** — save/embed self-contained HTML, anonymized export, golden table,
-  visual query builder, calc fields, cell lineage, and a semantic layer
+- **Sinks** — save/embed self-contained HTML with a per-cell rendered/placeholder
+  manifest, anonymized export, golden table, visual query builder, calc fields,
+  observed lineage plus clearly visual-only annotations, and a semantic layer
   (`MEASURE` / `DIM` / `SEGMENT`). Export a portable multi-table semantic-model
   JSON contract or loss-aware Databricks Metric View / Snowflake Semantic View
   YAML; vendor saving stays disabled until physical bindings are complete.

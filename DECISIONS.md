@@ -2,6 +2,64 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 5C: truthful notebook, charts, exports, and lineage (EY)
+
+### Decision EY-1 — notebook actions stop on named failure and introspection results do not masquerade as relations
+
+- **Context.** Batch execution discarded per-cell outcomes, direct
+  introspection statements could appear referenceable even though no
+  `cell_<id>` view existed, report binding could mix optional columns across
+  tables, and native File System Access was incorrectly part of the browser
+  boot floor.
+- **Decision.** Return a discriminated batch outcome from run-all and
+  dependency-ordered runs, stop on the first non-success, and surface the
+  failed cell name. Treat SHOW, DESCRIBE/DESC, PRAGMA, EXPLAIN, and SUMMARIZE as
+  direct result statements and reject downstream `@cell` references with an
+  explicit non-referenceable message. Score required report types per
+  `(table,type)` and bind optionals only from the selected table. Require
+  WebAssembly for core boot; capability-gate native pickers independently and
+  retain input/download fallbacks.
+- **Consequence.** A downstream action cannot report success over a failed
+  prerequisite or silently reference a result that was never materialized.
+  Firefox/capability-stripped Chromium can use the documented fallback path
+  without weakening Safari's unsupported boundary.
+
+### Decision EY-2 — accessibility, asynchronous ownership, and signed geometry are bounded contracts
+
+- **Context.** Hidden chart tables duplicated unbounded results; a rejected
+  Observable Plot import had no recovery path; a late async renderer could
+  attach after its cell was replaced; and horizontal bars treated zero as the
+  left edge, making negative values geometrically false.
+- **Decision.** Mirror at most 100 evenly sampled rows spanning the full result
+  and announce sample and total counts. Verify mount connection, parent
+  ownership, and cell identity before Plot attaches. Render an actionable retry
+  and cache-bust subsequent dynamic imports after failure. Compute one domain
+  containing zero, draw a shared baseline, and place negative/positive bars on
+  opposite sides.
+- **Consequence.** Screen-reader work stays bounded, transient chunk failures
+  recover in-session, stale work cannot corrupt a new render, and signed values
+  retain their visual meaning. Pure geometry and ownership tests cover mixed,
+  all-negative, detached, and wrong-cell cases.
+
+### Decision EY-3 — static exports enumerate omissions; lineage mutations are annotations only
+
+- **Context.** Static HTML silently dropped several shipped cell kinds, offered
+  no pre-save omission count or artifact inventory, reset `created` on every
+  save, and described graph-only lineage mutations as executable cell edits.
+- **Decision.** Build static export in a lazy chunk and represent every
+  top-level cell as rendered content or an explicit placeholder. Preview
+  placeholder counts before writing and embed a visible per-cell manifest.
+  Carry the workbook's original creation time through session/file lifecycle
+  while regenerating only `modified`. Label lineage controls “Annotations,”
+  “+ visual step,” and “Hide from lineage view,” with an explicit notice that
+  they do not create or delete notebook cells, sources, or data.
+- **Consequence.** Recipients can audit what the artifact contains and what it
+  cannot reproduce; workbook history is stable; the lineage surface no longer
+  claims workflow mutation it does not perform. Gate: **1,525 vitest**,
+  focused production browser **8/8**, **SMOKE PASSED**, bundle
+  **781,983 / 786,432 bytes** (4,449 bytes headroom); final static check follows
+  the documentation update.
+
 ## 2026-07-29 — Goal Phase 5B: deterministic data-quality contracts (EX)
 
 ### Decision EX-1 — tagged assertion cells are the durable quality-check representation

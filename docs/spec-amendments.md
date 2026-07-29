@@ -1930,6 +1930,48 @@ classification, evidence, override, and assertion execution.
 
 ---
 
+## A45 — Truthful notebook outcomes, bounded charts, complete static exports, and visual-only lineage annotations (amends spec §§1.3, 3.5, 3.9)
+
+**Original behavior:** batch notebook actions did not expose the first failed
+cell; direct introspection results appeared referenceable without a relation;
+native File System Access was part of the boot floor; chart mirrors and async
+loads were unbounded or unrecoverable; static HTML omitted shipped cell kinds;
+and lineage graph edits looked like executable notebook edits.
+
+**Amended behavior:** run-all and dependency-ordered execution return
+discriminated success/stopped outcomes and name the first non-successful cell.
+SHOW, DESCRIBE/DESC, PRAGMA, EXPLAIN, and SUMMARIZE execute directly and are
+explicitly non-referenceable. Report suggestions score required types per
+`(table,type)` and bind optional fields only from the selected table.
+WebAssembly is the core boot capability; native pickers are enhancements with
+file-input/download fallbacks.
+
+Chart accessibility mirrors contain at most 100 evenly sampled rows and
+announce sample plus total counts. Observable Plot imports verify live cell
+ownership before attaching, expose retry after failure, and retry with a fresh
+module URL. Horizontal bars use a zero-inclusive domain so negative values
+extend left of a visible baseline.
+
+Static export is on demand and represents every top-level cell as rendered
+content or an explicit placeholder. Before writing, the user sees placeholder
+counts; the artifact contains a visible per-cell manifest. Workbook `created`
+survives load/save while `modified` advances. Lineage mutations are labelled
+visual annotations and disclose that they do not create/delete notebook cells,
+sources, or data.
+
+**Reasoning:** user-visible success, referenceability, visual meaning, and
+export completeness are trust contracts. A local workbench must surface
+non-reproducible content and capability limits rather than let silent omission
+or UI wording imply stronger behavior.
+
+**Status:** adopted 2026-07-29. DECISIONS EY. Unit tests cover outcomes, direct
+statement references, table binding, accessible sampling, async ownership,
+signed bar geometry, persistence timestamps, and lineage projection. Focused
+production-browser suites cover file-input fallback, all-cell export manifests,
+and Plot retry; the full smoke verifies lineage annotation disclosure.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.
