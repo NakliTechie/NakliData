@@ -81,9 +81,10 @@ Every SQL result carries one-click actions:
 - **Embed** — wrap that export in a sandboxed `<iframe srcdoc>` snippet for a
   wiki / intranet (read-only, server-free, offline).
 - **Export anonymized** — a per-column dialog (keep / hash / redact / bucket /
-  drop) with defaults driven by the column's sensitivity badge; applied via a
-  DuckDB SQL projection rewrite. Per-export salt, shown once, never persisted;
-  a JSON manifest records the strategy map + taxonomy version.
+  drop) with defaults driven by proven source-column sensitivity; unproven,
+  unknown, and unclassified columns redact by default. Applied via a DuckDB SQL
+  projection rewrite. Per-export salt, shown once, never persisted; a required
+  JSON manifest records the strategy map, provenance, and taxonomy version.
 - **Export golden table** (Resolve *own*) — collapse a result to one row per
   canonical entity with a per-column survivorship rule (keep-first / max / min /
   latest), written to a folder as CSV or Parquet.

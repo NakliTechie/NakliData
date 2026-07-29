@@ -2,6 +2,66 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 1B: fail-closed result exports (EO)
+
+### Decision EO-1 — direct projection is the first result-provenance contract
+
+- **Context.** Sink assignments were reconstructed by putting every workbook
+  assignment in a global map keyed only by column name. Duplicate names across
+  tables, aliases, expressions, joins, and restored results could therefore
+  inherit an unrelated semantic type.
+- **Decision.** Reuse the agent boundary's strict direct-projection proof on the
+  exact macro/reference-rewritten SQL that materializes a result. Persist that
+  proof only in session-local result metadata/snapshots. Resolve a column only
+  when its relation has one mounted owner and its source assignment is unique;
+  all other shapes are explicitly unproven.
+- **Consequence.** Direct single-table projections retain useful semantic
+  gating. Aliases, expressions, joins, CTEs, legacy snapshots, ambiguous
+  ownership, and missing assignments cannot borrow a same-named type and fail
+  closed until richer column lineage exists.
+
+### Decision EO-2 — unknown and custom export sensitivity is never public by omission
+
+- **Context.** An anonymized column with no bundled crosswalk entry defaulted
+  to `keep`; user types had no sensitivity field and a colliding user id could
+  replace a bundled detector.
+- **Decision.** Default null/unknown/unclassified/unproven sensitivity to
+  `redact`. Add an explicit sensitivity tier to user types, normalize legacy
+  omission to `secret`, reserve bundled ids in the authoring UI and classifier
+  merge, and resolve bundled sensitivity before custom sensitivity.
+- **Consequence.** A missing label can reduce utility but cannot silently
+  produce a plaintext “anonymized” export. Imported custom ids cannot weaken a
+  canonical type's governance tier.
+
+### Decision EO-3 — one CSV policy spans every writer and manifest cancellation writes nothing
+
+- **Context.** Small CSVs used a JS formula guard, while large, anonymized, and
+  golden CSVs used raw DuckDB `COPY`. The same value could be neutralized at
+  5,000 rows and executable at 5,001. The anonymized data file was written
+  before the manifest picker, so cancellation silently produced an incomplete
+  artifact.
+- **Decision.** Apply one header/text-field neutralization policy to the JS
+  encoder and every CSV `COPY` projection; preserve non-text negative values.
+  Select both anonymized destinations before producing or writing either file.
+  Report a later manifest-write failure as a partial export with retry
+  guidance, and clean every DuckDB temp file in `finally`.
+- **Consequence.** Formula safety is invariant across standard, anonymized, and
+  golden CSVs and across the 5,000/5,001 boundary. A user-cancelled manifest
+  leaves no data-only export; unavoidable non-transactional filesystem
+  failures are explicit rather than silent.
+
+### Decision EO-4 — sink execution is lazy and receives live state by injection
+
+- **Context.** The safety additions reduced shell headroom to about 1.3 KiB,
+  while standalone lazy chunks cannot safely import stateful workbook or
+  taxonomy singletons because they would bundle divergent copies.
+- **Decision.** Keep only sink metadata and gating in the shell. Load execution,
+  modals, encoders, and mappers from `sink-execution` on first use; inject the
+  live engine, provenance, user types, and taxonomy bundle from the shell.
+- **Consequence.** Production smoke verifies the lazy golden path. The shell is
+  762,348 bytes (23.5 KiB under the cap) and later goal batches retain room
+  without duplicating live stores.
+
 ## 2026-07-29 — Goal Phase 1A: explicit artifact ownership (EN)
 
 ### Decision EN-1 — use explicit mount and VFS registries without hiding table names
