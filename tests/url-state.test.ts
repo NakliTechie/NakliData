@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { _primeChunkForTests } from '../src/core/lazy-loader.ts';
 import type { NakliDataFile } from '../src/core/persistence.ts';
 import { decodeLensParam, encodeLensParam } from '../src/core/url-state.ts';
+import * as persistenceValidator from '../src/lazy/persistence-validation.ts';
+
+_primeChunkForTests('persistence-validation', persistenceValidator);
 
 const SAMPLE: NakliDataFile = {
   format: 'naklidata',

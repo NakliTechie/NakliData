@@ -462,6 +462,8 @@ describe('persistence round-trip — mixed notebook', () => {
 });
 
 describe('persistence — parse error paths', () => {
+  const validFile = () => serialize({ ...baseInput, cells: [] });
+
   it('rejects a non-naklidata file', () => {
     expect(() => parse(JSON.stringify({ format: 'something-else' }))).toThrow(/Not a \.naklidata/);
   });
@@ -485,5 +487,104 @@ describe('persistence — parse error paths', () => {
     expect(() => parse(JSON.stringify({ format: 'naklidata', version: 'latest' }))).toThrow(
       /Invalid version/,
     );
+  });
+
+  it('normalizes omitted backward-compatible arrays, settings, and cell runtime fields', () => {
+    const {
+      assignments: _assignments,
+      settings: _settings,
+      ...file
+    } = validFile() as unknown as Record<string, unknown>;
+    file.cells = [
+      {
+        id: 'minimal',
+        kind: 'sql',
+        name: null,
+        code: 'SELECT 1',
+        lastResult: {
+          columns: ['secret'],
+          rows: [{ secret: 'must not survive' }],
+          rowCount: 1,
+          elapsedMs: 1,
+        },
+      },
+    ];
+    const restored = parse(JSON.stringify(file));
+    expect(restored.assignments).toEqual([]);
+    expect(restored.settings).toEqual({ auto_accept_threshold: 0.9 });
+    expect(restored.cells[0]).toMatchObject({
+      id: 'minimal',
+      order: 0,
+      status: 'idle',
+      lastError: null,
+      lastResult: null,
+    });
+  });
+
+  it('rejects malformed assignments and settings before they can reach apply', () => {
+    expect(() =>
+      parse(JSON.stringify({ ...validFile(), assignments: { key: 'not-an-array' } })),
+    ).toThrow(/assignments must be an array/i);
+    expect(() =>
+      parse(JSON.stringify({ ...validFile(), settings: { auto_accept_threshold: 'high' } })),
+    ).toThrow(/auto_accept_threshold must be a finite number/i);
+    expect(() =>
+      parse(JSON.stringify({ ...validFile(), settings: { auto_accept_threshold: 4 } })),
+    ).toThrow(/between 0 and 1/i);
+  });
+
+  it('rejects malformed discriminated cell shapes and unknown kinds', () => {
+    const cases = [
+      { id: 'c1', kind: 'sql', order: 0, name: null, code: 42 },
+      { id: 'c1', kind: 'dashboard', order: 0, name: null, columns: 2, items: {} },
+      {
+        id: 'c1',
+        kind: 'network',
+        order: 0,
+        name: null,
+        inputCell: null,
+        sourceCol: null,
+        targetCol: null,
+        nodeMetric: 'unsafe',
+      },
+      { id: 'c1', kind: 'made-up', order: 0, name: null },
+    ];
+    for (const cell of cases) {
+      expect(() => parse(JSON.stringify({ ...validFile(), cells: [cell] }))).toThrow(
+        /Malformed \.naklidata/,
+      );
+    }
+  });
+
+  it('rejects duplicate source, table, assignment, and cell ownership ids', () => {
+    const cell = {
+      id: 'same',
+      kind: 'markdown',
+      order: 0,
+      name: null,
+      code: 'one',
+    };
+    expect(() =>
+      parse(JSON.stringify({ ...validFile(), cells: [cell, { ...cell, code: 'two' }] })),
+    ).toThrow(/duplicate cell id/i);
+
+    const assignment = {
+      key: 'src::table::col',
+      columnName: 'col',
+      sqlType: 'VARCHAR',
+      typeId: null,
+      origin: 'unknown',
+      confidence: 0,
+      candidates: [],
+      resolutionKind: 'unknown',
+    };
+    expect(() =>
+      parse(
+        JSON.stringify({
+          ...validFile(),
+          assignments: [assignment, { ...assignment }],
+        }),
+      ),
+    ).toThrow(/duplicate assignment key/i);
   });
 });

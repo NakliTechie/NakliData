@@ -13,7 +13,8 @@ import type { CellState } from '../ui/cells/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { AssociationsFile } from './associations.ts';
 import type { DimensionsFile } from './dimensions.ts';
-import type { LineageGraph } from './lineage-store.ts';
+import { loadChunk } from './lazy-loader.ts';
+import { type LineageGraph, lineageGraphFromJson } from './lineage-store.ts';
 import type { MeasuresFile } from './measures-store.ts';
 import type { MountedSource } from './mount.ts';
 import type { SegmentsFile } from './segments.ts';
@@ -306,9 +307,524 @@ function cellWithoutResults(c: CellState): CellState {
 }
 
 export function parse(text: string): NakliDataFile {
-  const obj = JSON.parse(text) as Partial<NakliDataFile>;
+  return validateNakliDataFile(JSON.parse(text));
+}
+
+type JsonObject = Record<string, unknown>;
+
+function objectValue(value: unknown, path: string): JsonObject {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`Malformed .naklidata: ${path} must be an object.`);
+  }
+  return value as JsonObject;
+}
+
+function arrayValue(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Malformed .naklidata: ${path} must be an array.`);
+  }
+  return value;
+}
+
+function stringValue(value: unknown, path: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed .naklidata: ${path} must be a string.`);
+  }
+  return value;
+}
+
+function finiteNumber(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed .naklidata: ${path} must be a finite number.`);
+  }
+  return value;
+}
+
+function nullableString(value: unknown, path: string): string | null {
+  if (value === undefined || value === null) return null;
+  return stringValue(value, path);
+}
+
+function stringArray(value: unknown, path: string): string[] {
+  return arrayValue(value, path).map((item, index) => stringValue(item, `${path}[${index}]`));
+}
+
+function oneOf<T extends string>(value: unknown, allowed: ReadonlyArray<T>, path: string): T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new Error(`Malformed .naklidata: ${path} has an unsupported value.`);
+  }
+  return value as T;
+}
+
+const SOURCE_KINDS = [
+  'example-bundle',
+  'fsa-folder',
+  'fsa-file',
+  'http',
+  's3-endpoint',
+  'iceberg-table',
+  'iceberg-catalog',
+  'compute-bridge',
+  'compute-bridge-catalog',
+] as const;
+
+const FILE_FORMATS = [
+  'csv',
+  'tsv',
+  'jsonl',
+  'parquet',
+  'sqlite',
+  'duckdb',
+  'xlsx',
+  'arrow',
+  'sav',
+  'dta',
+  'sas7bdat',
+  'xpt',
+  'geojson',
+  'kml',
+] as const;
+
+function validateSource(value: unknown, index: number): PersistedSource {
+  const path = `sources[${index}]`;
+  const source = objectValue(value, path);
+  const tables = arrayValue(source.tables, `${path}.tables`).map((item, tableIndex) => {
+    const tablePath = `${path}.tables[${tableIndex}]`;
+    const table = objectValue(item, tablePath);
+    return {
+      id: stringValue(table.id, `${tablePath}.id`),
+      name: stringValue(table.name, `${tablePath}.name`),
+      format: oneOf(table.format, FILE_FORMATS, `${tablePath}.format`),
+      origin: stringValue(table.origin, `${tablePath}.origin`),
+      rowCount: finiteNumber(table.rowCount, `${tablePath}.rowCount`),
+    };
+  });
+  const out: PersistedSource = {
+    id: stringValue(source.id, `${path}.id`),
+    kind: oneOf(source.kind, SOURCE_KINDS, `${path}.kind`),
+    label: stringValue(source.label, `${path}.label`),
+    ref: nullableString(source.ref, `${path}.ref`),
+    tables,
+  };
+  if (source.s3 !== undefined) {
+    const s3 = objectValue(source.s3, `${path}.s3`);
+    out.s3 = {
+      endpoint: stringValue(s3.endpoint, `${path}.s3.endpoint`),
+      region: stringValue(s3.region, `${path}.s3.region`),
+      bucket: stringValue(s3.bucket, `${path}.s3.bucket`),
+      path_prefix: stringValue(s3.path_prefix, `${path}.s3.path_prefix`),
+      url_style: oneOf(s3.url_style, ['vhost', 'path'], `${path}.s3.url_style`),
+    };
+  }
+  if (source.iceberg !== undefined) {
+    const iceberg = objectValue(source.iceberg, `${path}.iceberg`);
+    if (typeof iceberg.requires_bearer !== 'boolean') {
+      throw new Error(`Malformed .naklidata: ${path}.iceberg.requires_bearer must be boolean.`);
+    }
+    out.iceberg = {
+      metadata_url: stringValue(iceberg.metadata_url, `${path}.iceberg.metadata_url`),
+      requires_bearer: iceberg.requires_bearer,
+    };
+  }
+  if (source.iceberg_catalog !== undefined) {
+    const catalog = objectValue(source.iceberg_catalog, `${path}.iceberg_catalog`);
+    if (typeof catalog.requires_bearer !== 'boolean') {
+      throw new Error(
+        `Malformed .naklidata: ${path}.iceberg_catalog.requires_bearer must be boolean.`,
+      );
+    }
+    out.iceberg_catalog = {
+      catalog_url: stringValue(catalog.catalog_url, `${path}.iceberg_catalog.catalog_url`),
+      namespace: stringValue(catalog.namespace, `${path}.iceberg_catalog.namespace`),
+      table: stringValue(catalog.table, `${path}.iceberg_catalog.table`),
+      requires_bearer: catalog.requires_bearer,
+    };
+  }
+  if (source.bridge !== undefined) {
+    const bridge = objectValue(source.bridge, `${path}.bridge`);
+    if (typeof bridge.requires_bearer !== 'boolean') {
+      throw new Error(`Malformed .naklidata: ${path}.bridge.requires_bearer must be boolean.`);
+    }
+    out.bridge = {
+      bridge_url: stringValue(bridge.bridge_url, `${path}.bridge.bridge_url`),
+      sql: stringValue(bridge.sql, `${path}.bridge.sql`),
+      table_name: stringValue(bridge.table_name, `${path}.bridge.table_name`),
+      requires_bearer: bridge.requires_bearer,
+    };
+  }
+  if (source.bridge_catalog !== undefined) {
+    const catalog = objectValue(source.bridge_catalog, `${path}.bridge_catalog`);
+    if (typeof catalog.requires_bearer !== 'boolean') {
+      throw new Error(
+        `Malformed .naklidata: ${path}.bridge_catalog.requires_bearer must be boolean.`,
+      );
+    }
+    out.bridge_catalog = {
+      bridge_url: stringValue(catalog.bridge_url, `${path}.bridge_catalog.bridge_url`),
+      tables: arrayValue(catalog.tables, `${path}.bridge_catalog.tables`).map(
+        (item, tableIndex) => {
+          const tablePath = `${path}.bridge_catalog.tables[${tableIndex}]`;
+          const table = objectValue(item, tablePath);
+          return {
+            name: stringValue(table.name, `${tablePath}.name`),
+            local_name: stringValue(table.local_name, `${tablePath}.local_name`),
+            row_cap: finiteNumber(table.row_cap, `${tablePath}.row_cap`),
+          };
+        },
+      ),
+      requires_bearer: catalog.requires_bearer,
+    };
+  }
+  return out;
+}
+
+function validateAssignment(value: unknown, index: number): PersistedAssignment {
+  const path = `assignments[${index}]`;
+  const assignment = objectValue(value, path);
+  const typeId = nullableString(assignment.typeId, `${path}.typeId`);
+  const origin = oneOf(
+    assignment.origin ?? (typeId ? 'detector' : 'unknown'),
+    ['detector', 'user_accept', 'user_override', 'unknown'],
+    `${path}.origin`,
+  );
+  const candidates = arrayValue(assignment.candidates ?? [], `${path}.candidates`).map(
+    (value, candidateIndex) => {
+      const candidatePath = `${path}.candidates[${candidateIndex}]`;
+      const candidate = objectValue(value, candidatePath);
+      return {
+        typeId: stringValue(candidate.typeId, `${candidatePath}.typeId`),
+        displayName: stringValue(candidate.displayName, `${candidatePath}.displayName`),
+        confidence: finiteNumber(candidate.confidence, `${candidatePath}.confidence`),
+        evidence: stringArray(candidate.evidence, `${candidatePath}.evidence`),
+      };
+    },
+  );
+  return {
+    key: stringValue(assignment.key, `${path}.key`),
+    columnName: stringValue(assignment.columnName, `${path}.columnName`),
+    sqlType: stringValue(assignment.sqlType, `${path}.sqlType`),
+    typeId,
+    origin,
+    confidence: finiteNumber(assignment.confidence ?? 0, `${path}.confidence`),
+    candidates,
+    resolutionKind: oneOf(
+      assignment.resolutionKind ?? (typeId ? 'auto_accept' : 'unknown'),
+      ['auto_accept', 'ambiguous', 'unknown'],
+      `${path}.resolutionKind`,
+    ),
+  };
+}
+
+function validateSelection(value: unknown, path: string): unknown {
+  if (value === undefined || value === null) return null;
+  const selection = objectValue(value, path);
+  const kind = oneOf(selection.kind, ['timeRange', 'numRange', 'valueSet'], `${path}.kind`);
+  const col = stringValue(selection.col, `${path}.col`);
+  if (kind === 'valueSet') {
+    return { kind, col, values: stringArray(selection.values, `${path}.values`) };
+  }
+  return {
+    kind,
+    col,
+    lo: finiteNumber(selection.lo, `${path}.lo`),
+    hi: finiteNumber(selection.hi, `${path}.hi`),
+  };
+}
+
+function validateReportDefinition(value: unknown, path: string): unknown {
+  const definition = objectValue(value, path);
+  const margins = objectValue(definition.margins, `${path}.margins`);
+  const items = arrayValue(definition.items, `${path}.items`).map((value, index) => {
+    const itemPath = `${path}.items[${index}]`;
+    const item = objectValue(value, itemPath);
+    const kind = oneOf(
+      item.kind,
+      ['kpi-row', 'cell-ref', 'page-break', 'spacer'],
+      `${itemPath}.kind`,
+    );
+    if (kind === 'cell-ref') {
+      return { kind, cellName: stringValue(item.cellName, `${itemPath}.cellName`) };
+    }
+    if (kind === 'spacer') {
+      return { kind, height: finiteNumber(item.height, `${itemPath}.height`) };
+    }
+    if (kind === 'page-break') return { kind };
+    return {
+      kind,
+      tiles: arrayValue(item.tiles, `${itemPath}.tiles`).map((value, tileIndex) => {
+        const tilePath = `${itemPath}.tiles[${tileIndex}]`;
+        const tile = objectValue(value, tilePath);
+        return {
+          measure: stringValue(tile.measure, `${tilePath}.measure`),
+          label: stringValue(tile.label, `${tilePath}.label`),
+          ...(tile.value === undefined
+            ? {}
+            : { value: stringValue(tile.value, `${tilePath}.value`) }),
+        };
+      }),
+      ...(item.sourceCell === undefined
+        ? {}
+        : { sourceCell: stringValue(item.sourceCell, `${itemPath}.sourceCell`) }),
+      ...(item.valueColumn === undefined
+        ? {}
+        : { valueColumn: stringValue(item.valueColumn, `${itemPath}.valueColumn`) }),
+    };
+  });
+  return {
+    title: stringValue(definition.title, `${path}.title`),
+    pageSize: oneOf(definition.pageSize, ['A4', 'Letter'], `${path}.pageSize`),
+    margins: {
+      top: finiteNumber(margins.top, `${path}.margins.top`),
+      right: finiteNumber(margins.right, `${path}.margins.right`),
+      bottom: finiteNumber(margins.bottom, `${path}.margins.bottom`),
+      left: finiteNumber(margins.left, `${path}.margins.left`),
+    },
+    ...(definition.subtitle === undefined
+      ? {}
+      : { subtitle: stringValue(definition.subtitle, `${path}.subtitle`) }),
+    items,
+  };
+}
+
+function validateCell(value: unknown, index: number): PersistedCell {
+  const path = `cells[${index}]`;
+  const cell = objectValue(value, path);
+  const id = stringValue(cell.id, `${path}.id`);
+  const kind = stringValue(cell.kind, `${path}.kind`) as CellState['kind'];
+  const order = cell.order === undefined ? index : finiteNumber(cell.order, `${path}.order`);
+  const name = nullableString(cell.name, `${path}.name`);
+  const base = { id, kind, order, name };
+  const inputCell = () => nullableString(cell.inputCell, `${path}.inputCell`);
+  switch (kind) {
+    case 'sql':
+    case 'cohort':
+    case 'assertion':
+      return {
+        ...base,
+        kind,
+        code: stringValue(cell.code, `${path}.code`),
+        status: 'idle',
+        lastError: null,
+        lastResult: null,
+      };
+    case 'markdown':
+      return { ...base, kind, code: stringValue(cell.code, `${path}.code`) };
+    case 'chart':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        chartType: oneOf(
+          cell.chartType,
+          [
+            'bar',
+            'line',
+            'area',
+            'scatter',
+            'table',
+            'stat',
+            'histogram',
+            'pie',
+            'stacked-bar',
+            'area-stacked',
+            'heatmap',
+            'funnel',
+            'path',
+          ],
+          `${path}.chartType`,
+        ),
+        x: nullableString(cell.x, `${path}.x`),
+        y: nullableString(cell.y, `${path}.y`),
+        facet: nullableString(cell.facet, `${path}.facet`),
+      };
+    case 'pivot':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        rowCol: nullableString(cell.rowCol, `${path}.rowCol`),
+        colCol: nullableString(cell.colCol, `${path}.colCol`),
+        valueCol: nullableString(cell.valueCol, `${path}.valueCol`),
+        agg: oneOf(cell.agg, ['sum', 'avg', 'min', 'max', 'count'], `${path}.agg`),
+      };
+    case 'map':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        geometryCol: nullableString(cell.geometryCol, `${path}.geometryCol`),
+        colorBy: nullableString(cell.colorBy, `${path}.colorBy`),
+      };
+    case 'embedding':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        xCol: nullableString(cell.xCol, `${path}.xCol`),
+        yCol: nullableString(cell.yCol, `${path}.yCol`),
+        colorBy: nullableString(cell.colorBy, `${path}.colorBy`),
+        labelCol: nullableString(cell.labelCol, `${path}.labelCol`),
+        embCol: nullableString(cell.embCol, `${path}.embCol`),
+      };
+    case 'network':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        sourceCol: nullableString(cell.sourceCol, `${path}.sourceCol`),
+        targetCol: nullableString(cell.targetCol, `${path}.targetCol`),
+        edgeColorCol: nullableString(cell.edgeColorCol, `${path}.edgeColorCol`),
+        edgeWidthCol: nullableString(cell.edgeWidthCol, `${path}.edgeWidthCol`),
+        nodeMetric:
+          cell.nodeMetric === undefined || cell.nodeMetric === null
+            ? null
+            : (oneOf(
+                cell.nodeMetric,
+                ['degree', 'pagerank', 'betweenness', 'community'],
+                `${path}.nodeMetric`,
+              ) as 'degree' | 'pagerank' | 'betweenness' | 'community'),
+      };
+    case 'temporal':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        timeCol: nullableString(cell.timeCol, `${path}.timeCol`),
+        selection: validateSelection(cell.selection, `${path}.selection`) as never,
+      };
+    case 'distribution':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        column: nullableString(cell.column, `${path}.column`),
+        selection: validateSelection(cell.selection, `${path}.selection`) as never,
+      };
+    case 'input':
+      return {
+        ...base,
+        kind,
+        label: nullableString(cell.label, `${path}.label`),
+        inputType: oneOf(cell.inputType, ['text', 'number', 'date', 'select'], `${path}.inputType`),
+        value: stringValue(cell.value, `${path}.value`),
+        options: stringArray(cell.options, `${path}.options`),
+      };
+    case 'dashboard':
+      return {
+        ...base,
+        kind,
+        columns: finiteNumber(cell.columns, `${path}.columns`),
+        items: stringArray(cell.items, `${path}.items`),
+      };
+    case 'stats':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        descriptives: null,
+        correlations: null,
+        status: 'idle',
+        lastError: null,
+      };
+    case 'python':
+    case 'r':
+      return {
+        ...base,
+        kind,
+        inputCell: inputCell(),
+        code: stringValue(cell.code, `${path}.code`),
+        preview: null,
+        status: 'idle',
+        loadPhase: null,
+        lastError: null,
+      };
+    case 'report':
+      return {
+        ...base,
+        kind,
+        definition: validateReportDefinition(cell.definition, `${path}.definition`) as never,
+      };
+    default:
+      throw new Error(`Malformed .naklidata: ${path}.kind "${kind}" is not supported.`);
+  }
+}
+
+function validateUserType(value: unknown, index: number): UserType {
+  const path = `user_types[${index}]`;
+  const userType = objectValue(value, path);
+  return {
+    id: stringValue(userType.id, `${path}.id`),
+    display_name: stringValue(userType.display_name, `${path}.display_name`),
+    category: stringValue(userType.category, `${path}.category`),
+    regex: stringValue(userType.regex, `${path}.regex`),
+    created: stringValue(userType.created, `${path}.created`),
+    ...(userType.note === undefined ? {} : { note: stringValue(userType.note, `${path}.note`) }),
+  };
+}
+
+function validateOverrideRule(value: unknown, index: number): OverrideRule {
+  const path = `override_rules[${index}]`;
+  const rule = objectValue(value, path);
+  return {
+    columnName: stringValue(rule.columnName, `${path}.columnName`),
+    typeId: stringValue(rule.typeId, `${path}.typeId`),
+    created: stringValue(rule.created, `${path}.created`),
+    ...(rule.note === undefined ? {} : { note: stringValue(rule.note, `${path}.note`) }),
+  };
+}
+
+function validateVersionedCollection(
+  value: unknown,
+  path: string,
+  collectionKey: string,
+  validateItem: (item: unknown, path: string) => unknown,
+): JsonObject {
+  const file = objectValue(value, path);
+  if (file.version !== 1) {
+    throw new Error(`Malformed .naklidata: ${path}.version must be 1.`);
+  }
+  return {
+    version: 1,
+    [collectionKey]: arrayValue(file[collectionKey], `${path}.${collectionKey}`).map(
+      (item, index) => validateItem(item, `${path}.${collectionKey}[${index}]`),
+    ),
+  };
+}
+
+function validateNamedExpression(item: unknown, path: string): JsonObject {
+  const value = objectValue(item, path);
+  if (value.version !== 1) {
+    throw new Error(`Malformed .naklidata: ${path}.version must be 1.`);
+  }
+  return {
+    name: stringValue(value.name, `${path}.name`),
+    expression: stringValue(value.expression, `${path}.expression`),
+    description: stringValue(value.description, `${path}.description`),
+    version: 1,
+    ...(value.format === undefined
+      ? {}
+      : {
+          format: oneOf(
+            value.format,
+            ['number', 'currency_inr', 'currency_usd', 'currency_eur', 'percent', 'count'],
+            `${path}.format`,
+          ),
+        }),
+    ...(value.requiredTypes === undefined
+      ? {}
+      : { requiredTypes: stringArray(value.requiredTypes, `${path}.requiredTypes`) }),
+  };
+}
+
+/**
+ * Fully validate and normalize an attacker-controlled `.naklidata` value before
+ * any live workbook/engine mutation. Every external entry point (file, lens,
+ * IDB snapshot, and apply) routes through this function.
+ */
+export function validateNakliDataFile(value: unknown): NakliDataFile {
+  const obj = objectValue(value, 'root');
   if (obj.format !== 'naklidata') throw new Error('Not a .naklidata file.');
-  if (!obj.version) throw new Error('Missing version.');
+  if (typeof obj.version !== 'string' || obj.version === '') throw new Error('Missing version.');
   // Validate the version shape before comparing — a malformed string like
   // "1.x" makes compareVersion return NaN, and `NaN > 0` is false, so a
   // forged version would slip past the "saved by a newer NakliData" guard
@@ -321,23 +837,127 @@ export function parse(text: string): NakliDataFile {
       `This notebook was saved with a newer version of NakliData (${obj.version}). Please update.`,
     );
   }
-  // W1: validate the top-level shape before trusting it. This is the
-  // deserializer for the attacker-controllable `?lens=` payload, so a
-  // non-array `sources`/`cells`/`assignments` must be rejected rather than
-  // flowed into workbook/notebook state as type-confused data.
-  if (!Array.isArray(obj.sources))
-    throw new Error('Malformed .naklidata: sources must be an array.');
-  if (!Array.isArray(obj.cells)) throw new Error('Malformed .naklidata: cells must be an array.');
-  if (obj.assignments != null && !Array.isArray(obj.assignments)) {
-    throw new Error('Malformed .naklidata: assignments must be an array.');
-  }
-  for (const c of obj.cells) {
-    if (typeof c !== 'object' || c === null || typeof (c as { kind?: unknown }).kind !== 'string') {
-      throw new Error('Malformed .naklidata: each cell needs a string "kind".');
+  const sources = arrayValue(obj.sources, 'sources').map(validateSource);
+  const assignments = arrayValue(obj.assignments ?? [], 'assignments').map(validateAssignment);
+  const cells = arrayValue(obj.cells, 'cells').map(validateCell);
+  const duplicate = (values: string[], path: string) => {
+    const seen = new Set<string>();
+    for (const item of values) {
+      if (seen.has(item)) throw new Error(`Malformed .naklidata: duplicate ${path} "${item}".`);
+      seen.add(item);
     }
+  };
+  duplicate(
+    sources.map((source) => source.id),
+    'source id',
+  );
+  duplicate(
+    sources.flatMap((source) => source.tables.map((table) => table.id)),
+    'table id',
+  );
+  duplicate(
+    assignments.map((assignment) => assignment.key),
+    'assignment key',
+  );
+  duplicate(
+    cells.map((cell) => cell.id),
+    'cell id',
+  );
+
+  const settings = obj.settings === undefined ? {} : objectValue(obj.settings, 'settings');
+  const threshold = finiteNumber(
+    settings.auto_accept_threshold ?? 0.9,
+    'settings.auto_accept_threshold',
+  );
+  if (threshold < 0 || threshold > 1) {
+    throw new Error(
+      'Malformed .naklidata: settings.auto_accept_threshold must be between 0 and 1.',
+    );
   }
-  // Trivial migration path for v1.0 — just trust the (now shape-checked) rest.
-  return obj as NakliDataFile;
+  const now = new Date().toISOString();
+  const file: NakliDataFile = {
+    format: 'naklidata',
+    version: obj.version,
+    created: obj.created === undefined ? now : stringValue(obj.created, 'created'),
+    modified: obj.modified === undefined ? now : stringValue(obj.modified, 'modified'),
+    name: obj.name === undefined ? 'Untitled' : stringValue(obj.name, 'name'),
+    sources,
+    assignments,
+    cells,
+    user_types: arrayValue(obj.user_types ?? [], 'user_types').map(validateUserType),
+    settings: { auto_accept_threshold: threshold },
+  };
+  if (obj.override_rules !== undefined) {
+    file.override_rules = arrayValue(obj.override_rules, 'override_rules').map(
+      validateOverrideRule,
+    );
+  }
+  if (obj.lineage !== undefined) {
+    file.lineage = lineageGraphFromJson(obj.lineage);
+  }
+  if (obj.measures !== undefined) {
+    file.measures = validateVersionedCollection(
+      obj.measures,
+      'measures',
+      'measures',
+      validateNamedExpression,
+    ) as never;
+  }
+  if (obj.dimensions !== undefined) {
+    file.dimensions = validateVersionedCollection(
+      obj.dimensions,
+      'dimensions',
+      'dimensions',
+      validateNamedExpression,
+    ) as never;
+  }
+  if (obj.segments !== undefined) {
+    file.segments = validateVersionedCollection(
+      obj.segments,
+      'segments',
+      'segments',
+      validateNamedExpression,
+    ) as never;
+  }
+  if (obj.selections !== undefined) {
+    file.selections = validateVersionedCollection(
+      obj.selections,
+      'selections',
+      'entries',
+      (item, path) => {
+        const entry = objectValue(item, path);
+        return {
+          table: stringValue(entry.table, `${path}.table`),
+          column: stringValue(entry.column, `${path}.column`),
+          values: stringArray(entry.values, `${path}.values`),
+          ...(entry.type === undefined
+            ? {}
+            : {
+                type: oneOf(entry.type, ['string', 'number', 'date', 'boolean'], `${path}.type`),
+              }),
+        };
+      },
+    ) as never;
+  }
+  if (obj.associations !== undefined) {
+    file.associations = validateVersionedCollection(
+      obj.associations,
+      'associations',
+      'links',
+      (item, path) => {
+        const link = objectValue(item, path);
+        const key = (value: unknown, keyPath: string) => {
+          const record = objectValue(value, keyPath);
+          return {
+            table: stringValue(record.table, `${keyPath}.table`),
+            column: stringValue(record.column, `${keyPath}.column`),
+          };
+        };
+        return { a: key(link.a, `${path}.a`), b: key(link.b, `${path}.b`) };
+      },
+    ) as never;
+  }
+  return file;
 }
 
 function compareVersion(a: string, b: string): number {
@@ -430,7 +1050,8 @@ export async function loadFromFile(): Promise<NakliDataFile | null> {
       if (!handle) return null;
       const file = await handle.getFile();
       const text = await file.text();
-      return parse(text);
+      const validator = await loadChunk('persistence-validation');
+      return validator.parse(text);
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') return null;
       throw err;
@@ -450,7 +1071,8 @@ export async function loadFromFile(): Promise<NakliDataFile | null> {
       // rejection and the promise never settles — the load silently hangs.
       try {
         const text = await f.text();
-        resolve(parse(text));
+        const validator = await loadChunk('persistence-validation');
+        resolve(validator.parse(text));
       } catch (err) {
         reject(err);
       }

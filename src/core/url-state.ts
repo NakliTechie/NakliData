@@ -8,7 +8,8 @@
 // Honors the no-server / no-account vision: the recipient gets the
 // link, opens it, the page restores from URL, end of story.
 
-import { type NakliDataFile, parse } from './persistence.ts';
+import { loadChunk } from './lazy-loader.ts';
+import type { NakliDataFile } from './persistence.ts';
 
 const PARAM_NAME = 'lens';
 /**
@@ -36,7 +37,8 @@ export async function decodeLensParam(encoded: string): Promise<NakliDataFile> {
   const compressed = base64UrlToBytes(encoded);
   const decompressed = await gzipDecompress(compressed);
   const json = new TextDecoder().decode(decompressed);
-  return parse(json);
+  const validator = await loadChunk('persistence-validation');
+  return validator.parse(json);
 }
 
 export function readLensFromLocation(): string | null {

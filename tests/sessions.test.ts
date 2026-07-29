@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _primeChunkForTests } from '../src/core/lazy-loader.ts';
 import type { NakliDataFile } from '../src/core/persistence.ts';
+import * as persistenceValidator from '../src/lazy/persistence-validation.ts';
 
 // In-memory IDB shim. vi.mock is hoisted, so the factory runs before
 // the module under test is imported.
@@ -27,6 +29,7 @@ const {
 
 beforeEach(() => {
   _store.clear();
+  _primeChunkForTests('persistence-validation', persistenceValidator);
 });
 
 function makeSnapshot(name: string): NakliDataFile {
@@ -156,6 +159,15 @@ describe('sessions — snapshot round-trip', () => {
   it('loadSnapshot returns null for a stored value that is not a .naklidata shape', async () => {
     const meta = await ensureActiveSession();
     _store.set(`sessions/${meta.id}/snapshot`, { not: 'a naklidata file' });
+    expect(await loadSnapshot(meta.id)).toBeNull();
+  });
+
+  it('loadSnapshot rejects a top-level-looking snapshot with malformed nested state', async () => {
+    const meta = await ensureActiveSession();
+    _store.set(`sessions/${meta.id}/snapshot`, {
+      ...makeSnapshot('malformed'),
+      cells: [{ id: 'c1', kind: 'sql', code: { not: 'sql' } }],
+    });
     expect(await loadSnapshot(meta.id)).toBeNull();
   });
 });

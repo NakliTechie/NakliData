@@ -10,6 +10,7 @@
 
 import { deleteHandle } from './handles.ts';
 import { kvDelete, kvGet, kvPut } from './idb.ts';
+import { loadChunk } from './lazy-loader.ts';
 import type { NakliDataFile } from './persistence.ts';
 import { clearFingerprints } from './refresh-store.ts';
 
@@ -67,7 +68,16 @@ export async function ensureActiveSession(): Promise<SessionMeta> {
   let idx = await loadIndex();
 
   if (idx.sessions.length === 0) {
-    const legacy = await kvGet<NakliDataFile>(LEGACY_SNAPSHOT_KEY);
+    const legacyRaw = await kvGet<unknown>(LEGACY_SNAPSHOT_KEY);
+    let legacy: NakliDataFile | null = null;
+    if (legacyRaw) {
+      try {
+        const validator = await loadChunk('persistence-validation');
+        legacy = validator.validateNakliDataFile(legacyRaw);
+      } catch {
+        // A malformed legacy snapshot is not allowed to seed a new session.
+      }
+    }
     const id = newId();
     const meta: SessionMeta = {
       id,
@@ -188,10 +198,14 @@ export async function deleteSession(id: string): Promise<void> {
 }
 
 export async function loadSnapshot(id: string): Promise<NakliDataFile | null> {
-  const raw = await kvGet<NakliDataFile>(snapshotKey(id));
+  const raw = await kvGet<unknown>(snapshotKey(id));
   if (!raw) return null;
-  if (raw.format !== 'naklidata' || !raw.version) return null;
-  return raw;
+  try {
+    const validator = await loadChunk('persistence-validation');
+    return validator.validateNakliDataFile(raw);
+  } catch {
+    return null;
+  }
 }
 
 export async function saveSnapshot(id: string, snapshot: NakliDataFile): Promise<void> {

@@ -54,6 +54,12 @@ export interface LazyChunkRegistry {
    * `core/cleaning/fix-cache.ts` the schema panel reads synchronously.
    */
   cleaning: typeof import('../lazy/cleaning.ts');
+  /**
+   * Complete attacker-controlled `.naklidata` validation/normalization.
+   * File/lens/snapshot loads are already async, so the validator is paid only
+   * when restoring state instead of consuming the nearly-full inlined shell.
+   */
+  'persistence-validation': typeof import('../lazy/persistence-validation.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**
@@ -161,4 +167,13 @@ export function loadChunk<K extends LazyChunkName>(name: K): Promise<LazyChunkRe
 /** For tests — wipe the in-memory cache so each test sees fresh loads. */
 export function _resetChunkCacheForTests(): void {
   cache.clear();
+}
+
+/** For Node unit tests — provide a resolved chunk without requiring a browser
+ *  `document.baseURI`. Production code never calls this export. */
+export function _primeChunkForTests<K extends LazyChunkName>(
+  name: K,
+  module: LazyChunkRegistry[K],
+): void {
+  cache.set(name, Promise.resolve(module));
 }

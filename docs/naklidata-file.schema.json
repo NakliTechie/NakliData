@@ -34,17 +34,37 @@
     "user_types": {
       "type": "array",
       "description": "User-defined semantic types. Optional — defaults to [] on load.",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "required": ["id", "display_name", "category", "regex", "created"],
+        "properties": {
+          "id": { "type": "string" },
+          "display_name": { "type": "string" },
+          "category": { "type": "string" },
+          "regex": { "type": "string" },
+          "created": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
     },
     "override_rules": {
       "type": "array",
       "description": "'Always treat columns named X as type Y' rules. Optional.",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "required": ["columnName", "typeId", "created"],
+        "properties": {
+          "columnName": { "type": "string" },
+          "typeId": { "type": "string" },
+          "created": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
     },
     "settings": {
       "type": "object",
       "description": "Workbook-scoped settings.",
-      "properties": { "auto_accept_threshold": { "type": "number", "minimum": 0.5, "maximum": 1 } }
+      "properties": { "auto_accept_threshold": { "type": "number", "minimum": 0, "maximum": 1 } }
     }
   },
   "$defs": {
@@ -53,14 +73,17 @@
       "required": ["id", "kind", "label", "tables"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "type": "string", "description": "e.g. 'example-bundle', 'fsa-file', 's3-endpoint'." },
+        "kind": {
+          "type": "string",
+          "enum": ["example-bundle", "fsa-folder", "fsa-file", "http", "s3-endpoint", "iceberg-table", "iceberg-catalog", "compute-bridge", "compute-bridge-catalog"]
+        },
         "label": { "type": "string" },
         "ref": { "type": ["string", "null"], "description": "Reattach hint (bundle id / URL / handle id); null when not persistable." },
         "tables": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["id", "name"],
+            "required": ["id", "name", "format", "origin", "rowCount"],
             "properties": {
               "id": { "type": "string" },
               "name": { "type": "string", "description": "The table/view name the notebook queries." },
@@ -82,20 +105,299 @@
         "typeId": { "type": ["string", "null"], "description": "Taxonomy type id, or null = unknown." },
         "origin": { "type": "string", "enum": ["detector", "user_accept", "user_override", "unknown"] },
         "confidence": { "type": "number" },
-        "candidates": { "type": "array" },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["typeId", "displayName", "confidence", "evidence"],
+            "properties": {
+              "typeId": { "type": "string" },
+              "displayName": { "type": "string" },
+              "confidence": { "type": "number" },
+              "evidence": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
         "resolutionKind": { "type": "string", "enum": ["auto_accept", "ambiguous", "unknown"] }
       }
     },
     "cell": {
+      "description": "A discriminated notebook cell. Runtime-only results/errors are normalized away on load.",
+      "oneOf": [
+        { "$ref": "#/$defs/sqlCell" },
+        { "$ref": "#/$defs/markdownCell" },
+        { "$ref": "#/$defs/chartCell" },
+        { "$ref": "#/$defs/pivotCell" },
+        { "$ref": "#/$defs/mapCell" },
+        { "$ref": "#/$defs/embeddingCell" },
+        { "$ref": "#/$defs/networkCell" },
+        { "$ref": "#/$defs/temporalCell" },
+        { "$ref": "#/$defs/distributionCell" },
+        { "$ref": "#/$defs/cohortCell" },
+        { "$ref": "#/$defs/assertionCell" },
+        { "$ref": "#/$defs/inputCell" },
+        { "$ref": "#/$defs/dashboardCell" },
+        { "$ref": "#/$defs/statsCell" },
+        { "$ref": "#/$defs/pythonCell" },
+        { "$ref": "#/$defs/rCell" },
+        { "$ref": "#/$defs/reportCell" }
+      ]
+    },
+    "cellBase": {
       "type": "object",
-      "required": ["kind"],
-      "description": "A notebook cell. `kind` is authoritative (sql, markdown, chart, pivot, map, network, temporal, distribution, cohort, assertion, input, dashboard, stats, python, r, report, embedding). SQL/cohort/assertion carry `code`.",
+      "required": ["id", "kind"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "type": "string" },
+        "order": { "type": "number" },
         "name": { "type": ["string", "null"] },
-        "code": { "type": "string", "description": "SQL/code body (SQL/cohort/assertion/python/r cells)." }
+        "kind": { "type": "string" }
       }
+    },
+    "sqlCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        { "required": ["code"], "properties": { "kind": { "const": "sql" }, "code": { "type": "string" } } }
+      ]
+    },
+    "markdownCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        { "required": ["code"], "properties": { "kind": { "const": "markdown" }, "code": { "type": "string" } } }
+      ]
+    },
+    "cohortCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        { "required": ["code"], "properties": { "kind": { "const": "cohort" }, "code": { "type": "string" } } }
+      ]
+    },
+    "assertionCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        { "required": ["code"], "properties": { "kind": { "const": "assertion" }, "code": { "type": "string" } } }
+      ]
+    },
+    "polyglotCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["code"],
+          "properties": {
+            "kind": { "enum": ["python", "r"] },
+            "code": { "type": "string" },
+            "inputCell": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "pythonCell": {
+      "allOf": [
+        { "$ref": "#/$defs/polyglotCell" },
+        { "properties": { "kind": { "const": "python" } } }
+      ]
+    },
+    "rCell": {
+      "allOf": [
+        { "$ref": "#/$defs/polyglotCell" },
+        { "properties": { "kind": { "const": "r" } } }
+      ]
+    },
+    "chartCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["chartType"],
+          "properties": {
+            "kind": { "const": "chart" },
+            "chartType": { "enum": ["bar", "line", "area", "scatter", "table", "stat", "histogram", "pie", "stacked-bar", "area-stacked", "heatmap", "funnel", "path"] },
+            "inputCell": { "type": ["string", "null"] },
+            "x": { "type": ["string", "null"] },
+            "y": { "type": ["string", "null"] },
+            "facet": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "pivotCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["agg"],
+          "properties": {
+            "kind": { "const": "pivot" },
+            "agg": { "enum": ["sum", "avg", "min", "max", "count"] },
+            "inputCell": { "type": ["string", "null"] },
+            "rowCol": { "type": ["string", "null"] },
+            "colCol": { "type": ["string", "null"] },
+            "valueCol": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "mapCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "map" },
+            "inputCell": { "type": ["string", "null"] },
+            "geometryCol": { "type": ["string", "null"] },
+            "colorBy": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "embeddingCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "embedding" },
+            "inputCell": { "type": ["string", "null"] },
+            "xCol": { "type": ["string", "null"] },
+            "yCol": { "type": ["string", "null"] },
+            "colorBy": { "type": ["string", "null"] },
+            "labelCol": { "type": ["string", "null"] },
+            "embCol": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "networkCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "network" },
+            "inputCell": { "type": ["string", "null"] },
+            "sourceCol": { "type": ["string", "null"] },
+            "targetCol": { "type": ["string", "null"] },
+            "edgeColorCol": { "type": ["string", "null"] },
+            "edgeWidthCol": { "type": ["string", "null"] },
+            "nodeMetric": { "type": ["string", "null"], "enum": ["degree", "pagerank", "betweenness", "community", null] }
+          }
+        }
+      ]
+    },
+    "facetSelection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "col", "lo", "hi"],
+          "properties": {
+            "kind": { "enum": ["timeRange", "numRange"] },
+            "col": { "type": "string" },
+            "lo": { "type": "number" },
+            "hi": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "col", "values"],
+          "properties": {
+            "kind": { "const": "valueSet" },
+            "col": { "type": "string" },
+            "values": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "temporalCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "temporal" },
+            "inputCell": { "type": ["string", "null"] },
+            "timeCol": { "type": ["string", "null"] },
+            "selection": { "$ref": "#/$defs/facetSelection" }
+          }
+        }
+      ]
+    },
+    "distributionCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "distribution" },
+            "inputCell": { "type": ["string", "null"] },
+            "column": { "type": ["string", "null"] },
+            "selection": { "$ref": "#/$defs/facetSelection" }
+          }
+        }
+      ]
+    },
+    "inputCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["inputType", "value", "options"],
+          "properties": {
+            "kind": { "const": "input" },
+            "label": { "type": ["string", "null"] },
+            "inputType": { "enum": ["text", "number", "date", "select"] },
+            "value": { "type": "string" },
+            "options": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "dashboardCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["columns", "items"],
+          "properties": {
+            "kind": { "const": "dashboard" },
+            "columns": { "type": "number" },
+            "items": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "statsCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "properties": {
+            "kind": { "const": "stats" },
+            "inputCell": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "reportCell": {
+      "allOf": [
+        { "$ref": "#/$defs/cellBase" },
+        {
+          "required": ["definition"],
+          "properties": {
+            "kind": { "const": "report" },
+            "definition": {
+              "type": "object",
+              "required": ["title", "pageSize", "margins", "items"],
+              "properties": {
+                "title": { "type": "string" },
+                "subtitle": { "type": "string" },
+                "pageSize": { "enum": ["A4", "Letter"] },
+                "margins": {
+                  "type": "object",
+                  "required": ["top", "right", "bottom", "left"],
+                  "properties": {
+                    "top": { "type": "number" },
+                    "right": { "type": "number" },
+                    "bottom": { "type": "number" },
+                    "left": { "type": "number" }
+                  }
+                },
+                "items": { "type": "array" }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

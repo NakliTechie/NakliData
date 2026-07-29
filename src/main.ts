@@ -1032,6 +1032,7 @@ async function hydrateResultSnapshots(engine: Engine, sessionId: string): Promis
 }
 
 let _autoSaveTimer: number | null = null;
+let _autoSaveSuspendDepth = 0;
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
 /**
@@ -1047,6 +1048,7 @@ function installAutoSave(engine: Engine): void {
   const workbook = getWorkbook();
   const nb = getNotebook(engine);
   const scheduleSave = () => {
+    if (_autoSaveSuspendDepth > 0) return;
     if (_autoSaveTimer !== null) window.clearTimeout(_autoSaveTimer);
     _autoSaveTimer = window.setTimeout(() => {
       _autoSaveTimer = null;
@@ -2730,6 +2732,10 @@ async function applyLoadedFile(
   file: NakliDataFile,
   opts: ApplyLoadedOptions = {},
 ): Promise<void> {
+  // Validate and normalize the complete attacker-controlled graph before the
+  // serialized apply queue can touch the live workbook or DuckDB catalog.
+  const validator = await loadChunk('persistence-validation');
+  const validated = validator.validateNakliDataFile(file);
   const prev = _applyLoadedChain;
   const next = (async () => {
     try {
@@ -2737,7 +2743,19 @@ async function applyLoadedFile(
     } catch {
       // Prior invocation's rejection is not our concern.
     }
-    await doApplyLoadedFile(engine, file, opts);
+    if (_autoSaveTimer !== null) {
+      window.clearTimeout(_autoSaveTimer);
+      _autoSaveTimer = null;
+    }
+    _autoSaveSuspendDepth++;
+    try {
+      await doApplyLoadedFile(engine, validated, opts);
+    } finally {
+      _autoSaveSuspendDepth--;
+    }
+    // Mutations emitted by workbook/notebook stores were deliberately ignored
+    // while apply was in flight. Persist only the fully applied state.
+    if (!opts.silent) await persistSnapshot(engine);
   })();
   _applyLoadedChain = next;
   return next;
