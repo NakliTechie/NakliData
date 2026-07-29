@@ -67,7 +67,8 @@ async function startServer() {
   return await new Promise((resolveListen) => {
     const server = createServer(async (req, res) => {
       try {
-        const reqUrl = (req.url ?? '/').split('?')[0];
+        const parsedUrl = new URL(req.url ?? '/', 'http://smoke.local');
+        const reqUrl = parsedUrl.pathname;
         const url = reqUrl === '/' ? '/index.html' : reqUrl;
         const filePath = join(ROOT, url);
         const st = await stat(filePath);
@@ -77,15 +78,23 @@ async function startServer() {
           return;
         }
         const body = await readFile(filePath);
-        res.writeHead(200, {
+        const partial = parsedUrl.searchParams.has('__partial');
+        const responseHeaders = {
           'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
           // Cross-origin isolation (matches the deploy _headers) — enables
           // SharedArrayBuffer for WebR + @antv/layout-wasm. credentialless lets
           // the cross-origin DuckDB mirror + public CDN fetches through.
           'Cross-Origin-Opener-Policy': 'same-origin',
           'Cross-Origin-Embedder-Policy': 'credentialless',
-        });
-        res.end(body);
+        };
+        if (parsedUrl.searchParams.has('__private')) {
+          responseHeaders['cache-control'] = 'private, no-store';
+        }
+        if (partial) {
+          responseHeaders['content-range'] = `bytes 0-3/${body.byteLength}`;
+        }
+        res.writeHead(partial ? 206 : 200, responseHeaders);
+        res.end(partial ? body.subarray(0, 4) : body);
       } catch {
         res.writeHead(404);
         res.end('not found');
@@ -2644,6 +2653,52 @@ async function main() {
     if (rtCache.inShell)
       fail('SW: runtime asset leaked into the shell cache (should be runtime-only)');
     log(`✓ SW runtime cache: readstat wasm cached in ${rtCache.runtimeKey}, not the shell cache`);
+  }
+
+  // 12c. Generic same-origin caching is a data-leak footgun. Only explicit
+  // static paths may enter Cache Storage, and authority/private/partial
+  // variants of an allowed path must bypass it.
+  const swPolicy = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    if (!navigator.serviceWorker?.controller) return { skipped: true };
+    const probes = {
+      allowed: '/icon.svg?sw-allowed=1',
+      unlisted: '/__smoke_dirty.csv?sw-unlisted=1',
+      authorized: '/icon.svg?sw-authorized=1',
+      credentialed: '/icon.svg?sw-credentialed=1',
+      requestNoStore: '/icon.svg?sw-request-no-store=1',
+      privateResponse: '/icon.svg?sw-private=1&__private=1',
+      partialResponse: '/icon.svg?sw-partial=1&__partial=1',
+      sensitiveQuery: '/icon.svg?access_token=smoke-secret',
+    };
+    await fetch(probes.allowed);
+    await fetch(probes.unlisted);
+    await fetch(probes.authorized, { headers: { authorization: 'Bearer smoke' } });
+    await fetch(probes.credentialed, { credentials: 'include' });
+    await fetch(probes.requestNoStore, { cache: 'no-store' });
+    await fetch(probes.privateResponse);
+    await fetch(probes.partialResponse);
+    await fetch(probes.sensitiveQuery);
+    await wait(500);
+    const shellKey = (await caches.keys()).find((key) => key.startsWith('naklidata-shell-'));
+    if (!shellKey) return { skipped: false, error: 'shell cache missing' };
+    const cache = await caches.open(shellKey);
+    const cached = {};
+    for (const [name, path] of Object.entries(probes)) {
+      cached[name] = !!(await cache.match(path));
+    }
+    return { skipped: false, cached };
+  });
+  if (swPolicy.skipped) {
+    log('~ SW policy guard skipped (service worker not controlling in harness)');
+  } else if (swPolicy.error) {
+    fail(`SW policy: ${swPolicy.error}`);
+  } else {
+    if (!swPolicy.cached.allowed) fail('SW policy: allowlisted static asset was not cached');
+    for (const [name, cached] of Object.entries(swPolicy.cached)) {
+      if (name !== 'allowed' && cached) fail(`SW policy: ${name} request entered Cache Storage`);
+    }
+    log('✓ SW cache policy: static allowlist enforced; auth/private/no-store/206 paths bypassed');
   }
 
   // 12m. Session isolation. Every source and runnable cell materialises a

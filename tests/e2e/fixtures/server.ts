@@ -26,7 +26,13 @@ export interface StaticServer {
 export async function startStaticServer(): Promise<StaticServer> {
   const server: Server = createServer(async (req, res) => {
     try {
-      const reqUrl = (req.url ?? '/').split('?')[0] ?? '/';
+      const parsedUrl = new URL(req.url ?? '/', 'http://test.local');
+      const reqUrl = parsedUrl.pathname;
+      if (reqUrl === '/api/private.json') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{"private":true}');
+        return;
+      }
       const url = reqUrl === '/' ? '/index.html' : reqUrl;
       const filePath = join(ROOT, url);
       const st = await stat(filePath);
@@ -36,8 +42,16 @@ export async function startStaticServer(): Promise<StaticServer> {
         return;
       }
       const body = await readFile(filePath);
-      res.writeHead(200, { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' });
-      res.end(body);
+      const partial = parsedUrl.searchParams.has('__partial');
+      const headers: Record<string, string> = {
+        'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+      };
+      if (parsedUrl.searchParams.has('__private')) {
+        headers['cache-control'] = 'private, no-store';
+      }
+      if (partial) headers['content-range'] = `bytes 0-3/${body.byteLength}`;
+      res.writeHead(partial ? 206 : 200, headers);
+      res.end(partial ? body.subarray(0, 4) : body);
     } catch {
       res.writeHead(404);
       res.end('not found');

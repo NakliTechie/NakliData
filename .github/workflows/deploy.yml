@@ -49,6 +49,12 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Dependency advisory gate
+        # Runs only in trusted CI, where npm's advisory registry is available.
+        # High/critical production or development dependency findings fail the
+        # build; the local offline workflow remains deterministic.
+        run: npm audit --audit-level=high
+
       - name: Build
         # Build first so the bundle-size gate inside `npm run check` has a
         # dist/ to measure (check-bundle-size.mjs is a no-op when dist/ is

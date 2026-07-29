@@ -3,7 +3,7 @@
   "name": "naklidata",
   "compatibility_date": "2026-06-11",
   "observability": {
-    "enabled": true
+    "enabled": false
   },
   "assets": {
     "directory": "dist"

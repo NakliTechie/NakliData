@@ -220,6 +220,10 @@ export class Engine {
   async boot(opts: EngineBootOptions = {}): Promise<void> {
     if (this.status === 'ready' || this.status === 'booting') return;
     this.setStatus('booting');
+    let bootWorker: Worker | null = null;
+    let bootDb: duckdb.AsyncDuckDB | null = null;
+    let bootConn: duckdb.AsyncDuckDBConnection | null = null;
+    let bootstrapToRevoke: string | null = null;
     try {
       const bundles = bundlesFor(opts);
       const bundle = await duckdb.selectBundle(bundles);
@@ -261,41 +265,22 @@ export class Engine {
       // parent's blob registry. SRI was dropped in W1.8.2 + spec
       // amendment A14 to restore the working pattern; trust is at the
       // version-pin level + build-time vendor verification.
-      let worker: Worker;
-      let bootstrapToRevoke: string | null = null;
       if (isCrossOriginWorkerUrl(bundle.mainWorker)) {
         bootstrapToRevoke = URL.createObjectURL(
           new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' }),
         );
-        worker = new Worker(bootstrapToRevoke);
+        bootWorker = new Worker(bootstrapToRevoke);
       } else {
-        worker = new Worker(bundle.mainWorker);
+        bootWorker = new Worker(bundle.mainWorker);
       }
-      // Forward-pass L1 (2026-06-02): try/finally + outer-catch cleanup
-      // so a failed instantiate doesn't leak the blob URL or the Worker.
-      // Pre-fix, retries on flaky networks compounded the leaks.
       // VoidLogger, not ConsoleLogger: DuckDB's ConsoleLogger logs every query
       // event to the browser console (hundreds of `[object Object]` entries on a
       // normal session) — devtools noise + query internals leaking into the log,
       // against the sovereign/quiet posture. Nothing reads DuckDB's own logs.
       const logger = new duckdb.VoidLogger();
-      const db = new duckdb.AsyncDuckDB(logger, worker);
-      try {
-        await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
-      } catch (instErr) {
-        if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
-        try {
-          worker.terminate();
-        } catch {
-          /* ignore — worker may already be in an error state */
-        }
-        throw instErr;
-      }
-      if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
-
-      this.db = db;
-      this.worker = worker;
-      this.conn = await db.connect();
+      bootDb = new duckdb.AsyncDuckDB(logger, bootWorker);
+      await bootDb.instantiate(bundle.mainModule, bundle.pthreadWorker ?? null);
+      bootConn = await bootDb.connect();
       // Theme 1 wave 3: when booting offline (?offline=1 or
       // opts.offline: true), point INSTALL at the vendored extensions
       // under public/duckdb-extensions/. Without this, an INSTALL
@@ -309,10 +294,10 @@ export class Engine {
         // `/${VERSION}/${PLATFORM}/${NAME}.duckdb_extension.wasm`.
         const localRepo = pageAsset('./duckdb-extensions').replace(/\/$/, '');
         try {
-          await this.conn.query(
+          await bootConn.query(
             `SET custom_extension_repository = '${localRepo.replace(/'/g, "''")}'`,
           );
-          await this.conn.query(
+          await bootConn.query(
             `SET autoinstall_extension_repository = '${localRepo.replace(/'/g, "''")}'`,
           );
         } catch (err) {
@@ -322,12 +307,32 @@ export class Engine {
           console.warn('[engine] failed to set custom_extension_repository', err);
         }
       }
+      // Publish the engine only after instantiate + connect + boot-time
+      // configuration have completed. Until this point every resource remains
+      // local to this transaction and the catch path owns all cleanup.
+      this.db = bootDb;
+      this.worker = bootWorker;
+      this.conn = bootConn;
       this.setStatus('ready');
     } catch (err) {
+      await cleanupEngineResources(bootConn, bootDb, bootWorker);
+      this.resetRuntimeState();
       const msg = err instanceof Error ? err.message : String(err);
       this.setStatus('error', msg);
       throw err instanceof EngineError ? err : new EngineError(`Engine boot failed: ${msg}`, err);
+    } finally {
+      if (bootstrapToRevoke) URL.revokeObjectURL(bootstrapToRevoke);
     }
+  }
+
+  private resetRuntimeState(): void {
+    this.conn = null;
+    this.db = null;
+    this.worker = null;
+    this.loadedExtensions.clear();
+    this.registeredFileSeq = 0;
+    this.filesByRelation.clear();
+    this.relationsByFile.clear();
   }
 
   private requireConn(): duckdb.AsyncDuckDBConnection {
@@ -1644,19 +1649,31 @@ export class Engine {
   }
 
   async close(): Promise<void> {
-    try {
-      await this.conn?.close();
-    } finally {
-      this.conn = null;
-      try {
-        await this.db?.terminate();
-      } finally {
-        this.db = null;
-        this.worker?.terminate();
-        this.worker = null;
-        this.setStatus('idle');
-      }
-    }
+    await cleanupEngineResources(this.conn, this.db, this.worker);
+    this.resetRuntimeState();
+    this.setStatus('idle');
+  }
+}
+
+async function cleanupEngineResources(
+  conn: duckdb.AsyncDuckDBConnection | null,
+  db: duckdb.AsyncDuckDB | null,
+  worker: Worker | null,
+): Promise<void> {
+  try {
+    await conn?.close();
+  } catch {
+    // Preserve the original boot failure; continue releasing outer resources.
+  }
+  try {
+    await db?.terminate();
+  } catch {
+    // A half-instantiated dispatcher may reject termination.
+  }
+  try {
+    worker?.terminate();
+  } catch {
+    // Worker construction or startup may already have failed.
   }
 }
 

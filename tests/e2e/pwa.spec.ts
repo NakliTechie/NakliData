@@ -98,4 +98,53 @@ test.describe('PWA installability', () => {
     await context.close();
     await server.close();
   });
+
+  test('service worker caches only public static responses', async ({ browser }) => {
+    const server = await startStaticServer();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(`${server.url}/index.html?offline=1`);
+    await waitForEngineReady(page);
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, {
+      timeout: 10_000,
+    });
+
+    const cached = await page.evaluate(async () => {
+      const probes = {
+        allowed: '/icon.svg?e2e-allowed=1',
+        api: '/api/private.json',
+        authorized: '/icon.svg?e2e-authorized=1',
+        credentialed: '/icon.svg?e2e-credentialed=1',
+        requestNoStore: '/icon.svg?e2e-request-no-store=1',
+        privateResponse: '/icon.svg?e2e-private=1&__private=1',
+        partialResponse: '/icon.svg?e2e-partial=1&__partial=1',
+        sensitiveQuery: '/icon.svg?access_token=e2e-secret',
+      };
+      await fetch(probes.allowed);
+      await fetch(probes.api);
+      await fetch(probes.authorized, { headers: { authorization: 'Bearer e2e' } });
+      await fetch(probes.credentialed, { credentials: 'include' });
+      await fetch(probes.requestNoStore, { cache: 'no-store' });
+      await fetch(probes.privateResponse);
+      await fetch(probes.partialResponse);
+      await fetch(probes.sensitiveQuery);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const shellName = (await caches.keys()).find((name) => name.startsWith('naklidata-shell-'));
+      if (!shellName) throw new Error('shell cache missing');
+      const cache = await caches.open(shellName);
+      return Object.fromEntries(
+        await Promise.all(
+          Object.entries(probes).map(async ([name, path]) => [name, !!(await cache.match(path))]),
+        ),
+      );
+    });
+
+    expect(cached.allowed).toBe(true);
+    for (const [name, value] of Object.entries(cached)) {
+      if (name !== 'allowed') expect(value, `${name} must bypass Cache Storage`).toBe(false);
+    }
+
+    await context.close();
+    await server.close();
+  });
 });
