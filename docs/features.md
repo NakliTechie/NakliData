@@ -134,8 +134,10 @@ The taxonomy is what makes NakliData feel different — it knows what your colum
   plus a five-number distribution + IQR outlier count for numeric columns.
 - **Override** a column, or "Remember rule" to promote it to an `override_rules`
   entry applied on every future mount.
-- **Define a new type** — a modal to write a spec (header match + regex + checksum
-  + sql_type); user types persist per-workspace and feed back to the classifier.
+- **Define a new type** — a modal to write a header/regex semantic type; unsafe
+  regex constructs are rejected before persistence or classification. User
+  types persist per workspace, work over stringified text/numeric/date samples,
+  and feed back to the classifier.
 - **Compare tables** — pick a join key (auto-suggested from shared types) →
   FULL OUTER JOIN + bucket aggregate + sampled per-row diff.
 - **Schema graph** — a Cytoscape modal of taxonomy-type relationships.

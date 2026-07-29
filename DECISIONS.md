@@ -2,6 +2,58 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 2B: taxonomy execution hardening (EQ)
+
+### Decision EQ-1 — user regexes enter a deliberately smaller language
+
+- **Context.** JavaScript `RegExp` executes synchronously and has no deadline.
+  Capping sample value length reduced input size but did not prevent a hostile
+  nested-quantifier pattern from wedging the taxonomy worker. Regexes can enter
+  through the authoring modal, sidecar suggestions, or imported workbooks.
+- **Decision.** Apply one conservative admission check at every boundary:
+  compile first; cap pattern length, nesting, and quantifier count; reject
+  backreferences, lookbehind, repeated alternation, and nested repetition.
+  A rejected imported regex invalidates the complete `.naklidata` file before
+  restoration; the worker-side bundle merge repeats the check as defense in
+  depth.
+- **Consequence.** Some advanced but valid JavaScript patterns are intentionally
+  unavailable for user types. That compatibility cost is preferable to letting
+  persisted or model-suggested input monopolize classification. Built-in
+  taxonomy regexes remain trusted, reviewed application assets.
+
+### Decision EQ-2 — one worker lifecycle owns all taxonomy requests
+
+- **Context.** Concurrent callers could create multiple workers, while only
+  initialization had partial error handling. A lost classify or set-type
+  response could remain pending forever, and a dead worker retained unresolved
+  callers.
+- **Decision.** Share one in-flight boot promise. Give init, classify, and
+  `set_user_types` independent deadlines and request IDs. Keep persistent
+  `error` and `messageerror` handlers after boot. Any worker-level timeout or
+  fatal event terminates that worker, clears it as current, and rejects every
+  pending request; a later `ensureReady()` creates a replacement and reapplies
+  cached user types.
+- **Consequence.** The schema panel fails visibly instead of hanging, callers
+  cannot race duplicate boots, and recovery has a deterministic clean-worker
+  boundary.
+
+### Decision EQ-3 — SQL compatibility is explicit and user types are family-neutral
+
+- **Context.** Substring comparison made `INTERVAL` match `INT`. User types were
+  synthesized as `VARCHAR`-only even though their regex and header detectors
+  operate on stringified samples from numeric and temporal columns. Blank
+  strings also became numeric zero through JavaScript coercion.
+- **Decision.** Normalize parameterized SQL types and aliases to explicit base
+  names, then compare within enumerated integer, decimal, text, timestamp,
+  boolean, and binary families. An empty compatibility list means any family
+  for user-defined types. Numeric detectors remove trimmed blanks before
+  coercion and denominators.
+- **Consequence.** Compatibility no longer depends on accidental substrings;
+  numeric/date codes can receive custom semantic types without weakening
+  built-in type constraints. Gate: **1,468 vitest**, **SMOKE PASSED**, schema
+  classification and override exercised, bundle **773,678 / 786,432 bytes**
+  (12.5 KiB headroom); final static check runs after documentation.
+
 ## 2026-07-29 — Goal Phase 2A: transactional source refresh (EP)
 
 ### Decision EP-1 — source IDs are the persisted lineage and refresh identity

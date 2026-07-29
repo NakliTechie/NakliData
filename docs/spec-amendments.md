@@ -39,6 +39,7 @@ The original spec stays authoritative for everything not listed here.
 | [A29](#a29--visual-query-builder-v12-m5-amends-spec-33--38) | §3.3 + §3.8 | New "Build query" header button opens a form-based query builder: source table + optional single JOIN + AND-joined filters + LIMIT + GROUP BY + aggregates. Pure SQL emitter routes every identifier through `quoteIdent` + every literal through a TYPE-VALIDATED emitter (numeric / string / date / boolean). NO multi-join, NO nested subqueries, NO window functions. Output → new SQL cell (user clicks Run). |
 | [A30](#a30--shell-bundle-budget-raised-to-750-kb-v13-prior-art-amends-spec-71) | §7.1 | Shell bundle budget raised 600 KB → 750 KB for v1.3's six notebook-native surfaces (M1–M6). Lazy-load stays the default for heavy libraries; the raised cap covers accumulated shared-shell surface, not a license to dump deps. No trust boundary moves. |
 | [A31](#a31--sidecar-jobs-9--10-assign-type--nl-to-schema-wave-7-amends-spec-43) | §4.3 | Two new sidecar jobs. Job 9 `assign-type`: column → semantic type from the full taxonomy vocabulary (complements Job 1, covers `unknown` columns; per-column + bulk surfaces). Job 10 `nl-to-schema`: NL dataset description → typed schema, inserted as an un-run CREATE TABLE cell. Both structured-output-only with parser-side hallucination guards. |
+| [A37](#a37--user-regex-admission-and-taxonomy-worker-lifecycle-amends-spec-32--34) | §3.2 + §3.4 | User regexes use a conservative safe subset; taxonomy worker boot is single-flight and every request has a deadline plus clean-restart semantics. |
 
 ---
 
@@ -1622,6 +1623,44 @@ change); a bundle missing the `universal/` files degrades safely (resolvers fall
 **Note on parser asymmetry vs Job 5:** Job 5 (NL→SQL) *rejects* CREATE/DDL; Job 10 *produces* it on purpose. Different job contracts — both safe because neither auto-executes.
 
 **Status:** Forward-ported from branch `claude/bigset-ontology-layer-u5Cm7` on 2026-07-11. Eval coverage: `eval/fixtures/assign-type.json` (6 cases) + `eval/fixtures/nl-to-schema.json` (4 cases); unit coverage in `tests/sidecar-client.test.ts`.
+
+---
+
+## A37 — User regex admission and taxonomy worker lifecycle (amends spec §3.2 + §3.4)
+
+**Original wording (spec §3.2 / §3.4):** user-defined types can supply regular
+expressions, and taxonomy detectors have a 50 ms per-column budget.
+
+**Amended wording:** user-authored, sidecar-suggested, and imported regular
+expressions must pass NakliData's conservative admission policy before entering
+the effective taxonomy. Patterns are limited to 256 characters and bounded
+structural complexity; backreferences, lookbehind, repeated alternation, and
+nested repetition are rejected. Invalid imported patterns invalidate the
+complete `.naklidata` file before live restoration. The worker merge repeats
+the check as defense in depth.
+
+The detector timing measurement remains diagnostic rather than a pre-emptive
+deadline because JavaScript cannot interrupt a synchronous `RegExp`. Worker
+liveness is enforced at the message boundary instead: initialization is
+single-flight, init/classify/set-type calls have deadlines, fatal failures
+terminate the current worker and reject all pending work, and the next boot
+creates a clean worker and reapplies cached user types.
+
+SQL compatibility is now based on normalized base types and enumerated families,
+not substring matches. An empty compatibility list on a user-defined type means
+its regex/header detectors may classify stringified values from any SQL family.
+Trimmed blank values are excluded before numeric coercion.
+
+**Reasoning:** the previous 50 ms measurement happened only after a detector
+returned, so it could not stop catastrophic backtracking. The new contract
+prevents untrusted patterns from entering that synchronous execution path and
+ensures unrelated worker failures cannot leave the schema panel pending
+forever.
+
+**Status:** adopted 2026-07-29. DECISIONS EQ. Regression coverage includes
+hostile imports, sidecar suggestions, concurrent boots, init/request timeouts,
+fatal workers, clean replacement, numeric user types, blank strings, and
+`INTERVAL` versus `INT`.
 
 ---
 

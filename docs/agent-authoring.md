@@ -73,6 +73,10 @@ is propose-don't-execute by construction.
   selections, associations, dimensions, segments, lineage). Only example-bundle
   and single-file sources persist a reusable `ref`; others show a "Reconnect
   needed" banner on load and the user re-mounts.
+- **User-type regexes use a safe subset.** Keep patterns at or below 256
+  characters and avoid backreferences, lookbehind, repeated alternation, and
+  nested repetition such as `^(a+)+$`. The loader rejects the complete file
+  before mutation when a user type contains an unsafe pattern.
 
 ### Minimal example
 
