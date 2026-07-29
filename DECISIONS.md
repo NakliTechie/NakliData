@@ -261,6 +261,34 @@ Append-only. Format per AGENTHANDOFF §5.
   guessing. This gate complements rather than replaces the checked-in
   runtime's full production smoke and live vendor matrices.
 
+### Decision FA-13 — the DuckDB credential target follows proven browser capabilities
+
+- **Context.** The opaque lease had only mock targets, while FA-11/12 had not
+  established whether the reviewed DuckDB-WASM candidate could apply the
+  actual temporary credential shapes used after an Iceberg load-table call.
+  Treating all three parsed provider families as equivalent would be unsafe:
+  DuckDB v1.4.3 publishes S3/GCS support for WASM, but its official extension
+  registry returns 404 for both EH and MVP Azure artifacts.
+- **Decision.** Add a trusted `DuckDbVendedCredentialTarget` that accepts only
+  complete S3 session credentials and GCS OAuth bearer tokens, creates
+  temporary provider-scoped DuckDB secrets, and serializes replacement/clear
+  operations. Replace all target-owned names in one transaction; on any
+  mutation failure, roll back, attempt target-owned cleanup, and expose only
+  redacted error codes. Reject empty, incomplete, unknown, overlapping-scope,
+  and Azure shapes before executor access; if a later shape is invalid, clear
+  an already-active target. Do not wire the adapter into the current 1.29.0
+  product runtime or represent ADLS as supported.
+- **Consequence.** The candidate gate now proves the corresponding engine
+  behavior with actual ranged Parquet reads: S3 request signing carries the
+  access key and session token before and after transactional rotation, a
+  failed rotation rolls back to the prior secret, clearing removes credential
+  headers, and a scoped GCS secret sends the exact bearer token. The checked-in
+  adapter has focused mapping, escaping, serialization, concurrency,
+  rollback, cleanup, and redaction coverage. This reduces the authorized
+  migration to runtime/vendoring/integration work for S3 and GCS. Databricks
+  on Azure and Polaris/Open Catalog on ADLS remain explicitly unavailable
+  until a separately reviewed browser-capable Azure data plane exists.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

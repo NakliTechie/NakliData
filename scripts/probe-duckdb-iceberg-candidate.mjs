@@ -58,6 +58,9 @@ const FIXTURE = {
     'a845422c72559d1023fb564ffca1a9b3fd40c6045ef698d94a75ff6825678184dcc765c5dbba27961973b82cd5d32404',
 };
 
+const FIXTURE_PARQUET_PATH =
+  '/data/iceberg/lineitem_iceberg/data/00041-414-f3c73457-bbd6-4b92-9c15-17b241171b16-00001.parquet';
+
 const EXPECTED_SAMPLE = [
   { l_orderkey: 1, l_partkey: 22, l_quantity: 28 },
   { l_orderkey: 1, l_partkey: 157, l_quantity: 32 },
@@ -180,10 +183,26 @@ async function startStaticServer({
   landingPage = false,
   rewrite = (pathname) => pathname,
   missing = () => false,
+  denied = () => false,
+  observe = () => {},
 }) {
   const requests = [];
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    observe(request, pathname);
+    if (request.method === 'OPTIONS' && cors) {
+      response.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+        'access-control-allow-headers':
+          request.headers['access-control-request-headers'] ?? 'authorization, range',
+        'access-control-max-age': '0',
+        'cache-control': 'no-store',
+      });
+      response.end();
+      requests.push({ pathname, method: request.method, range: null, status: 204 });
+      return;
+    }
     if (landingPage && pathname === '/') {
       response.writeHead(200, {
         'content-type': MIME['.html'],
@@ -194,6 +213,20 @@ async function startStaticServer({
       return;
     }
     const mapped = rewrite(pathname);
+    if (denied(request, mapped, pathname)) {
+      response.writeHead(403, {
+        'cache-control': 'no-store',
+        ...(cors ? { 'access-control-allow-origin': '*' } : {}),
+      });
+      response.end();
+      requests.push({
+        pathname,
+        method: request.method,
+        range: request.headers.range ?? null,
+        status: 403,
+      });
+      return;
+    }
     if (missing(mapped, pathname)) {
       response.writeHead(404, { 'cache-control': 'no-store' });
       response.end();
@@ -338,6 +371,23 @@ async function stageFixture(workRoot) {
   return fixtureRoot;
 }
 
+async function probeMissingAzureArtifacts() {
+  const statuses = {};
+  for (const platform of Object.keys(EXTENSIONS)) {
+    const url = `https://extensions.duckdb.org/${CANDIDATE.duckdbVersion}/${platform}/azure.duckdb_extension.wasm`;
+    const response = await fetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(60_000),
+    });
+    statuses[platform] = response.status;
+    assert(
+      response.status === 404,
+      `${platform}/azure availability changed to HTTP ${response.status}; review the provider matrix and artifact pin before proceeding`,
+    );
+  }
+  return statuses;
+}
+
 function simplifyError(error, origins) {
   let message = error instanceof Error ? error.message : String(error);
   for (const [label, origin] of Object.entries(origins)) {
@@ -401,6 +451,252 @@ async function runScan({ browser, assetOrigin, fixtureOrigin, variant, repositor
   }
 }
 
+async function runCredentialCapabilities({ browser, assetOrigin, s3Endpoint, gcsEndpoint }) {
+  const page = await browser.newPage();
+  try {
+    await page.goto(assetOrigin, { waitUntil: 'domcontentloaded' });
+    return await page.evaluate(
+      async ({ assetOrigin, s3Endpoint, gcsEndpoint }) => {
+        const duckdb = await import('/duckdb.js');
+        const worker = new Worker('/duckdb-browser-eh.worker.js');
+        const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
+        const secretNames = ['__nd_probe_s3', '__nd_probe_gcs', '__nd_probe_http'];
+        const fixtureValues = [
+          'fixture-access',
+          'fixture-secret',
+          'fixture-session',
+          'fixture-oauth',
+          'fixture-http-token',
+        ];
+        try {
+          await db.instantiate('/duckdb-eh.wasm');
+          const connection = await db.connect();
+          try {
+            const repository = `${assetOrigin}/extensions`.replaceAll("'", "''");
+            await connection.query(`SET custom_extension_repository = '${repository}'`);
+            await connection.query(`SET autoinstall_extension_repository = '${repository}'`);
+            await connection.query('INSTALL httpfs');
+            await connection.query('LOAD httpfs');
+
+            await connection.query(`
+            CREATE OR REPLACE SECRET __nd_probe_s3 (
+              TYPE s3,
+              PROVIDER config,
+              KEY_ID 'fixture-access',
+              SECRET 'fixture-secret',
+              SESSION_TOKEN 'fixture-session',
+              REGION 'us-west-2',
+              ENDPOINT '${s3Endpoint.replaceAll("'", "''")}',
+              USE_SSL false,
+              URL_STYLE 'path',
+              SCOPE 's3://fixture-bucket/table/'
+            )
+          `);
+            const initial = (
+              await connection.query(`
+              SELECT name, type, provider, persistent, scope
+              FROM duckdb_secrets()
+              WHERE name = '__nd_probe_s3'
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON());
+            const initialS3Rows = (
+              await connection.query(`
+              SELECT l_orderkey
+              FROM read_parquet('s3://fixture-bucket/table/object-initial.parquet')
+              LIMIT 1
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON());
+            await connection.query(`
+            BEGIN TRANSACTION;
+            DROP SECRET IF EXISTS __nd_probe_s3;
+            CREATE SECRET __nd_probe_s3 (
+                TYPE s3,
+                PROVIDER config,
+                KEY_ID 'fixture-access-rotated',
+                SECRET 'fixture-secret-rotated',
+                SESSION_TOKEN 'fixture-session-rotated',
+                REGION 'us-west-2',
+                ENDPOINT '${s3Endpoint.replaceAll("'", "''")}',
+                USE_SSL false,
+                URL_STYLE 'path',
+                SCOPE 's3://fixture-bucket/table/'
+              );
+            COMMIT;
+          `);
+            const rotatedCount = (
+              await connection.query(`
+              SELECT count(*)::INTEGER AS n
+              FROM duckdb_secrets()
+              WHERE name = '__nd_probe_s3'
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON())[0]?.n;
+            const rotatedS3Rows = (
+              await connection.query(`
+              SELECT l_orderkey
+              FROM read_parquet('s3://fixture-bucket/table/object-rotated.parquet')
+              LIMIT 1
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON());
+            let rollbackPreservedSecret = false;
+            try {
+              await connection.query(`
+              BEGIN TRANSACTION;
+              DROP SECRET IF EXISTS __nd_probe_s3;
+              CREATE SECRET __nd_probe_invalid (TYPE unsupported_fixture_provider);
+              COMMIT;
+            `);
+            } catch {
+              try {
+                await connection.query('ROLLBACK');
+              } catch {
+                // The failed statement may already have rolled back.
+              }
+              const afterRollback = (
+                await connection.query(`
+                SELECT count(*)::INTEGER AS n
+                FROM duckdb_secrets()
+                WHERE name = '__nd_probe_s3'
+              `)
+              )
+                .toArray()
+                .map((row) => row.toJSON())[0]?.n;
+              rollbackPreservedSecret = afterRollback === 1;
+            }
+            await connection.query('DROP SECRET __nd_probe_s3');
+            const clearedCount = (
+              await connection.query(`
+              SELECT count(*)::INTEGER AS n
+              FROM duckdb_secrets()
+              WHERE name = '__nd_probe_s3'
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON())[0]?.n;
+            let clearedS3Rejected = false;
+            try {
+              await connection.query(`
+              SELECT l_orderkey
+              FROM read_parquet('s3://fixture-bucket/table/object-cleared.parquet')
+              LIMIT 1
+            `);
+            } catch {
+              clearedS3Rejected = true;
+            }
+
+            let gcsOauthRejected = false;
+            let gcsSecret = [];
+            let gcsReadRows = [];
+            try {
+              await connection.query(`
+              CREATE OR REPLACE SECRET __nd_probe_gcs (
+                TYPE gcs,
+                BEARER_TOKEN 'fixture-oauth',
+                ENDPOINT '${gcsEndpoint.replaceAll("'", "''")}',
+                USE_SSL false,
+                URL_STYLE 'path',
+                SCOPE 'gs://fixture-bucket/table/'
+              )
+            `);
+              gcsSecret = (
+                await connection.query(`
+                SELECT name, type, provider, persistent, scope
+                FROM duckdb_secrets()
+                WHERE name = '__nd_probe_gcs'
+              `)
+              )
+                .toArray()
+                .map((row) => row.toJSON());
+              gcsReadRows = (
+                await connection.query(`
+                SELECT l_orderkey
+                FROM read_parquet('gs://fixture-bucket/table/object.parquet')
+                LIMIT 1
+              `)
+              )
+                .toArray()
+                .map((row) => row.toJSON());
+            } catch {
+              gcsOauthRejected = true;
+            }
+
+            await connection.query(`
+            CREATE OR REPLACE SECRET __nd_probe_http (
+              TYPE http,
+              BEARER_TOKEN 'fixture-http-token',
+              SCOPE 'https://storage.googleapis.com/fixture-bucket/table/'
+            )
+          `);
+            const httpSecretCount = (
+              await connection.query(`
+              SELECT count(*)::INTEGER AS n
+              FROM duckdb_secrets()
+              WHERE name = '__nd_probe_http'
+            `)
+            )
+              .toArray()
+              .map((row) => row.toJSON())[0]?.n;
+            await connection.query('DROP SECRET __nd_probe_http');
+
+            const publicResult = {
+              s3: {
+                temporaryScopedSecret:
+                  initial.length === 1 &&
+                  String(initial[0]?.type).toLowerCase() === 's3' &&
+                  String(initial[0]?.provider).toLowerCase() === 'config' &&
+                  initial[0]?.persistent === false &&
+                  JSON.stringify(initial[0]?.scope).includes('s3://fixture-bucket/table/'),
+                replaceSupported: rotatedCount === 1,
+                clearSupported: clearedCount === 0,
+                initialAuthorizedRead: initialS3Rows.length === 1,
+                rotatedAuthorizedRead: rotatedS3Rows.length === 1,
+                rollbackPreservedSecret,
+                clearedReadRejected: clearedS3Rejected,
+              },
+              gcs: {
+                oauth2TokenSecretSupported:
+                  !gcsOauthRejected &&
+                  gcsSecret.length === 1 &&
+                  String(gcsSecret[0]?.type).toLowerCase() === 'gcs' &&
+                  gcsSecret[0]?.persistent === false &&
+                  JSON.stringify(gcsSecret[0]?.scope).includes('gs://fixture-bucket/table/'),
+                oauth2AuthorizedRead: gcsReadRows.length === 1,
+                httpsBearerSecretSupported: httpSecretCount === 1,
+              },
+            };
+            const serialized = JSON.stringify(publicResult);
+            if (fixtureValues.some((value) => serialized.includes(value))) {
+              throw new Error('credential capability result exposed a fixture value');
+            }
+            return publicResult;
+          } finally {
+            for (const name of secretNames) {
+              try {
+                await connection.query(`DROP SECRET IF EXISTS ${name}`);
+              } catch {
+                // Best-effort cleanup before the temporary database is terminated.
+              }
+            }
+            await connection.close();
+          }
+        } finally {
+          await db.terminate();
+        }
+      },
+      { assetOrigin, s3Endpoint, gcsEndpoint },
+    );
+  } finally {
+    await page.close();
+  }
+}
+
 async function expectFailure(name, action, evidence) {
   try {
     await action();
@@ -416,9 +712,10 @@ async function main() {
   const servers = [];
   let browser = null;
   try {
-    const [webRoot, fixtureRoot] = await Promise.all([
+    const [webRoot, fixtureRoot, azureArtifactStatuses] = await Promise.all([
       stageCandidate(workRoot),
       stageFixture(workRoot),
+      probeMissingAzureArtifacts(),
     ]);
     const assetServer = await startStaticServer({
       root: webRoot,
@@ -468,15 +765,112 @@ async function main() {
       honorRange: true,
       missing: (pathname) => pathname.endsWith('.parquet'),
     });
+    let s3InitialMatches = 0;
+    let s3RotatedMatches = 0;
+    let s3ClearedCredentialHeaders = 0;
+    const s3Server = await startStaticServer({
+      root: fixtureRoot,
+      cors: true,
+      honorRange: true,
+      rewrite: (pathname) =>
+        /^\/fixture-bucket\/table\/object-(?:initial|rotated|cleared)\.parquet$/.test(pathname)
+          ? FIXTURE_PARQUET_PATH
+          : pathname,
+      denied: (request, _mapped, pathname) => {
+        if (!pathname.startsWith('/fixture-bucket/table/object-')) return false;
+        if (pathname.endsWith('/object-cleared.parquet')) return true;
+        const authorization = request.headers.authorization ?? '';
+        const sessionToken = request.headers['x-amz-security-token'];
+        if (pathname.endsWith('/object-initial.parquet')) {
+          return !(authorization.includes('fixture-access') && sessionToken === 'fixture-session');
+        }
+        return !(
+          authorization.includes('fixture-access-rotated') &&
+          sessionToken === 'fixture-session-rotated'
+        );
+      },
+      observe: (request, pathname) => {
+        const authorization = request.headers.authorization ?? '';
+        const sessionToken = request.headers['x-amz-security-token'];
+        if (
+          pathname.endsWith('/object-initial.parquet') &&
+          authorization.includes('fixture-access') &&
+          sessionToken === 'fixture-session'
+        ) {
+          s3InitialMatches += 1;
+        } else if (
+          pathname.endsWith('/object-rotated.parquet') &&
+          authorization.includes('fixture-access-rotated') &&
+          sessionToken === 'fixture-session-rotated'
+        ) {
+          s3RotatedMatches += 1;
+        } else if (
+          pathname.endsWith('/object-cleared.parquet') &&
+          (authorization.length > 0 || sessionToken !== undefined)
+        ) {
+          s3ClearedCredentialHeaders += 1;
+        }
+      },
+    });
+    let gcsBearerMatches = 0;
+    const gcsServer = await startStaticServer({
+      root: fixtureRoot,
+      cors: true,
+      honorRange: true,
+      rewrite: (pathname) =>
+        pathname === '/fixture-bucket/table/object.parquet' ? FIXTURE_PARQUET_PATH : pathname,
+      denied: (request, _mapped, pathname) =>
+        pathname === '/fixture-bucket/table/object.parquet' &&
+        request.headers.authorization !== 'Bearer fixture-oauth',
+      observe: (request, pathname) => {
+        if (
+          pathname === '/fixture-bucket/table/object.parquet' &&
+          request.headers.authorization === 'Bearer fixture-oauth'
+        ) {
+          gcsBearerMatches += 1;
+        }
+      },
+    });
     servers.push(
       fixtureServer,
       noRangeServer,
       noCorsServer,
       missingMetadataServer,
       missingDataServer,
+      s3Server,
+      gcsServer,
     );
 
     browser = await chromium.launch({ headless: true });
+    const credentialCapabilities = await runCredentialCapabilities({
+      browser,
+      assetOrigin: assetServer.origin,
+      s3Endpoint: new URL(s3Server.origin).host,
+      gcsEndpoint: new URL(gcsServer.origin).host,
+    });
+    assert(
+      credentialCapabilities.s3.temporaryScopedSecret &&
+        credentialCapabilities.s3.replaceSupported &&
+        credentialCapabilities.s3.clearSupported &&
+        credentialCapabilities.s3.initialAuthorizedRead &&
+        credentialCapabilities.s3.rotatedAuthorizedRead &&
+        credentialCapabilities.s3.rollbackPreservedSecret &&
+        credentialCapabilities.s3.clearedReadRejected &&
+        s3InitialMatches > 0 &&
+        s3RotatedMatches > 0 &&
+        s3ClearedCredentialHeaders === 0,
+      'candidate did not provide the required temporary scoped S3 apply/rotate/clear lifecycle',
+    );
+    assert(
+      credentialCapabilities.gcs.oauth2TokenSecretSupported &&
+        credentialCapabilities.gcs.oauth2AuthorizedRead &&
+        gcsBearerMatches > 0,
+      'candidate did not apply the scoped GCS OAuth2 bearer token to a ranged object read',
+    );
+    assert(
+      credentialCapabilities.gcs.httpsBearerSecretSupported,
+      'candidate did not accept a scoped HTTPS bearer secret',
+    );
     const success = [];
     for (const variant of ['eh', 'mvp']) {
       const result = await runScan({
@@ -498,9 +892,13 @@ async function main() {
       success.push(result);
     }
 
-    const extensionPaths = assetServer.requests
-      .filter((request) => request.pathname.includes('/extensions/'))
-      .map((request) => request.pathname);
+    const extensionPaths = [
+      ...new Set(
+        assetServer.requests
+          .filter((request) => request.pathname.includes('/extensions/'))
+          .map((request) => request.pathname),
+      ),
+    ];
     for (const platform of Object.keys(EXTENSIONS)) {
       for (const name of Object.keys(EXTENSIONS[platform])) {
         assert(
@@ -623,6 +1021,27 @@ async function main() {
           candidate: {
             package: `@duckdb/duckdb-wasm@${CANDIDATE.packageVersion}`,
             engine: CANDIDATE.duckdbVersion,
+          },
+          credentialCapabilities: {
+            ...credentialCapabilities,
+            s3: {
+              ...credentialCapabilities.s3,
+              initialMatchedRequests: s3InitialMatches,
+              rotatedMatchedRequests: s3RotatedMatches,
+              clearedCredentialHeaders: s3ClearedCredentialHeaders,
+            },
+            gcs: {
+              ...credentialCapabilities.gcs,
+              bearerMatchedRequests: gcsBearerMatches,
+            },
+            azure: {
+              wasmExtensionAvailable: Object.fromEntries(
+                Object.entries(azureArtifactStatuses).map(([platform, status]) => [
+                  platform,
+                  status === 200,
+                ]),
+              ),
+            },
           },
           success,
           negative,

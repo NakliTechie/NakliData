@@ -2,6 +2,13 @@ import { assertSafeBearerToken } from '../core/bearer-token.ts';
 import { RemoteResponseError, readBoundedJson, readBoundedText } from '../core/remote-response.ts';
 import { redactSecrets } from '../core/sidecar/providers/redact.ts';
 
+export {
+  type DuckDbCredentialExecutor,
+  DuckDbCredentialTargetError,
+  type DuckDbCredentialTargetErrorCode,
+  DuckDbVendedCredentialTarget,
+} from './iceberg/duckdb-vended-credential-target.ts';
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_JSON_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_PAGE_LIMIT = 100;

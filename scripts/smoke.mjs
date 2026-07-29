@@ -2167,7 +2167,10 @@ async function main() {
   //   must dynamically load the chunk and open the modal. This is the runtime
   //   proof that the lazy-move didn't break the open path (unit tests + build
   //   can't see the dynamic import resolving).
-  await page.waitForSelector('[data-action="compare-tables"]', { timeout: 8000 });
+  // The source rail can render before the schema subscriber finishes its
+  // post-mount classification render on a CPU-constrained smoke worker. Give
+  // this derived affordance the same bounded readiness window as the mount.
+  await page.waitForSelector('[data-action="compare-tables"]', { timeout: 20000 });
   await page.click('[data-action="compare-tables"]');
   await page.waitForSelector('.compare-tables-overlay [data-region="compare-tables-modal"]', {
     timeout: 8000,

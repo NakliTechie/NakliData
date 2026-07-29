@@ -2220,13 +2220,18 @@ contract.
 serialization, complete and incomplete S3/GCS/ADLS shapes, expiry, refresh,
 target replacement, cleanup failure paths, and revocation. Vendor-shaped
 conformance fixtures apply credentials to mock targets without network access
-or real secrets. No checked-in DuckDB target exists yet: the pinned
-DuckDB-WASM runtime cannot load the required Iceberg extension. A no-install
-spike has proven stable 1.32.0 / DuckDB v1.4.3 plus dependency-complete EH and
-MVP Iceberg scans. The checked-in credential-free candidate gate also requires
-fail-closed extension, range, CORS, metadata, and data-file behavior, but
-applying that runtime remains a separately authorized migration. Source cards
-remain disabled and `BLOCKER.md` defines the gate.
+or real secrets. A checked-in DuckDB target now creates temporary scoped S3
+session and GCS OAuth bearer secrets with serialized, transactional
+replace/clear and redacted cleanup failures. The no-install candidate gate
+proves both shapes with actual authenticated ranged Parquet reads, rotation,
+rollback, and clear. It also proves dependency-complete EH/MVP Iceberg scans
+and fail-closed extension, range, CORS, metadata, and data-file behavior.
+However, the pinned DuckDB-WASM runtime still cannot load Iceberg, so the
+target is not wired into the product. The reviewed v1.4.3 registry has no EH or
+MVP Azure extension; the target therefore rejects ADLS before executor access.
+Applying the runtime remains a separately authorized migration, and
+Azure/ADLS needs a separate browser data-plane decision. Source cards remain
+disabled and `BLOCKER.md` defines the gate.
 
 ---
 

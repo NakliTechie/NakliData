@@ -9,8 +9,11 @@
 The generic catalog client now negotiates configuration, browses objects,
 loads table metadata, and owns short-lived S3/GCS/ADLS credentials through an
 opaque in-memory lease. A no-install spike has also proven a viable runtime and
-extension pair in Chromium. The missing checked-in component is a real target
-that can use the metadata and credentials to perform a bounded Iceberg read.
+extension pair in Chromium. A checked-in DuckDB target now maps browser-proven
+S3 session credentials and GCS OAuth bearer tokens to temporary scoped secrets,
+but it cannot run on the pinned engine and is not wired into the product. The
+missing checked-in component is therefore the authorized runtime/vendoring
+migration and bounded-read integration.
 
 NakliData pins `@duckdb/duckdb-wasm` 1.29.0, which embeds DuckDB 1.1.1. The
 Iceberg `wasm_eh` extension is not published for that core revision, so
@@ -29,7 +32,16 @@ migration steps are recorded in
 [`docs/duckdb-wasm-iceberg-spike-2026-07-29.md`](docs/duckdb-wasm-iceberg-spike-2026-07-29.md).
 `npm run warehouse:iceberg-candidate` now reproduces that proof from pinned
 upstream bytes and also requires fail-closed behavior for extension 404, ignored
-ranges, denied CORS, missing metadata, and missing data.
+ranges, denied CORS, missing metadata, and missing data. It additionally proves
+actual credential-bearing ranged Parquet reads, transactional rotation,
+rollback, and clear for local S3/GCS endpoints without exposing fixture
+credentials in its result.
+
+The same review found a provider-specific limit: the official v1.4.3 registry
+returns 404 for both EH and MVP Azure extension artifacts. The target therefore
+fails Azure/ADLS credentials before executor access. An authorized migration
+can advance AWS-backed Databricks and S3/GCS-backed Polaris/Open Catalog paths;
+it cannot honestly enable Azure-backed Databricks or ADLS-backed catalogs.
 
 That proof did not change the dependency or vendored runtime. The project still
 requires explicit authorization because upgrading the shared engine can affect
@@ -58,12 +70,14 @@ remote writes, or enabling generic or branded Iceberg source cards.
 2. Vendor the dependency-complete `httpfs` + `iceberg` + `parquet` + `avro`
    mirror for both shipped EH and MVP variants under the approved same-origin
    path.
-3. Retain the credential-free candidate gate and promote its successful public
-   Chromium scan plus range/CORS/extension/metadata/data failures to the
-   migrated runtime's production regression surface.
-4. Implement the `VendedCredentialTarget` adapter with atomic replacement and
-   clearing for S3, GCS, and ADLS; prove that refresh failure and workspace
-   teardown remove engine credentials.
+3. Retain the candidate gate and promote its successful public Chromium scan,
+   synthetic S3/GCS credential lifecycle, and
+   range/CORS/extension/metadata/data failures to the migrated runtime's
+   production regression surface.
+4. Wire the checked-in `VendedCredentialTarget` for S3 and GCS; prove that
+   refresh failure and workspace teardown remove engine credentials. Keep
+   Azure/ADLS unavailable until a separately reviewed browser-capable data
+   plane exists.
 5. Preserve cancellation, response ceilings, redacted diagnostics, no remote
    writes, and no auto-execution of generated SQL.
 6. Re-run CSV, TSV, JSONL, Parquet, SQLite, S3, notebook, persistence, and
@@ -73,4 +87,5 @@ remote writes, or enabling generic or branded Iceberg source cards.
    unit suite, manual schema override, final static checks, and the 768 KiB
    inlined-shell gate.
 8. Keep Databricks and Snowflake entry points disabled. Their live matrices
-   remain separate and require safe user-supplied endpoints and credentials.
+   remain separate, cloud-provider-specific, and require safe user-supplied
+   endpoints and credentials.

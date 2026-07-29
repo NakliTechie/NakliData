@@ -1,8 +1,9 @@
 # DuckDB-WASM / Iceberg migration spike
 
 Date: 29 July 2026  
-Status: candidate and repeatable browser compatibility gate proven; checked-in
-runtime migration not yet authorized
+Status: candidate, repeatable browser compatibility gate, and S3/GCS
+credential-target behavior proven; checked-in runtime migration not yet
+authorized
 
 ## Outcome
 
@@ -22,9 +23,12 @@ variants passed:
 | `wasm_eh` | v1.4.3 | httpfs, iceberg, parquet, avro | 5 ordered rows | 0 |
 | `wasm_mvp` | v1.4.3 | httpfs, iceberg, parquet, avro | 5 ordered rows | 0 |
 
-This resolves package/extension feasibility. It does **not** change the
-project dependency, vendor runtime assets, enable Iceberg source cards, test a
-live vendor endpoint, or establish Databricks/Snowflake compatibility.
+The same gate also proves temporary scoped S3 session credentials and GCS
+OAuth bearer credentials against local, credential-checking object endpoints.
+This resolves package/extension and those two provider-target feasibility
+questions. It does **not** change the project dependency or vendor runtime
+assets, enable Iceberg source cards, test a live vendor endpoint, establish
+Databricks/Snowflake compatibility, or establish Azure/ADLS support.
 
 ## Candidate review
 
@@ -118,7 +122,29 @@ Both variants returned the same first key pairs:
 the version hint, v2 metadata JSON, snapshot and manifest Avro files, and a
 Parquet data file. No browser console errors occurred.
 
-## Repeatable credential-free gate
+## Credential target evidence
+
+The candidate's EH build also exercised the SQL contract used by the
+checked-in `DuckDbVendedCredentialTarget`:
+
+| Provider | Candidate proof | Target status |
+| --- | --- | --- |
+| S3 | Temporary scoped `TYPE s3` secret with access key, secret, session token, and region performed an authenticated ranged Parquet read; a one-transaction drop/create rotation used the new key and token; a deliberately failed rotation rolled back to the prior secret; drop removed the secret and the rejected follow-up sent no credential headers. | Implemented, fail-closed, not wired into the current runtime |
+| GCS | Temporary scoped `TYPE gcs` + `BEARER_TOKEN` performed an authenticated ranged `gs://` Parquet read; a scoped HTTP bearer secret was also accepted. | Implemented, fail-closed, not wired into the current runtime |
+| Azure/ADLS | Official v1.4.3 `wasm_eh` and `wasm_mvp` Azure artifact requests both returned 404. | Explicit `azure_wasm_unavailable`; no support claim |
+
+The target uses generated fixed-form names, rejects ambiguous overlapping
+scopes, escapes values as SQL literals only inside its trusted executor
+boundary, creates temporary—not persistent—secrets, serializes operations, and
+exposes only a safe active-count JSON representation. A failed replacement
+rolls back and clears every old/candidate target-owned name; failure text is
+never propagated.
+
+These are synthetic local credentials and endpoints. They prove DuckDB browser
+mechanics, not cloud IAM policy, vendor credential vending, expiration, or a
+live catalog.
+
+## Repeatable candidate gate
 
 Run:
 
@@ -136,8 +162,10 @@ fixture.
 
 The successful leg runs the bounded cross-origin scan on both variants, asserts
 the exact five-row sample, confirms all eight extension requests, requires
-ranged metadata/Avro/Parquet traffic, and rejects browser console errors. Five
-credential-free negative legs must also fail with matching network evidence:
+ranged metadata/Avro/Parquet traffic, and rejects browser console errors. It
+also runs the S3 and GCS credential lifecycle above and confirms the missing
+Azure artifacts have not unexpectedly changed. Five network negative legs must
+fail with matching evidence:
 
 | Case | Expected evidence |
 | --- | --- |
@@ -165,10 +193,10 @@ gate, not part of `npm install`, ordinary unit tests, or the production bundle.
    failure. Live matrices need explicit range/CORS failure coverage.
 4. **npm `latest` is not a stable-selection policy.** It currently resolves to
    a development build. The migration must keep an exact reviewed pin.
-5. **Artifact existence is not product compatibility.** The probe used a
-   public fixture and no credentials. It did not exercise Unity Catalog,
-   Open Catalog/Polaris, cloud credential application, refresh, or vendor
-   authorization/error behavior.
+5. **Synthetic credentials are not product compatibility.** The probe used a
+   public fixture plus local credential-checking S3/GCS endpoints. It did not
+   exercise Unity Catalog, Open Catalog/Polaris, cloud IAM, credential expiry
+   refresh, or vendor authorization/error behavior.
 6. **The shared engine substrate changes.** Moving from DuckDB v1.1.1 to v1.4.3
    can affect every reader, SQL plan, type conversion, worker bootstrap, CSP
    hash, and persisted relation path; the complete regression gate remains
@@ -179,6 +207,10 @@ gate, not part of `npm install`, ordinary unit tests, or the production bundle.
    technically downstream-correct but operationally misleading. The future
    adapter should identify likely CORS/network denial without recommending
    unsafe guessing.
+8. **The candidate cannot support Azure/ADLS in the browser.** The official
+   v1.4.3 registry has no Azure artifact for either selectable WASM variant.
+   The generic lease may parse ADLS credentials, but the DuckDB target must
+   reject them and the live matrices must be split by storage provider.
 
 ## Authorized migration plan
 
@@ -189,8 +221,9 @@ When the runtime change is explicitly approved:
 3. vendor and SHA-384-pin EH and MVP core/worker assets;
 4. vendor and SHA-384-pin the four-extension closure for both variants;
 5. make extension lookup variant-aware and fail closed on an incomplete mirror;
-6. implement the real DuckDB `VendedCredentialTarget` with atomic replace and
-   clear for S3, GCS, and ADLS;
+6. wire the checked-in DuckDB `VendedCredentialTarget` for its browser-proven
+   S3 and GCS paths, including session teardown and refresh cleanup; keep
+   Azure/ADLS unavailable pending a separately reviewed browser data plane;
 7. retain `warehouse:iceberg-candidate` as the supply-chain/candidate gate and
    promote its public scan plus range/CORS/404/metadata/data failures to the
    checked-in runtime's production smoke surface;
@@ -206,4 +239,8 @@ When the runtime change is explicitly approved:
 - [DuckDB Iceberg extension](https://duckdb.org/docs/current/core_extensions/iceberg/overview)
 - [DuckDB official Iceberg fixture](https://duckdb.org/data/iceberg_data.zip)
 - [DuckDB-WASM repository](https://github.com/duckdb/duckdb-wasm)
+- [DuckDB Secrets Manager](https://duckdb.org/docs/lts/configuration/secrets_manager)
+- [DuckDB S3 secret parameters](https://duckdb.org/docs/current/core_extensions/httpfs/s3api)
+- [DuckDB HTTP bearer secrets](https://duckdb.org/docs/current/core_extensions/httpfs/https)
+- [DuckDB Azure extension](https://duckdb.org/docs/current/core_extensions/azure)
 - [GHSA-w62p-hx95-gf2c](https://github.com/advisories/GHSA-w62p-hx95-gf2c)
