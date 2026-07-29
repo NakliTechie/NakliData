@@ -14,6 +14,7 @@ import {
   type FieldClass,
   type ShelfState,
   compileShelvesToConfig,
+  inferChartBindings,
   inferFieldClass,
 } from '../../core/chart-shelves.ts';
 import { iconSvg } from '../../tokens/icons.ts';
@@ -55,10 +56,11 @@ const SHELVES: ReadonlyArray<{ key: keyof ShelfState; label: string }> = [
 ];
 
 export function renderChartCell(
-  cell: ChartCellState,
+  initialCell: ChartCellState,
   upstreamCells: ResultRefCell[],
   handlers: CellHandlers,
 ): HTMLElement {
+  let cell = initialCell;
   const el = document.createElement('div');
   el.className = 'cell';
   el.dataset.cellId = cell.id;
@@ -74,6 +76,30 @@ export function renderChartCell(
   // shelf-compile defaults / warnings.
   const classOf = new Map<string, FieldClass>();
   for (const c of cols) classOf.set(c, inferFieldClass(c, rows));
+
+  if (input?.lastResult) {
+    const resolved = inferChartBindings(
+      {
+        chartType: cell.chartType,
+        xColumn: cell.x,
+        yColumn: cell.y,
+        groupColumn: cell.facet,
+      },
+      cols,
+      (name) => classOf.get(name) ?? 'unknown',
+    );
+    if (resolved.xColumn !== cell.x || resolved.yColumn !== cell.y) {
+      handlers.onChangeSilent(cell.id, {
+        x: resolved.xColumn,
+        y: resolved.yColumn,
+      });
+      cell = {
+        ...cell,
+        x: resolved.xColumn,
+        y: resolved.yColumn,
+      };
+    }
+  }
 
   el.innerHTML = `
     <div class="cell-head">

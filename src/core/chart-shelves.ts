@@ -106,6 +106,56 @@ export function inferFieldClass(
 }
 
 /**
+ * Fill channels a renderer would otherwise infer transiently. The returned
+ * config is suitable for persisting before rendering, so selectors, shelves,
+ * exports, and the chart all describe the same bindings.
+ */
+export function inferChartBindings<
+  T extends {
+    chartType: string;
+    xColumn: string | null;
+    yColumn: string | null;
+  },
+>(config: T, columns: readonly string[], classOf: (name: string) => FieldClass): T {
+  const valid = (name: string | null): string | null =>
+    name && columns.includes(name) ? name : null;
+  let x = valid(config.xColumn);
+  let y = valid(config.yColumn);
+  const numeric = columns.filter((c) => classOf(c) === 'numeric');
+  const categorical = columns.find((c) => {
+    const cls = classOf(c);
+    return cls === 'categorical' || cls === 'temporal';
+  });
+  const value = numeric[numeric.length - 1] ?? null;
+
+  switch (config.chartType) {
+    case 'table':
+      break;
+    case 'stat':
+    case 'histogram':
+      y ??= value;
+      break;
+    case 'scatter':
+      x ??= numeric[0] ?? null;
+      y ??= numeric.find((c) => c !== x) ?? null;
+      break;
+    case 'heatmap':
+      x ??= categorical ?? columns[0] ?? null;
+      y ??= columns.find((c) => c !== x) ?? null;
+      break;
+    default:
+      x ??= categorical ?? columns.find((c) => c !== value) ?? null;
+      y ??= value;
+  }
+
+  return {
+    ...config,
+    xColumn: x,
+    yColumn: y,
+  } as T;
+}
+
+/**
  * Reasons a shelf-to-config compilation might emit a warning the UI
  * surfaces inline. These are "teach, don't silently fail" signals —
  * the compile still returns a valid `ChartConfig`, but the warning

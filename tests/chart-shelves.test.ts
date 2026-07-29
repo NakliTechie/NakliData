@@ -16,6 +16,7 @@ import {
   compileShelvesToConfig,
   configToShelves,
   emptyShelfState,
+  inferChartBindings,
   inferFieldClass,
   roundtripPreservesColumns,
 } from '../src/core/chart-shelves.ts';
@@ -269,5 +270,72 @@ describe('inferFieldClass (Phase 2 shelf field classifier)', () => {
     expect(warnings.some((w) => w.shelf === 'y' && w.field === 'vendor_id')).toBe(true);
     expect(config.yColumn).toBeNull();
     expect(config.chartType).toBe('bar'); // categorical x, no y → bar (COUNT)
+  });
+});
+
+describe('KAG-06 — inferred chart bindings become canonical config', () => {
+  const cls = (name: string) => {
+    if (name === 'Department') return 'categorical' as const;
+    if (name === 'employees' || name === 'target') return 'numeric' as const;
+    return 'unknown' as const;
+  };
+
+  it('persists the HR bar-chart category and measure into x/y', () => {
+    expect(
+      inferChartBindings(
+        {
+          chartType: 'bar',
+          xColumn: null,
+          yColumn: null,
+          groupColumn: null,
+          title: 'Headcount',
+        },
+        ['Department', 'employees'],
+        cls,
+      ),
+    ).toEqual({
+      chartType: 'bar',
+      xColumn: 'Department',
+      yColumn: 'employees',
+      groupColumn: null,
+      title: 'Headcount',
+    });
+  });
+
+  it('preserves valid manual bindings', () => {
+    expect(
+      inferChartBindings(
+        {
+          chartType: 'bar',
+          xColumn: 'Department',
+          yColumn: 'target',
+          groupColumn: 'removed',
+          title: 'Manual',
+        },
+        ['Department', 'employees', 'target'],
+        cls,
+      ),
+    ).toMatchObject({
+      xColumn: 'Department',
+      yColumn: 'target',
+      groupColumn: 'removed',
+    });
+  });
+
+  it('uses two distinct numeric channels for an unbound scatter plot', () => {
+    const numeric = () => 'numeric' as const;
+    const config = inferChartBindings(
+      {
+        chartType: 'scatter',
+        xColumn: null,
+        yColumn: null,
+        groupColumn: null,
+        title: 'Scatter',
+      },
+      ['actual', 'target'],
+      numeric,
+    );
+    expect(config.xColumn).toBe('actual');
+    expect(config.yColumn).toBe('target');
   });
 });

@@ -50,6 +50,7 @@ The original spec stays authoritative for everything not listed here.
 | [A48](#a48--direct-coordinate-map-bindings-amends-spec-33) | §3.3 | Map cells accept validated latitude/longitude pairs alongside the existing geometry-column mode. |
 | [A49](#a49--portable-warehouse-and-business-vocabulary-amends-spec-32) | §3.2 | Shipped semantics cover common HR, country-indicator, commerce-lifecycle, and unit-bearing product fields without treating vendor jargon as connector support. |
 | [A50](#a50--semantic-gating-for-number-extraction-amends-spec-32) | §3.2 | Number-extraction cleaning advice requires numeric semantic/header intent and never fires on recognized narrative fields. |
+| [A51](#a51--canonical-chart-channel-inference-amends-spec-33) | §3.3 | Heuristically inferred chart axes are written into cell state before rendering so controls, shelves, saves, and output agree. |
 
 ---
 
@@ -2151,6 +2152,37 @@ the column, not merely appear in a sampled value.
 **Status:** adopted 2026-07-29 from KAG-05. Exact Airbnb-style names, media
 titles, generic descriptions/notes, and identifier negatives are locked beside
 recognized and header-signalled measure positives.
+
+---
+
+## A51 — Canonical chart channel inference (amends spec §3.3)
+
+**Original behavior:** chart renderers could pick category and numeric columns
+when `x`/`y` were null, but the cell state and visible selectors stayed null.
+The HR bar chart therefore rendered `Department` by `employees` while both
+controls displayed `—`.
+
+**Amended behavior:** once an upstream result is available, one pure,
+chart-type-aware resolver fills only missing or stale `x`/`y` bindings from
+result field classes. The chart cell writes those bindings through the silent
+state path before building its controls and output. Valid manual bindings are
+preserved. Bar-like charts prefer a categorical/temporal field and the trailing
+numeric result; stat/histogram use a numeric `y`; scatter requires two distinct
+numeric fields; heatmaps retain two distinct fields. The renderer receives the
+same resolved cell spec.
+
+Because the state write triggers silent subscribers, inferred bindings are
+included in autosave and `.naklidata` serialization without an extra re-render.
+Manual selectors and shelf mode remain projections of the same cell state.
+
+**Reasoning:** a visible chart whose controls and saved configuration say
+something else is not reproducible. Inference is product state once the product
+uses it to render.
+
+**Status:** adopted 2026-07-29 from KAG-06. Pure cases cover HR bar bindings,
+manual-binding preservation, and distinct scatter channels. A production
+Chromium regression proves the inferred selectors populate and survive an
+unrelated full notebook re-render.
 
 ---
 

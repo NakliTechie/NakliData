@@ -170,6 +170,22 @@ Append-only. Format per AGENTHANDOFF §5.
   weights, and other explicitly signalled measures retain the proposal-only
   path, preview, original column, and un-run SQL output.
 
+### Decision FA-9 — renderer inference becomes persisted chart state
+
+- **Context.** The HR muster rendered a correct `Department` × `employees` bar
+  chart while both visible selectors remained `—`. Renderer-local fallbacks
+  produced output that the cell model, shelves, autosave, and user could not
+  explain.
+- **Decision.** Resolve missing/stale chart channels from result field classes
+  before rendering, persist the resolved `x`/`y` through the notebook's silent
+  state path, and render controls plus output from that resolved cell. Preserve
+  valid manual choices and use chart-type-specific rules, including two
+  distinct numeric channels for scatter.
+- **Consequence.** The first inferred render is reproducible: selectors,
+  shelves, autosave/serialization, and output share one configuration.
+  A focused Chromium case proves HR-style axes remain selected after a full
+  notebook re-render. The implementation stays within the hard shell budget.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts
