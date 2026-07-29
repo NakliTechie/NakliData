@@ -57,6 +57,7 @@ function adapter(
     maxPolls: 2,
     fetchImpl,
     wait: async () => undefined,
+    readAuthorizer: { authorize: () => ({ allowed: true }) },
     jsonV2Encoder: {
       async encode(
         _columns: readonly SnowflakeJsonColumn[],
@@ -172,6 +173,21 @@ describe('SnowflakeSqlAdapter', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('requires the deployment read policy to authorize vendor-specific SQL', async () => {
+    const fetchImpl = vi.fn() as typeof fetch;
+    await expect(
+      adapter(fetchImpl, {
+        readAuthorizer: {
+          authorize: () => ({
+            allowed: false,
+            reason: 'Stage and external-volume reads are not allowed.',
+          }),
+        },
+      }).execute({ sql: 'SELECT * FROM analytics.public.events' }),
+    ).rejects.toMatchObject({ code: 'unsafe_query' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('rejects an off-origin statement status URL before credentialed polling', async () => {
     const calls: string[] = [];
     const fetchImpl = vi.fn(async (input: URL | RequestInfo) => {
@@ -214,6 +230,43 @@ describe('SnowflakeSqlAdapter', () => {
         sql: 'SELECT 1',
       }),
     ).rejects.toMatchObject({ code: 'protocol_mismatch' });
+  });
+
+  it('applies one cumulative byte budget across all JSONv2 partitions', async () => {
+    const first = {
+      statementHandle: 'handle-1',
+      resultSetMetaData: {
+        numRows: 2,
+        format: 'jsonv2',
+        partitionInfo: [
+          { rowCount: 1, uncompressedSize: 1 },
+          { rowCount: 1, uncompressedSize: 1 },
+        ],
+        rowType: [
+          {
+            name: 'VALUE',
+            type: 'text',
+            nullable: false,
+            precision: null,
+            scale: null,
+          },
+        ],
+      },
+      data: [['first']],
+    };
+    const second = { data: [['x'.repeat(500)]] };
+    const combinedBytes =
+      new TextEncoder().encode(JSON.stringify(first)).byteLength +
+      new TextEncoder().encode(JSON.stringify(second)).byteLength;
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) =>
+      init?.method === 'POST' ? json(first) : json(second),
+    ) as typeof fetch;
+
+    await expect(
+      adapter(fetchImpl, { maxResultBytes: combinedBytes - 1 }).execute({
+        sql: 'SELECT value FROM events',
+      }),
+    ).rejects.toMatchObject({ code: 'result_limit' });
   });
 
   it('rejects multiple-statement responses even when the request asked for one', async () => {
@@ -275,12 +328,50 @@ describe('SnowflakeSqlAdapter', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts HTTP 408 as terminal while confirming cancellation', async () => {
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call++;
+      if (call === 1) return json(pending, 202);
+      if (call === 2) return json({ message: 'cancel accepted' });
+      return json({ message: 'Execution timed out and was cancelled.' }, 408);
+    }) as typeof fetch;
+    const wait = async () => {
+      throw new WarehouseAdapterError('stop', 'cancelled');
+    };
+    await expect(adapter(fetchImpl, { wait }).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code: 'cancelled',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports a generic 429 without a statement handle as rate limiting', async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({ message: 'Too many requests.' }, 429),
+    ) as typeof fetch;
+    await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code: 'rate_limited',
+      status: 429,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('redacts Snowflake errors and omits credentials from serialization', async () => {
     const fetchImpl = vi.fn(async () =>
-      json({ code: '123', message: 'Bearer stolen.token failed' }, 422),
+      json(
+        {
+          code: '123',
+          message: 'credential secret.token failed at https://signed.example/result?sig=capability',
+        },
+        422,
+      ),
     ) as typeof fetch;
     const instance = adapter(fetchImpl);
-    await expect(instance.execute({ sql: 'SELECT 1' })).rejects.not.toThrow(/stolen\.token/);
+    const error = await instance.execute({ sql: 'SELECT 1' }).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(WarehouseAdapterError);
+    expect(String(error)).not.toContain('secret.token');
+    expect(String(error)).not.toContain('signed.example');
+    expect(String(error)).not.toContain('capability');
     expect(JSON.stringify(instance)).not.toContain('secret.token');
   });
 

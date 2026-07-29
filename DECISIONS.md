@@ -4,6 +4,38 @@ Append-only. Format per AGENTHANDOFF §5.
 
 ## 2026-07-29 — Real-data ingestion correctness (FA)
 
+### Decision FA-15 — vendor adapter cores are executable specifications, not connector claims
+
+- **Context.** Compute Bridge v2 defined the Databricks Statement Execution and
+  Snowflake SQL API obligations, but prose and browser-shaped fixtures could
+  not catch vendor state-machine errors. The remaining risky details include
+  signed-result credential scope, manifest/partition completeness, asynchronous
+  terminal states, cancellation races, and vendor responses that can redirect
+  credentialed control requests.
+- **Decision.** Add dependency-free, injected-fetch reference cores for both
+  adapter profiles. Validate a single read before transport and require an
+  injected dialect-aware read/allowlist authorizer; the shared lexical guard is
+  never the deployment authority. Databricks submits
+  asynchronous `ARROW_STREAM`/`EXTERNAL_LINKS` work with row and byte ceilings,
+  validates every link against the manifest, keeps the workspace bearer token
+  off signed result URLs, and polls cancellation to terminal even when the
+  cancel receipt fails. Snowflake wraps `SELECT`/`WITH` reads in an outer row
+  limit, requests one asynchronous statement, validates same-origin status
+  URLs, consumes every bounded JSONv2 partition, preserves string/null values
+  for an injected Arrow encoder, and treats HTTP 408 as an already-cancelled
+  timeout. Both reject header/URL credential injection, bound control/result
+  bodies, redact failures, and serialize no token.
+- **Consequence.** `npm run warehouse:adapter-conformance` now locks the two
+  protocol state machines without a runtime dependency or vendor credential,
+  and `npm run warehouse:conformance` includes them. The reference cores are
+  not imported by the browser and do not supply an HTTP server, route layer,
+  Arrow implementation, image, installer, secret store, or live permission
+  proof. Branded source cards stay disabled. Packaging one server adapter and
+  running the safe live matrices remain separate gates. Fresh-context review
+  found cumulative-partition, secret-redaction, pagination, 408-cancellation,
+  generic-429, and truncation-signal gaps; all six are closed by adversarial
+  regressions.
+
 ### Decision FA-1 — public delimited responses are acquired once and owned locally
 
 - **Context.** Real Kaggle-derived CSVs exposed two related correctness

@@ -1,5 +1,10 @@
 import { assertSafeBearerToken } from '../bearer-token.ts';
-import { readBoundedBytes, readBoundedJson, requireContentType } from '../remote-response.ts';
+import {
+  RemoteResponseError,
+  readBoundedBytes,
+  readBoundedJson,
+  requireContentType,
+} from '../remote-response.ts';
 import { redactSecrets } from '../sidecar/providers/redact.ts';
 import { BRIDGE_QUERY_ROW_CAP_DEFAULT, BRIDGE_QUERY_ROW_CAP_MAX } from './protocol.ts';
 
@@ -20,12 +25,16 @@ export interface WarehouseAdapterRuntime {
   wait?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 }
 
+export interface WarehouseReadAuthorizer {
+  authorize(sql: string): { allowed: boolean; reason?: string };
+}
+
 export class WarehouseAdapterError extends Error {
   readonly code: string;
   readonly status: number;
 
-  constructor(message: string, code: string, status = 0) {
-    super(redactSecrets(message).slice(0, 320));
+  constructor(message: string, code: string, status = 0, exactSecrets: readonly string[] = []) {
+    super(redactWarehouseSecrets(message, exactSecrets).slice(0, 320));
     this.name = 'WarehouseAdapterError';
     this.code = code;
     this.status = status;
@@ -46,6 +55,44 @@ export function normalizeWarehouseRead(request: WarehouseReadRequest): {
     );
   }
   return { sql, rowLimit };
+}
+
+export function requireWarehouseReadAuthorizer(
+  value: WarehouseReadAuthorizer,
+): WarehouseReadAuthorizer {
+  if (!value || typeof value.authorize !== 'function') {
+    throw new WarehouseAdapterError(
+      'A dialect-aware warehouse read authorizer is required.',
+      'invalid_config',
+    );
+  }
+  return value;
+}
+
+export function authorizeWarehouseRead(
+  authorizer: WarehouseReadAuthorizer,
+  sql: string,
+  exactSecrets: readonly string[] = [],
+): void {
+  let result: ReturnType<WarehouseReadAuthorizer['authorize']>;
+  try {
+    result = authorizer.authorize(sql);
+  } catch {
+    throw new WarehouseAdapterError(
+      'Warehouse read authorization could not be completed.',
+      'unsafe_query',
+      0,
+      exactSecrets,
+    );
+  }
+  if (!result || result.allowed !== true) {
+    throw new WarehouseAdapterError(
+      result?.reason || 'Warehouse read is outside the configured allowlist.',
+      'unsafe_query',
+      0,
+      exactSecrets,
+    );
+  }
 }
 
 export function httpsBaseUrl(raw: string, label: string): URL {
@@ -151,6 +198,35 @@ export async function boundedJson(
   }
 }
 
+export async function boundedJsonWithSize(
+  response: Response,
+  maxBytes: number,
+): Promise<{ value: unknown; byteLength: number }> {
+  try {
+    requireContentType(response, ['application/json']);
+    const bytes = await readBoundedBytes(response, maxBytes);
+    const text = new TextDecoder().decode(bytes);
+    try {
+      return { value: JSON.parse(text) as unknown, byteLength: bytes.byteLength };
+    } catch {
+      throw new WarehouseAdapterError(
+        'Warehouse JSON response is not valid JSON.',
+        'protocol_mismatch',
+        response.status,
+      );
+    }
+  } catch (error) {
+    if (error instanceof WarehouseAdapterError) throw error;
+    throw new WarehouseAdapterError(
+      `Warehouse JSON response rejected: ${error instanceof Error ? error.message : String(error)}`,
+      error instanceof RemoteResponseError && error.code === 'response_too_large'
+        ? 'result_limit'
+        : 'protocol_mismatch',
+      response.status,
+    );
+  }
+}
+
 export async function boundedArrowBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   try {
     requireContentType(response, [
@@ -172,6 +248,7 @@ export function vendorFailure(
   status: number,
   fallback: string,
   code = 'vendor_error',
+  exactSecrets: readonly string[] = [],
 ): WarehouseAdapterError {
   const object = optionalObject(body);
   const statusObject = optionalObject(object?.status);
@@ -181,7 +258,7 @@ export function vendorFailure(
     optionalString(object?.message) ??
     optionalString(object?.detail) ??
     fallback;
-  return new WarehouseAdapterError(message, code, status);
+  return new WarehouseAdapterError(message, code, status, exactSecrets);
 }
 
 export function objectValue(value: unknown, path: string): Record<string, unknown> {
@@ -259,4 +336,12 @@ export async function waitForNextPoll(
     }, milliseconds);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function redactWarehouseSecrets(message: string, exactSecrets: readonly string[]): string {
+  let output = redactSecrets(message).replace(/https?:\/\/[^\s"'<>]+/gi, '[REDACTED_URL]');
+  for (const secret of exactSecrets) {
+    if (secret) output = output.split(secret).join('[REDACTED]');
+  }
+  return output;
 }

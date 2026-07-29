@@ -8,8 +8,10 @@ import {
   WAREHOUSE_RESULT_BYTES_DEFAULT,
   WarehouseAdapterError,
   type WarehouseAdapterRuntime,
+  type WarehouseReadAuthorizer,
   type WarehouseReadRequest,
   arrayValue,
+  authorizeWarehouseRead,
   bearerHeaders,
   boundedArrowBytes,
   boundedJson,
@@ -19,6 +21,7 @@ import {
   objectValue,
   optionalString,
   positiveInteger,
+  requireWarehouseReadAuthorizer,
   safeInteger,
   sameOriginVendorUrl,
   stringValue,
@@ -48,6 +51,7 @@ export interface DatabricksStatementAdapterConfig extends WarehouseAdapterRuntim
   pollIntervalMs?: number;
   maxPolls?: number;
   arrowAssembler: DatabricksArrowAssembler;
+  readAuthorizer: WarehouseReadAuthorizer;
 }
 
 export interface DatabricksStatementResult {
@@ -85,6 +89,7 @@ export class DatabricksStatementAdapter {
   private readonly maxPolls: number;
   private readonly maxResultBytes: number;
   private readonly arrowAssembler: DatabricksArrowAssembler;
+  private readonly readAuthorizer: WarehouseReadAuthorizer;
 
   constructor(config: DatabricksStatementAdapterConfig) {
     this.base = httpsBaseUrl(config.workspaceUrl, 'Databricks workspace URL');
@@ -117,6 +122,7 @@ export class DatabricksStatementAdapter {
       'Databricks result byte limit',
     );
     this.arrowAssembler = config.arrowAssembler;
+    this.readAuthorizer = requireWarehouseReadAuthorizer(config.readAuthorizer);
   }
 
   toJSON(): Record<string, unknown> {
@@ -136,6 +142,7 @@ export class DatabricksStatementAdapter {
     if (!validation.ok) {
       throw new WarehouseAdapterError(validation.reason, 'unsafe_query');
     }
+    authorizeWarehouseRead(this.readAuthorizer, sql, [this.token]);
     let statementId: string | null = null;
     let terminal = false;
     try {
@@ -173,6 +180,7 @@ export class DatabricksStatementAdapter {
             200,
             `Databricks statement ended in ${state}.`,
             state === 'CANCELED' ? 'cancelled' : 'query_failed',
+            [this.token],
           );
         }
         if (!PENDING_STATES.has(state)) {
@@ -198,10 +206,7 @@ export class DatabricksStatementAdapter {
       const normalized =
         error instanceof WarehouseAdapterError
           ? error
-          : new WarehouseAdapterError(
-              error instanceof Error ? error.message : String(error),
-              'adapter_error',
-            );
+          : new WarehouseAdapterError('Databricks adapter failed.', 'adapter_error');
       if (statementId && !terminal) {
         try {
           await this.cancelToTerminal(statementId);
@@ -240,6 +245,13 @@ export class DatabricksStatementAdapter {
       manifest.total_chunk_count,
       'Databricks manifest.total_chunk_count',
     );
+    if (typeof manifest.truncated !== 'boolean') {
+      throw new WarehouseAdapterError(
+        'Databricks manifest.truncated must be a boolean.',
+        'protocol_mismatch',
+      );
+    }
+    const truncated = manifest.truncated;
     if (totalRows > rowLimit || totalBytes > this.maxResultBytes) {
       throw new WarehouseAdapterError(
         'Databricks result exceeds the requested row or byte boundary.',
@@ -257,8 +269,18 @@ export class DatabricksStatementAdapter {
 
     const chunks: DatabricksArrowChunk[] = [];
     const seen = new Set<number>();
+    const visitedControlLinks = new Set<string>();
+    let pageCount = 0;
     let envelope = objectValue(body.result, 'Databricks result');
     for (;;) {
+      pageCount++;
+      if (pageCount > Math.max(totalChunks, 1)) {
+        throw new WarehouseAdapterError(
+          'Databricks result pagination exceeded its manifest bound.',
+          'protocol_mismatch',
+        );
+      }
+      const seenBeforePage = seen.size;
       let nextFromLinks: string | null = null;
       for (const value of arrayValue(envelope.external_links, 'Databricks result.external_links')) {
         const link = objectValue(value, 'Databricks external link');
@@ -352,8 +374,22 @@ export class DatabricksStatementAdapter {
       }
       const next = nextFromLinks ?? envelopeNext;
       if (!next) break;
+      const nextUrl = sameOriginVendorUrl(this.base, next, 'Databricks next chunk link');
+      if (seen.size === seenBeforePage || seen.size >= totalChunks) {
+        throw new WarehouseAdapterError(
+          'Databricks result pagination made no valid progress.',
+          'protocol_mismatch',
+        );
+      }
+      if (visitedControlLinks.has(nextUrl.href)) {
+        throw new WarehouseAdapterError(
+          'Databricks returned a repeated next-chunk link.',
+          'protocol_mismatch',
+        );
+      }
+      visitedControlLinks.add(nextUrl.href);
       envelope = await this.apiJson(
-        sameOriginVendorUrl(this.base, next, 'Databricks next chunk link'),
+        nextUrl,
         { method: 'GET', headers: bearerHeaders(this.token) },
         signal,
       );
@@ -375,7 +411,7 @@ export class DatabricksStatementAdapter {
     return {
       statementId,
       rowCount: totalRows,
-      truncated: manifest.truncated === true,
+      truncated,
       arrow,
     };
   }
@@ -427,7 +463,9 @@ export class DatabricksStatementAdapter {
     );
     const body = await boundedJson(response, WAREHOUSE_CONTROL_BYTES_MAX);
     if (!response.ok) {
-      throw vendorFailure(body, response.status, 'Databricks API request failed.');
+      throw vendorFailure(body, response.status, 'Databricks API request failed.', 'vendor_error', [
+        this.token,
+      ]);
     }
     return objectValue(body, 'Databricks response');
   }

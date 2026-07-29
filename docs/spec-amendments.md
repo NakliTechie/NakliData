@@ -53,6 +53,7 @@ The original spec stays authoritative for everything not listed here.
 | [A51](#a51--canonical-chart-channel-inference-amends-spec-33) | §3.3 | Heuristically inferred chart axes are written into cell state before rendering so controls, shelves, saves, and output agree. |
 | [A52](#a52--opaque-vended-credential-leases-amends-spec-41) | §4.1 | Short-lived S3/GCS/ADLS credentials cross an opaque, revocable, in-memory target boundary with expiry and refresh ownership. |
 | [A53](#a53--read-only-bounded-compute-bridge-v2-amends-spec-41) | §4.1 | Compute Bridge v2 makes read-only enforcement, structured opaque table requests, row caps, downstream cancellation, and claim-scoped warehouse profiles mandatory. |
+| [A54](#a54--executable-warehouse-adapter-reference-cores-amends-spec-41) | §4.1 | Dependency-free Databricks/Snowflake state-machine cores make vendor protocol obligations executable without shipping or claiming a connector. |
 
 ---
 
@@ -2279,6 +2280,53 @@ work running after the browser has stopped waiting.
 **Status:** adopted 2026-07-29. DECISIONS FA-14. See
 [`compute-bridge-protocol.md`](compute-bridge-protocol.md). No bridge server,
 vendor credentials, dependency, or branded entry point was added.
+
+---
+
+## A54 — Executable warehouse-adapter reference cores (amends spec §4.1)
+
+**Original behavior:** A53 described Databricks Statement Execution and
+Snowflake SQL API adapter profiles, but this repository had only browser-shaped
+fixtures and prose for the server-side vendor state machines.
+
+**Amended behavior:** the repository carries dependency-free reference cores
+for both profiles. They accept injected HTTP and Arrow conversion boundaries
+and are not imported by the browser application.
+
+The Databricks core submits asynchronous `ARROW_STREAM` results with
+`EXTERNAL_LINKS`, vendor row/byte ceilings, and optional catalog/schema
+context. It validates every manifest chunk and signed link, follows
+same-origin internal chunk links, downloads signed result URLs without the
+Databricks authorization header, and requires terminal status after
+cancellation.
+
+The Snowflake core submits one asynchronous statement with explicit
+database/schema/warehouse/role and authorization-token type. Because the SQL
+API has no request row-limit field, the core permits only validated
+`SELECT`/`WITH` shapes and adds an outer `LIMIT`. It handles 200/202/408/422/429
+semantics, constrains status and partition requests to the configured origin,
+validates every JSONv2 partition and string/null row, and passes the complete
+bounded result to an injected Arrow encoder. Cancellation is not complete
+until status polling reaches terminal 200, 408, or 422.
+
+Both cores reject unsafe SQL before transport, require an injected
+dialect-aware read/allowlist authorizer, bound response bytes and poll counts,
+reject credential-bearing URL/header shapes, redact errors, and omit tokens
+from serialization. The shared lexical guard is only defense in depth and
+cannot replace a vendor parser or object policy. `npm run
+warehouse:adapter-conformance` verifies these behaviors with synthetic
+responses.
+
+**Reasoning:** browser fixtures cannot catch vendor-specific lifecycle errors
+such as Databricks nested next-chunk links, signed-URL authorization leakage,
+Snowflake's already-cancelled 408 response, incomplete JSONv2 partitions, or a
+cancel receipt mistaken for terminal state. Executable reference cores make
+those obligations reviewable before credentials or deployment exist.
+
+**Status:** adopted 2026-07-29. DECISIONS FA-15. The repository still has no
+HTTP route layer, concrete Arrow assembler/encoder, server package, image,
+installer, credential store, dialect parser/allowlist, or live vendor
+verification. Branded entry points remain disabled.
 
 ---
 

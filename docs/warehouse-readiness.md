@@ -2,10 +2,10 @@
 
 Status: the portable Iceberg REST control plane, opaque in-memory
 credential-lease boundary, vendor-shaped catalog and Compute Bridge fixtures,
-browser-proven S3/GCS DuckDB target, and current Databricks/Snowflake
-semantic-model compatibility accounting are implemented. This is not a claim
-of live Databricks or Snowflake compatibility. Both branded entry points remain
-disabled.
+browser-proven S3/GCS DuckDB target, dependency-free Databricks/Snowflake
+adapter reference cores, and current semantic-model compatibility accounting
+are implemented. This is not a claim of live Databricks or Snowflake
+compatibility. Both branded entry points remain disabled.
 
 ## Next implementation boundary
 
@@ -48,10 +48,24 @@ credentials.
 
 Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
 separate packaged Compute Bridge concern. The browser contract is now hardened
-and exercised with credential-free vendor-shaped fixtures, but success on
-either the fixtures or the Iceberg REST path must not enable or imply a live
-bridge. See
+and exercised with credential-free vendor-shaped fixtures. Executable,
+dependency-free reference cores now cover the vendor state machines, including
+terminal cancellation and bounded result conversion boundaries, but they are
+not imported by the browser and supply no HTTP routes, concrete Arrow
+implementation, server package, image, installer, or secret store. Success on
+the reference cores, browser fixtures, or Iceberg REST path must not enable or
+imply a live bridge. See
 [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
+
+The next direct-warehouse checkpoint is packaging one core behind the exact
+Compute Bridge v2 routes with a reviewed Arrow implementation and process-level
+secret configuration. Databricks remains the preferred first live target
+because its Statement Execution API can return Arrow Stream chunks directly.
+Snowflake follows with a concrete JSONv2-to-Arrow encoder. Each package then
+needs a safe non-production workspace/account to prove authentication,
+read-only authorization, invalid/expired token handling, vendor error
+translation, disconnect cancellation, complete bounded results, and zero
+remote writes before any branded source card is enabled.
 
 ## Direct warehouse Compute Bridge matrix
 
@@ -69,14 +83,20 @@ Protocol version 2 now proves locally that:
 8. credential-free fixture success leaves Databricks/Snowflake source cards
    absent.
 
-Those checks do not prove a server-side adapter. Any packaged bridge must
+`npm run warehouse:adapter-conformance` additionally proves the two reference
+state machines against synthetic vendor responses, including bounded
+pagination, cumulative partition bytes, exact-token/signed-URL redaction,
+timeout/throttle distinctions, and explicit completeness signals. Those checks
+still do not prove a deployable server or live account. Any packaged bridge must
 independently enforce read-only access with a warehouse role that cannot write,
 honor row/byte/time ceilings, cancel the downstream vendor statement when the
 browser disconnects, and poll to a terminal cancellation state.
 
 ### Databricks SQL Warehouse adapter
 
-A safe live adapter must additionally prove:
+The reference core now proves items 1–6 synthetically. A packaged live adapter
+must additionally prove the concrete Arrow implementation, dialect-aware
+read/allowlist policy, server routing and secret configuration, plus:
 
 1. configured `warehouse_id`, catalog, and schema context;
 2. Statement Execution API submit, status polling, and terminal cancellation;
@@ -95,7 +115,11 @@ References:
 
 ### Snowflake Virtual Warehouse adapter
 
-A safe live adapter must additionally prove:
+The reference core now proves items 1–5 synthetically, including complete
+string/null JSONv2 partition collection into an injected Arrow boundary. A
+packaged live adapter must additionally prove the concrete encoder,
+dialect-aware read/allowlist policy, server routing and secret configuration,
+plus:
 
 1. configured database, schema, warehouse, and role context;
 2. SQL API asynchronous submit, status polling, and terminal cancellation;

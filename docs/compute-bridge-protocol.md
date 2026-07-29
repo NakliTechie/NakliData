@@ -1,7 +1,8 @@
 # NakliData Compute Bridge protocol
 
-Status: browser client implemented; no bridge server, vendor adapter, image, or
-installer ships in this repository.
+Status: browser client and dependency-free vendor adapter reference cores are
+implemented; no bridge server, HTTP route layer, concrete Arrow converter,
+image, installer, or live connector ships in this repository.
 
 Protocol identity: `naklidata-compute-bridge`, version `2`.
 
@@ -134,8 +135,8 @@ Errors use JSON when possible:
 
 ## Databricks SQL Warehouse adapter profile
 
-A Databricks adapter should translate bridge requests to the Statement
-Execution API:
+`src/core/bridge/databricks-statement-adapter.ts` is the executable reference
+core for translating bridge reads to the Statement Execution API:
 
 - submit with `POST /api/2.0/sql/statements`, a configured `warehouse_id`, and
   optional catalog/schema context;
@@ -146,7 +147,16 @@ Execution API:
 - use `ARROW_STREAM` results where supported; and
 - when Databricks returns signed external result links, fetch them without the
   Databricks `Authorization` header and convert/stream the result as bounded
-  Arrow IPC.
+  Arrow IPC;
+- require an explicit boolean truncation signal; and
+- bound, progress-check, and de-duplicate internal result pagination against
+  the advertised manifest.
+
+The reference core requires injected HTTP, dialect-aware read authorization,
+and Arrow assembly boundaries. A packaged bridge still must provide the HTTP
+routes, configuration/secret loading, concrete vendor parser/object allowlist,
+Arrow stream assembly, disconnect signal, process lifecycle, and a read-only
+vendor identity.
 
 References:
 
@@ -157,7 +167,8 @@ References:
 
 ## Snowflake Virtual Warehouse adapter profile
 
-A Snowflake adapter should translate bridge requests to the SQL API:
+`src/core/bridge/snowflake-sql-adapter.ts` is the executable reference core for
+translating bridge reads to the SQL API:
 
 - submit with `POST /api/v2/statements` and configured database, schema,
   warehouse, and role context;
@@ -165,7 +176,17 @@ A Snowflake adapter should translate bridge requests to the SQL API:
 - use asynchronous statement handles, status polling, and the cancel endpoint;
 - fetch every bounded JSONv2 result partition; and
 - convert the complete bounded result to Arrow IPC before returning it to the
-  browser.
+  browser;
+- apply one cumulative actual-response byte budget across all partitions; and
+- distinguish generic 429 throttling from a handle-bearing pending response,
+  while treating 408 as terminal cancellation.
+
+The reference core adds an outer `LIMIT` around validated and independently
+authorized `SELECT`/`WITH` queries, handles asynchronous
+200/202/408/422/429 responses, and uses injected HTTP and JSONv2-to-Arrow
+boundaries. A packaged bridge still must provide the HTTP routes,
+configuration/secret loading, concrete vendor parser/object allowlist, encoder,
+disconnect signal, process lifecycle, and a read-only vendor identity.
 
 References:
 
@@ -178,12 +199,15 @@ References:
 ## Verification and claim scope
 
 `npm run warehouse:conformance` exercises Databricks- and Snowflake-shaped
-synthetic bridge profiles against the production browser client. It proves
-request shape, opaque identifier preservation, row caps, secret-free results,
-and branded-card absence. Production-browser coverage separately proves that
-closing a bridge dialog aborts the HTTP request. Neither gate can prove vendor
-authentication, authorization, SQL-dialect coverage, downstream cancellation,
-rate limits, or live result conversion.
+synthetic bridge profiles against the production browser client and includes
+the adapter reference suite. `npm run warehouse:adapter-conformance` runs the
+two vendor state machines alone. Together they prove request shape, opaque
+identifier preservation, row/byte bounds, signed-result credential scope,
+manifest/partition completeness, terminal cancellation logic, secret-free
+results, and branded-card absence. Production-browser coverage separately
+proves that closing a bridge dialog aborts the HTTP request. These gates cannot
+prove vendor authentication, read-only authorization, server packaging,
+concrete Arrow conversion, rate limits, or live result behavior.
 
 Do not enable or advertise a Databricks SQL Warehouse or Snowflake Virtual
 Warehouse entry point until a separately packaged bridge adapter passes those

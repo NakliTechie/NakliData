@@ -7,15 +7,18 @@ import {
   WAREHOUSE_RESULT_BYTES_DEFAULT,
   WarehouseAdapterError,
   type WarehouseAdapterRuntime,
+  type WarehouseReadAuthorizer,
   type WarehouseReadRequest,
   arrayValue,
-  boundedJson,
+  authorizeWarehouseRead,
+  boundedJsonWithSize,
   fetchWithDeadline,
   httpsBaseUrl,
   normalizeWarehouseRead,
   objectValue,
   optionalString,
   positiveInteger,
+  requireWarehouseReadAuthorizer,
   safeInteger,
   sameOriginVendorUrl,
   stringValue,
@@ -55,6 +58,7 @@ export interface SnowflakeSqlAdapterConfig extends WarehouseAdapterRuntime {
   pollIntervalMs?: number;
   maxPolls?: number;
   jsonV2Encoder: SnowflakeJsonV2Encoder;
+  readAuthorizer: WarehouseReadAuthorizer;
 }
 
 export interface SnowflakeStatementResult {
@@ -97,6 +101,7 @@ export class SnowflakeSqlAdapter {
   private readonly fetchImpl: typeof fetch;
   private readonly runtime: WarehouseAdapterRuntime;
   private readonly encoder: SnowflakeJsonV2Encoder;
+  private readonly readAuthorizer: WarehouseReadAuthorizer;
 
   constructor(config: SnowflakeSqlAdapterConfig) {
     this.base = httpsBaseUrl(config.accountUrl, 'Snowflake account URL');
@@ -142,6 +147,7 @@ export class SnowflakeSqlAdapter {
     this.fetchImpl = config.fetchImpl ?? fetch.bind(globalThis);
     this.runtime = { ...(config.wait ? { wait: config.wait } : {}) };
     this.encoder = config.jsonV2Encoder;
+    this.readAuthorizer = requireWarehouseReadAuthorizer(config.readAuthorizer);
   }
 
   toJSON(): Record<string, unknown> {
@@ -168,6 +174,7 @@ export class SnowflakeSqlAdapter {
         'unsafe_query',
       );
     }
+    authorizeWarehouseRead(this.readAuthorizer, sql, [this.token]);
 
     let pending: PendingStatement | null = null;
     let terminal = false;
@@ -191,15 +198,24 @@ export class SnowflakeSqlAdapter {
       );
 
       for (let poll = 0; ; poll++) {
-        const body = await boundedJson(response, this.maxResultBytes);
+        const payload = await boundedJsonWithSize(response, this.maxResultBytes);
+        const body = payload.value;
         if (response.status === 200) {
           terminal = true;
           const handle = statementHandle(body, pending?.handle);
-          return await this.collectResult(body, handle, rowLimit, request.signal);
+          return await this.collectResult(
+            body,
+            handle,
+            rowLimit,
+            payload.byteLength,
+            request.signal,
+          );
         }
         if (response.status === 422) {
           terminal = true;
-          throw vendorFailure(body, 422, 'Snowflake statement failed.', 'query_failed');
+          throw vendorFailure(body, 422, 'Snowflake statement failed.', 'query_failed', [
+            this.token,
+          ]);
         }
         if (response.status === 408) {
           terminal = true;
@@ -208,6 +224,7 @@ export class SnowflakeSqlAdapter {
             408,
             'Snowflake statement exceeded its timeout and was cancelled.',
             'timeout',
+            [this.token],
           );
         }
         if (!PENDING_HTTP_STATUSES.has(response.status)) {
@@ -215,9 +232,20 @@ export class SnowflakeSqlAdapter {
             body,
             response.status,
             `Snowflake SQL API returned HTTP ${response.status}.`,
+            'vendor_error',
+            [this.token],
           );
         }
         const pendingBody = objectValue(body, 'Snowflake pending response');
+        if (
+          response.status === 429 &&
+          (!optionalString(pendingBody.statementHandle) ||
+            !optionalString(pendingBody.statementStatusUrl))
+        ) {
+          throw vendorFailure(body, 429, 'Snowflake SQL API rate limit exceeded.', 'rate_limited', [
+            this.token,
+          ]);
+        }
         rejectMultipleStatements(pendingBody);
         const handle = statementHandle(pendingBody, pending?.handle);
         // Establish a safe cancellation target before validating vendor control
@@ -255,10 +283,7 @@ export class SnowflakeSqlAdapter {
       const normalized =
         error instanceof WarehouseAdapterError
           ? error
-          : new WarehouseAdapterError(
-              error instanceof Error ? error.message : String(error),
-              'adapter_error',
-            );
+          : new WarehouseAdapterError('Snowflake adapter failed.', 'adapter_error');
       if (pending && !terminal) {
         try {
           await this.cancelToTerminal(pending);
@@ -279,6 +304,7 @@ export class SnowflakeSqlAdapter {
     value: unknown,
     handle: string,
     rowLimit: number,
+    initialResponseBytes: number,
     signal?: AbortSignal,
   ): Promise<SnowflakeStatementResult> {
     const body = objectValue(value, 'Snowflake result');
@@ -307,9 +333,17 @@ export class SnowflakeSqlAdapter {
       );
     }
     const rows: (string | null)[][] = [];
+    let actualResponseBytes = initialResponseBytes;
     appendRows(rows, body.data, columns.length, partitions[0]?.rowCount ?? rowCount);
 
     for (let index = 1; index < partitions.length; index++) {
+      const remainingBytes = this.maxResultBytes - actualResponseBytes;
+      if (remainingBytes < 1) {
+        throw new WarehouseAdapterError(
+          'Snowflake result exceeds the configured byte boundary.',
+          'result_limit',
+        );
+      }
       const partitionUrl = sameOriginVendorUrl(
         this.base,
         `/api/v2/statements/${encodeURIComponent(handle)}`,
@@ -321,13 +355,16 @@ export class SnowflakeSqlAdapter {
         { method: 'GET', headers: this.headers() },
         signal,
       );
-      const partitionBody = await boundedJson(response, this.maxResultBytes);
+      const partitionPayload = await boundedJsonWithSize(response, remainingBytes);
+      actualResponseBytes += partitionPayload.byteLength;
+      const partitionBody = partitionPayload.value;
       if (!response.ok) {
         throw vendorFailure(
           partitionBody,
           response.status,
           `Snowflake partition ${index} failed.`,
           'result_download_failed',
+          [this.token],
         );
       }
       const partitionObject = objectValue(partitionBody, `Snowflake partition ${index}`);
@@ -370,7 +407,7 @@ export class SnowflakeSqlAdapter {
         method: 'GET',
         headers: this.headers(),
       });
-      if (response.status === 200 || response.status === 422) return;
+      if (response.status === 200 || response.status === 408 || response.status === 422) return;
       if (!PENDING_HTTP_STATUSES.has(response.status)) {
         throw new WarehouseAdapterError(
           `Snowflake cancellation status returned HTTP ${response.status}.`,

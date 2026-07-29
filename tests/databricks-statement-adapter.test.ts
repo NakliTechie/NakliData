@@ -61,6 +61,7 @@ function adapter(
     maxPolls: 2,
     fetchImpl,
     wait: async () => undefined,
+    readAuthorizer: { authorize: () => ({ allowed: true }) },
     arrowAssembler: {
       async assemble(chunks: readonly DatabricksArrowChunk[]) {
         return Uint8Array.from(chunks.flatMap((chunk) => [...chunk.bytes]));
@@ -169,6 +170,21 @@ describe('DatabricksStatementAdapter', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('requires the deployment read policy to authorize vendor-specific SQL', async () => {
+    const fetchImpl = vi.fn() as typeof fetch;
+    await expect(
+      adapter(fetchImpl, {
+        readAuthorizer: {
+          authorize: () => ({
+            allowed: false,
+            reason: 'Object is outside the bridge allowlist.',
+          }),
+        },
+      }).execute({ sql: 'SELECT * FROM other_catalog.secret.events' }),
+    ).rejects.toMatchObject({ code: 'unsafe_query' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('rejects off-origin control links without leaking its bearer token', async () => {
     const calls: { url: string; init: RequestInit }[] = [];
     const body = {
@@ -207,6 +223,38 @@ describe('DatabricksStatementAdapter', () => {
       code: 'protocol_mismatch',
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds result pagination and rejects pages that make no progress', async () => {
+    const body = {
+      ...success(),
+      manifest: {
+        format: 'ARROW_STREAM',
+        total_row_count: 1,
+        total_byte_count: 1,
+        total_chunk_count: 1,
+        truncated: false,
+        chunks: [{ chunk_index: 0, row_offset: 0, row_count: 1, byte_count: 1 }],
+      },
+      result: {
+        external_links: [],
+        next_chunk_internal_link: '/api/2.0/sql/statements/stmt-1/result/chunks/0',
+      },
+    };
+    const fetchImpl = vi.fn(async () => json(body)) as typeof fetch;
+    await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code: 'protocol_mismatch',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires an explicit boolean manifest truncation signal', async () => {
+    const body = success() as unknown as { manifest: Record<string, unknown> };
+    body.manifest.truncated = 'false';
+    const fetchImpl = vi.fn(async () => json(body)) as typeof fetch;
+    await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code: 'protocol_mismatch',
+    });
   });
 
   it('cancels and polls to terminal when work is interrupted', async () => {
@@ -264,11 +312,21 @@ describe('DatabricksStatementAdapter', () => {
     const fetchImpl = vi.fn(async () =>
       json({
         statement_id: 'stmt-1',
-        status: { state: 'FAILED', error: { message: 'Bearer stolen.token' } },
+        status: {
+          state: 'FAILED',
+          error: {
+            message:
+              'credential secret.token failed at https://signed.example/result?sig=capability',
+          },
+        },
       }),
     ) as typeof fetch;
     const instance = adapter(fetchImpl);
-    await expect(instance.execute({ sql: 'SELECT 1' })).rejects.not.toThrow(/stolen\.token/);
+    const error = await instance.execute({ sql: 'SELECT 1' }).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(WarehouseAdapterError);
+    expect(String(error)).not.toContain('secret.token');
+    expect(String(error)).not.toContain('signed.example');
+    expect(String(error)).not.toContain('capability');
     expect(JSON.stringify(instance)).not.toContain('secret.token');
   });
 });
