@@ -91,7 +91,9 @@ with `npm run gen-examples`.
   export a golden (deduped) table you own.
 - **Sinks** — save/embed self-contained HTML, anonymized export, golden table,
   visual query builder, calc fields, cell lineage, and a semantic layer
-  (`MEASURE` / `DIM` / `SEGMENT`).
+  (`MEASURE` / `DIM` / `SEGMENT`). Export a portable multi-table semantic-model
+  JSON contract or loss-aware Databricks Metric View / Snowflake Semantic View
+  YAML; vendor saving stays disabled until physical bindings are complete.
 - **AI sidecar (BYOK, optional, off by default)** — ten narrow jobs (explain
   error, NL→SQL, summarise, propose chart, …). Cloud (Anthropic / OpenAI /
   custom) or fully in-browser local models. Never prose, never auto-run.

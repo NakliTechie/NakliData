@@ -125,6 +125,10 @@ Every SQL result carries one-click actions:
   **dimensions** (`DIM(gstin_state)`), and **segments** (`SEGMENT(name)` WHERE
   predicates). All macro-expand in one audited pass; a "View as code" toggle shows
   the layer as editable JSON, round-tripped in the `.naklidata` description.
+  “Export model” projects tables, classified fields, macros, and relationships
+  into a portable multi-table JSON contract, then offers loss-aware Databricks
+  Metric View YAML 1.1 and Snowflake Semantic View YAML. Missing physical
+  bindings or unsupported mappings are listed and block vendor saving.
 - **Presentation mode** — `?present=1` hides editing surfaces; markdown / chart /
   pivot / map keep rendering.
 

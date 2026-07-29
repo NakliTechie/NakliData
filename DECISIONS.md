@@ -2,6 +2,53 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 5A: portable semantic model and vendor adapters (EW)
+
+### Decision EW-1 — one portable, multi-table model is the semantic source of truth
+
+- **Context.** Measures, dimensions, segments, taxonomy assignments, and
+  associations were useful independently but could not describe the governed
+  multi-table contract Databricks Metric Views and Snowflake Semantic Views
+  expect. Making either vendor YAML canonical would leak its table, join, and
+  metadata constraints into local workbooks.
+- **Decision.** Build a versioned `naklidata-semantic-model` v1 projection from
+  the live workbook. It carries logical/physical table bindings, classified
+  fields as dimensions/time dimensions/facts, calculated dimensions, measures,
+  filters, relationships and key pairs, cardinality and join paths, candidate
+  but explicitly unverified grain, synonyms/descriptions, sensitivity/type
+  metadata, verified-query slots, and owner/certification/deprecation/business
+  terms. Existing workbook-global macros remain first-class but explicitly
+  unbound. Portable JSON is always the neutral artifact.
+- **Consequence.** The current semantic stores become one reviewable contract
+  without silently inventing table ownership, primary keys, or governance
+  state. Grain candidates never become platform primary keys until verified,
+  and relationship keys must reference real fields.
+
+### Decision EW-2 — vendor adapters are current, lazy, and loss-aware
+
+- **Context.** Databricks Metric View YAML 1.1 is root-table oriented and has
+  join cardinality constraints; Snowflake Semantic View YAML is multi-table,
+  infers relationship type from keys, and does not represent every NakliData
+  governance/display hint. A syntactically plausible export can still be
+  semantically wrong.
+- **Decision.** Keep both adapters in one on-demand chunk and expose them from
+  the Semantic layer. Databricks export requires a selected root and verified
+  three-part physical bindings, maps portable measure formats, binds only
+  global/root objects, omits non-scalar one-to-many fields, and rejects
+  many-to-many or invalid models. Snowflake export emits logical tables,
+  dimensions, time dimensions, facts, table/view metrics, relationships, and
+  verified-query slots; it withholds unverified primary keys and reports
+  unbound dimensions/filters and unmapped display formats. Both return
+  structured warnings/errors, mark deployability, and disable saving when an
+  error exists.
+- **Consequence.** Users can version portable JSON and produce a vendor YAML
+  artifact only when the adapter can defend its physical bindings. Mapping
+  losses stay visible instead of being discarded. Branded live connectivity
+  remains disabled and externally gated; an export adapter is not a warehouse
+  connector. Gate: **1,511 vitest**, focused production browser **1/1**,
+  **SMOKE PASSED**, bundle **785,059 / 786,432 bytes** (1,373 bytes
+  headroom), final static check exit 0 with 34 pre-existing warnings.
+
 ## 2026-07-29 — Goal Phase 4A: generic platform boundary (EV)
 
 ### Decision EV-1 — remote clients negotiate and consume within one bounded request lifecycle

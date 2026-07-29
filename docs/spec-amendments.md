@@ -1855,6 +1855,46 @@ was available or enabled.
 
 ---
 
+## A43 — Portable semantic model and loss-aware adapters (amends spec §3.8)
+
+**Original behavior:** measures, dimensions, segments, taxonomy assignments,
+and associations were separate workbook primitives. They did not form one
+multi-table semantic contract, carry governed object metadata, or export to the
+target platforms.
+
+**Amended behavior:** NakliData defines `naklidata-semantic-model` version 1 as
+the canonical portable projection of the live workbook. It contains logical
+tables and physical bindings; dimensions, time dimensions, facts, measures,
+and filters; relationships, key pairs, cardinality, grain, and join paths;
+descriptions, synonyms, business terms, sensitivity, and semantic types;
+verified-query slots; and owner, certification, deprecation metadata. Grain
+inferred from classified identifiers remains a candidate with
+`verified: false`; adapters must not assert a platform primary key from it.
+Workbook-global macros remain present with `tableId: null` and produce explicit
+binding diagnostics.
+
+The Semantic layer exports versionable portable JSON plus current Databricks
+Metric View YAML 1.1 and Snowflake Semantic View YAML through a lazy,
+loss-aware adapter. Databricks uses an explicit root table and only
+representable adjacent joins/objects. Snowflake uses a multi-table view.
+Missing physical coordinates, invalid references, or unsupported relationship
+shapes make the vendor artifact non-deployable and disable saving. Approximate
+bindings and omitted vendor/portable metadata are listed as structured mapping
+notes. Vendor YAML never becomes the internal source of truth.
+
+**Reasoning:** Databricks and Snowflake use different semantic grammars and
+constraints. Portability requires a superset model plus explicit loss
+accounting, not a least-common-denominator vendor document. A model export is
+also distinct from a verified live connector.
+
+**Status:** adopted 2026-07-29. DECISIONS EW. Unit tests cover model
+construction, validation, deterministic YAML, physical-binding failures,
+format mapping, both export adapters, and loss-aware object imports. A focused
+production-browser test covers the user surface and confirms local-only
+workbooks can export portable JSON while both vendor formats fail closed.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.
