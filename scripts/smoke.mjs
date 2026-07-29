@@ -198,7 +198,9 @@ async function main() {
   log('✓ 1280×720 header: primary actions visible; Workbook/Explore/Model menus fit');
   const railWidths = [];
   for (const action of ['toggle-sources-rail', 'toggle-schema-rail']) {
-    const before = await page.locator('.center').evaluate((node) => node.getBoundingClientRect().width);
+    const before = await page
+      .locator('.center')
+      .evaluate((node) => node.getBoundingClientRect().width);
     await page.click(`[data-action="${action}"]`);
     const collapsed = await page
       .locator('.center')
@@ -211,8 +213,7 @@ async function main() {
   }
   if (
     railWidths.some(
-      ({ before, collapsed, restored }) =>
-        collapsed <= before || Math.abs(restored - before) > 1,
+      ({ before, collapsed, restored }) => collapsed <= before || Math.abs(restored - before) > 1,
     )
   ) {
     fail(`rail collapse/restore regression: ${JSON.stringify(railWidths)}`);
@@ -404,23 +405,20 @@ async function main() {
   // into `public/duckdb-extensions/` so the JSONL load works fully
   // offline; before that landed, this assertion was a tolerant `>= 3`.
   if (sourceRowCount < 4) fail(`expected ≥4 tables, got ${sourceRowCount}`);
-  await page.waitForSelector(
-    '.cell[data-cell-id="demo_vendor_spend"] .result-table tbody tr',
-    { timeout: 30000 },
-  );
+  await page.waitForSelector('.cell[data-cell-id="demo_vendor_spend"] .result-table tbody tr', {
+    timeout: 30000,
+  });
   await page.waitForSelector('.cell[data-cell-id="demo_vendor_chart"] svg', { timeout: 30000 });
-  await page.waitForSelector(
-    '.cell[data-cell-id="demo_quality"] .assertion-verdict--pass',
-    { timeout: 30000 },
-  );
+  await page.waitForSelector('.cell[data-cell-id="demo_quality"] .assertion-verdict--pass', {
+    timeout: 30000,
+  });
   const demoNumber = await page.evaluate(() => {
     const cell = document.querySelector('.cell[data-cell-id="demo_vendor_spend"]');
     const columns = Array.from(cell?.querySelectorAll('th') ?? []).map(
       (header) => header.textContent?.trim() ?? '',
     );
     const idx = columns.indexOf('total_billed');
-    const td =
-      idx >= 0 ? cell?.querySelector(`tbody tr td:nth-child(${idx + 1})`) : null;
+    const td = idx >= 0 ? cell?.querySelector(`tbody tr td:nth-child(${idx + 1})`) : null;
     return { text: td?.textContent ?? '', title: td?.getAttribute('title') ?? '' };
   });
   if (!demoNumber.text.includes(',') || !/exact value:/i.test(demoNumber.title)) {
@@ -466,8 +464,7 @@ async function main() {
     first?.querySelector('[data-action="evidence"]')?.click();
     return {
       summary: first?.querySelector('.evidence-bullets li > span')?.textContent?.trim() ?? '',
-      technical:
-        first?.querySelector('.evidence-technical code')?.textContent?.trim() ?? '',
+      technical: first?.querySelector('.evidence-technical code')?.textContent?.trim() ?? '',
     };
   });
   if (
@@ -734,9 +731,7 @@ async function main() {
       return {
         empty: txt.includes('No lineage recorded yet'),
         hasSource:
-          document.querySelector(
-            '.lineage-list .lineage-row-source .lineage-kind-source',
-          ) !== null,
+          document.querySelector('.lineage-list .lineage-row-source .lineage-kind-source') !== null,
       };
     });
     if (!lineage.empty && lineage.hasSource) break;
@@ -817,9 +812,7 @@ async function main() {
   // Enable the sidecar (keeps the default provider) via the Settings UI.
   await page.click('[data-action="open-settings"]');
   await page.waitForSelector('[data-action="settings-enable"]', { timeout: 5000 });
-  const settingsGroups = await page
-    .locator('.settings-group > h2')
-    .allTextContents();
+  const settingsGroups = await page.locator('.settings-group > h2').allTextContents();
   if (
     JSON.stringify(settingsGroups) !==
     JSON.stringify([
@@ -1738,7 +1731,8 @@ async function main() {
     };
   });
   if (agent.error) fail(`agent surface: ${agent.error}`);
-  if (agent.version !== '2') fail(`agent surface: expected proposal-only contract v2, got v${agent.version}`);
+  if (agent.version !== '2')
+    fail(`agent surface: expected proposal-only contract v2, got v${agent.version}`);
   const expectVerbs = ['describe', 'listCells', 'listTables', 'proposeCell', 'query'];
   if (JSON.stringify(agent.tools) !== JSON.stringify(expectVerbs)) {
     fail(`agent surface: verbs ${JSON.stringify(agent.tools)} != ${JSON.stringify(expectVerbs)}`);
@@ -1910,7 +1904,7 @@ async function main() {
   // 11. Override one column's type. Pick the first schema-column row, open
   // the override <details>, pick a type, and confirm origin becomes
   // user_override.
-  const overridden = await page.evaluate(() => {
+  const overrideColumn = await page.evaluate(() => {
     const first = document.querySelector('.schema-column');
     if (!first) return null;
     const colName = first.dataset.column;
@@ -1919,41 +1913,42 @@ async function main() {
     details.open = true;
     // Trigger toggle so the menu lazily renders.
     details.dispatchEvent(new Event('toggle'));
-    // Wait one tick via microtask.
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const groupLabels = Array.from(details.querySelectorAll('.type-option-group'))
-          .map((group) => group.firstElementChild?.textContent?.trim())
-          .filter(Boolean);
-        const search = details.querySelector('input[aria-label="Filter types"]');
-        if (
-          !search ||
-          !groupLabels.includes('Suggested for this column') ||
-          !groupLabels.includes('Common')
-        ) {
-          return resolve({
-            colName,
-            id: null,
-            menuError: { groupLabels, hasSearch: !!search },
-          });
-        }
-        const firstOption = details.querySelector('.type-option[data-type-id]');
-        const id = firstOption?.dataset.typeId ?? null;
-        firstOption?.click();
-        resolve({ colName, id, menuError: null });
-      }, 50);
-    });
+    return colName ?? null;
   });
+  if (!overrideColumn) fail('semantic override target was not available');
+  await page.waitForFunction(
+    (colName) => {
+      const details = document.querySelector(
+        `.schema-column[data-column="${CSS.escape(colName)}"] details.schema-override`,
+      );
+      if (!(details instanceof HTMLDetailsElement)) return false;
+      const groupLabels = Array.from(details.querySelectorAll('.type-option-group'))
+        .map((group) => group.firstElementChild?.textContent?.trim())
+        .filter(Boolean);
+      return (
+        !!details.querySelector('input[aria-label="Filter types"]') &&
+        groupLabels.includes('Suggested for this column') &&
+        groupLabels.includes('Common')
+      );
+    },
+    overrideColumn,
+    { timeout: 5000 },
+  );
+  const overridden = await page.evaluate((colName) => {
+    const details = document.querySelector(
+      `.schema-column[data-column="${CSS.escape(colName)}"] details.schema-override`,
+    );
+    if (!(details instanceof HTMLDetailsElement)) return null;
+    const firstOption = details.querySelector('.type-option[data-type-id]');
+    const id = firstOption?.dataset.typeId ?? null;
+    firstOption?.click();
+    return { colName, id };
+  }, overrideColumn);
   await delay(200);
   const overrodeOk = await page.evaluate((col) => {
     const row = document.querySelector(`.schema-column[data-column="${col}"]`);
     return row?.dataset.origin === 'user_override';
   }, overridden?.colName);
-  if (overridden?.menuError) {
-    fail(
-      `semantic override information architecture regressed: ${JSON.stringify(overridden.menuError)}`,
-    );
-  }
   // SB6: the schema panel is the spec's single most important surface — a
   // failed override is a real regression, so fail hard instead of soft-logging.
   if (!overrodeOk) fail(`override did not stick for ${overridden?.colName}`);
@@ -2900,7 +2895,9 @@ async function main() {
   );
   const leakedCellViews = outgoingCellViews.filter((name) => visibleRelations.includes(name));
   if (leakedCellViews.length > 0) {
-    fail(`session isolation: outgoing cell views remained queryable (${leakedCellViews.join(', ')})`);
+    fail(
+      `session isolation: outgoing cell views remained queryable (${leakedCellViews.join(', ')})`,
+    );
   }
   log(
     `✓ Session isolation: ${outgoingCellViews.length} outgoing cell relation(s) dropped before the new workspace mounted`,
