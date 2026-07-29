@@ -7,7 +7,9 @@
 NakliData is a **browser-native semantic data workbench**: mount data (CSV,
 Parquet, SQLite, …), it classifies every column into a ~193-type semantic
 taxonomy with a sensitivity tier, and you query it with DuckDB-in-the-browser.
-The data never leaves the tab.
+Local data and compute stay in the browser by default. Remote sources and cloud
+sidecar actions are explicit, and cloud actions disclose their payload before
+sending.
 
 An agent can work with NakliData two ways. Both are **propose-don't-execute** by
 design — the model is never the safety boundary.

@@ -2,6 +2,58 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 3B: deterministic first value and analytical UX (EU)
+
+### Decision EU-1 — the bundled demo is one coherent, deterministic workbook
+
+- **Context.** “Browse example data” mounted several unrelated extracts and
+  then left a first-time evaluator to write SQL. A workload chooser would add
+  another decision before value, while AI-generated onboarding would weaken
+  repeatability and require credentials.
+- **Decision.** Keep the comprehensive synthetic bundle, relabel the action
+  “Try the demo,” and on a genuinely empty workbook install one governed-
+  operations story: context, vendor-spend query, bound chart, and invoice-
+  quality assertion. Run only the hand-authored SQL and assertion. Load the
+  scaffold from a lazy chunk and never overwrite a non-empty notebook.
+- **Consequence.** A first visit reaches a result, chart, and deterministic
+  PASS/FAIL check without SQL authoring or an AI key. The source bundle remains
+  broad enough to demonstrate finance, events, and logs after the first story.
+
+### Decision EU-2 — desktop navigation protects the work surface
+
+- **Context.** Eight secondary header actions competed with primary file and
+  configuration actions at 1280×720. Fixed source/schema rails consumed 560 px,
+  and Settings presented AI as the organizing concept for unrelated privacy
+  and connection controls.
+- **Decision.** Keep Open, Save, Settings, and Help visible; group secondary
+  actions into Workbook, Explore, and Model menus. Make both rails independently
+  collapsible. Organize Settings into AI sidecar, Privacy and display,
+  Connections and credentials, and Advanced / agents. Retain exact selectors
+  for command dispatch and keyboard/accessibility behavior.
+- **Consequence.** The shell fits the target viewport, the notebook can reclaim
+  either rail’s width, and configuration reflects the real trust boundaries.
+  Production smoke measures overflow, primary visibility, menu labels, rail
+  collapse/restore, and Settings structure.
+
+### Decision EU-3 — analytical presentation is display-only and explainable
+
+- **Context.** DuckDB aggregate doubles exposed binary tails in analyst-facing
+  tables; semantic overrides were a flat 204-type list; detector evidence led
+  with implementation strings.
+- **Decision.** Format numbers only at render time. Monetary semantic types use
+  two display decimals; other numbers use bounded significant digits and
+  grouping. Store the canonical raw string in selection state and show it in a
+  precision tooltip whenever display differs; SQL, snapshots, and exports keep
+  raw values. Present evidence in plain language with raw detector output under
+  an expandable Technical detail. Make the override picker search-first with
+  suggested, recent, common, workbook, and domain groups, loaded only on open.
+- **Consequence.** Financial tables no longer lead with floating-point noise,
+  but precision-sensitive inspection and downstream behavior remain exact.
+  Stewards get understandable evidence and a tractable type chooser without
+  expanding the shell. Gate: **1,497 vitest**, focused browser **5/5**,
+  **SMOKE PASSED**, bundle **785,345 / 786,432 bytes** (1,087 bytes
+  headroom), final static check exit 0 with 34 pre-existing warnings.
+
 ## 2026-07-29 — Goal Phase 3A: verified product truth and cloud boundary (ET)
 
 ### Decision ET-1 — product surfaces describe verified readiness, not latent code

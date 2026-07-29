@@ -43,6 +43,7 @@ The original spec stays authoritative for everything not listed here.
 | [A38](#a38--proposal-only-agent-contract-v2-amends-the-agent-surface) | Agent surface | Agent contract v2 removes cell execution; proposals remain editable and un-run, while value queries reject alternate row forms and carry a pre-execution row cap. |
 | [A39](#a39--public-static-service-worker-cache-policy-amends-spec-71) | §7.1 | Cache Storage admits only named public application assets; authenticated, private, no-store, non-200, partial, and unlisted traffic bypasses it. Cloudflare observability is disabled. |
 | [A40](#a40--verified-readiness-and-cloud-disclosure-amends-spec-41--43) | §4.1 + §4.3 | Iceberg entry points are disabled pending real-endpoint verification; Bridge is advanced/BYO; cloud sidecar requests disclose and minimize payloads. |
+| [A41](#a41--deterministic-first-value-and-analytical-presentation-amends-spec-32--33--38) | §3.2 + §3.3 + §3.8 | The bundled demo creates an AI-free starter workbook; desktop navigation is grouped/collapsible; numbers, evidence, and semantic overrides use analyst-facing presentation. |
 
 ---
 
@@ -1772,6 +1773,45 @@ boundaries and the actual payload crossing them.
 registry counts, redaction/blocking, cancellation, and disclosure payloads.
 Focused browser tests cover disabled Iceberg entry points and a real cloud
 sidecar request with provider/payload disclosure.
+
+---
+
+## A41 — Deterministic first value and analytical presentation (amends spec §3.2 + §3.3 + §3.8)
+
+**Original behavior:** the example action mounted data but did not provide a
+first result. Secondary header actions and fixed rails crowded the notebook at
+1280×720. Settings centered AI while mixing unrelated controls. Result tables
+showed raw floating-point tails, detector strings led the evidence UI, and all
+semantic types appeared in one flat override list.
+
+**Amended behavior:** “Try the demo” installs one deterministic, AI-free
+governed-operations workbook only when both sources and notebook are empty. It
+contains context, a vendor-spend SQL result, a bound chart, and an explicitly
+run invoice-quality assertion. It never invokes a model and never replaces
+existing work.
+
+Open, Save, Settings, and Help stay visible at the target 1280×720 viewport.
+Secondary actions are grouped under Workbook, Explore, and Model. Sources and
+Schema rails collapse independently. Settings groups AI sidecar, Privacy and
+display, Connections and credentials, and Advanced / agents.
+
+Result-table number formatting is display-only and may use semantic type.
+Canonical values continue into SQL, selections, persistence, and export; a
+tooltip exposes exact precision whenever display differs. Evidence uses
+analyst-facing summaries with detector output available under Technical
+detail. The semantic override picker is search-first and groups suggested,
+recent, common, workbook, and business-domain types; its implementation is a
+lazy chunk.
+
+**Reasoning:** first value should be deterministic and credential-free.
+Analytical readability must not silently mutate values. Navigation and
+classification surfaces should serve the evaluator’s task rather than expose
+the implementation catalogue all at once.
+
+**Status:** adopted 2026-07-29. DECISIONS EU. Unit tests cover demo shape,
+number precision, and evidence translation. Production smoke covers the target
+viewport, both rails, demo result/chart/assertion, Settings structure, number
+tooltips, evidence drill-down, and grouped semantic override.
 
 ---
 

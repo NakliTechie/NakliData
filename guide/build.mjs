@@ -44,7 +44,7 @@ const SECTIONS = [
     id: 'getting-started',
     title: 'Getting started — bring your data in',
     intro:
-      'NakliData is a browser-native data workbench: everything runs in this tab, and your data never leaves it (there is no server, no upload, no account). You start by pointing it at data — a local folder or file, a public URL, or a remote store. If you just want to look around, use “browse example data”, which is what every screenshot in this guide is built on.',
+      'NakliData is a browser-native data workbench: local data and compute stay in this tab by default, with no NakliData account or relay server. Remote sources, OSM tiles, and cloud sidecar actions are explicit. You start with a local folder or file, a public URL, or a remote store. If you just want to look around, use “Try the demo”, which is what every screenshot in this guide is built on.',
     items: [
       'getting-started/00-welcome',
       'getting-started/01-empty-state',
@@ -148,7 +148,7 @@ const CAPTIONS = {
   },
   'getting-started/01-empty-state': {
     title: 'The arrival screen — “What do you have?”',
-    desc: 'The first thing a new user sees. Eight ways in: a local folder or file, a pasted public URL, an S3 bucket, Iceberg table/catalog, or a Compute Bridge. “Browse example data” loads the demo dataset used throughout this guide.',
+    desc: 'The first thing a new user sees. Sources are grouped by readiness: local files and folders, HTTPS and S3-compatible storage, disabled Iceberg options, and the advanced bring-your-own Compute Bridge. “Try the demo” loads the deterministic dataset used throughout this guide.',
   },
   'getting-started/02-mount-url': {
     title: 'Mount a public URL',
@@ -156,7 +156,7 @@ const CAPTIONS = {
   },
   'getting-started/03-mount-s3': {
     title: 'Mount an S3-compatible bucket',
-    desc: 'Point at object storage by bucket + path. Access keys are session-default (never persisted unless you opt in) — consistent with the “your data never leaves the tab” promise.',
+    desc: 'Point at object storage by bucket + path. This is an explicit remote connection; access keys stay session-default unless you opt into persistence.',
   },
   'data-and-schema/01-sources-mounted': {
     title: 'Sources rail after mounting',
