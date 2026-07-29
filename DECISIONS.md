@@ -25,6 +25,24 @@ Append-only. Format per AGENTHANDOFF §5.
   two scans. Focused tests and independent review pass; the production smoke
   passes and the bundle is **766.6 / 768.0 KB**.
 
+### Decision FA-2 — overloaded semantic names cannot create a domain by themselves
+
+- **Context.** Kaggle's mushroom dataset uses a categorical column named
+  `population`, while a country-indicator dataset uses a generic `Year`.
+  Header-only scoring auto-accepted both as domain semantics and the latter
+  was enough to recommend a media-specific report.
+- **Decision.** Make `population` a 60% header plus 40% numeric-distribution
+  classification, remove bare `year` from the media release-year aliases, and
+  require same-table `content_title` plus `release_year` evidence before the
+  Content catalog brief is applicable. Preserve specific release-year aliases
+  and the existing numeric population positive path.
+- **Consequence.** The two observed false positives now remain unknown instead
+  of becoming confident semantics, while known-positive population and media
+  fixtures still classify. This is deliberately role-specific evidence
+  tightening rather than a global threshold change. The full **1,532-test**
+  suite and production smoke pass, including schema render, evidence, and
+  override; the bundle remains **766.6 / 768.0 KB**.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

@@ -957,7 +957,7 @@ export const CONTENT_CATALOG: Template = {
   name: 'Content catalog brief',
   description:
     'Title counts by release year, with media-type and content-rating breakdowns when present. Fits streaming / catalog exports.',
-  requiredTypes: ['release_year'],
+  requiredTypes: ['content_title', 'release_year'],
   optionalTypes: ['media_type', 'content_rating'],
   instantiate(m) {
     const yr = m.release_year!;

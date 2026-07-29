@@ -47,6 +47,8 @@ function sample(columnName: string, values: string[], sqlType = 'VARCHAR'): Colu
 }
 const top = (name: string, values: string[], sqlType?: string): string | null =>
   classifyColumn(BUNDLE, sample(name, values, sqlType)).candidates[0]?.typeId ?? null;
+const classification = (name: string, values: string[], sqlType?: string) =>
+  classifyColumn(BUNDLE, sample(name, values, sqlType));
 
 describe('Tier-1 taxonomy — geography', () => {
   it('classifies latitude / longitude by header + numeric range', () => {
@@ -211,6 +213,24 @@ describe('Media domain pack (Netflix)', () => {
     expect(top('rating', ['4', '5', '3', '2'], 'INTEGER')).not.toBe('content_rating');
     expect(top('type', ['premium', 'basic', 'trial'])).not.toBe('media_type');
   });
+  it('does NOT call a generic country-data Year column a media release year', () => {
+    const result = classification('Year', ['2000', '2020', '2026'], 'INTEGER');
+    expect(result.candidates[0]?.typeId).not.toBe('release_year');
+    expect(result.resolution).not.toMatchObject({
+      kind: 'auto_accept',
+      typeId: 'release_year',
+    });
+  });
+  it('does NOT call mushroom category codes a population', () => {
+    const result = classification('population', ['s', 'n', 'a', 'v', 'y']);
+    expect(
+      result.candidates.find((candidate) => candidate.typeId === 'population')?.confidence,
+    ).toBe(0.6);
+    expect(result.resolution).not.toMatchObject({
+      kind: 'auto_accept',
+      typeId: 'population',
+    });
+  });
 });
 
 // B2 — HR / people domain pack. Fixtures mirror the IBM HR Attrition dataset.
@@ -252,8 +272,11 @@ describe('Tier-1 report templates surface for matching roles', () => {
   it('retail_sales surfaces when quantity + amount present', () => {
     expect(ids(['quantity', 'amount', 'country_name'])).toContain('retail_sales');
   });
-  it('content_catalog surfaces when release_year present', () => {
-    expect(ids(['release_year', 'media_type', 'content_rating'])).toContain('content_catalog');
+  it('content_catalog requires a title and release year from one catalog', () => {
+    expect(ids(['content_title', 'release_year', 'media_type', 'content_rating'])).toContain(
+      'content_catalog',
+    );
+    expect(ids(['release_year', 'media_type', 'content_rating'])).not.toContain('content_catalog');
   });
   it('hr_workforce surfaces when department + compensation present', () => {
     expect(ids(['department', 'compensation', 'tenure_years'])).toContain('hr_workforce');
