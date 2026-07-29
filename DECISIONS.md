@@ -2,6 +2,64 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 1A: explicit artifact ownership (EN)
+
+### Decision EN-1 — use explicit mount and VFS registries without hiding table names
+
+- **Context.** Source relations and DuckDB VFS keys were derived from filenames
+  or aliases. `CREATE OR REPLACE` let a second local/URL/connector source
+  silently replace the first, while two filenames that sanitized alike could
+  swap bytes underneath distinct source cards.
+- **Decision.** Keep human-readable table names, but allocate them through one
+  per-engine mount registry (`name`, `name_2`, …) across every source kind.
+  Register source files under opaque per-engine VFS keys, reference-own those
+  keys by relation, and remove replacement DDL from source registration.
+  Relation deletion releases its VFS files only after the last owner.
+- **Consequence.** Same-name, cross-kind, and sanitized-name collisions remain
+  distinct and visible. Removing and remounting a source releases the preferred
+  name safely. A dedicated browser regression mounts two `data.csv` files,
+  verifies `data` + `data_2`, removes one, and remounts without disturbing the
+  survivor.
+
+### Decision EN-2 — workspace reset covers runtime and connection state
+
+- **Context.** Dropping visible source/cell relations did not cancel in-flight
+  runs or reset connection credentials, semantic singleton stores, cleaning
+  advice, and runtime caches consistently.
+- **Decision.** The shared workspace teardown cancels every notebook run; drops
+  source/cell relations and registered files; clears connection-wide S3 and
+  Iceberg credentials without loading unavailable extensions; and resets
+  cleaning, lineage, measures, selections, associations, dimensions, and
+  segments. Deleting a cell separately aborts it and drops `cell_<id>`.
+- **Consequence.** New/switch/delete/load boundaries start from one defined
+  runtime state, and a deleted cell cannot finish late and recreate its engine
+  relation.
+
+### Decision EN-3 — session deletion and Start Fresh delete the whole artifact set
+
+- **Context.** A session's main snapshot was only one of several records.
+  Result rows, refresh fingerprints, per-source credentials, and FSA handles
+  could survive deletion or Start Fresh.
+- **Decision.** One `clearSessionArtifacts()` operation owns all session
+  records. It deletes the snapshot, result snapshots, fingerprints, source
+  credentials, and handles not referenced by another surviving session.
+  Cleanup attempts every artifact and refuses to report success if any removal
+  fails.
+- **Consequence.** Active and inactive deletion use the same lifecycle.
+  Start Fresh reloads only after complete cleanup. Exact key-inventory tests
+  cover sessionStorage and IDB copies.
+
+### Decision EN-4 — folder identity is origin-based and handles follow success
+
+- **Context.** A folder rescan generated new table IDs, orphaning assignment
+  keys, and persisted its handle before finding a usable table.
+- **Decision.** Reconcile remounted tables by stable file origin (name fallback
+  for old snapshots), preserve persisted table IDs, and report added/missing
+  files. Persist a newly picked handle only after at least one table mounts; if
+  handle storage then fails, drop the created relations.
+- **Consequence.** Semantic assignments survive reorder/add/remove rescans, and
+  empty or all-failed folders leave no orphan handle.
+
 ## 2026-07-29 — Goal Phase 0: fail-closed agent values and prevalidated workspace loads (EM)
 
 ### Decision EM-1 — agent values require direct, one-table provenance
