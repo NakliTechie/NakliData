@@ -120,6 +120,16 @@ async function main() {
     'city,note\n  Mumbai,ok\nDelhi  ,ok\nPune,ok\n  Kochi ,ok\n',
     'utf8',
   );
+  // KAG-01 regression: valid Latin-1 bytes from an ordinary origin with no
+  // byte-range support. The public-URL path must fetch once, normalize the
+  // encoding, and return the same exact three rows on repeated scans.
+  await writeFile(
+    join(ROOT, '__smoke_latin1.csv'),
+    Buffer.from(
+      'sku,description,amount\n1,"Tea, boxed",£10\n2,"Quoted ""item""",£20\n3,Café,£30\n',
+      'latin1',
+    ),
+  );
   log('starting server');
   const { server, url } = await startServer();
 
@@ -551,6 +561,46 @@ async function main() {
   log(
     `✓ Cleaning surface: clean fixture silent (EJ-3) · dirty column suggested "${suggestion.label}" · click emitted an UN-RUN trim cell (EJ-1)`,
   );
+
+  // KAG-01: mount a no-range Latin-1 response through the production public-URL
+  // UI, then query the owned relation twice through the bounded read surface.
+  await page.click('[data-action="add-source"]');
+  await page.waitForSelector('[data-action="mount-url"]', { timeout: 10000 });
+  await page.click('[data-action="mount-url"]');
+  await page.waitForSelector('.mount-url-overlay', { timeout: 10000 });
+  await page.fill('[data-region="url-input"]', `${url}/__smoke_latin1.csv`);
+  await page.click('[data-action="confirm-mount-url"]');
+  await page.waitForFunction(() => !document.querySelector('.mount-url-overlay'), null, {
+    timeout: 60000,
+  });
+  const remoteDelimited = await page.evaluate(async () => {
+    const nd = window.naklidata;
+    if (!nd) return { error: 'window.naklidata is not bound' };
+    const listed = await nd.listTables();
+    if (!listed?.ok) return { error: listed?.error ?? 'listTables failed' };
+    const table = listed.data.find((item) => item.name === 'smoke_latin1');
+    if (!table) return { error: 'materialized table was not listed' };
+    const first = await nd.query({ sql: 'SELECT sku FROM smoke_latin1' });
+    const second = await nd.query({ sql: 'SELECT sku FROM smoke_latin1' });
+    const card = Array.from(document.querySelectorAll('.source-card')).find((item) =>
+      item.textContent?.includes('__smoke_latin1.csv'),
+    );
+    return {
+      first: first.ok ? first.data.rowCount : -1,
+      second: second.ok ? second.data.rowCount : -1,
+      firstError: first.ok ? null : first.error,
+      secondError: second.ok ? null : second.error,
+      provenance: card?.querySelector('strong')?.getAttribute('title') ?? '',
+    };
+  });
+  if (remoteDelimited.error) fail(`remote CSV materialization: ${remoteDelimited.error}`);
+  if (remoteDelimited.first !== 3 || remoteDelimited.second !== 3) {
+    fail(`remote CSV materialization returned unstable counts: ${JSON.stringify(remoteDelimited)}`);
+  }
+  if (!/materialized once.*Windows-1252/i.test(remoteDelimited.provenance)) {
+    fail(`remote CSV provenance is incomplete: ${remoteDelimited.provenance}`);
+  }
+  log('✓ public CSV: no-range Latin-1 response materialized once · repeated scans = 3 rows');
 
   // 6. Templates panel: "Vendor concentration" should be applicable.
   await page.waitForFunction(

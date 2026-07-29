@@ -11,6 +11,11 @@ const httpSrc: MountedSource = {
   kind: 'http',
   label: 'NYC Airbnb',
   ref: 'https://raw.githubusercontent.com/acme/data/main/ab_nyc.csv',
+  http: {
+    ingestionMode: 'materialized',
+    byteLength: 7_079_206,
+    encoding: 'utf-8',
+  },
   tables: [
     {
       id: 't1',
@@ -48,6 +53,7 @@ describe('describeSource', () => {
     expect(p.kindLabel).toBe('Public URL');
     expect(p.location).toBe('https://raw.githubusercontent.com/acme/data/main/ab_nyc.csv');
     expect(p.host).toBe('raw.githubusercontent.com');
+    expect(p.ingestion).toBe('materialized once · utf-8');
     expect(p.tables).toEqual([{ name: 'ab_nyc', format: 'csv', rowCount: 48895 }]);
   });
   it('has no remote location for a local file (origin is per-table)', () => {
@@ -60,7 +66,9 @@ describe('describeSource', () => {
 
 describe('provenanceSummary (tooltip)', () => {
   it('shows kind + host for a URL source', () => {
-    expect(provenanceSummary(httpSrc)).toBe('Public URL · raw.githubusercontent.com');
+    expect(provenanceSummary(httpSrc)).toBe(
+      'Public URL · raw.githubusercontent.com · materialized once · utf-8',
+    );
   });
   it('shows just the kind for a local source', () => {
     expect(provenanceSummary(fsaSrc)).toBe('Local file');
@@ -72,7 +80,7 @@ describe('provenanceMarkdown (report block)', () => {
     const md = provenanceMarkdown([httpSrc, fsaSrc]);
     expect(md).toContain('### Sources');
     expect(md).toContain(
-      '- **NYC Airbnb** (Public URL) — `https://raw.githubusercontent.com/acme/data/main/ab_nyc.csv`',
+      '- **NYC Airbnb** (Public URL) — `https://raw.githubusercontent.com/acme/data/main/ab_nyc.csv` · materialized once · utf-8',
     );
     expect(md).toContain('  - ab_nyc · csv · 48,895 rows');
     expect(md).toContain('- **sales.csv** (Local file)');

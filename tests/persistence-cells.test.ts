@@ -56,6 +56,41 @@ describe('persistence timestamps', () => {
   });
 });
 
+describe('persistence — public URL acquisition provenance', () => {
+  it('round-trips materialization and detected encoding without source bytes', () => {
+    const source = {
+      id: 'remote-source',
+      kind: 'http' as const,
+      label: 'Retail',
+      ref: 'https://example.com/retail.csv',
+      http: {
+        ingestionMode: 'materialized' as const,
+        byteLength: 1024,
+        encoding: 'windows-1252' as const,
+      },
+      tables: [
+        {
+          id: 'retail-table',
+          sourceId: 'remote-source',
+          name: 'retail',
+          format: 'csv' as const,
+          origin: 'https://example.com/retail.csv',
+          rowCount: 10,
+          registered: true,
+        },
+      ],
+    };
+    const saved = serialize({ ...baseInput, sources: [source], cells: [] });
+    expect(saved.sources[0]?.http).toEqual({
+      ingestion_mode: 'materialized',
+      byte_length: 1024,
+      encoding: 'windows-1252',
+    });
+    expect(parse(JSON.stringify(saved)).sources[0]?.http).toEqual(saved.sources[0]?.http);
+    expect(JSON.stringify(saved)).not.toContain('source bytes');
+  });
+});
+
 describe('persistence round-trip — SQL cell (W4 baseline)', () => {
   it('survives save/load with runtime state stripped', () => {
     const cell: SqlCellState = {

@@ -138,6 +138,8 @@ export interface LazyChunkRegistry {
   'bridge-client': typeof import('../lazy/bridge-client.ts');
   /** Bounded, cancellable, paginated Apache Iceberg REST Catalog client. */
   'iceberg-rest-client': typeof import('../lazy/iceberg-rest-client.ts');
+  /** One-fetch, encoding-normalized public CSV/TSV acquisition. */
+  'remote-delimited': typeof import('../lazy/remote-delimited.ts');
   /** Portable semantic-model builder plus loss-aware vendor YAML adapters. */
   'semantic-model': typeof import('../lazy/semantic-model.ts');
   /** Deterministic data-quality suggestions, contracts, and explicit-run UI. */

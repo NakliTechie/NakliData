@@ -136,6 +136,12 @@ export interface MountedTable {
   registered: boolean;
 }
 
+export interface HttpSourceConfig {
+  ingestionMode: 'materialized' | 'remote-reader';
+  byteLength: number | null;
+  encoding: 'utf-8' | 'windows-1252' | null;
+}
+
 export interface MountedSource {
   id: string;
   kind: SourceKind;
@@ -144,6 +150,8 @@ export interface MountedSource {
   ref?: string;
   /** Wave 2 slice 2 — populated for `kind: 's3-endpoint'`. */
   s3?: S3EndpointConfig;
+  /** Public-URL acquisition details; contains no response bytes or secrets. */
+  http?: HttpSourceConfig;
   /** Wave 2 slice 3a — populated for `kind: 'iceberg-table'`. */
   iceberg?: IcebergTableConfig;
   /** Wave 2 slice 3b — populated for `kind: 'iceberg-catalog'`. */
@@ -745,11 +753,9 @@ export async function mountFile(
 }
 
 /**
- * Wave 2 slice 1 — mount a remote URL as a table. DuckDB-wasm reads the
- * bytes directly via the browser's fetch; no httpfs extension needed for
- * plain HTTPS reads. The view is created over `read_<format>('<url>')`,
- * so SELECTs against the table re-fetch ranges on demand (DuckDB respects
- * HTTP range requests where the server supports them, e.g. for Parquet).
+ * Wave 2 slice 1 — mount a remote URL as a table. Delimited text is
+ * materialized once for deterministic scans; Parquet/JSONL use their native
+ * remote readers.
  *
  * Supported formats: csv, tsv, jsonl, parquet — the four whose readers
  * ship in DuckDB-wasm without an extension load. Other formats throw a
@@ -782,13 +788,14 @@ export async function mountUrl(
     engine,
     opts.tableName ?? sanitizeTableName(lastSegment || 'remote'),
   );
-  await engine.registerUrl({ tableName: tableLabel, url, format });
+  const registration = await engine.registerUrl({ tableName: tableLabel, url, format });
   const rowCount = await getRowCount(engine, tableLabel);
   return {
     id: sourceId,
     kind: 'http',
     label: opts.label ?? (lastSegment || url),
     ref: url,
+    http: registration,
     tables: [
       {
         id: genId('tbl'),

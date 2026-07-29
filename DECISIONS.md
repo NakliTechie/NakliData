@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Real-data ingestion correctness (FA)
+
+### Decision FA-1 — public delimited responses are acquired once and owned locally
+
+- **Context.** Real Kaggle-derived CSVs exposed two related correctness
+  failures: servers without reliable byte-range behavior could produce
+  non-deterministic or inflated results across scans, and Latin-1/Windows-1252
+  files could be decoded as UTF-8. Letting DuckDB reopen the URL made both the
+  bytes and their interpretation an external moving part.
+- **Decision.** For public CSV and TSV URLs, perform one `credentials: omit`
+  fetch, read the body once, preserve valid UTF-8, otherwise normalize
+  supported declared or detected Latin-1/Windows-1252 bytes to UTF-8, and
+  register the result as an owned opaque VFS file. Keep JSONL and Parquet on
+  their existing remote readers. Persist only acquisition metadata—mode,
+  original byte length, and encoding—not source bytes.
+- **Consequence.** Every query over a mounted delimited URL reads the same
+  owned bytes, while source removal releases the registration. This trades
+  bounded browser memory for deterministic public-delimited correctness; it
+  does not add credentials, telemetry, persistence, or a runtime dependency.
+  A production-browser no-range Latin-1 fixture returns exactly three rows on
+  two scans. Focused tests and independent review pass; the production smoke
+  passes and the bundle is **766.6 / 768.0 KB**.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

@@ -123,6 +123,12 @@ export interface RegisterFileOptions {
   file: File;
 }
 
+export interface RemoteRegistration {
+  ingestionMode: 'materialized' | 'remote-reader';
+  byteLength: number | null;
+  encoding: 'utf-8' | 'windows-1252' | null;
+}
+
 export interface QueryOptions {
   /** AbortSignal — calling abort triggers DuckDB interrupt + rejects the promise. */
   signal?: AbortSignal;
@@ -590,14 +596,11 @@ export class Engine {
   }
 
   /**
-   * Register a remote URL as a table. DuckDB-wasm fetches the bytes
-   * directly via the browser's fetch (no httpfs extension needed for
-   * plain HTTPS reads). The view is created over read_<format>('<url>'),
-   * so subsequent SELECTs against the table re-fetch ranges on demand.
-   * Wave 2 slice 1 supports csv / tsv / jsonl / parquet — formats whose
-   * readers ship in core DuckDB without an extension load. Other formats
-   * are surfaced by mountUrl with a friendly "not supported via URL"
-   * error rather than reaching here.
+   * Register a public URL. CSV/TSV responses are fetched exactly once,
+   * normalized to UTF-8, and registered as an owned VFS buffer. This avoids
+   * repeated network-backed sniffs/scans returning different row sets when an
+   * ordinary origin does not implement byte ranges. JSONL/Parquet retain their
+   * native remote readers.
    */
   async registerUrl({
     tableName,
@@ -607,20 +610,43 @@ export class Engine {
     tableName: string;
     url: string;
     format: 'csv' | 'tsv' | 'jsonl' | 'parquet';
-  }): Promise<void> {
+  }): Promise<RemoteRegistration> {
     const safeTable = sanitizeIdent(tableName);
+    if (format === 'csv' || format === 'tsv') {
+      if (!this.db) throw new EngineError('Engine not booted');
+      const remote = await loadChunk('remote-delimited').then((chunk) =>
+        chunk.fetchRemoteDelimited(url),
+      );
+      const pathname = new URL(url).pathname;
+      const displayName = pathname.split('/').pop() || `remote.${format}`;
+      const fname = this.nextRegisteredFileName(safeTable, displayName);
+      await this.db.registerFileBuffer(fname, remote.bytes);
+      try {
+        await this.createDelimitedView(
+          fname,
+          safeTable,
+          displayName,
+          remote.byteLength,
+          format === 'tsv' ? '\t' : undefined,
+        );
+        this.ownRegisteredFile(safeTable, fname);
+      } catch (err) {
+        await this.dropRegisteredFile(fname);
+        throw err;
+      }
+      return {
+        ingestionMode: 'materialized',
+        byteLength: remote.byteLength,
+        encoding: remote.encoding,
+      };
+    }
     const lit = escapeLiteral(url);
-    // M29: match the resilient options `createDelimitedView` uses for local
-    // files (whole-file type inference + skip broken rows + sniffer header
-    // detection). The old `header=true, sample_size=2048` re-introduced the
-    // "CSV Error on Line N" hard-fail and ate headerless files' first row.
-    const reader: Record<typeof format, string> = {
-      csv: `read_csv_auto('${lit}', sample_size=-1, ignore_errors=true, null_padding=true)`,
-      tsv: `read_csv_auto('${lit}', delim='\t', sample_size=-1, ignore_errors=true, null_padding=true)`,
+    const reader: Record<'jsonl' | 'parquet', string> = {
       jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
       parquet: `read_parquet('${lit}')`,
     };
     await this.exec(`CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`);
+    return { ingestionMode: 'remote-reader', byteLength: null, encoding: null };
   }
 
   /**

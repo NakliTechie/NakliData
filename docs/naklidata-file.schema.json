@@ -89,6 +89,16 @@
         },
         "label": { "type": "string" },
         "ref": { "type": ["string", "null"], "description": "Reattach hint (bundle id / URL / handle id); null when not persistable." },
+        "http": {
+          "type": "object",
+          "description": "Public-URL acquisition provenance. Source bytes are never embedded.",
+          "required": ["ingestion_mode", "byte_length", "encoding"],
+          "properties": {
+            "ingestion_mode": { "type": "string", "enum": ["materialized", "remote-reader"] },
+            "byte_length": { "type": ["number", "null"] },
+            "encoding": { "type": ["string", "null"], "enum": ["utf-8", "windows-1252", null] }
+          }
+        },
         "tables": {
           "type": "array",
           "items": {

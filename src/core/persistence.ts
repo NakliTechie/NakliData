@@ -85,6 +85,12 @@ export interface PersistedSource {
   label: string;
   ref: string | null;
   tables: Array<{ id: string; name: string; format: string; origin: string; rowCount: number }>;
+  /** Public-URL ingestion provenance; response bytes are never persisted. */
+  http?: {
+    ingestion_mode: 'materialized' | 'remote-reader';
+    byte_length: number | null;
+    encoding: 'utf-8' | 'windows-1252' | null;
+  };
   /** Wave 2 slice 2 — present when kind is 's3-endpoint'. Secrets are NOT persisted. */
   s3?: {
     endpoint: string;
@@ -180,6 +186,15 @@ export function serialize(input: SerializeInput): NakliDataFile {
         origin: t.origin,
         rowCount: t.rowCount,
       })),
+      ...(s.http
+        ? {
+            http: {
+              ingestion_mode: s.http.ingestionMode,
+              byte_length: s.http.byteLength,
+              encoding: s.http.encoding,
+            },
+          }
+        : {}),
       // Wave 2 slice 2 — s3-endpoint config travels alongside the source.
       // Secrets (access key, secret access key) are NOT persisted here;
       // they live in source-secrets.ts and the user re-grants them on
@@ -409,6 +424,24 @@ function validateSource(value: unknown, index: number): PersistedSource {
     ref: nullableString(source.ref, `${path}.ref`),
     tables,
   };
+  if (source.http !== undefined) {
+    const http = objectValue(source.http, `${path}.http`);
+    out.http = {
+      ingestion_mode: oneOf(
+        http.ingestion_mode,
+        ['materialized', 'remote-reader'],
+        `${path}.http.ingestion_mode`,
+      ),
+      byte_length:
+        http.byte_length === null
+          ? null
+          : finiteNumber(http.byte_length, `${path}.http.byte_length`),
+      encoding:
+        http.encoding === null
+          ? null
+          : oneOf(http.encoding, ['utf-8', 'windows-1252'] as const, `${path}.http.encoding`),
+    };
+  }
   if (source.s3 !== undefined) {
     const s3 = objectValue(source.s3, `${path}.s3`);
     out.s3 = {

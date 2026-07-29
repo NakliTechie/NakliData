@@ -17,6 +17,8 @@ export interface SourceProvenanceItem {
   location: string | null;
   /** Host for URL sources (derived from location), else null. */
   host: string | null;
+  /** Acquisition details worth carrying into reports, never source bytes. */
+  ingestion: string | null;
   tables: Array<{ name: string; format: string; rowCount: number }>;
 }
 
@@ -65,11 +67,20 @@ function locationOf(src: MountedSource): string | null {
 
 export function describeSource(src: MountedSource): SourceProvenanceItem {
   const location = locationOf(src);
+  const ingestion = src.http
+    ? [
+        src.http.ingestionMode === 'materialized' ? 'materialized once' : 'remote reader',
+        src.http.encoding === 'windows-1252' ? 'Windows-1252' : src.http.encoding,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : null;
   return {
     label: src.label,
     kindLabel: KIND_LABEL[src.kind] ?? src.kind,
     location,
     host: location ? hostOf(location) : null,
+    ingestion,
     tables: src.tables.map((t) => ({ name: t.name, format: t.format, rowCount: t.rowCount })),
   };
 }
@@ -78,7 +89,7 @@ export function describeSource(src: MountedSource): SourceProvenanceItem {
 export function provenanceSummary(src: MountedSource): string {
   const p = describeSource(src);
   const loc = p.host ?? p.location;
-  return loc ? `${p.kindLabel} · ${loc}` : p.kindLabel;
+  return [p.kindLabel, loc, p.ingestion].filter(Boolean).join(' · ');
 }
 
 /**
@@ -91,7 +102,8 @@ export function provenanceMarkdown(sources: MountedSource[]): string {
   for (const src of sources) {
     const p = describeSource(src);
     const loc = p.location ? ` — \`${p.location}\`` : '';
-    lines.push(`- **${p.label}** (${p.kindLabel})${loc}`);
+    const ingestion = p.ingestion ? ` · ${p.ingestion}` : '';
+    lines.push(`- **${p.label}** (${p.kindLabel})${loc}${ingestion}`);
     for (const t of p.tables) {
       lines.push(`  - ${t.name} · ${t.format} · ${t.rowCount.toLocaleString()} rows`);
     }
