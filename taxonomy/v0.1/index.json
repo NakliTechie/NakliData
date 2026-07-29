@@ -48,7 +48,7 @@
     {
       "id": "retail",
       "label": "Retail and transactions",
-      "description": "Order/invoice IDs, SKU/product codes, quantity, customer IDs \u2014 retail & e-commerce transaction exports.",
+      "description": "Order/invoice IDs, lifecycle status/timestamps, payment installments, product categories/dimensions, SKU, quantity, and customer IDs \u2014 retail and e-commerce exports.",
       "domain_file": "domains/retail.json"
     },
     {
@@ -60,7 +60,7 @@
     {
       "id": "hr-people",
       "label": "HR and people",
-      "description": "Employee ID, job title, department, compensation, and tenure \u2014 HRIS / people-analytics exports (e.g. IBM HR Attrition).",
+      "description": "Employee identity, lifecycle, management, recruiting, performance, engagement, attendance, compensation, and tenure \u2014 HRIS and people-analytics exports.",
       "domain_file": "domains/hr-people.json"
     },
     {
@@ -90,7 +90,7 @@
     {
       "id": "public-sector",
       "label": "Public sector and demographics",
-      "description": "Population, households, median income, unemployment rate and age bands \u2014 census / civic / open-data aggregates.",
+      "description": "Country/year indicator panels, tiers/ranks, population, households, median income, unemployment rate, and age bands \u2014 census, civic, and open-data aggregates.",
       "domain_file": "domains/public-sector.json"
     },
     {

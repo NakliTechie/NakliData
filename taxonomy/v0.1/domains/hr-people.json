@@ -6,7 +6,20 @@
     "job_title",
     "department",
     "compensation",
-    "tenure_years"
+    "tenure_years",
+    "hire_date",
+    "termination_date",
+    "employment_status",
+    "termination_reason",
+    "manager_name",
+    "manager_id",
+    "recruitment_source",
+    "performance_rating",
+    "employee_engagement_score",
+    "employee_satisfaction",
+    "special_projects_count",
+    "late_days_count",
+    "absence_count"
   ],
   "report_templates": ["hr_workforce"]
 }

@@ -6,7 +6,10 @@
     "households",
     "median_income",
     "unemployment_rate",
-    "age_band"
+    "age_band",
+    "calendar_year",
+    "economic_tier",
+    "indicator_rank"
   ],
   "report_templates": ["demographic_summary"]
 }

@@ -48,6 +48,7 @@ The original spec stays authoritative for everything not listed here.
 | [A46](#a46--iceberg-rest-configuration-and-credential-vending-negotiation-amends-spec-41) | §4.1 | Iceberg REST reads negotiate server configuration, safe route prefixes, advertised endpoints, and opt-in credential-vending metadata without retaining credential values. |
 | [A47](#a47--current-vendor-semantic-imports-and-explicit-loss-accounting-amends-spec-38) | §3.8 | Current Databricks Metric View and Snowflake Semantic View imports preserve representable scoped concepts and diagnose every supported vendor-only shape they omit. |
 | [A48](#a48--direct-coordinate-map-bindings-amends-spec-33) | §3.3 | Map cells accept validated latitude/longitude pairs alongside the existing geometry-column mode. |
+| [A49](#a49--portable-warehouse-and-business-vocabulary-amends-spec-32) | §3.2 | Shipped semantics cover common HR, country-indicator, commerce-lifecycle, and unit-bearing product fields without treating vendor jargon as connector support. |
 
 ---
 
@@ -2084,6 +2085,45 @@ order, numeric coercion, and range rejection; persistence tests cover the new
 shape and legacy migration. The focused production-browser suite proves
 geometry rendering, invalid-geometry handling, coordinate auto-binding,
 invalid-row disclosure, and canvas rendering.
+
+---
+
+## A49 — Portable warehouse and business vocabulary (amends spec §3.2)
+
+**Original behavior:** the taxonomy recognized broad identifiers, amounts,
+geography, and a starter set of domain fields, but left common HR lifecycle,
+country-indicator, commerce-lifecycle, payment-installment, and physical-product
+columns unknown. A bare `Year` was deliberately no longer treated as a media
+release year after KAG-02, but it had no correct portable replacement.
+
+**Amended behavior:** the bundled taxonomy adds conservative, portable roles
+for calendar year; employee lifecycle, management, recruiting, performance,
+engagement, and attendance; economic tier and indicator rank; order lifecycle
+status/timestamps and payment installments; and product category, weight,
+length, height, and width. Exact corpus aliases include separator-free HRIS
+headers and Olist-style commerce headers. Product measurements require product
+or unit-bearing context, indicator rank avoids generic `rank`, and country-name
+header evidence no longer depends on a narrow value set. ISO alpha-2 values
+still classify as country codes.
+
+Employee-grain HR roles inherit PII sensitivity. Order lifecycle and installment
+roles are financial. Aggregated country indicators and physical product
+measurements remain public. Every new role maps to the universal layer.
+
+Platform terminology such as Unity Catalog, SQL Warehouse, Auto Loader,
+Open Catalog, Virtual Warehouse, Snowpipe, Dynamic Tables, and semantic views
+is maintained as product vocabulary in `docs/warehouse-vocabulary.md`; it does
+not enable a connector or imply live verification.
+
+**Reasoning:** warehouse users think in stable business concepts as well as
+vendor product names. Portable roles improve CSV, Parquet, Iceberg, and future
+connector results equally, while exact aliases and negative fixtures avoid
+turning generic names into confident false positives.
+
+**Status:** adopted 2026-07-29 from the authenticated Kaggle HR,
+country-indicator, and Olist corpus. Thirty-five exact-header, sensitivity, and
+collision tests cover the new vocabulary; universal-layer tests require every
+role to have one crosswalk.
 
 ---
 

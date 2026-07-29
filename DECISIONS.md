@@ -134,6 +134,27 @@ Append-only. Format per AGENTHANDOFF §5.
   inlined shell is **767.2 / 768.0 KB** after moving map work behind the lazy
   boundary.
 
+### Decision FA-7 — warehouse vocabulary is portable, conservative, and claim-scoped
+
+- **Context.** The Kaggle HR, country-indicator, and Olist corpora exposed
+  common analyst fields that stayed unknown even though their meanings are
+  stable across CSV, Iceberg, Databricks, and Snowflake. Platform jargon is
+  also useful for discovery, but listing a vendor term can easily be mistaken
+  for claiming a live connector.
+- **Decision.** Add exact, conservative roles for employee and order
+  lifecycles, people analytics, calendar year and indicator ranks, payment
+  installments, product category, and unit-bearing physical dimensions. Mark
+  employee-grain roles PII and order lifecycle/installments financial. Keep
+  generic width, height, and rank unmatched without product/indicator context;
+  preserve ISO country-code precedence. Maintain vendor jargon in a tracked
+  vocabulary with three explicit claim levels: recognized, fixture-conformant,
+  and live verified.
+- **Consequence.** Common warehouse exports classify usefully without weakening
+  false-positive controls or coupling the portable taxonomy to a vendor.
+  Thirty-five real-header, sensitivity, and collision regressions cover the
+  new roles, and universal-layer coverage is complete. Databricks/Snowflake
+  branded entry points remain disabled pending live verification.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts
