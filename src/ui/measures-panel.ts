@@ -57,6 +57,8 @@ export interface MeasuresPanelDescriptor {
   /** SQL of every cell — used to compute "used by N cells" for measures
    *  + dimensions. Caller pulls from the notebook. */
   cellSqls: ReadonlyArray<{ id: string; name: string | null; sql: string }>;
+  /** Opens the portable semantic-model and vendor-adapter export surface. */
+  onExportModel: () => void;
 }
 
 export function openMeasuresPanel(desc: MeasuresPanelDescriptor, onChange: () => void): void {
@@ -134,6 +136,7 @@ function renderModal(desc: MeasuresPanelDescriptor): HTMLElement {
           ${iconSvg('table', 14)} Semantic layer
         </h2>
         <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-ghost" data-action="export-model" style="font-size:11px;">Export model</button>
           <button class="btn btn-ghost ${_codeMode ? 'is-active' : ''}" data-action="toggle-code" aria-pressed="${_codeMode}" style="font-size:11px;">${_codeMode ? 'View as forms' : 'View as code'}</button>
           <button class="btn btn-ghost schema-graph-close" data-action="measures-close" aria-label="Close">
             ${iconSvg('x', 14)}
@@ -295,6 +298,11 @@ function wireHandlers(overlay: HTMLElement, desc: MeasuresPanelDescriptor): void
     if (target === overlay) return closeMeasuresPanel();
     const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
     if (action === 'measures-close') return closeMeasuresPanel();
+    if (action === 'export-model') {
+      closeMeasuresPanel();
+      desc.onExportModel();
+      return;
+    }
     if (action === 'toggle-code') {
       _codeMode = !_codeMode;
       return rerender(desc);

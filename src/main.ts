@@ -1443,9 +1443,45 @@ function handleOpenMeasures(engine: Engine): void {
   // (esbuild splitting:false) bundles its OWN copies of those stores, so
   // panel-defined measures/dimensions never reached the notebook's
   // expander — broken since v1.3 M2, surfaced + fixed in v1.4 F1.
-  openMeasuresPanel({ cellSqls }, () => {
-    // No-op; the notebook re-reads the stores on each cell run.
-  });
+  openMeasuresPanel(
+    {
+      cellSqls,
+      onExportModel: () => {
+        void handleOpenSemanticModelExport();
+      },
+    },
+    () => {
+      // No-op; the notebook re-reads the stores on each cell run.
+    },
+  );
+}
+
+async function handleOpenSemanticModelExport(): Promise<void> {
+  try {
+    const taxonomy = getTaxonomyClient();
+    await taxonomy.ensureReady();
+    const workbook = getWorkbook().get();
+    const semanticModel = await loadChunk('semantic-model');
+    semanticModel.openSemanticModelExportDialog({
+      input: {
+        name: _activeSession?.name ?? 'Untitled',
+        sources: workbook.sources,
+        assignments: workbook.assignments,
+        measures: getMeasuresStore().list(),
+        dimensions: getDimensionsStore().list(),
+        segments: getSegmentsStore().list(),
+        associations: getAssociationsStore().list(),
+        taxonomyBundle: taxonomy.getBundle(),
+      },
+      saveText: saveTextFile,
+      notify: (message) => toast(message),
+    });
+  } catch (error) {
+    toast(
+      `Could not open semantic-model export: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
+  }
 }
 
 /**

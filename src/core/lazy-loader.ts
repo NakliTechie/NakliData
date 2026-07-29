@@ -137,6 +137,8 @@ export interface LazyChunkRegistry {
   'bridge-client': typeof import('../lazy/bridge-client.ts');
   /** Bounded, cancellable, paginated Apache Iceberg REST Catalog client. */
   'iceberg-rest-client': typeof import('../lazy/iceberg-rest-client.ts');
+  /** Portable semantic-model builder plus loss-aware vendor YAML adapters. */
+  'semantic-model': typeof import('../lazy/semantic-model.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly
