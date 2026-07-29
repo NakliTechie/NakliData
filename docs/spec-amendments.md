@@ -45,6 +45,7 @@ The original spec stays authoritative for everything not listed here.
 | [A40](#a40--verified-readiness-and-cloud-disclosure-amends-spec-41--43) | §4.1 + §4.3 | Iceberg entry points are disabled pending real-endpoint verification; Bridge is advanced/BYO; cloud sidecar requests disclose and minimize payloads. |
 | [A41](#a41--deterministic-first-value-and-analytical-presentation-amends-spec-32--33--38) | §3.2 + §3.3 + §3.8 | The bundled demo creates an AI-free starter workbook; desktop navigation is grouped/collapsible; numbers, evidence, and semantic overrides use analyst-facing presentation. |
 | [A42](#a42--versioned-bounded-remote-catalog-boundary-amends-spec-41) | §4.1 | Compute Bridge negotiation is explicit and fail-closed; remote catalog HTTP is bounded/cancellable; catalog browsing uses a portable hierarchy. |
+| [A46](#a46--iceberg-rest-configuration-and-credential-vending-negotiation-amends-spec-41) | §4.1 | Iceberg REST reads negotiate server configuration, safe route prefixes, advertised endpoints, and opt-in credential-vending metadata without retaining credential values. |
 
 ---
 
@@ -1969,6 +1970,44 @@ statement references, table binding, accessible sampling, async ownership,
 signed bar geometry, persistence timestamps, and lineage projection. Focused
 production-browser suites cover file-input fallback, all-cell export manifests,
 and Plot retry; the full smoke verifies lineage annotation disclosure.
+
+---
+
+## A46 — Iceberg REST configuration and credential-vending negotiation (amends spec §4.1)
+
+**Original behavior:** the Iceberg client exposed `GET /v1/config` but catalog
+reads skipped it, always called unprefixed routes, hard-coded the namespace
+separator, ignored advertised endpoints, and discarded load-table access
+metadata.
+
+**Amended behavior:** every namespace, table-list, and load-table operation
+first obtains and caches the bounded `/v1/config` response. An optional
+warehouse/catalog identifier is sent as the configuration query. Defaults,
+client warehouse, and server overrides are applied in specification order.
+The resulting route prefix and namespace separator are accepted only as safe
+relative path components, and an explicit endpoint list must advertise the
+read operation being attempted.
+
+Credential vending is opt-in. Only a caller that selects
+`vended-credentials` sends `X-Iceberg-Access-Delegation` on load-table. The
+response is reduced to a non-secret summary—whether credentials were provided,
+provider families, earliest expiry, configuration key names, and credential
+count. Credential values and scoped storage prefixes are neither returned nor
+placed in workbook/source persistence.
+
+**Reasoning:** both Unity Catalog and Snowflake Open Catalog/Polaris build on
+the open Iceberg REST contract, but their configured catalog/warehouse prefix
+and short-lived storage access are part of that contract rather than
+vendor-specific exceptions. Negotiating the portable protocol first lets a
+future live adapter fail closed on missing capabilities without treating a
+successful HTTPS response as platform verification.
+
+**Status:** adopted 2026-07-29. The generic lazy client is unit-tested against
+warehouse/prefix/separator precedence, config caching, endpoint discovery,
+delegation headers, secret-free credential summaries, malicious route
+configuration, pagination, deadlines, cancellation, media type, and response
+ceilings. Iceberg source cards remain disabled; no Databricks or Snowflake
+endpoint has been claimed or enabled by this amendment.
 
 ---
 

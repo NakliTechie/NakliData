@@ -15,6 +15,14 @@ function textResponse(body: string, status: number): Response {
   });
 }
 
+function withConfig(
+  dataFetch: typeof fetch,
+  config: unknown = { defaults: {}, overrides: {} },
+): typeof fetch {
+  return async (url, init) =>
+    String(url).includes('/v1/config') ? jsonResponse(config) : await dataFetch(url, init);
+}
+
 describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   it('config() hits /v1/config with Bearer header when token supplied', async () => {
     const calls: Array<{ url: string; headers: Record<string, string> }> = [];
@@ -31,7 +39,14 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
       fetchImpl,
     });
     const result = await client.config();
-    expect(result).toEqual({ defaults: {}, overrides: {} });
+    expect(result).toEqual({
+      defaults: {},
+      overrides: {},
+      resolved: {},
+      endpoints: null,
+      prefix: null,
+      namespaceSeparator: '%1F',
+    });
     expect(calls[0]?.url).toBe('https://catalog.example.com/iceberg/v1/config');
     expect(calls[0]?.headers.authorization).toBe('Bearer token-abc');
   });
@@ -66,12 +81,51 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
     expect(calls[0]).toBe('https://catalog.example.com/iceberg/v1/config');
   });
 
+  it('negotiates warehouse, route prefix, namespace separator, and endpoints once', async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('/v1/config')) {
+        return jsonResponse({
+          defaults: { prefix: 'ignored-default' },
+          overrides: {
+            prefix: 'catalogs/sales west',
+            'namespace-separator': '~',
+          },
+          endpoints: [
+            'GET /v1/{prefix}/namespaces',
+            'GET /v1/{prefix}/namespaces/{namespace}/tables',
+          ],
+        });
+      }
+      if (String(url).endsWith('/tables')) return jsonResponse({ identifiers: [] });
+      return jsonResponse({ namespaces: [['analytics']] });
+    };
+    const client = new IcebergCatalogClient({
+      catalogUrl: 'https://catalog.example.com/iceberg',
+      bearerToken: null,
+      warehouse: 'finance catalog',
+      fetchImpl,
+    });
+
+    expect(await client.listNamespaces()).toEqual([['analytics']]);
+    await client.listTables('lakehouse.public');
+
+    expect(calls).toEqual([
+      'https://catalog.example.com/iceberg/v1/config?warehouse=finance%20catalog',
+      'https://catalog.example.com/iceberg/v1/catalogs/sales%20west/namespaces',
+      'https://catalog.example.com/iceberg/v1/catalogs/sales%20west/namespaces/lakehouse~public/tables',
+    ]);
+  });
+
   it('listNamespaces() returns the namespaces array', async () => {
-    const fetchImpl: typeof fetch = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ namespaces: [['analytics'], ['lakehouse', 'public']] }),
-      ) as never;
+    const fetchImpl = withConfig(
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ namespaces: [['analytics'], ['lakehouse', 'public']] }),
+        ) as never,
+    );
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -82,12 +136,12 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
 
   it('follows Iceberg next-page-token pagination', async () => {
     const calls: string[] = [];
-    const fetchImpl: typeof fetch = async (url) => {
+    const fetchImpl = withConfig(async (url) => {
       calls.push(String(url));
       return calls.length === 1
         ? jsonResponse({ namespaces: [['analytics']], 'next-page-token': 'page 2' })
         : jsonResponse({ namespaces: [['finance']] });
-    };
+    });
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -99,7 +153,7 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
 
   it('listTables() hits the right path and returns table names', async () => {
     const calls: string[] = [];
-    const fetchImpl: typeof fetch = async (url) => {
+    const fetchImpl = withConfig(async (url) => {
       calls.push(String(url));
       return jsonResponse({
         identifiers: [
@@ -107,7 +161,7 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
           { namespace: ['analytics'], name: 'customers' },
         ],
       });
-    };
+    });
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -119,10 +173,10 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
 
   it('listTables() URL-encodes nested namespaces with %1F', async () => {
     const calls: string[] = [];
-    const fetchImpl: typeof fetch = async (url) => {
+    const fetchImpl = withConfig(async (url) => {
       calls.push(String(url));
       return jsonResponse({ identifiers: [] });
-    };
+    });
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -135,10 +189,11 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   });
 
   it('loadTable() returns metadataLocation (kebab-case in response)', async () => {
-    const fetchImpl: typeof fetch = async () =>
+    const fetchImpl = withConfig(async () =>
       jsonResponse({
         'metadata-location': 's3://my-bucket/warehouse/sales/metadata/v3.metadata.json',
-      });
+      }),
+    );
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -151,8 +206,9 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   });
 
   it('loadTable() accepts camelCase metadataLocation (some catalogs)', async () => {
-    const fetchImpl: typeof fetch = async () =>
-      jsonResponse({ metadataLocation: 'https://example.com/metadata.json' });
+    const fetchImpl = withConfig(async () =>
+      jsonResponse({ metadataLocation: 'https://example.com/metadata.json' }),
+    );
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -163,7 +219,7 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   });
 
   it('loadTable() throws when the response lacks a metadata-location', async () => {
-    const fetchImpl: typeof fetch = async () => jsonResponse({});
+    const fetchImpl = withConfig(async () => jsonResponse({}));
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: null,
@@ -173,7 +229,7 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
   });
 
   it('surfaces non-2xx responses as IcebergCatalogError with status', async () => {
-    const fetchImpl: typeof fetch = async () => textResponse('Unauthorized', 401);
+    const fetchImpl = withConfig(async () => textResponse('Unauthorized', 401));
     const client = new IcebergCatalogClient({
       catalogUrl: 'https://catalog.example.com',
       bearerToken: 'bad-token',
@@ -186,6 +242,141 @@ describe('IcebergCatalogClient (Wave 2 slice 3b)', () => {
       expect((err as IcebergCatalogError).status).toBe(401);
       expect((err as IcebergCatalogError).message).toContain('401');
     }
+  });
+
+  it('requests vended credentials but returns only non-secret access metadata', async () => {
+    const calls: Array<{ headers: Record<string, string> }> = [];
+    const fetchImpl = withConfig(async (_url, init) => {
+      calls.push({ headers: Object.fromEntries(new Headers(init?.headers).entries()) });
+      return jsonResponse({
+        'metadata-location': 's3://bucket/table/metadata/v1.metadata.json',
+        config: {
+          'client.region': 'us-west-2',
+          'expires-at-ms': '1785326400000',
+          's3.access-key-id': 'temporary-access',
+          's3.secret-access-key': 'do-not-persist-secret',
+          's3.session-token': 'do-not-persist-session',
+        },
+        'storage-credentials': [
+          {
+            prefix: 's3://private-prefix-only/',
+            config: {
+              's3.access-key-id': 'scoped-access',
+              's3.secret-access-key': 'scoped-secret',
+              's3.session-token': 'scoped-session',
+            },
+          },
+          {
+            prefix: 'https://private-provider-prefix/',
+            config: { bearer: 'unknown-provider-secret' },
+          },
+        ],
+      });
+    });
+    const client = new IcebergCatalogClient({
+      catalogUrl: 'https://catalog.example.com',
+      bearerToken: null,
+      accessDelegation: 'vended-credentials',
+      fetchImpl,
+    });
+
+    const result = await client.loadTable('analytics', 'sales');
+
+    expect(calls[0]?.headers['x-iceberg-access-delegation']).toBe('vended-credentials');
+    expect(result.credentialVending).toEqual({
+      requested: true,
+      provided: true,
+      providers: ['s3', 'unknown'],
+      expiresAtMs: 1785326400000,
+      configKeys: [
+        'bearer',
+        'client.region',
+        'expires-at-ms',
+        's3.access-key-id',
+        's3.secret-access-key',
+        's3.session-token',
+      ],
+      storageCredentialCount: 2,
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('do-not-persist');
+    expect(serialized).not.toContain('scoped-secret');
+    expect(serialized).not.toContain('unknown-provider-secret');
+    expect(serialized).not.toContain('s3://private-prefix-only/');
+    expect(serialized).not.toContain('https://private-provider-prefix/');
+  });
+
+  it('rejects unsafe server-supplied route configuration', async () => {
+    const unsafePrefix = new IcebergCatalogClient({
+      catalogUrl: 'https://catalog.example.com',
+      bearerToken: null,
+      fetchImpl: async () =>
+        jsonResponse({ defaults: {}, overrides: { prefix: '../other-service' } }),
+    });
+    await expect(unsafePrefix.config()).rejects.toMatchObject({ code: 'invalid_catalog' });
+
+    for (const separator of ['%1F?redirect=', '%2F', '%00', '..', '%2E%2E']) {
+      const unsafeSeparator = new IcebergCatalogClient({
+        catalogUrl: 'https://catalog.example.com',
+        bearerToken: null,
+        fetchImpl: async () =>
+          jsonResponse({
+            defaults: {},
+            overrides: { 'namespace-separator': separator },
+          }),
+      });
+      await expect(unsafeSeparator.config()).rejects.toMatchObject({
+        code: 'invalid_catalog',
+      });
+    }
+  });
+
+  it('fails before a data request when the catalog omits a required advertised endpoint', async () => {
+    let dataRequests = 0;
+    const client = new IcebergCatalogClient({
+      catalogUrl: 'https://catalog.example.com',
+      bearerToken: null,
+      fetchImpl: withConfig(
+        async () => {
+          dataRequests++;
+          return jsonResponse({ identifiers: [] });
+        },
+        {
+          defaults: {},
+          overrides: {},
+          endpoints: ['GET /v1/{prefix}/namespaces'],
+        },
+      ),
+    });
+
+    await expect(client.listTables('analytics')).rejects.toMatchObject({
+      code: 'unsupported_endpoint',
+    });
+    expect(dataRequests).toBe(0);
+  });
+
+  it('does not accept an unprefixed advertised endpoint for a prefixed route', async () => {
+    let dataRequests = 0;
+    const client = new IcebergCatalogClient({
+      catalogUrl: 'https://catalog.example.com',
+      bearerToken: null,
+      fetchImpl: withConfig(
+        async () => {
+          dataRequests++;
+          return jsonResponse({ namespaces: [] });
+        },
+        {
+          defaults: {},
+          overrides: { prefix: 'tenant' },
+          endpoints: ['GET /v1/namespaces'],
+        },
+      ),
+    });
+
+    await expect(client.listNamespaces()).rejects.toMatchObject({
+      code: 'unsupported_endpoint',
+    });
+    expect(dataRequests).toBe(0);
   });
 
   it('requires JSON Content-Type and enforces response-size limits', async () => {

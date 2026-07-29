@@ -10,6 +10,14 @@ const ERROR_BODY_LIMIT = 16 * 1024;
 export interface IcebergCatalogClientOptions {
   catalogUrl: string;
   bearerToken: string | null;
+  /** Optional warehouse/catalog identifier sent only to GET /v1/config. */
+  warehouse?: string | null;
+  /**
+   * Advertise support for receiving short-lived storage credentials.
+   * Defaults to none so a caller cannot accidentally claim a capability it
+   * has not wired into its data plane.
+   */
+  accessDelegation?: 'none' | 'vended-credentials';
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxJsonBytes?: number;
@@ -25,8 +33,31 @@ export interface TableIdentifier {
   name: string;
 }
 
+export interface IcebergCatalogConfiguration {
+  defaults: Record<string, string>;
+  overrides: Record<string, string>;
+  resolved: Record<string, string>;
+  endpoints: string[] | null;
+  prefix: string | null;
+  namespaceSeparator: string;
+}
+
+export interface VendedCredentialMetadata {
+  requested: boolean;
+  provided: boolean;
+  providers: string[];
+  expiresAtMs: number | null;
+  configKeys: string[];
+  storageCredentialCount: number;
+}
+
 export interface LoadTableResult {
   metadataLocation: string;
+  /**
+   * Non-secret description of table-scoped access returned by the catalog.
+   * Credential values and storage prefixes are deliberately not exposed.
+   */
+  credentialVending: VendedCredentialMetadata;
 }
 
 export class IcebergCatalogError extends Error {
@@ -48,6 +79,10 @@ export class IcebergCatalogClient {
   private readonly timeoutMs: number;
   private readonly maxJsonBytes: number;
   private readonly maxPages: number;
+  private readonly warehouse: string | null;
+  private readonly accessDelegation: 'none' | 'vended-credentials';
+  private configuration: IcebergCatalogConfiguration | null = null;
+  private configurationPromise: Promise<IcebergCatalogConfiguration> | null = null;
 
   constructor(opts: IcebergCatalogClientOptions) {
     if (!opts.catalogUrl.trim()) throw new Error('Catalog URL is required.');
@@ -61,24 +96,32 @@ export class IcebergCatalogClient {
     this.timeoutMs = positiveLimit(opts.timeoutMs, DEFAULT_TIMEOUT_MS);
     this.maxJsonBytes = positiveLimit(opts.maxJsonBytes, DEFAULT_JSON_LIMIT);
     this.maxPages = positiveLimit(opts.maxPages, DEFAULT_PAGE_LIMIT);
+    this.warehouse = opts.warehouse?.trim() || null;
+    this.accessDelegation = opts.accessDelegation ?? 'none';
   }
 
-  async config(
-    options: IcebergRequestOptions = {},
-  ): Promise<{ defaults: Record<string, string>; overrides: Record<string, string> }> {
-    const data = objectValue(await this.get('/v1/config', options), 'config response');
-    return {
-      defaults: stringRecord(data.defaults ?? {}, 'defaults'),
-      overrides: stringRecord(data.overrides ?? {}, 'overrides'),
-    };
+  async config(options: IcebergRequestOptions = {}): Promise<IcebergCatalogConfiguration> {
+    if (this.configuration) return this.configuration;
+    if (!this.configurationPromise) {
+      this.configurationPromise = this.fetchConfiguration(options).catch((error) => {
+        this.configurationPromise = null;
+        throw error;
+      });
+    }
+    return await this.configurationPromise;
   }
 
   async listNamespaces(options: IcebergRequestOptions = {}): Promise<string[][]> {
+    const configuration = await this.config(options);
+    requireEndpoint(configuration, 'GET /v1/{prefix}/namespaces');
     const namespaces: string[][] = [];
     let pageToken: string | null = null;
     for (let page = 0; page < this.maxPages; page++) {
       const data = objectValue(
-        await this.get(withPageToken('/v1/namespaces', pageToken), options),
+        await this.get(
+          withPageToken(catalogPath(configuration.prefix, '/namespaces'), pageToken),
+          options,
+        ),
         'namespace listing',
       );
       if (!Array.isArray(data.namespaces)) {
@@ -102,9 +145,14 @@ export class IcebergCatalogClient {
   }
 
   async listTables(namespace: string, options: IcebergRequestOptions = {}): Promise<string[]> {
+    const configuration = await this.config(options);
+    requireEndpoint(configuration, 'GET /v1/{prefix}/namespaces/{namespace}/tables');
     const tables: string[] = [];
     let pageToken: string | null = null;
-    const base = `/v1/namespaces/${encodeNamespace(namespace)}/tables`;
+    const base = catalogPath(
+      configuration.prefix,
+      `/namespaces/${encodeNamespace(namespace, configuration.namespaceSeparator)}/tables`,
+    );
     for (let page = 0; page < this.maxPages; page++) {
       const data = objectValue(
         await this.get(withPageToken(base, pageToken), options),
@@ -137,10 +185,20 @@ export class IcebergCatalogClient {
     table: string,
     options: IcebergRequestOptions = {},
   ): Promise<LoadTableResult> {
+    const configuration = await this.config(options);
+    requireEndpoint(configuration, 'GET /v1/{prefix}/namespaces/{namespace}/tables/{table}');
+    const delegationHeaders =
+      this.accessDelegation === 'vended-credentials'
+        ? { 'X-Iceberg-Access-Delegation': 'vended-credentials' }
+        : {};
     const data = objectValue(
       await this.get(
-        `/v1/namespaces/${encodeNamespace(namespace)}/tables/${encodeURIComponent(table)}`,
+        catalogPath(
+          configuration.prefix,
+          `/namespaces/${encodeNamespace(namespace, configuration.namespaceSeparator)}/tables/${encodeURIComponent(table)}`,
+        ),
         options,
+        delegationHeaders,
       ),
       'load-table response',
     );
@@ -152,11 +210,45 @@ export class IcebergCatalogClient {
         'invalid_catalog',
       );
     }
-    return { metadataLocation: location.trim() };
+    return {
+      metadataLocation: location.trim(),
+      credentialVending: credentialMetadata(data, this.accessDelegation === 'vended-credentials'),
+    };
   }
 
-  private async get(path: string, options: IcebergRequestOptions): Promise<unknown> {
-    return await this.withResponse(path, options.signal, async (response) => {
+  private async fetchConfiguration(
+    options: IcebergRequestOptions,
+  ): Promise<IcebergCatalogConfiguration> {
+    const path = this.warehouse
+      ? `/v1/config?warehouse=${encodeURIComponent(this.warehouse)}`
+      : '/v1/config';
+    const data = objectValue(await this.get(path, options), 'config response');
+    const defaults = stringRecord(data.defaults ?? {}, 'defaults');
+    const overrides = stringRecord(data.overrides ?? {}, 'overrides');
+    const resolved: Record<string, string> = {
+      ...defaults,
+      ...(this.warehouse ? { warehouse: this.warehouse } : {}),
+      ...overrides,
+    };
+    const configuration: IcebergCatalogConfiguration = {
+      defaults,
+      overrides,
+      resolved,
+      endpoints:
+        data.endpoints === undefined ? null : stringArray(data.endpoints, 'config endpoints'),
+      prefix: normalizeCatalogPrefix(resolved.prefix),
+      namespaceSeparator: normalizeNamespaceSeparator(resolved['namespace-separator']),
+    };
+    this.configuration = configuration;
+    return configuration;
+  }
+
+  private async get(
+    path: string,
+    options: IcebergRequestOptions,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<unknown> {
+    return await this.withResponse(path, options.signal, extraHeaders, async (response) => {
       if (!response.ok) throw await this.toCatalogError(response);
       try {
         return await readBoundedJson(response, this.maxJsonBytes);
@@ -176,6 +268,7 @@ export class IcebergCatalogClient {
   private async withResponse<T>(
     path: string,
     signal: AbortSignal | undefined,
+    extraHeaders: Record<string, string>,
     consume: (response: Response) => Promise<T>,
   ): Promise<T> {
     const controller = new AbortController();
@@ -190,7 +283,7 @@ export class IcebergCatalogClient {
     try {
       const response = await this.fetchImpl(`${this.catalogUrl}${path}`, {
         method: 'GET',
-        headers: this.headers,
+        headers: { ...this.headers, ...extraHeaders },
         signal: controller.signal,
       });
       return await consume(response);
@@ -228,11 +321,22 @@ export class IcebergCatalogClient {
   }
 }
 
-function encodeNamespace(namespace: string): string {
+function encodeNamespace(namespace: string, separator: string): string {
   return namespace
     .split('.')
     .map((part) => encodeURIComponent(part))
-    .join('%1F');
+    .join(separator);
+}
+
+function catalogPath(prefix: string | null, suffix: string): string {
+  return `/v1/${prefix ? `${encodeCatalogPrefix(prefix)}/` : ''}${suffix.replace(/^\/+/, '')}`;
+}
+
+function encodeCatalogPrefix(prefix: string): string {
+  return prefix
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
 }
 
 function withPageToken(path: string, token: string | null): string {
@@ -286,6 +390,167 @@ function stringRecord(value: unknown, path: string): Record<string, string> {
     }
   }
   return object as Record<string, string>;
+}
+
+function normalizeCatalogPrefix(value: string | undefined): string | null {
+  if (value === undefined || value.trim() === '') return null;
+  const prefix = value.trim().replace(/^\/+|\/+$/g, '');
+  const parts = prefix.split('/');
+  if (
+    parts.length === 0 ||
+    parts.some(
+      (part) =>
+        !part ||
+        part === '.' ||
+        part === '..' ||
+        /[\\?#]/.test(part) ||
+        containsControlCharacter(part),
+    )
+  ) {
+    throw new IcebergCatalogError(
+      'Catalog config prefix is not a safe relative path.',
+      200,
+      'invalid_catalog',
+    );
+  }
+  return prefix;
+}
+
+function normalizeNamespaceSeparator(value: string | undefined): string {
+  const separator = value?.trim() || '%1F';
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(separator);
+  } catch {
+    throw new IcebergCatalogError(
+      'Catalog namespace-separator is not valid URL encoding.',
+      200,
+      'invalid_catalog',
+    );
+  }
+  const decodedCharacters = [...decoded];
+  const decodedCode = decodedCharacters[0]?.codePointAt(0) ?? 0;
+  if (
+    separator.length > 12 ||
+    /[/?#\\]/.test(separator) ||
+    containsControlCharacter(separator) ||
+    /%(?![0-9a-f]{2})/i.test(separator) ||
+    decodedCharacters.length !== 1 ||
+    decoded === '.' ||
+    /[/?#\\]/.test(decoded) ||
+    (decodedCode <= 0x1f && decodedCode !== 0x1f) ||
+    decodedCode === 0x7f
+  ) {
+    throw new IcebergCatalogError(
+      'Catalog namespace-separator is not safe for a path segment.',
+      200,
+      'invalid_catalog',
+    );
+  }
+  return separator;
+}
+
+function requireEndpoint(configuration: IcebergCatalogConfiguration, expected: string): void {
+  if (configuration.endpoints === null) return;
+  const withoutPrefix = expected.replace('/{prefix}', '');
+  if (
+    !configuration.endpoints.includes(expected) &&
+    !(configuration.prefix === null && configuration.endpoints.includes(withoutPrefix))
+  ) {
+    throw new IcebergCatalogError(
+      `Catalog does not advertise the required endpoint: ${expected}.`,
+      200,
+      'unsupported_endpoint',
+    );
+  }
+}
+
+function credentialMetadata(
+  data: Record<string, unknown>,
+  requested: boolean,
+): VendedCredentialMetadata {
+  const tableConfig = stringRecord(data.config ?? {}, 'load-table config');
+  const rawCredentials = data['storage-credentials'] ?? [];
+  if (!Array.isArray(rawCredentials)) {
+    throw new IcebergCatalogError(
+      'Catalog storage-credentials must be an array.',
+      200,
+      'invalid_catalog',
+    );
+  }
+  const providers = new Set<string>();
+  const configKeys = new Set<string>(Object.keys(tableConfig));
+  const expirations: number[] = [];
+
+  detectProvider('', tableConfig, providers);
+  collectExpiration(tableConfig, expirations);
+  for (const [index, raw] of rawCredentials.entries()) {
+    const credential = objectValue(raw, `storage-credentials[${index}]`);
+    const prefix = stringValue(credential.prefix, `storage-credentials[${index}].prefix`);
+    const config = stringRecord(credential.config, `storage-credentials[${index}].config`);
+    for (const key of Object.keys(config)) configKeys.add(key);
+    detectProvider(prefix, config, providers);
+    collectExpiration(config, expirations);
+  }
+
+  const keys = [...configKeys].sort();
+  const hasInlineCredential = keys.some(isCredentialKey);
+  return {
+    requested,
+    provided: rawCredentials.length > 0 || hasInlineCredential,
+    providers: [...providers].sort(),
+    expiresAtMs: expirations.length > 0 ? Math.min(...expirations) : null,
+    configKeys: keys,
+    storageCredentialCount: rawCredentials.length,
+  };
+}
+
+function detectProvider(
+  prefix: string,
+  config: Record<string, string>,
+  providers: Set<string>,
+): void {
+  const keys = Object.keys(config);
+  let detected = false;
+  if (/^s3:\/\//i.test(prefix) || keys.some((key) => key.startsWith('s3.'))) {
+    providers.add('s3');
+    detected = true;
+  }
+  if (/^(gs|gcs):\/\//i.test(prefix) || keys.some((key) => /^(gcs|gs)\./.test(key))) {
+    providers.add('gcs');
+    detected = true;
+  }
+  if (/^(abfs|abfss|azure):\/\//i.test(prefix) || keys.some((key) => /^(adls|azure)\./.test(key))) {
+    providers.add('azure');
+    detected = true;
+  }
+  if (prefix && !detected) providers.add('unknown');
+}
+
+function collectExpiration(config: Record<string, string>, expirations: number[]): void {
+  const value = config['expires-at-ms'];
+  if (value === undefined) return;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new IcebergCatalogError(
+      'Catalog expires-at-ms must be a positive integer.',
+      200,
+      'invalid_catalog',
+    );
+  }
+  expirations.push(parsed);
+}
+
+function isCredentialKey(key: string): boolean {
+  return /(^token$|secret|access-key|session-token|credential|oauth|sas-token)/i.test(key);
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function positiveLimit(value: number | undefined, fallback: number): number {

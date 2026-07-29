@@ -43,6 +43,31 @@ Append-only. Format per AGENTHANDOFF §5.
   suite and production smoke pass, including schema render, evidence, and
   override; the bundle remains **766.6 / 768.0 KB**.
 
+### Decision FA-3 — negotiate the portable Iceberg contract before platform branding
+
+- **Context.** The generic Iceberg REST client exposed `/v1/config` but read
+  operations skipped it, assumed unprefixed routes and one hard-coded namespace
+  separator, ignored the server's endpoint set, and discarded load-table
+  storage-access metadata. Unity Catalog and Open Catalog/Polaris depend on
+  these protocol mechanisms, so an HTTPS response alone would not establish
+  platform compatibility.
+- **Decision.** Fetch and cache catalog configuration before every read flow;
+  send the optional warehouse/catalog identifier; resolve defaults, client
+  properties, then overrides; validate route prefix and namespace separator;
+  and fail closed when an advertised endpoint set omits the requested
+  operation. Send `X-Iceberg-Access-Delegation: vended-credentials` only when
+  the caller opts in. Reduce load-table access data to non-secret provider,
+  expiry, configuration-key, and count metadata; never return credential
+  values or scoped storage prefixes.
+- **Consequence.** The lazy client now models the portable control-plane
+  contract needed by both target ecosystems without enabling either branded
+  entry point. Live endpoint/authentication, data-plane credential application
+  and refresh, bounded reads, cancellation, and disclosure remain mandatory
+  release gates. Fresh-eyes review found encoded route-normalization,
+  prefix-bypass, and mixed-provider issues; all three are fixed and locked by
+  adversarial tests. The full **1,537-test** suite and production smoke pass;
+  the bundle remains **766.6 / 768.0 KB**.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts
