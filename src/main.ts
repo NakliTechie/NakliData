@@ -51,6 +51,7 @@ import type { QueryColumnSpec, QueryColumnType } from './core/query-builder.ts';
 import { quoteIdent } from './core/query-builder.ts';
 import { computeRefreshDiff, persistFingerprints } from './core/refresh-engine.ts';
 import type { KpiTile } from './core/report-measures.ts';
+import { resolveResultProvenance, unknownResultAssignment } from './core/result-provenance.ts';
 import {
   type ResultSnapshot,
   SNAPSHOT_ROW_CAP,
@@ -138,7 +139,7 @@ import {
   setHasMounts,
   updateEngineStatus,
 } from './ui/shell.ts';
-import { SINKS, SinkError } from './ui/sinks/sinks.ts';
+import { SINKS } from './ui/sinks/catalog.ts';
 import { renderTemplatePanel } from './ui/templates/templates-panel.ts';
 
 const BUILD_VERSION = '0.1.0';
@@ -1038,6 +1039,7 @@ async function hydrateResultSnapshots(engine: Engine, sessionId: string): Promis
         sqlHash: snap.sqlHash,
         capped: snap.rows.length < snap.rowCount,
         fromSnapshot: true,
+        directProjection: snap.directProjection ?? null,
       },
     };
   });
@@ -1984,6 +1986,7 @@ async function persistSnapshot(engine: Engine): Promise<void> {
         elapsedMs: r.elapsedMs,
         ranAt: c.resultMeta.ranAt,
         sqlHash: c.resultMeta.sqlHash,
+        directProjection: c.resultMeta.directProjection,
       };
     }
     await saveResultSnapshots(getActiveSessionId(), snaps);
@@ -3430,27 +3433,12 @@ function sqlExtra(): {
 } {
   return {
     assignmentsFor: (cellId) => {
-      // Build a synthetic ColumnAssignment list from the cell's result columns.
-      // We map each column to the global assignment if any table has a column
-      // with that name; otherwise return a minimal stub.
       const nb = getNotebook(getEngine());
       const cell = nb.get().cells.find((c) => c.id === cellId);
       if (!cell || cell.kind !== 'sql' || !cell.lastResult) return [];
-      const all = getWorkbook().get().assignments;
-      const byName = new Map<string, ColumnAssignment>();
-      for (const a of Object.values(all)) byName.set(a.columnName, a);
-      return cell.lastResult.columns.map((c) => {
-        const found = byName.get(c);
-        if (found) return found;
-        return {
-          columnName: c,
-          sqlType: 'VARCHAR',
-          candidates: [],
-          resolution: { kind: 'unknown' as const },
-          assigned: { typeId: null, origin: 'unknown' as const, confidence: 0 },
-          status: 'classified' as const,
-        };
-      });
+      return resolveResultProvenance(cell, getWorkbook().get()).map(
+        (column) => column.assignment ?? unknownResultAssignment(column.outputColumn),
+      );
     },
     onSendTo: (cellId, sinkId) => {
       void runSink(cellId, sinkId);
@@ -3471,19 +3459,25 @@ async function runSink(cellId: string, sinkId: string): Promise<void> {
     toast('Run the cell first.');
     return;
   }
-  const extras = sqlExtra();
-  const assignments = extras.assignmentsFor(cellId);
+  const provenance = resolveResultProvenance(cell, getWorkbook().get());
+  const assignments = provenance.map(
+    (column) => column.assignment ?? unknownResultAssignment(column.outputColumn),
+  );
   try {
+    if (sinkId === 'anonymize') await getTaxonomyClient().ensureReady();
     const outcome = await sink.execute({
       engine,
       cellId,
       cellName: cell.name,
       result: cell.lastResult,
       columnAssignments: assignments,
+      resultProvenance: provenance,
+      userTypes: getWorkbook().get().userTypes,
+      taxonomyBundle: getTaxonomyClient().getBundle(),
     });
     toast(outcome.message);
   } catch (err) {
-    const msg = err instanceof SinkError || err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
     toast(msg, 'error');
   }
 }

@@ -17,7 +17,18 @@ import {
   isNumericType,
   quoteIdent,
   quoteLiteral,
+  sensitivityForExport,
 } from '../src/core/anonymize.ts';
+import type { TaxonomyBundle } from '../src/taxonomy/types.ts';
+
+const UNPROVEN = {
+  status: 'unproven' as const,
+  sourceId: null,
+  tableId: null,
+  tableName: null,
+  sourceColumn: null,
+  assignmentKey: null,
+};
 
 describe('defaultStrategyForSensitivity (handoff §M1 defaults)', () => {
   it('PII → hash', () => {
@@ -32,8 +43,75 @@ describe('defaultStrategyForSensitivity (handoff §M1 defaults)', () => {
   it('Public → keep', () => {
     expect(defaultStrategyForSensitivity('public')).toBe('keep');
   });
-  it('undefined (no badge) → keep', () => {
-    expect(defaultStrategyForSensitivity(undefined)).toBe('keep');
+  it('undefined (no proven badge) → redact', () => {
+    expect(defaultStrategyForSensitivity(undefined)).toBe('redact');
+  });
+});
+
+describe('sensitivityForExport', () => {
+  const bundle: TaxonomyBundle = {
+    version: 'test',
+    released: '2026-07-29',
+    domains: [],
+    types: [
+      {
+        id: 'email',
+        display_name: 'Email',
+        domain: 'test',
+        sql_compat: ['VARCHAR'],
+        detectors: [],
+        confidence_floor: 0.5,
+      },
+    ],
+    universal: {
+      terms: [
+        {
+          id: 'ut:email',
+          prefLabel: 'Email',
+          roleFamily: 'entity',
+          sensitivity: 'pii',
+        },
+      ],
+      crosswalk: [{ role: 'email', universalTerm: 'ut:email' }],
+    },
+  };
+
+  it('keeps bundled sensitivity authoritative over a colliding custom id', () => {
+    expect(
+      sensitivityForExport(
+        bundle,
+        [
+          {
+            id: 'email',
+            display_name: 'Fake public email',
+            category: 'custom',
+            regex: '.*',
+            sensitivity: 'public',
+            created: '2026-07-29T00:00:00.000Z',
+          },
+        ],
+        'email',
+      ),
+    ).toBe('pii');
+  });
+
+  it('uses the explicit tier for a genuinely custom id', () => {
+    expect(
+      sensitivityForExport(
+        bundle,
+        [
+          {
+            id: 'employee_code',
+            display_name: 'Employee code',
+            category: 'custom',
+            regex: '^EMP-',
+            sensitivity: 'secret',
+            created: '2026-07-29T00:00:00.000Z',
+          },
+        ],
+        'employee_code',
+      ),
+    ).toBe('secret');
   });
 });
 
@@ -114,6 +192,7 @@ describe('buildAnonymizedProjection — strategy → SQL expression', () => {
     strategy,
     sensitivity: null,
     typeId: null,
+    provenance: UNPROVEN,
   });
 
   it('keep emits the column verbatim with alias', () => {
@@ -199,6 +278,7 @@ describe('buildAnonymizedProjection — injection resistance', () => {
     strategy,
     sensitivity: null,
     typeId: null,
+    provenance: UNPROVEN,
   });
 
   it('hostile column name with single quote survives via quoteIdent', () => {
@@ -259,6 +339,14 @@ describe('buildManifest — schema + salt omission', () => {
       strategy: 'hash',
       sensitivity: 'pii',
       typeId: 'email',
+      provenance: {
+        status: 'direct',
+        sourceId: 'source-1',
+        tableId: 'table-1',
+        tableName: 'customers',
+        sourceColumn: 'email',
+        assignmentKey: 'source-1::table-1::email',
+      },
     },
     {
       columnName: 'amount',
@@ -266,6 +354,7 @@ describe('buildManifest — schema + salt omission', () => {
       strategy: 'bucket',
       sensitivity: 'financial',
       typeId: 'amount',
+      provenance: UNPROVEN,
     },
   ];
 
@@ -287,6 +376,14 @@ describe('buildManifest — schema + salt omission', () => {
       strategy: 'hash',
       sensitivity: 'pii',
       typeId: 'email',
+      provenance: {
+        status: 'direct',
+        sourceId: 'source-1',
+        tableId: 'table-1',
+        tableName: 'customers',
+        sourceColumn: 'email',
+        assignmentKey: 'source-1::table-1::email',
+      },
     });
   });
 

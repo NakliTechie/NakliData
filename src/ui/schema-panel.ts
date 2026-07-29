@@ -346,8 +346,10 @@ function renderColumnRow(
   // Sensitivity is resolved via the Tier-3 crosswalk (universal layer), not
   // off the type spec — decision #4 migrated it there. Public/unmapped → the
   // badge renderer hides it, matching the pre-migration behaviour.
-  const assignedSensitivity =
-    a.assigned.typeId && bundle ? sensitivityForType(bundle, a.assigned.typeId) : null;
+  const assignedSensitivity = a.assigned.typeId
+    ? (userTypes.find((type) => type.id === a.assigned.typeId)?.sensitivity ??
+      (bundle ? sensitivityForType(bundle, a.assigned.typeId) : null))
+    : null;
   const sensitivityBadge = renderSensitivityBadge(assignedSensitivity);
   const confidencePct = (a.assigned.confidence * 100).toFixed(0);
   const confidenceColor = confidenceToColor(a.assigned.confidence);

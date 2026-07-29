@@ -59,17 +59,16 @@ function headerPatterns(ut: UserType): string[] {
 
 /**
  * Merge a list of user types into a bundle's `types` array. Bundle is
- * not mutated — a new object is returned. If a user-type id collides
- * with a bundled type, the user type wins (so users can override
- * bundled detectors locally to their workbook).
+ * not mutated — a new object is returned. Bundled ids are reserved: a
+ * colliding user type is ignored so an imported workbook cannot replace a
+ * canonical detector (and indirectly bypass its universal sensitivity).
  */
 export function mergeUserTypesIntoBundle<T extends { types: TypeSpec[] }>(
   bundle: T,
   userTypes: UserType[],
 ): T {
   if (userTypes.length === 0) return bundle;
-  const userSpecs = userTypes.map(userTypeToTypeSpec);
-  const userIds = new Set(userSpecs.map((s) => s.id));
-  const bundleTypes = bundle.types.filter((t) => !userIds.has(t.id));
-  return { ...bundle, types: [...bundleTypes, ...userSpecs] };
+  const bundledIds = new Set(bundle.types.map((type) => type.id));
+  const userSpecs = userTypes.filter((type) => !bundledIds.has(type.id)).map(userTypeToTypeSpec);
+  return { ...bundle, types: [...bundle.types, ...userSpecs] };
 }

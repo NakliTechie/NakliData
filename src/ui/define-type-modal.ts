@@ -12,6 +12,8 @@ import { loadSettings } from '../core/settings.ts';
 import { dispatchJob } from '../core/sidecar/client.ts';
 import { SidecarError } from '../core/sidecar/types.ts';
 import { type UserType, getWorkbook } from '../core/workbook.ts';
+import { getTaxonomyClient } from '../taxonomy/client.ts';
+import type { TypeSensitivity } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 import { assignmentKey } from './schema-panel.ts';
@@ -71,14 +73,14 @@ function humaniseColumn(column: string): string {
 }
 
 function setField(overlay: HTMLElement, name: string, value: string): void {
-  const input = overlay.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+  const input = overlay.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
     `[data-define-field="${name}"]`,
   );
   if (input) input.value = value;
 }
 
 function getField(overlay: HTMLElement, name: string): string {
-  const input = overlay.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+  const input = overlay.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
     `[data-define-field="${name}"]`,
   );
   return input?.value.trim() ?? '';
@@ -138,6 +140,15 @@ function renderModal(opts: OpenDefineTypeOpts): HTMLElement {
           <div class="settings-field">
             <span>regex</span>
             <textarea data-define-field="regex" rows="2" placeholder="^[A-Z]{2}-[0-9]{6}$"></textarea>
+          </div>
+          <div class="settings-field">
+            <span>sensitivity</span>
+            <select data-define-field="sensitivity">
+              <option value="secret" selected>Secret — redact by default</option>
+              <option value="pii">PII — hash by default</option>
+              <option value="financial">Financial — bucket by default</option>
+              <option value="public">Public — keep by default</option>
+            </select>
           </div>
           <div class="settings-actions">
             <button class="btn btn-primary" data-action="define-save">Save + apply</button>
@@ -232,8 +243,9 @@ async function runSave(overlay: HTMLElement, opts: OpenDefineTypeOpts): Promise<
   const display_name = getField(overlay, 'display_name');
   const category = getField(overlay, 'category');
   const regex = getField(overlay, 'regex');
-  if (!id || !display_name || !category || !regex) {
-    if (status) status.textContent = 'All four fields are required.';
+  const sensitivity = getField(overlay, 'sensitivity') as TypeSensitivity;
+  if (!id || !display_name || !category || !regex || !sensitivity) {
+    if (status) status.textContent = 'All fields are required.';
     return;
   }
   if (!/^[a-z][a-z0-9_]*$/.test(id)) {
@@ -256,11 +268,21 @@ async function runSave(overlay: HTMLElement, opts: OpenDefineTypeOpts): Promise<
       status.textContent = `A user type with id "${id}" already exists. Pick a different id.`;
     return;
   }
+  // Canonical taxonomy ids are reserved. The worker also ignores imported
+  // collisions, but rejecting one here gives an immediate, actionable reason.
+  const bundled = getTaxonomyClient()
+    .getBundle()
+    ?.types.some((type) => type.id === id);
+  if (bundled) {
+    if (status) status.textContent = `"${id}" is a built-in semantic type id. Pick a different id.`;
+    return;
+  }
   const userType: UserType = {
     id,
     display_name,
     category,
     regex,
+    sensitivity,
     created: new Date().toISOString(),
     note: `Seeded from ${opts.tableName}.${opts.columnName}`,
   };

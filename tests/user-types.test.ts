@@ -9,6 +9,7 @@ const EMPLOYEE_ID: UserType = {
   display_name: 'Employee ID',
   category: 'Identifier',
   regex: '^EMP-[0-9]{4}$',
+  sensitivity: 'pii',
   created: '2026-05-19T00:00:00.000Z',
   note: 'Seeded from invoices.employee_id',
 };
@@ -59,18 +60,20 @@ describe('mergeUserTypesIntoBundle', () => {
     expect(merged).toBe(bundle);
   });
 
-  it('lets a user type override a colliding bundled type', () => {
+  it('keeps the bundled type when an imported user type id collides', () => {
     const colliding: UserType = {
       id: 'gstin', // collides
       display_name: 'My Custom GSTIN',
       category: 'Identifier',
       regex: '^XX-[0-9]+$',
+      sensitivity: 'secret',
       created: '2026-05-19T00:00:00.000Z',
     };
     const merged = mergeUserTypesIntoBundle(bundle, [colliding]);
     const gstin = merged.types.find((t) => t.id === 'gstin');
-    expect(gstin?.display_name).toBe('My Custom GSTIN');
-    expect(gstin?.domain).toBe('user-defined');
+    expect(gstin?.display_name).toBe('GSTIN');
+    expect(gstin?.domain).toBe('india-smb-finance');
+    expect(merged.types).toHaveLength(1);
   });
 });
 

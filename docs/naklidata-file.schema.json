@@ -42,6 +42,11 @@
           "display_name": { "type": "string" },
           "category": { "type": "string" },
           "regex": { "type": "string" },
+          "sensitivity": {
+            "type": "string",
+            "enum": ["public", "pii", "financial", "secret"],
+            "description": "Governance tier. Legacy files may omit it; the loader defaults omission to secret."
+          },
           "created": { "type": "string" },
           "note": { "type": "string" }
         }

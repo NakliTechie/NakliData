@@ -44,6 +44,37 @@ describe('agent-authored .naklidata workbook', () => {
     const again = parse(JSON.stringify(restored));
     expect(again).toEqual(restored);
   });
+
+  it('normalizes legacy user types to secret and rejects unsupported sensitivity tiers', () => {
+    const legacy = parse(
+      JSON.stringify({
+        ...minimalWorkbook,
+        user_types: [
+          {
+            id: 'employee_code',
+            display_name: 'Employee code',
+            category: 'Identifier',
+            regex: '^EMP-',
+            created: '2026-07-29T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    expect(legacy.user_types[0]?.sensitivity).toBe('secret');
+    expect(() =>
+      parse(
+        JSON.stringify({
+          ...minimalWorkbook,
+          user_types: [
+            {
+              ...legacy.user_types[0],
+              sensitivity: 'not-sensitive',
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/sensitivity has an unsupported value/);
+  });
 });
 
 describe('published JSON Schema stays honest vs parse()', () => {
@@ -66,5 +97,14 @@ describe('published JSON Schema stays honest vs parse()', () => {
     expect(schema.properties.version.pattern).toBe('^\\d+(\\.\\d+)*$');
     // a version failing that pattern is rejected by parse()
     expect(() => parse(JSON.stringify({ ...minimalWorkbook, version: '1.x' }))).toThrow();
+  });
+
+  it('publishes the user-type sensitivity enum', () => {
+    expect(schema.properties.user_types.items.properties.sensitivity.enum).toEqual([
+      'public',
+      'pii',
+      'financial',
+      'secret',
+    ]);
   });
 });

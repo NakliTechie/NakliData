@@ -1,6 +1,7 @@
 // In-memory workbook state — sources, tables, column assignments, (later)
 // cells. Single instance per tab. Subscribers are notified on any mutation.
 
+import type { TypeSensitivity } from '../taxonomy/types.ts';
 import type { ColumnAssignment } from '../ui/schema-panel.ts';
 import type { MountedSource } from './mount.ts';
 
@@ -15,6 +16,8 @@ export interface UserType {
   display_name: string;
   category: string;
   regex: string;
+  /** Governance tier used by fail-closed exports and schema badges. */
+  sensitivity: TypeSensitivity;
   /** ISO timestamp; informational only. */
   created: string;
   /** Free-form note (e.g., the column it was seeded from). */

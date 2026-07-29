@@ -14,7 +14,7 @@ import { SNAPSHOT_ROW_CAP, isSnapshotStale } from '../../core/result-snapshots.t
 import { computeIntraCellValueStates, getSelectionsStore } from '../../core/selections.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { ColumnAssignment } from '../schema-panel.ts';
-import { SINKS, blockReasonFor } from '../sinks/sinks.ts';
+import { SINKS, blockReasonFor } from '../sinks/catalog.ts';
 import type { CellHandlers, SqlCellState } from './types.ts';
 
 export interface SqlCellExtra {

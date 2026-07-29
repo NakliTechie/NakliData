@@ -30,7 +30,10 @@
 // explicit paste-it-back affordance.
 
 import type { TypeSensitivity } from '../taxonomy/types.ts';
+import type { TaxonomyBundle } from '../taxonomy/types.ts';
+import { sensitivityForType } from '../taxonomy/universal.ts';
 import { quoteIdent, quoteLiteral } from './query-builder.ts';
+import type { UserType } from './workbook.ts';
 
 // L1: re-export the canonical injection helpers so any existing importer of
 // anonymize's copy keeps working, but there's a single definition.
@@ -39,16 +42,34 @@ export { quoteIdent, quoteLiteral };
 export type AnonStrategy = 'keep' | 'hash' | 'redact' | 'bucket' | 'drop';
 
 /**
+ * Resolve a type's export tier without allowing a workbook-defined id to
+ * shadow a bundled semantic type. Bundled ids are reserved; custom sensitivity
+ * is consulted only for genuinely custom ids.
+ */
+export function sensitivityForExport(
+  bundle: TaxonomyBundle,
+  userTypes: ReadonlyArray<UserType>,
+  typeId: string | null,
+): TypeSensitivity | null {
+  if (!typeId) return null;
+  if (bundle.types.some((type) => type.id === typeId)) {
+    return sensitivityForType(bundle, typeId);
+  }
+  return userTypes.find((type) => type.id === typeId)?.sensitivity ?? null;
+}
+
+/**
  * Default strategy by sensitivity badge. Handoff §M1: hash for PII,
  * bucket for Financial. Adds: keep for Public (no badge concern),
  * redact for Secret (stricter than hash — even the hashed form is a
  * fingerprint).
  */
-export function defaultStrategyForSensitivity(s: TypeSensitivity | undefined): AnonStrategy {
+export function defaultStrategyForSensitivity(s: TypeSensitivity | null | undefined): AnonStrategy {
   if (s === 'pii') return 'hash';
   if (s === 'financial') return 'bucket';
   if (s === 'secret') return 'redact';
-  return 'keep';
+  if (s === 'public') return 'keep';
+  return 'redact';
 }
 
 export interface AnonColumnPlan {
@@ -61,6 +82,15 @@ export interface AnonColumnPlan {
   sensitivity: TypeSensitivity | null;
   /** Semantic typeId, if any, recorded in the manifest. */
   typeId: string | null;
+  /** Source-column provenance recorded in the manifest. */
+  provenance: {
+    status: 'direct' | 'unproven';
+    sourceId: string | null;
+    tableId: string | null;
+    tableName: string | null;
+    sourceColumn: string | null;
+    assignmentKey: string | null;
+  };
 }
 
 /**
@@ -184,6 +214,7 @@ export interface AnonManifest {
     strategy: AnonStrategy;
     sensitivity: TypeSensitivity | null;
     typeId: string | null;
+    provenance: AnonColumnPlan['provenance'];
   }>;
   /** Whether a salt was used. The salt itself is NEVER in the manifest. */
   saltUsed: boolean;
@@ -211,6 +242,7 @@ export function buildManifest(opts: {
       strategy: c.strategy,
       sensitivity: c.sensitivity,
       typeId: c.typeId,
+      provenance: c.provenance,
     })),
     saltUsed: opts.saltUsed,
     notes:

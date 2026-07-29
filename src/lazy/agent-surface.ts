@@ -35,6 +35,7 @@ import {
 } from '../core/agent/registry.ts';
 import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import type { Engine } from '../core/engine.ts';
+import type { DirectResultProjection } from '../core/result-snapshots.ts';
 import type { WorkbookState } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSensitivity } from '../taxonomy/types.ts';
 import {
@@ -52,6 +53,16 @@ const AGENT_QUERY_ROW_CAP = 1000;
  *  inline to avoid pulling the schema panel into this chunk). */
 const assignmentKey = (sourceId: string, tableId: string, columnName: string): string =>
   `${sourceId}::${tableId}::${columnName}`;
+
+/**
+ * Reuse the agent boundary's strict direct-projection proof for notebook result
+ * provenance. This stays in the already-lazy agent chunk: the shell records
+ * `null` if the chunk or proof is unavailable, which is the fail-closed state.
+ */
+export function traceDirectResultProjection(sql: string): DirectResultProjection | null {
+  const projection = validateAgentValueProjection(sql);
+  return projection.ok ? { tableName: projection.table, columns: projection.columns } : null;
+}
 
 export interface AgentSurfaceDeps {
   engine: Engine;

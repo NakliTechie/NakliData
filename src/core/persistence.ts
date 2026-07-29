@@ -757,6 +757,14 @@ function validateUserType(value: unknown, index: number): UserType {
     display_name: stringValue(userType.display_name, `${path}.display_name`),
     category: stringValue(userType.category, `${path}.category`),
     regex: stringValue(userType.regex, `${path}.regex`),
+    // Legacy user types predate an explicit governance tier. Treat them as
+    // secret instead of public so restoring an older workbook cannot weaken a
+    // later anonymized export.
+    sensitivity: oneOf(
+      userType.sensitivity ?? 'secret',
+      ['public', 'pii', 'financial', 'secret'],
+      `${path}.sensitivity`,
+    ),
     created: stringValue(userType.created, `${path}.created`),
     ...(userType.note === undefined ? {} : { note: stringValue(userType.note, `${path}.note`) }),
   };

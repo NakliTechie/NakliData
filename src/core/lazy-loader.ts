@@ -60,6 +60,8 @@ export interface LazyChunkRegistry {
    * when restoring state instead of consuming the nearly-full inlined shell.
    */
   'persistence-validation': typeof import('../lazy/persistence-validation.ts');
+  /** File/export sink execution — loaded only when a result is sent. */
+  'sink-execution': typeof import('../lazy/sink-execution.ts');
   /** Excel mounts — SheetJS parses xlsx → CSV; the CSV mount path takes over. */
   sheetjs: typeof import('../lazy/sheetjs.ts');
   /**

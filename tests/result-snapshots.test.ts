@@ -30,6 +30,7 @@ describe('buildResultSnapshot', () => {
     expect(s.columns).toEqual(['i']);
     expect(s.ranAt).toBe(1_000);
     expect(s.sqlHash).toBe(hashSql('SELECT i FROM t'));
+    expect(s.directProjection).toBeNull();
   });
 
   it('keeps small results whole', () => {
@@ -37,6 +38,12 @@ describe('buildResultSnapshot', () => {
     const s = buildResultSnapshot('SELECT x', small, 5);
     expect(s.rows.length).toBe(2);
     expect(s.rowCount).toBe(2);
+  });
+
+  it('persists direct source projection metadata with the local snapshot', () => {
+    const projection = { tableName: 'orders', columns: ['id'] };
+    const s = buildResultSnapshot('SELECT id FROM orders', result, 10, projection);
+    expect(s.directProjection).toEqual(projection);
   });
 });
 

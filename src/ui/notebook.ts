@@ -17,6 +17,7 @@ import {
   isFacetSelection,
   selectionToPredicate,
 } from '../core/facet-crossfilter.ts';
+import { loadChunk } from '../core/lazy-loader.ts';
 import { getLineageStore } from '../core/lineage-store.ts';
 import {
   extractInputsFromPlan,
@@ -26,7 +27,7 @@ import {
 import { getMeasuresStore } from '../core/measures-store.ts';
 import { expandMeasures } from '../core/measures.ts';
 import { emptyReportDefinition } from '../core/report-layout.ts';
-import { hashSql } from '../core/result-snapshots.ts';
+import { type DirectResultProjection, hashSql } from '../core/result-snapshots.ts';
 import { getSegmentsStore } from '../core/segments.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAssertionCell } from './cells/assertion-cell.ts';
@@ -520,6 +521,18 @@ LIMIT 100`,
         return;
       }
       const rewritten = this.rewriteReferences(measureExpanded.sql);
+      // Capture provenance from the exact SQL that materialises the result,
+      // not the editor text before macro/@ref expansion. The proof rides the
+      // existing lazy agent boundary; loading it cannot block or fail the
+      // query. Until it resolves, the result is explicitly unproven.
+      let directProjectionPromise: Promise<DirectResultProjection | null> = Promise.resolve(null);
+      try {
+        directProjectionPromise = loadChunk('agent-surface')
+          .then((module) => module.traceDirectResultProjection(rewritten))
+          .catch(() => null);
+      } catch {
+        // Non-DOM hosts and a missing chunk stay explicitly unproven.
+      }
       // Read-only introspection statements (SHOW / DESCRIBE / PRAGMA /
       // EXPLAIN / SUMMARIZE) can't be wrapped in `CREATE VIEW AS …` — that
       // wrap gave a confusing "syntax error at or near SHOW" (real-data
@@ -569,7 +582,24 @@ LIMIT 100`,
           sqlHash: hashSql(code),
           capped: false,
           fromSnapshot: false,
+          directProjection: null,
         },
+      });
+      // Provenance is metadata, not a condition of query success. Patch it only
+      // if this is still the same successful run; a superseding edit/run keeps
+      // its own fail-closed null until its proof arrives.
+      void directProjectionPromise.then((directProjection) => {
+        const current = this.state.cells.find((candidate) => candidate.id === id);
+        if (
+          current?.kind !== 'sql' ||
+          current.status !== 'success' ||
+          current.resultMeta?.sqlHash !== hashSql(code)
+        ) {
+          return;
+        }
+        this.patchCell(id, {
+          resultMeta: { ...current.resultMeta, directProjection },
+        });
       });
     } catch (err) {
       if (!isLatest()) return;

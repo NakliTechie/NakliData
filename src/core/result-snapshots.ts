@@ -16,6 +16,18 @@ import { kvDelete, kvGet, kvPut } from './idb.ts';
 /** Max rows kept per snapshot — a head sample, enough for "reopen with evidence". */
 export const SNAPSHOT_ROW_CAP = 100;
 
+/**
+ * The only result-column provenance shape we currently trust for value-bearing
+ * exports: a direct projection from one relation. `columns: null` means
+ * `SELECT *`; otherwise the array is in result-column order. Anything richer
+ * (aliases, expressions, joins, CTEs, subqueries) is deliberately represented
+ * as `null` at the call site and therefore fails closed.
+ */
+export interface DirectResultProjection {
+  tableName: string;
+  columns: string[] | null;
+}
+
 /** The persisted head of a SQL result, keyed by cell id within a session. */
 export interface ResultSnapshot {
   columns: string[];
@@ -28,6 +40,8 @@ export interface ResultSnapshot {
   ranAt: number;
   /** Hash of the SQL that produced it — drives staleness. */
   sqlHash: string;
+  /** Direct source projection, or null when the result is not safely traceable. */
+  directProjection: DirectResultProjection | null;
 }
 
 /** Metadata carried on a SQL cell describing its current lastResult's provenance. */
@@ -38,6 +52,8 @@ export interface SqlResultMeta {
   capped: boolean;
   /** True when lastResult was rehydrated from a snapshot (not a live run this session). */
   fromSnapshot: boolean;
+  /** Direct source projection, or null when the result is not safely traceable. */
+  directProjection: DirectResultProjection | null;
 }
 
 export interface SnapshotableResult {
@@ -86,6 +102,7 @@ export function buildResultSnapshot(
   code: string,
   result: SnapshotableResult,
   now: number,
+  directProjection: DirectResultProjection | null = null,
 ): ResultSnapshot {
   return {
     columns: result.columns,
@@ -94,6 +111,7 @@ export function buildResultSnapshot(
     elapsedMs: result.elapsedMs,
     ranAt: now,
     sqlHash: hashSql(code),
+    directProjection,
   };
 }
 

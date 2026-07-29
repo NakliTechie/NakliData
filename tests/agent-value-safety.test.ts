@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type AgentSurfaceDeps, createAgentHost } from '../src/lazy/agent-surface.ts';
+import {
+  type AgentSurfaceDeps,
+  createAgentHost,
+  traceDirectResultProjection,
+} from '../src/lazy/agent-surface.ts';
 import type { TaxonomyBundle } from '../src/taxonomy/types.ts';
 
 const bundle: TaxonomyBundle = {
@@ -114,6 +118,19 @@ function makeDeps(opts: {
 }
 
 describe('agent value safety', () => {
+  it('exposes only the same strict direct projection as result provenance', () => {
+    expect(traceDirectResultProjection('SELECT name, email FROM people')).toEqual({
+      tableName: 'people',
+      columns: ['name', 'email'],
+    });
+    expect(traceDirectResultProjection('SELECT * FROM people')).toEqual({
+      tableName: 'people',
+      columns: null,
+    });
+    expect(traceDirectResultProjection('SELECT email AS alias FROM people')).toBeNull();
+    expect(traceDirectResultProjection('SELECT upper(email) FROM people')).toBeNull();
+  });
+
   it('refuses every value query before execution when the sensitivity layer is missing', async () => {
     const noLayer = bundleWithoutSensitivityLayer();
     const { deps, query } = makeDeps({ activeBundle: noLayer });

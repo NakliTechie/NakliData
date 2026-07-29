@@ -872,9 +872,9 @@ badge from A15):
 
 | Strategy | SQL projection | Default for |
 |----------|----------------|-------------|
-| `keep` | `"col"` (verbatim) | `public` + unbadged |
+| `keep` | `"col"` (verbatim) | proven `public` only |
 | `hash` | `md5(COALESCE(CAST("col" AS VARCHAR), '') || '<salt>')` | `pii` |
-| `redact` | `'[REDACTED]'` (literal) | `secret` |
+| `redact` | `'[REDACTED]'` (literal) | `secret`, unclassified, unproven, ambiguous, or unknown custom type |
 | `bucket` | numeric: `(FLOOR(CAST("col" AS DOUBLE) / 100) * 100)` ; date: `DATE_TRUNC('month', CAST("col" AS DATE))` ; other: falls back to redact | `financial` |
 | `drop` | column omitted from projection | (user-only) |
 
@@ -884,9 +884,24 @@ affordance + "Regenerate" button. Never persisted. Same-salt
 re-export = user pastes the original salt back into the dialog
 manually.
 
-**Manifest:** written as a separate JSON file alongside the data
-file (separate save-file picker; cancelling skips the manifest
-write but the data file still ships). Format:
+**Provenance and custom types:** the result records a strict direct projection
+from the exact rewritten SQL that produced it. A column inherits an assignment
+only when the relation has one unique mounted owner and the projection is a
+direct source column. Aliases, expressions, joins, CTEs, legacy snapshots, and
+ambiguous ownership are unproven and default to redact. User types carry an
+explicit `public | pii | financial | secret` tier; bundled ids are reserved and
+cannot be shadowed by a user type.
+
+**CSV safety:** standard, anonymized, and golden CSV paths share one policy.
+Formula-like textual values and headers (`=`, `+`, `-`, `@`, tab, carriage
+return) receive a leading apostrophe before RFC-4180 quoting. DuckDB `COPY`
+paths apply the same projection as the in-JS writer; non-text negative numbers
+remain numeric. The 5,000/5,001-row boundary is regression-tested.
+
+**Manifest:** written as a separate JSON file alongside the data file. Both
+destinations are selected before either file is written, so cancelling the
+manifest picker writes nothing. A manifest-write failure after the data write
+is reported as a partial export with explicit retry guidance. Format:
 
 ```json
 {
@@ -894,7 +909,7 @@ write but the data file still ships). Format:
   "version": "1",
   "exportedAt": "<iso8601>",
   "taxonomyVersion": "v0.1",
-  "columns": [{"name", "strategy", "sensitivity", "typeId"}, ...],
+  "columns": [{"name", "strategy", "sensitivity", "typeId", "provenance"}, ...],
   "saltUsed": true,
   "notes": "..."
 }
