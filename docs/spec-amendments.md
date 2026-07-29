@@ -1895,6 +1895,41 @@ workbooks can export portable JSON while both vendor formats fail closed.
 
 ---
 
+## A44 — Portable, explicitly run data-quality contracts (amends spec §3.3)
+
+**Original behavior:** assertion cells could encode hand-written invariants,
+but the product had no first-class quality destination, deterministic
+classification-driven suggestions, or reusable portable contract.
+
+**Amended behavior:** Model → Data quality discovers tagged assertion cells and
+suggests versioned checks from deterministic taxonomy constraints, likely
+identifier grain, and explicit relationships. The portable families are
+completeness/not-null, uniqueness, accepted values, valid ranges, format
+validation, referential validity, and semantic drift. Adding a suggestion
+creates an editable, un-run assertion containing validated metadata and
+counter-example SQL capped at 100 rows.
+
+Checks run only when the user invokes Run checks or runs the assertion cell.
+The surface reports NOT RUN, PASS, FAIL, or ERROR and never polls, schedules, or
+claims continuous monitoring. Tagged checks export as
+`naklidata-data-contract` version 1 JSON with `execution: "explicit"`.
+“Data quality check” is canonical; Databricks “Expectation” and Snowflake
+“DMF / expectation” are aliases. Vendor definitions are withheld until a
+lossless adapter exists.
+
+**Reasoning:** semantic classifications can seed useful reviewable invariants,
+but they are not proof of an operational SLA. Reusing assertion cells keeps SQL
+editable and prevents a second persisted owner while explicit execution
+preserves the browser-local, no-background-polling boundary.
+
+**Status:** adopted 2026-07-29. DECISIONS EX. Unit tests cover all seven
+families, bounded and quoted SQL, hostile regex rejection, metadata round-trip,
+and edited-SQL preservation. A focused production-browser test proves
+suggestion → un-run assertion → explicit run, and the full smoke covers schema
+classification, evidence, override, and assertion execution.
+
+---
+
 ## Future amendments live here
 
 Every spec deviation lands in this file with the same shape: original wording → amended wording → reasoning → status. Future-us reading the original spec doc should be able to cross-reference here to see what's still authoritative and what's been refined.

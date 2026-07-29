@@ -2,6 +2,45 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 5B: deterministic data-quality contracts (EX)
+
+### Decision EX-1 — tagged assertion cells are the durable quality-check representation
+
+- **Context.** Assertion cells already persist editable counter-example SQL and
+  truthful PASS/FAIL outcomes. Introducing a parallel persisted quality store
+  would create two owners for the same check and force a `.naklidata` schema
+  migration.
+- **Decision.** A portable data-quality check is a versioned, validated metadata
+  record on the first comment line of an assertion cell, followed by bounded
+  editable SQL. The Data quality surface discovers only tagged assertions.
+  Adding a deterministic suggestion creates an idle assertion; editing the SQL
+  is preserved. Contract export projects those tagged assertions into
+  `naklidata-data-contract` v1 JSON with `execution: "explicit"`.
+- **Consequence.** Checks round-trip through the existing workbook lifecycle,
+  can still be inspected and run as ordinary notebook assertions, and have one
+  durable owner. Untagged user assertions remain independent and are never
+  silently exported as contract checks.
+
+### Decision EX-2 — semantic suggestions are conservative, bounded, and explicitly run
+
+- **Context.** Classifications and associations can support useful checks, but
+  they are evidence rather than observed production SLAs. Automatic execution,
+  continuous monitoring, or invented vendor definitions would overstate what a
+  browser-local workbench can guarantee.
+- **Decision.** Suggest seven portable families—completeness, uniqueness,
+  accepted values, valid ranges, format, referential validity, and semantic
+  drift—only from deterministic taxonomy constraints, likely identifier grain,
+  and explicit relationships. Validate regexes before SQL emission, quote all
+  identifiers/literals, and cap every counter-example query at 100 rows. A user
+  must click Run checks or run the assertion cell; statuses distinguish NOT
+  RUN, PASS, FAIL, and ERROR. Use “Data quality check” as the primary term and
+  show Expectation and DMF/expectation only as Databricks/Snowflake aliases.
+- **Consequence.** The surface creates reviewable contracts without polling,
+  scheduling, or enforcement claims. No vendor artifact is offered until a
+  mapping can be proved lossless. Gate: **1,516 vitest**, focused production
+  browser **1/1**, **SMOKE PASSED**, bundle **786,251 / 786,432 bytes** (181
+  bytes headroom); final static check follows the documentation update.
+
 ## 2026-07-29 — Goal Phase 5A: portable semantic model and vendor adapters (EW)
 
 ### Decision EW-1 — one portable, multi-table model is the semantic source of truth

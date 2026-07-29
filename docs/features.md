@@ -129,6 +129,15 @@ Every SQL result carries one-click actions:
   into a portable multi-table JSON contract, then offers loss-aware Databricks
   Metric View YAML 1.1 and Snowflake Semantic View YAML. Missing physical
   bindings or unsupported mappings are listed and block vendor saving.
+- **Data quality** — a first-class Model surface derives deterministic
+  completeness/not-null, uniqueness, accepted-value, valid-range, format,
+  referential-validity, and semantic-drift checks from classified fields and
+  explicit relationships. Adding a suggestion creates an editable, un-run
+  assertion cell. Run checks is always explicit; statuses distinguish NOT RUN,
+  PASS, FAIL, and ERROR. Tagged assertions save as a versioned portable
+  `naklidata-data-contract` JSON artifact. “Expectation” (Databricks) and
+  “DMF / expectation” (Snowflake) are aliases only; no monitoring, scheduling,
+  enforcement, or lossy vendor export is implied.
 - **Presentation mode** — `?present=1` hides editing surfaces; markdown / chart /
   pivot / map keep rendering.
 

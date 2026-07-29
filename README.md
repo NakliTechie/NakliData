@@ -89,6 +89,9 @@ with `npm run gen-examples`.
   user-defined types.
 - **Resolve** — cluster variant spellings, define `SEGMENT(name)` audiences, and
   export a golden (deduped) table you own.
+- **Data quality** — suggest completeness, uniqueness, accepted-value, range,
+  format, referential, and semantic-drift checks from classified fields. Add
+  them as editable, un-run assertions and save a portable explicit-run contract.
 - **Sinks** — save/embed self-contained HTML, anonymized export, golden table,
   visual query builder, calc fields, cell lineage, and a semantic layer
   (`MEASURE` / `DIM` / `SEGMENT`). Export a portable multi-table semantic-model
