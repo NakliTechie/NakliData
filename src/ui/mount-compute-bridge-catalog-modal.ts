@@ -4,7 +4,7 @@
 // W3.4a single-SQL-via-bridge modal because the persistence shape
 // differs (catalog tracks the per-table selection, not raw SQL).
 
-import type { BridgeTable } from '../core/bridge/bridge-client.ts';
+import type { BridgeTable } from '../core/bridge/protocol.ts';
 import {
   BRIDGE_CATALOG_ROW_CAP_DEFAULT,
   BRIDGE_CATALOG_ROW_CAP_MAX,
@@ -16,6 +16,7 @@ import { restoreModalFocus } from './modal-focus.ts';
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
+let _requestController: AbortController | null = null;
 
 export interface MountComputeBridgeCatalogInput {
   label: string;
@@ -32,12 +33,16 @@ export interface MountComputeBridgeCatalogHandlers {
    * inline errors. The modal stays open on failure so the user can
    * fix the URL/Bearer and retry.
    */
-  onConnect: (opts: { bridgeUrl: string; bearerToken: string }) => Promise<BridgeTable[]>;
+  onConnect: (opts: {
+    bridgeUrl: string;
+    bearerToken: string;
+    signal: AbortSignal;
+  }) => Promise<BridgeTable[]>;
   /**
    * Mount the picked tables. Receives sanitised input; throws surface
    * as inline errors and keep the modal open.
    */
-  onMount: (input: MountComputeBridgeCatalogInput) => Promise<void> | void;
+  onMount: (input: MountComputeBridgeCatalogInput, signal: AbortSignal) => Promise<void> | void;
 }
 
 export function openMountComputeBridgeCatalogModal(
@@ -52,6 +57,8 @@ export function openMountComputeBridgeCatalogModal(
 }
 
 export function closeMountComputeBridgeCatalogModal(): void {
+  _requestController?.abort('dialog closed');
+  _requestController = null;
   if (_modalEl?.parentElement) {
     _modalEl.parentElement.removeChild(_modalEl);
   }
@@ -166,8 +173,15 @@ async function runConnect(
     connectBtn.disabled = true;
     connectBtn.textContent = 'Connecting…';
   }
+  _requestController?.abort('new request started');
+  const controller = new AbortController();
+  _requestController = controller;
   try {
-    const tables = await handlers.onConnect({ bridgeUrl, bearerToken });
+    const tables = await handlers.onConnect({
+      bridgeUrl,
+      bearerToken,
+      signal: controller.signal,
+    });
     if (!tables.length) {
       setError(errEl, 'Bridge reports zero tables. Nothing to mount.');
       return;
@@ -175,8 +189,10 @@ async function runConnect(
     renderTableList(overlay, tables);
     revealPickStep(overlay, true);
   } catch (err) {
+    if (controller.signal.aborted) return;
     setError(errEl, err instanceof Error ? err.message : String(err));
   } finally {
+    if (_requestController === controller) _requestController = null;
     if (connectBtn) {
       connectBtn.disabled = false;
       connectBtn.textContent = 'Connect';
@@ -190,20 +206,48 @@ function renderTableList(overlay: HTMLElement, tables: BridgeTable[]): void {
   if (!listEl || !summaryEl) return;
   summaryEl.textContent = `${tables.length} table${tables.length === 1 ? '' : 's'} available. Pick which to mount and bound each with a row cap (the result has to fit in the tab).`;
   listEl.innerHTML = '';
-  for (const t of tables) {
-    const row = document.createElement('div');
-    row.className = 'mount-bridge-catalog-row';
-    row.dataset.tableName = t.name;
-    const colCount = t.schema?.length ?? 0;
-    const schemaSummary = t.schema
-      ?.slice(0, 6)
-      .map((c) => `${c.name}: ${c.type}`)
-      .join(', ');
-    const schemaMore = colCount > 6 ? `, +${colCount - 6} more` : '';
-    row.innerHTML = `
+  const grouped = groupTables(tables);
+  for (const catalog of grouped) {
+    const catalogSection = document.createElement('section');
+    catalogSection.className = 'mount-bridge-catalog-group';
+    const catalogHeading = document.createElement('h4');
+    catalogHeading.className = 'mount-bridge-catalog-group-title';
+    catalogHeading.textContent = catalog.label;
+    catalogSection.append(catalogHeading);
+    for (const namespace of catalog.namespaces) {
+      const namespaceSection = document.createElement('div');
+      namespaceSection.className = 'mount-bridge-namespace-group';
+      const namespaceHeading = document.createElement('h5');
+      namespaceHeading.className = 'mount-bridge-namespace-title';
+      namespaceHeading.textContent = namespace.label;
+      namespaceSection.append(namespaceHeading);
+      for (const table of namespace.tables) {
+        namespaceSection.append(renderTableRow(table));
+      }
+      catalogSection.append(namespaceSection);
+    }
+    listEl.append(catalogSection);
+  }
+}
+
+function renderTableRow(t: BridgeTable): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'mount-bridge-catalog-row';
+  row.dataset.tableName = t.qualifiedName;
+  row.dataset.localName = t.name;
+  const colCount = t.schema.length;
+  const schemaSummary = t.schema
+    .slice(0, 6)
+    .map((c) => `${c.name}: ${c.type}`)
+    .join(', ');
+  const schemaMore = colCount > 6 ? `, +${colCount - 6} more` : '';
+  row.innerHTML = `
       <label class="mount-bridge-catalog-pick">
         <input type="checkbox" data-region="bridge-catalog-pick">
-        <span class="mount-bridge-catalog-name"><code>${escapeHtml(t.name)}</code></span>
+        <span class="mount-bridge-catalog-name">
+          <code>${escapeHtml(t.name)}</code>
+          <small>${escapeHtml(t.kind)}${t.source ? ` · ${escapeHtml(t.source)}` : ''}</small>
+        </span>
         <span class="mount-bridge-catalog-cols">${colCount} col${colCount === 1 ? '' : 's'}${
           schemaSummary ? `: ${escapeHtml(schemaSummary)}${escapeHtml(schemaMore)}` : ''
         }</span>
@@ -215,8 +259,37 @@ function renderTableList(overlay: HTMLElement, tables: BridgeTable[]): void {
                value="${BRIDGE_CATALOG_ROW_CAP_DEFAULT}" step="1000">
       </label>
     `;
-    listEl.append(row);
+  return row;
+}
+
+function groupTables(tables: BridgeTable[]): Array<{
+  label: string;
+  namespaces: Array<{ label: string; tables: BridgeTable[] }>;
+}> {
+  const catalogs = new Map<string, Map<string, BridgeTable[]>>();
+  for (const table of tables) {
+    const catalog = table.catalog ?? 'Unscoped catalog';
+    const namespace = table.namespace.length ? table.namespace.join(' › ') : 'Default namespace';
+    let namespaces = catalogs.get(catalog);
+    if (!namespaces) {
+      namespaces = new Map();
+      catalogs.set(catalog, namespaces);
+    }
+    const entries = namespaces.get(namespace) ?? [];
+    entries.push(table);
+    namespaces.set(namespace, entries);
   }
+  return [...catalogs.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, namespaces]) => ({
+      label,
+      namespaces: [...namespaces.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([namespaceLabel, entries]) => ({
+          label: namespaceLabel,
+          tables: entries.sort((a, b) => a.name.localeCompare(b.name)),
+        })),
+    }));
 }
 
 function revealPickStep(overlay: HTMLElement, show: boolean): void {
@@ -254,8 +327,9 @@ async function runMount(
     const capInput = row.querySelector<HTMLInputElement>('[data-region="bridge-catalog-cap"]');
     if (!checkbox?.checked) continue;
     const name = row.dataset.tableName ?? '';
+    const localName = row.dataset.localName ?? name;
     const rowCap = Number(capInput?.value) || BRIDGE_CATALOG_ROW_CAP_DEFAULT;
-    picks.push({ name, localName: name, rowCap });
+    picks.push({ name, localName, rowCap });
   }
   if (!picks.length) {
     setError(errEl, 'Pick at least one table to mount.');
@@ -266,12 +340,20 @@ async function runMount(
     mountBtn.disabled = true;
     mountBtn.textContent = 'Mounting…';
   }
+  _requestController?.abort('new request started');
+  const controller = new AbortController();
+  _requestController = controller;
   try {
-    await handlers.onMount({ bridgeUrl, bearerToken, remember, label, tables: picks });
+    await handlers.onMount(
+      { bridgeUrl, bearerToken, remember, label, tables: picks },
+      controller.signal,
+    );
     closeMountComputeBridgeCatalogModal();
   } catch (err) {
+    if (controller.signal.aborted) return;
     setError(errEl, err instanceof Error ? err.message : String(err));
   } finally {
+    if (_requestController === controller) _requestController = null;
     if (mountBtn) {
       mountBtn.disabled = false;
       mountBtn.textContent = 'Mount selected';

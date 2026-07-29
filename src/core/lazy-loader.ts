@@ -133,6 +133,10 @@ export interface LazyChunkRegistry {
   'demo-workbook': typeof import('../lazy/demo-workbook.ts');
   /** Searchable, grouped 204-type override picker; paid only when opened. */
   'schema-override': typeof import('../lazy/schema-override.ts');
+  /** Versioned, bounded, cancellable HTTP + Arrow Compute Bridge client. */
+  'bridge-client': typeof import('../lazy/bridge-client.ts');
+  /** Bounded, cancellable, paginated Apache Iceberg REST Catalog client. */
+  'iceberg-rest-client': typeof import('../lazy/iceberg-rest-client.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
   // writes to store singletons, so a self-contained chunk diverged its
   // own copies from the main bundle's. The panel is now imported directly

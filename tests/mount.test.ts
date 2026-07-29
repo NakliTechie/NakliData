@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
+import { _primeChunkForTests } from '../src/core/lazy-loader.ts';
 import {
   describeReadFailure,
   detectFormat,
   reconcileRemountedFolder,
   sanitizeTableName,
 } from '../src/core/mount.ts';
+import * as bridgeClientChunk from '../src/lazy/bridge-client.ts';
+
+_primeChunkForTests('bridge-client', bridgeClientChunk);
 
 describe('detectFormat', () => {
   it.each([
@@ -659,11 +663,13 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
       if (u.endsWith('/v1/health')) {
         return new Response(
           JSON.stringify({
+            protocol: 'naklidata-compute-bridge',
+            protocol_version: 1,
             name: 'nakli-compute',
             version: '0.1',
             auth: 'bearer',
             single_tenant: true,
-            capabilities: ['query'],
+            capabilities: ['query', 'arrow-ipc'],
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -706,7 +712,15 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
       const u = String(url);
       if (u.endsWith('/v1/health')) {
         return new Response(
-          JSON.stringify({ name: 'x', version: '0', auth: 'none', capabilities: [] }),
+          JSON.stringify({
+            protocol: 'naklidata-compute-bridge',
+            protocol_version: 1,
+            name: 'x',
+            version: '0',
+            auth: 'none',
+            single_tenant: true,
+            capabilities: ['query', 'arrow-ipc'],
+          }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
@@ -753,7 +767,15 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
       const u = String(url);
       if (u.endsWith('/v1/health')) {
         return new Response(
-          JSON.stringify({ name: 'x', version: '0', auth: 'none', capabilities: [] }),
+          JSON.stringify({
+            protocol: 'naklidata-compute-bridge',
+            protocol_version: 1,
+            name: 'x',
+            version: '0',
+            auth: 'none',
+            single_tenant: true,
+            capabilities: ['query', 'arrow-ipc'],
+          }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
@@ -829,11 +851,13 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
   function healthResponse(): Response {
     return new Response(
       JSON.stringify({
+        protocol: 'naklidata-compute-bridge',
+        protocol_version: 1,
         name: 'nakli-compute',
         version: '0.1',
         auth: 'bearer',
         single_tenant: true,
-        capabilities: ['query'],
+        capabilities: ['query', 'arrow-ipc'],
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
@@ -967,6 +991,9 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
     expect(src.tables).toHaveLength(2);
     expect(src.tables.map((t) => t.name)).toEqual(['sales', 'customers']);
     expect(src.bridgeCatalog?.tables).toHaveLength(2);
+    expect(src.mountFailures).toEqual([
+      { object: 'missing', reason: expect.stringContaining('no such table'), code: 'query_error' },
+    ]);
   });
 
   it('throws MountError when all picked tables fail', async () => {

@@ -1,4 +1,5 @@
 import { getAssociationsStore } from './core/associations.ts';
+import { BRIDGE_CAPABILITIES } from './core/bridge/protocol.ts';
 import { pickChartColumns } from './core/chart-columns.ts';
 import {
   clearFixes,
@@ -2811,13 +2812,14 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         return;
       }
       openMountComputeBridgeModal({
-        onMount: async (input) => {
+        onMount: async (input, signal) => {
           const source = await mountComputeBridge(engine, {
             label: input.label,
             bridgeUrl: input.bridgeUrl,
             sql: input.sql,
             tableName: input.tableName,
             bearerToken: input.bearerToken.trim() || null,
+            signal,
           });
           if (input.bearerToken.trim()) {
             await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
@@ -2835,30 +2837,46 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         return;
       }
       openMountComputeBridgeCatalogModal({
-        onConnect: async ({ bridgeUrl, bearerToken }) => {
+        onConnect: async ({ bridgeUrl, bearerToken, signal }) => {
           // Probe + list. Constructed transiently — once the user picks
           // tables and confirms, mountComputeBridgeCatalog builds its own
           // client with the same URL + token for the actual queries.
-          const { BridgeClient } = await import('./core/bridge/bridge-client.ts');
+          const { BridgeClient } = await loadChunk('bridge-client');
           const client = new BridgeClient({
             bridgeUrl: bridgeUrl.trim(),
             bearerToken: bearerToken.trim() || null,
           });
-          await client.health();
-          return await client.listTables();
+          await client.health({
+            requiredCapabilities: [
+              BRIDGE_CAPABILITIES.tables,
+              BRIDGE_CAPABILITIES.query,
+              BRIDGE_CAPABILITIES.arrowIpc,
+            ],
+            signal,
+          });
+          return await client.listTables({ signal });
         },
-        onMount: async (input) => {
+        onMount: async (input, signal) => {
           const source = await mountComputeBridgeCatalog(engine, {
             label: input.label,
             bridgeUrl: input.bridgeUrl,
             bearerToken: input.bearerToken.trim() || null,
             tables: input.tables,
+            signal,
           });
           if (input.bearerToken.trim()) {
             await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
           }
           workbook.addSources([source]);
-          toast(`Mounted ${source.tables.length} table(s) from "${source.label}".`);
+          if (source.mountFailures?.length) {
+            toast(
+              `Mounted ${source.tables.length} table(s); ${source.mountFailures.length} failed: ${source.mountFailures
+                .map((failure) => failure.object)
+                .join(', ')}.`,
+            );
+          } else {
+            toast(`Mounted ${source.tables.length} table(s) from "${source.label}".`);
+          }
           void classifyMountedSources(engine, [source]);
         },
       });

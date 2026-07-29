@@ -9,6 +9,7 @@ import { restoreModalFocus } from './modal-focus.ts';
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
+let _requestController: AbortController | null = null;
 
 export interface MountComputeBridgeInput {
   label: string;
@@ -20,7 +21,7 @@ export interface MountComputeBridgeInput {
 }
 
 export function openMountComputeBridgeModal(opts: {
-  onMount: (input: MountComputeBridgeInput) => Promise<void> | void;
+  onMount: (input: MountComputeBridgeInput, signal: AbortSignal) => Promise<void> | void;
 }): void {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
@@ -31,6 +32,8 @@ export function openMountComputeBridgeModal(opts: {
 }
 
 export function closeMountComputeBridgeModal(): void {
+  _requestController?.abort('dialog closed');
+  _requestController = null;
   if (_modalEl?.parentElement) {
     _modalEl.parentElement.removeChild(_modalEl);
   }
@@ -45,7 +48,7 @@ export function closeMountComputeBridgeModal(): void {
 }
 
 function renderModal(opts: {
-  onMount: (input: MountComputeBridgeInput) => Promise<void> | void;
+  onMount: (input: MountComputeBridgeInput, signal: AbortSignal) => Promise<void> | void;
 }): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'schema-graph-overlay mount-bridge-overlay';
@@ -118,7 +121,9 @@ function renderModal(opts: {
 
 async function confirmMount(
   overlay: HTMLElement,
-  opts: { onMount: (input: MountComputeBridgeInput) => Promise<void> | void },
+  opts: {
+    onMount: (input: MountComputeBridgeInput, signal: AbortSignal) => Promise<void> | void;
+  },
 ): Promise<void> {
   const get = <T extends HTMLInputElement | HTMLTextAreaElement>(region: string): T | null =>
     overlay.querySelector<T>(`[data-region="${region}"]`);
@@ -152,13 +157,30 @@ async function confirmMount(
     errEl.textContent = '';
     errEl.hidden = true;
   }
+  const mountButton = overlay.querySelector<HTMLButtonElement>(
+    '[data-action="confirm-mount-bridge"]',
+  );
+  _requestController?.abort('new request started');
+  const controller = new AbortController();
+  _requestController = controller;
+  if (mountButton) {
+    mountButton.disabled = true;
+    mountButton.textContent = 'Mounting…';
+  }
   try {
-    await opts.onMount(input);
+    await opts.onMount(input, controller.signal);
     closeMountComputeBridgeModal();
   } catch (err) {
+    if (controller.signal.aborted) return;
     if (errEl) {
       errEl.textContent = err instanceof Error ? err.message : String(err);
       errEl.hidden = false;
+    }
+  } finally {
+    if (_requestController === controller) _requestController = null;
+    if (mountButton) {
+      mountButton.disabled = false;
+      mountButton.textContent = 'Mount';
     }
   }
 }

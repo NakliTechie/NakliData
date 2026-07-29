@@ -5,6 +5,7 @@
 //   §3.1 — source mounting (FSA folder/file; multi-root; file-to-table mapping)
 //   §3.5 — example data bundle ("Browse example data" CTA)
 
+import { BRIDGE_CAPABILITIES } from './bridge/protocol.ts';
 import type { Engine, RegisterFileOptions } from './engine.ts';
 import {
   type AnyHandle,
@@ -13,6 +14,7 @@ import {
   newHandleId,
   putHandle,
 } from './handles.ts';
+import { loadChunk } from './lazy-loader.ts';
 import type { FileFormat } from './product-capabilities.ts';
 
 export type { FileFormat } from './product-capabilities.ts';
@@ -150,6 +152,11 @@ export interface MountedSource {
   bridge?: BridgeConfig;
   /** Wave 3 W3.4b — populated for `kind: 'compute-bridge-catalog'`. */
   bridgeCatalog?: BridgeCatalogConfig;
+  /**
+   * Non-fatal remote objects that failed while siblings mounted. Runtime-only:
+   * persistence records successful tables and retries only those on reload.
+   */
+  mountFailures?: Array<{ object: string; reason: string; code: string | null }>;
   tables: MountedTable[];
 }
 
@@ -926,7 +933,7 @@ export async function mountIcebergCatalog(
   if (!opts.table.trim()) throw new MountError('Table is required.');
   const bearerToken = opts.bearerToken?.trim() || null;
   // Resolve the metadata-location via the REST catalog.
-  const { IcebergCatalogClient } = await import('./iceberg/rest-client.ts');
+  const { IcebergCatalogClient } = await loadChunk('iceberg-rest-client');
   const client = new IcebergCatalogClient({
     catalogUrl: opts.catalogUrl.trim(),
     bearerToken,
@@ -1098,6 +1105,7 @@ export async function mountComputeBridge(
     tableName: string;
     bearerToken: string | null;
     fetchImpl?: typeof fetch;
+    signal?: AbortSignal;
   },
 ): Promise<MountedSource> {
   if (!opts.bridgeUrl.trim()) throw new MountError('Compute Bridge URL is required.');
@@ -1109,7 +1117,7 @@ export async function mountComputeBridge(
     );
   }
   const bearerToken = opts.bearerToken?.trim() || null;
-  const { BridgeClient } = await import('./bridge/bridge-client.ts');
+  const { BridgeClient } = await loadChunk('bridge-client');
   const client = new BridgeClient({
     bridgeUrl: opts.bridgeUrl.trim(),
     bearerToken,
@@ -1118,7 +1126,10 @@ export async function mountComputeBridge(
   // 1) Reachability + auth probe. Surfaces a clear "unreachable / 401"
   // before we send the SQL.
   try {
-    await client.health();
+    await client.health({
+      requiredCapabilities: [BRIDGE_CAPABILITIES.query, BRIDGE_CAPABILITIES.arrowIpc],
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
   } catch (err) {
     if (err instanceof Error) {
       throw new MountError(`Compute Bridge: ${err.message}`);
@@ -1128,7 +1139,7 @@ export async function mountComputeBridge(
   // 2) Run the user's SQL on the bridge; receive Arrow IPC bytes.
   let bytes: Uint8Array;
   try {
-    const buffer = await client.query(opts.sql.trim());
+    const buffer = await client.query(opts.sql.trim(), opts.signal ? { signal: opts.signal } : {});
     bytes = new Uint8Array(buffer);
   } catch (err) {
     if (err instanceof Error) {
@@ -1211,6 +1222,7 @@ export async function mountComputeBridgeCatalog(
     bearerToken: string | null;
     tables: Array<{ name: string; localName?: string; rowCap?: number }>;
     fetchImpl?: typeof fetch;
+    signal?: AbortSignal;
   },
 ): Promise<MountedSource> {
   if (!opts.bridgeUrl.trim()) throw new MountError('Compute Bridge URL is required.');
@@ -1223,7 +1235,7 @@ export async function mountComputeBridgeCatalog(
     throw new MountError('Pick at least one table to mount.');
   }
   const bearerToken = opts.bearerToken?.trim() || null;
-  const { BridgeClient } = await import('./bridge/bridge-client.ts');
+  const { BridgeClient } = await loadChunk('bridge-client');
   const client = new BridgeClient({
     bridgeUrl: opts.bridgeUrl.trim(),
     bearerToken,
@@ -1231,7 +1243,10 @@ export async function mountComputeBridgeCatalog(
   });
   // 1) Reachability + auth probe.
   try {
-    await client.health();
+    await client.health({
+      requiredCapabilities: [BRIDGE_CAPABILITIES.query, BRIDGE_CAPABILITIES.arrowIpc],
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
   } catch (err) {
     if (err instanceof Error) throw new MountError(`Compute Bridge: ${err.message}`);
     throw err;
@@ -1240,7 +1255,7 @@ export async function mountComputeBridgeCatalog(
   const sourceId = genId('src');
   const mountedTables: MountedTable[] = [];
   const persistedTables: BridgeCatalogConfig['tables'] = [];
-  const failures: Array<{ name: string; reason: string }> = [];
+  const failures: Array<{ object: string; reason: string; code: string | null }> = [];
   for (const pick of opts.tables) {
     if (!pick.name.trim()) continue;
     const cap = clampRowCap(pick.rowCap);
@@ -1250,7 +1265,7 @@ export async function mountComputeBridgeCatalog(
     );
     const sql = `SELECT * FROM ${quoteBridgeIdent(pick.name.trim())} LIMIT ${cap}`;
     try {
-      const buffer = await client.query(sql);
+      const buffer = await client.query(sql, opts.signal ? { signal: opts.signal } : {});
       const bytes = new Uint8Array(buffer);
       await engine.registerArrowBuffer({ tableName: localName, bytes });
       const rowCount = await getRowCount(engine, localName);
@@ -1266,11 +1281,15 @@ export async function mountComputeBridgeCatalog(
       persistedTables.push({ name: pick.name.trim(), localName, rowCap: cap });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      failures.push({ name: pick.name, reason });
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string'
+          ? err.code
+          : null;
+      failures.push({ object: pick.name, reason, code });
     }
   }
   if (!mountedTables.length) {
-    const detail = failures.map((f) => `${f.name}: ${f.reason}`).join('; ');
+    const detail = failures.map((f) => `${f.object}: ${f.reason}`).join('; ');
     throw new MountError(`No tables mounted. ${detail || 'No usable tables in selection.'}`);
   }
   // Partial-failure reporting is intentionally non-fatal — the caller
@@ -1279,7 +1298,7 @@ export async function mountComputeBridgeCatalog(
   if (failures.length) {
     console.warn(
       `[mountComputeBridgeCatalog] ${failures.length} table(s) failed: ${failures
-        .map((f) => f.name)
+        .map((f) => f.object)
         .join(', ')}`,
     );
   }
@@ -1293,6 +1312,7 @@ export async function mountComputeBridgeCatalog(
       tables: persistedTables,
       requiresBearer: bearerToken !== null,
     },
+    ...(failures.length ? { mountFailures: failures } : {}),
     tables: mountedTables,
   };
 }

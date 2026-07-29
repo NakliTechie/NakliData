@@ -994,6 +994,28 @@ button {
   overflow: auto;
   padding: var(--space-2) 0;
 }
+.mount-bridge-catalog-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.mount-bridge-catalog-group-title,
+.mount-bridge-namespace-title {
+  margin: 0;
+  color: var(--text);
+  font-size: ${Type.size.sm};
+}
+.mount-bridge-namespace-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+}
+.mount-bridge-namespace-title {
+  color: var(--text-muted);
+  font-size: ${Type.size.xs};
+  font-weight: 600;
+}
 .mount-bridge-catalog-row {
   display: flex;
   align-items: center;
@@ -1016,8 +1038,15 @@ button {
   flex: 0 0 auto;
 }
 .mount-bridge-catalog-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   font-size: ${Type.size.sm};
   color: var(--text);
+}
+.mount-bridge-catalog-name small {
+  color: var(--text-muted);
+  font-size: ${Type.size.xs};
 }
 .mount-bridge-catalog-cols {
   font-size: ${Type.size.xs};

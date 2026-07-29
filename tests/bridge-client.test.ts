@@ -1,200 +1,311 @@
 import { describe, expect, it } from 'vitest';
-import { BridgeClient, BridgeError } from '../src/core/bridge/bridge-client.ts';
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_PROTOCOL_ID,
+  BRIDGE_PROTOCOL_VERSION,
+} from '../src/core/bridge/protocol.ts';
+import { BridgeClient, BridgeError } from '../src/lazy/bridge-client.ts';
 
-function jsonResponse(body: unknown, init: { status?: number } = {}): Response {
+function jsonResponse(
+  body: unknown,
+  init: { status?: number; contentType?: string } = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status: init.status ?? 200,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': init.contentType ?? 'application/json' },
   });
 }
 
-function arrowResponse(bytes: Uint8Array): Response {
-  // TS's lib BodyInit narrowed to exclude raw Uint8Array in some envs;
-  // pass the underlying ArrayBuffer instead. Runtime is equivalent.
+function healthBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    protocol: BRIDGE_PROTOCOL_ID,
+    protocol_version: BRIDGE_PROTOCOL_VERSION,
+    name: 'nakli-compute',
+    version: '1.0.0',
+    auth: 'bearer',
+    single_tenant: true,
+    capabilities: ['query', 'tables', 'arrow-ipc'],
+    ...overrides,
+  };
+}
+
+function arrowResponse(
+  bytes: Uint8Array,
+  contentType = 'application/vnd.apache.arrow.stream',
+): Response {
   return new Response(bytes.buffer as ArrayBuffer, {
     status: 200,
-    headers: { 'content-type': 'application/vnd.apache.arrow.stream' },
+    headers: { 'content-type': contentType },
   });
 }
 
-describe('BridgeClient (W3.4a)', () => {
-  it('health() hits /v1/health with Bearer header when token supplied', async () => {
+describe('BridgeClient protocol boundary', () => {
+  it('negotiates the explicit protocol and sends a Bearer header', async () => {
     const calls: Array<{ url: string; headers: Record<string, string> }> = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       calls.push({
         url: String(url),
         headers: Object.fromEntries(new Headers(init?.headers).entries()),
       });
-      return jsonResponse({
-        name: 'nakli-compute',
-        version: '0.1.0',
-        auth: 'bearer',
-        single_tenant: true,
-        capabilities: ['query', 'tables', 'arrow-ipc'],
-      });
+      return jsonResponse(healthBody());
     };
     const client = new BridgeClient({
-      bridgeUrl: 'https://bridge.example.com:8088',
+      bridgeUrl: 'https://bridge.example.com:8088///',
       bearerToken: 'token-abc',
       fetchImpl,
     });
-    const h = await client.health();
-    expect(h.name).toBe('nakli-compute');
-    expect(h.auth).toBe('bearer');
-    expect(h.singleTenant).toBe(true);
-    expect(h.capabilities).toEqual(['query', 'tables', 'arrow-ipc']);
+    const health = await client.health({
+      requiredCapabilities: [
+        BRIDGE_CAPABILITIES.query,
+        BRIDGE_CAPABILITIES.tables,
+        BRIDGE_CAPABILITIES.arrowIpc,
+      ],
+    });
+    expect(health.protocol).toBe(BRIDGE_PROTOCOL_ID);
+    expect(health.protocolVersion).toBe(BRIDGE_PROTOCOL_VERSION);
+    expect(health.singleTenant).toBe(true);
     expect(calls[0]?.url).toBe('https://bridge.example.com:8088/v1/health');
     expect(calls[0]?.headers.authorization).toBe('Bearer token-abc');
   });
 
-  it('omits Authorization header when bearerToken is null', async () => {
-    const calls: Array<{ headers: Record<string, string> }> = [];
-    const fetchImpl: typeof fetch = async (_url, init) => {
-      calls.push({ headers: Object.fromEntries(new Headers(init?.headers).entries()) });
-      return jsonResponse({ name: 'x', version: '0', auth: 'none', capabilities: [] });
-    };
+  it('omits Authorization when bearerToken is null', async () => {
+    let authorization: string | null = 'unexpected';
     const client = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: null,
-      fetchImpl,
+      fetchImpl: async (_url, init) => {
+        authorization = new Headers(init?.headers).get('authorization');
+        return jsonResponse(healthBody({ auth: 'none' }));
+      },
     });
     await client.health();
-    expect(calls[0]?.headers.authorization).toBeUndefined();
+    expect(authorization).toBeNull();
   });
 
-  it('trims trailing slashes off the bridge URL', async () => {
-    const calls: string[] = [];
-    const fetchImpl: typeof fetch = async (url) => {
-      calls.push(String(url));
-      return jsonResponse({ name: 'x', version: '0', auth: 'none', capabilities: [] });
-    };
-    const client = new BridgeClient({
-      bridgeUrl: 'https://bridge.example.com:8088///',
-      bearerToken: null,
-      fetchImpl,
-    });
-    await client.health();
-    expect(calls[0]).toBe('https://bridge.example.com:8088/v1/health');
-  });
-
-  it('health() falls back gracefully on missing fields', async () => {
-    const fetchImpl: typeof fetch = async () => jsonResponse({});
-    const client = new BridgeClient({
-      bridgeUrl: 'https://bridge.example.com',
-      bearerToken: null,
-      fetchImpl,
-    });
-    const h = await client.health();
-    expect(h.singleTenant).toBe(true); // default
-    expect(h.capabilities).toEqual([]);
-  });
-
-  it('health() accepts camelCase singleTenant (catalog quirk)', async () => {
-    const fetchImpl: typeof fetch = async () =>
-      jsonResponse({ name: 'x', version: '0', auth: 'bearer', singleTenant: false });
-    const client = new BridgeClient({
-      bridgeUrl: 'https://bridge.example.com',
-      bearerToken: null,
-      fetchImpl,
-    });
-    const h = await client.health();
-    expect(h.singleTenant).toBe(false);
-  });
-
-  it('listTables() parses the catalog shape and drops malformed entries', async () => {
-    const fetchImpl: typeof fetch = async () =>
-      jsonResponse({
-        tables: [
-          {
-            name: 'sales',
-            source: 'iceberg',
-            schema: [
-              { name: 'gstin', type: 'VARCHAR' },
-              { name: 'amount', type: 'DECIMAL(18,2)' },
-              { name: 'bad', type: 123 }, // type not a string — drop the column
-            ],
-          },
-          // Missing name → drop whole row.
-          { source: 'iceberg', schema: [] },
-        ],
+  it('rejects missing, foreign, or unsupported protocol identities', async () => {
+    for (const body of [
+      {},
+      healthBody({ protocol: 'other-bridge' }),
+      healthBody({ protocol_version: 2 }),
+    ]) {
+      const client = new BridgeClient({
+        bridgeUrl: 'https://bridge.example.com',
+        bearerToken: null,
+        fetchImpl: async () => jsonResponse(body),
       });
+      await expect(client.health()).rejects.toMatchObject({
+        name: 'BridgeError',
+        code: 'protocol_mismatch',
+      });
+    }
+  });
+
+  it('rejects a bridge that lacks a capability required by the flow', async () => {
     const client = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: null,
-      fetchImpl,
+      fetchImpl: async () => jsonResponse(healthBody({ capabilities: ['query'] })),
+    });
+    await expect(
+      client.health({ requiredCapabilities: [BRIDGE_CAPABILITIES.arrowIpc] }),
+    ).rejects.toMatchObject({ code: 'missing_capability' });
+  });
+
+  it('parses hierarchical catalog objects and derives qualified names', async () => {
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async () =>
+        jsonResponse({
+          tables: [
+            {
+              catalog: 'prod',
+              namespace: ['finance', 'ap'],
+              name: 'invoices',
+              kind: 'view',
+              source: 'databricks',
+              schema: [
+                { name: 'vendor_id', type: 'VARCHAR' },
+                { name: 'amount', type: 'DECIMAL(18,2)' },
+              ],
+            },
+            {
+              catalog: 'prod',
+              namespace: 'sales.public',
+              name: 'orders',
+              qualified_name: '"prod"."sales"."orders"',
+              schema: [],
+            },
+          ],
+        }),
     });
     const tables = await client.listTables();
-    expect(tables).toHaveLength(1);
-    expect(tables[0]?.name).toBe('sales');
-    expect(tables[0]?.source).toBe('iceberg');
-    expect(tables[0]?.schema.map((c) => c.name)).toEqual(['gstin', 'amount']);
+    expect(tables[0]).toMatchObject({
+      catalog: 'prod',
+      namespace: ['finance', 'ap'],
+      name: 'invoices',
+      qualifiedName: 'prod.finance.ap.invoices',
+      kind: 'view',
+      source: 'databricks',
+    });
+    expect(tables[1]?.qualifiedName).toBe('"prod"."sales"."orders"');
   });
 
-  it('query() POSTs JSON and returns the Arrow IPC bytes', async () => {
-    const fakeArrowBytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57]); // "ARROW"
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-    const fetchImpl: typeof fetch = async (url, init) => {
-      calls.push({ url: String(url), init });
-      return arrowResponse(fakeArrowBytes);
-    };
+  it('fails the whole catalog on a malformed descriptor', async () => {
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async () => jsonResponse({ tables: [{ name: 'ok' }, { schema: [] }] }),
+    });
+    await expect(client.listTables()).rejects.toMatchObject({ code: 'protocol_mismatch' });
+  });
+
+  it('POSTs trimmed SQL and accepts only Arrow IPC', async () => {
+    const bytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57]);
+    let body = '';
     const client = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: 'tok',
-      fetchImpl,
+      fetchImpl: async (_url, init) => {
+        body = String(init?.body);
+        return arrowResponse(bytes);
+      },
     });
-    const result = await client.query('SELECT 1');
-    expect(new Uint8Array(result)).toEqual(fakeArrowBytes);
-    expect(calls[0]?.url).toBe('https://bridge.example.com/v1/query');
-    expect(calls[0]?.init?.method).toBe('POST');
-    const sent = JSON.parse(String(calls[0]?.init?.body)) as { sql: string };
-    expect(sent.sql).toBe('SELECT 1');
-    const headers = new Headers(calls[0]?.init?.headers);
-    expect(headers.get('content-type')).toBe('application/json');
-    expect(headers.get('authorization')).toBe('Bearer tok');
+    expect(new Uint8Array(await client.query('  SELECT 1  '))).toEqual(bytes);
+    expect(JSON.parse(body)).toEqual({ sql: 'SELECT 1' });
   });
 
-  it('surfaces non-2xx responses as BridgeError with status + code', async () => {
-    const fetchImpl: typeof fetch = async () =>
-      new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'bad token' } }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' },
-      });
-    const client = new BridgeClient({
+  it('rejects wrong success Content-Type values', async () => {
+    const healthClient = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
-      bearerToken: 'bad',
-      fetchImpl,
+      bearerToken: null,
+      fetchImpl: async () => jsonResponse(healthBody(), { contentType: 'text/plain' }),
     });
-    await expect(client.health()).rejects.toBeInstanceOf(BridgeError);
-    try {
-      await client.health();
-    } catch (err) {
-      const e = err as BridgeError;
-      expect(e.status).toBe(401);
-      expect(e.code).toBe('unauthorized');
-      expect(e.message).toContain('bad token');
-    }
+    await expect(healthClient.health()).rejects.toMatchObject({ code: 'invalid_content_type' });
+
+    const queryClient = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async () => arrowResponse(new Uint8Array([1]), 'application/octet-stream'),
+    });
+    await expect(queryClient.query('SELECT 1')).rejects.toMatchObject({
+      code: 'invalid_content_type',
+    });
   });
 
-  it('falls back to status text when the error body is not JSON', async () => {
-    const fetchImpl: typeof fetch = async () =>
-      new Response('Plain text 500', { status: 500, headers: { 'content-type': 'text/plain' } });
+  it('enforces declared and streamed response byte limits', async () => {
+    const declaredClient = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      maxArrowBytes: 4,
+      fetchImpl: async () =>
+        new Response(new Uint8Array([1, 2, 3, 4, 5]).buffer, {
+          headers: {
+            'content-type': 'application/vnd.apache.arrow.stream',
+            'content-length': '5',
+          },
+        }),
+    });
+    await expect(declaredClient.query('SELECT 1')).rejects.toMatchObject({
+      code: 'response_too_large',
+    });
+
+    const streamedClient = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      maxJsonBytes: 8,
+      fetchImpl: async () => jsonResponse(healthBody()),
+    });
+    await expect(streamedClient.health()).rejects.toMatchObject({ code: 'response_too_large' });
+  });
+
+  it('distinguishes cancellation from deadline expiry', async () => {
+    const pendingFetch: typeof fetch = async (_url, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('aborted', 'AbortError')),
+          { once: true },
+        );
+      });
+
+    const controller = new AbortController();
+    const cancelled = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: pendingFetch,
+      timeoutMs: 500,
+    });
+    const cancellation = cancelled.health({ signal: controller.signal });
+    controller.abort();
+    await expect(cancellation).rejects.toMatchObject({ code: 'cancelled' });
+
+    const timed = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: pendingFetch,
+      timeoutMs: 5,
+    });
+    await expect(timed.health()).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('keeps the deadline active while an Arrow body is streaming', async () => {
     const client = new BridgeClient({
       bridgeUrl: 'https://bridge.example.com',
       bearerToken: null,
-      fetchImpl,
+      timeoutMs: 5,
+      fetchImpl: async (_url, init) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0x41]));
+              init?.signal?.addEventListener(
+                'abort',
+                () => controller.error(new DOMException('aborted', 'AbortError')),
+                { once: true },
+              );
+            },
+          }),
+          { headers: { 'content-type': 'application/vnd.apache.arrow.stream' } },
+        ),
+    });
+    await expect(client.query('SELECT 1')).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('redacts and categorizes non-2xx bridge errors', async () => {
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: 'secret-token',
+      fetchImpl: async () =>
+        jsonResponse(
+          {
+            error: {
+              code: 'unauthorized',
+              message: 'Authorization: Bearer secret-token rejected',
+            },
+          },
+          { status: 401 },
+        ),
     });
     try {
-      await client.query('SELECT 1');
+      await client.health();
       throw new Error('should have thrown');
-    } catch (err) {
-      const e = err as BridgeError;
-      expect(e.status).toBe(500);
-      expect(e.message).toContain('500');
-      expect(e.message).toContain('Plain text 500');
+    } catch (error) {
+      expect(error).toBeInstanceOf(BridgeError);
+      expect(error).toMatchObject({ status: 401, code: 'unauthorized' });
+      expect((error as Error).message).not.toContain('secret-token');
     }
   });
 
-  it('constructor rejects empty bridge URL', () => {
+  it('rejects empty URL and SQL inputs before fetch', async () => {
     expect(() => new BridgeClient({ bridgeUrl: '', bearerToken: null })).toThrow(/required/);
+    const client = new BridgeClient({
+      bridgeUrl: 'https://bridge.example.com',
+      bearerToken: null,
+      fetchImpl: async () => {
+        throw new Error('fetch should not run');
+      },
+    });
+    await expect(client.query('  ')).rejects.toMatchObject({ code: 'invalid_query' });
   });
 });
