@@ -1460,6 +1460,8 @@ async function handleOpenSemanticModelExport(): Promise<void> {
   try {
     const taxonomy = getTaxonomyClient();
     await taxonomy.ensureReady();
+    const taxonomyBundle = taxonomy.getBundle();
+    if (!taxonomyBundle) throw new Error('The semantic-type taxonomy is not ready.');
     const workbook = getWorkbook().get();
     const semanticModel = await loadChunk('semantic-model');
     semanticModel.openSemanticModelExportDialog({
@@ -1471,7 +1473,7 @@ async function handleOpenSemanticModelExport(): Promise<void> {
         dimensions: getDimensionsStore().list(),
         segments: getSegmentsStore().list(),
         associations: getAssociationsStore().list(),
-        taxonomyBundle: taxonomy.getBundle(),
+        taxonomyBundle,
       },
       saveText: saveTextFile,
       notify: (message) => toast(message),
@@ -1479,6 +1481,59 @@ async function handleOpenSemanticModelExport(): Promise<void> {
   } catch (error) {
     toast(
       `Could not open semantic-model export: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
+  }
+}
+
+async function handleOpenDataQuality(engine: Engine): Promise<void> {
+  try {
+    const taxonomy = getTaxonomyClient();
+    await taxonomy.ensureReady();
+    const taxonomyBundle = taxonomy.getBundle();
+    if (!taxonomyBundle) throw new Error('The semantic-type taxonomy is not ready.');
+    const workbook = getWorkbook().get();
+    const notebook = getNotebook(engine);
+    const summaries = () =>
+      notebook
+        .get()
+        .cells.filter((cell) => cell.kind === 'assertion')
+        .map((cell) => ({
+          id: cell.id,
+          name: cell.name,
+          code: cell.code,
+          status: cell.status,
+          rowCount: cell.lastResult?.rowCount ?? null,
+          lastError: cell.lastError,
+        }));
+    const quality = await loadChunk('data-quality');
+    quality.openDataQualityDialog({
+      contractName: _activeSession?.name ?? 'Untitled',
+      suggestionInput: {
+        sources: workbook.sources,
+        assignments: workbook.assignments,
+        associations: getAssociationsStore().list(),
+        taxonomyBundle,
+      },
+      assertions: summaries(),
+      onInsert: (artifact) => {
+        const cell = notebook.addCell('assertion');
+        notebook.patchCell(cell.id, artifact);
+        return summaries().find((candidate) => candidate.id === cell.id) as ReturnType<
+          typeof summaries
+        >[number];
+      },
+      onRun: async (ids) => {
+        for (const id of ids) await notebook.runCell(id);
+        const selected = new Set(ids);
+        return summaries().filter((summary) => selected.has(summary.id));
+      },
+      saveText: saveTextFile,
+      notify: (message) => toast(message),
+    });
+  } catch (error) {
+    toast(
+      `Could not open data quality: ${error instanceof Error ? error.message : String(error)}`,
       'error',
     );
   }
@@ -2457,6 +2512,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
     }
     case 'open-associations': {
       handleOpenAssociations();
+      return;
+    }
+    case 'open-data-quality': {
+      void handleOpenDataQuality(engine);
       return;
     }
     case 'calc-field': {

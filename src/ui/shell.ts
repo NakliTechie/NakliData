@@ -90,6 +90,9 @@ function renderHeader(state: ShellState): HTMLElement {
           <button class="btn btn-ghost" data-action="open-associations" title="Link columns so selections cross-filter related results">
             ${iconSvg('link', 14)} <span>Relationships</span>
           </button>
+          <button class="btn btn-ghost" data-action="open-data-quality" title="Suggest, save, and explicitly run reusable data quality checks">
+            ${iconSvg('check', 14)} <span>Data quality</span>
+          </button>
         </div>
       </details>
       <button class="btn btn-ghost" data-action="open-settings" title="Connections, privacy, AI sidecar, and advanced settings">
