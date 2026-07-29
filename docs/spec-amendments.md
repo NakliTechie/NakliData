@@ -46,6 +46,7 @@ The original spec stays authoritative for everything not listed here.
 | [A41](#a41--deterministic-first-value-and-analytical-presentation-amends-spec-32--33--38) | §3.2 + §3.3 + §3.8 | The bundled demo creates an AI-free starter workbook; desktop navigation is grouped/collapsible; numbers, evidence, and semantic overrides use analyst-facing presentation. |
 | [A42](#a42--versioned-bounded-remote-catalog-boundary-amends-spec-41) | §4.1 | Compute Bridge negotiation is explicit and fail-closed; remote catalog HTTP is bounded/cancellable; catalog browsing uses a portable hierarchy. |
 | [A46](#a46--iceberg-rest-configuration-and-credential-vending-negotiation-amends-spec-41) | §4.1 | Iceberg REST reads negotiate server configuration, safe route prefixes, advertised endpoints, and opt-in credential-vending metadata without retaining credential values. |
+| [A47](#a47--current-vendor-semantic-imports-and-explicit-loss-accounting-amends-spec-38) | §3.8 | Current Databricks Metric View and Snowflake Semantic View imports preserve representable scoped concepts and diagnose every supported vendor-only shape they omit. |
 
 ---
 
@@ -2008,6 +2009,46 @@ delegation headers, secret-free credential summaries, malicious route
 configuration, pagination, deadlines, cancellation, media type, and response
 ceilings. Iceberg source cards remain disabled; no Databricks or Snowflake
 endpoint has been claimed or enabled by this amendment.
+
+---
+
+## A47 — Current vendor semantic imports and explicit loss accounting (amends spec §3.8)
+
+**Original behavior:** vendor imports covered a narrow shared subset. Valid
+Databricks nested joins and wildcard definitions could be dropped or fail
+without precise diagnostics. Snowflake table-scoped metrics, primary keys,
+standalone and entity-labelled filters, verified queries, and several
+vendor-only attributes were omitted. Portable deprecation was incorrectly
+emitted as Snowflake `private_access`.
+
+**Amended behavior:** Databricks Metric View 1.1 imports recurse through nested
+join bindings, make normalization/truncation collisions unique, skip
+schema-dependent wildcards with an explicit loss, map the portable subset of
+number/percentage/currency formats, and diagnose omitted display, window,
+format-detail, cardinality, and rely metadata.
+
+Snowflake Semantic View imports preserve table-scoped and derived metrics,
+table filters plus the preferred `labels: [filter]` form, bindable primary
+keys, synonyms, relationships, and verified-query identity/audit time.
+Unique keys, private access, tags, enum/search/sample metadata,
+non-additivity/preferred paths, ASOF/range semantics, variables, onboarding
+flags, custom instructions, and materialization settings remain explicit
+losses. Portable deprecation remains governance metadata and is never
+reinterpreted as access control.
+
+Semantic object names are unique within their table/global scope rather than
+incorrectly global across all logical tables.
+
+**Reasoning:** an import adapter must be both tolerant of valid vendor YAML and
+truthful about information the portable v1 contract cannot preserve. Silent
+loss is more dangerous than a blocked export because a round trip can look
+successful while changing access, join, filter, or aggregation behavior.
+
+**Status:** adopted 2026-07-29. Current-spec fixtures cover nested and
+truncation-colliding Databricks aliases, schema-dependent wildcards, detailed
+format loss, Snowflake table/global metrics, primary keys, both filter forms,
+ASOF diagnostics, and verified queries. Independent fresh-eyes review passed
+after four adversarial gaps were found and closed.
 
 ---
 

@@ -382,8 +382,11 @@ export function validatePortableSemanticModel(model: PortableSemanticModel): str
     const names = new Set<string>();
     for (const item of items) {
       if (!isPortableName(item.name)) errors.push(`Invalid semantic object name: ${item.name}.`);
-      if (names.has(item.name)) errors.push(`Duplicate ${label} name: ${item.name}.`);
-      names.add(item.name);
+      const scopedName = `${item.tableId ?? 'global'}:${item.name}`;
+      if (names.has(scopedName)) {
+        errors.push(`Duplicate ${label} name in ${item.tableId ?? 'global'} scope: ${item.name}.`);
+      }
+      names.add(scopedName);
       if (!item.expression.trim()) errors.push(`${item.name}: expression required.`);
       if (item.tableId !== null && !tableIds.has(item.tableId)) {
         errors.push(`${item.name}: unknown table binding ${item.tableId}.`);
@@ -744,30 +747,13 @@ export function importDatabricksMetricView(
   const issues: AdapterIssue[] = [];
   const root = vendorTable('root', 'source', stringValue(source.source, 'source'));
   const tables = [root];
-  const relationships: SemanticRelationship[] = [];
-  for (const [index, value] of arrayValue(source.joins ?? []).entries()) {
-    const join = objectValue(value, `joins[${index}]`);
-    const table = vendorTable(
-      `join_${index + 1}`,
-      stringValue(join.name, `joins[${index}].name`),
-      stringValue(join.source, `joins[${index}].source`),
-    );
-    tables.push(table);
-    issues.push(
-      issue(
-        'warning',
-        'join_expression_unparsed',
-        `Join "${table.name}" was imported without join-key columns; review its on/using expression.`,
-        `joins[${index}]`,
-      ),
-    );
-  }
-  root.fields = arrayValue(source.fields ?? source.dimensions ?? []).map((value, index) =>
-    vendorField(value, `fields[${index}]`),
+  importDatabricksJoins(arrayValue(source.joins ?? []), tables, issues);
+  root.fields = importDatabricksFields(
+    arrayValue(source.fields ?? source.dimensions ?? []),
+    issues,
+    source.fields !== undefined ? 'fields' : 'dimensions',
   );
-  const measures = arrayValue(source.measures ?? []).map((value, index) =>
-    vendorMeasure(value, `measures[${index}]`),
-  );
+  const measures = importDatabricksMeasures(arrayValue(source.measures ?? []), root.id, issues);
   if ('materialization' in source || 'parameters' in source) {
     issues.push(
       issue(
@@ -775,6 +761,16 @@ export function importDatabricksMetricView(
         'vendor_feature_omitted',
         'Databricks parameters/materialization are vendor-specific and were not imported into the portable v1 model.',
         null,
+      ),
+    );
+  }
+  if (typeof source.source === 'string' && /\bselect\b/i.test(source.source)) {
+    issues.push(
+      issue(
+        'warning',
+        'query_source_not_structured',
+        'The Databricks SQL query source is retained as an opaque physical binding; its projection and lineage were not parsed.',
+        'source',
       ),
     );
   }
@@ -800,7 +796,7 @@ export function importDatabricksMetricView(
               },
             ]
           : [],
-      relationships,
+      relationships: [],
       verifiedQueries: [],
       governance: freshGovernance(),
     },
@@ -808,29 +804,300 @@ export function importDatabricksMetricView(
   };
 }
 
+function importDatabricksJoins(
+  joins: unknown[],
+  tables: LogicalTable[],
+  issues: AdapterIssue[],
+  parentAlias = '',
+  path = 'joins',
+): void {
+  for (const [index, value] of joins.entries()) {
+    const itemPath = `${path}[${index}]`;
+    const join = objectValue(value, itemPath);
+    const name = stringValue(join.name, `${itemPath}.name`);
+    const alias = parentAlias ? `${parentAlias}_${name}` : name;
+    const portableAlias = uniqueImportedTableName(alias, tables);
+    const table = vendorTable(
+      `join_${tables.length}`,
+      portableAlias,
+      stringValue(join.source, `${itemPath}.source`),
+    );
+    table.label = alias;
+    tables.push(table);
+    if (portableAlias !== portableName(alias)) {
+      issues.push(
+        issue(
+          'warning',
+          'join_alias_renamed',
+          `Databricks join alias "${alias}" collided after portable-name normalization and was imported as "${portableAlias}".`,
+          itemPath,
+        ),
+      );
+    }
+    issues.push(
+      issue(
+        'warning',
+        'join_expression_unparsed',
+        `Join "${alias}" was imported as a table binding without relationship keys; review its on/using expression.`,
+        itemPath,
+      ),
+    );
+    if ('cardinality' in join || 'rely' in join) {
+      issues.push(
+        issue(
+          'warning',
+          'join_metadata_omitted',
+          `Join "${alias}" cardinality/rely guarantees are vendor-specific and remain outside portable v1.`,
+          itemPath,
+        ),
+      );
+    }
+    importDatabricksJoins(arrayValue(join.joins ?? []), tables, issues, alias, `${itemPath}.joins`);
+  }
+}
+
+function importDatabricksFields(
+  fields: unknown[],
+  issues: AdapterIssue[],
+  path: string,
+): SemanticField[] {
+  const imported: SemanticField[] = [];
+  for (const [index, value] of fields.entries()) {
+    const itemPath = `${path}[${index}]`;
+    const field = objectValue(value, itemPath);
+    const expression = stringValue(field.expr, `${itemPath}.expr`);
+    if (typeof field.name !== 'string' || !field.name.trim()) {
+      issues.push(
+        issue(
+          'warning',
+          'wildcard_import_omitted',
+          `Databricks wildcard field "${expression}" cannot be expanded without the live source schema and was omitted.`,
+          itemPath,
+        ),
+      );
+      continue;
+    }
+    imported.push(vendorField(field, itemPath));
+    if ('display_name' in field || 'format' in field) {
+      issues.push(
+        issue(
+          'warning',
+          'vendor_metadata_omitted',
+          `Databricks display_name/format metadata for field "${field.name}" has no lossless portable v1 representation.`,
+          itemPath,
+        ),
+      );
+    }
+  }
+  return imported;
+}
+
+function importDatabricksMeasures(
+  measures: unknown[],
+  tableId: string,
+  issues: AdapterIssue[],
+): SemanticMeasure[] {
+  const imported: SemanticMeasure[] = [];
+  for (const [index, value] of measures.entries()) {
+    const itemPath = `measures[${index}]`;
+    const measure = objectValue(value, itemPath);
+    const expression = stringValue(measure.expr, `${itemPath}.expr`);
+    if (typeof measure.name !== 'string' || !measure.name.trim()) {
+      issues.push(
+        issue(
+          'warning',
+          'wildcard_import_omitted',
+          `Databricks wildcard measure "${expression}" cannot be expanded without the live source schema and was omitted.`,
+          itemPath,
+        ),
+      );
+      continue;
+    }
+    const format = databricksFormatFromVendor(measure.format);
+    imported.push(vendorMeasure(measure, itemPath, tableId, format ?? 'number'));
+    if (measure.format !== undefined && format === null) {
+      issues.push(
+        issue(
+          'warning',
+          'measure_format_not_mapped',
+          `Databricks format for measure "${measure.name}" is not one of the portable number, percentage, INR, USD, or EUR formats.`,
+          `${itemPath}.format`,
+        ),
+      );
+    }
+    if ('display_name' in measure || 'window' in measure) {
+      issues.push(
+        issue(
+          'warning',
+          'vendor_metadata_omitted',
+          `Databricks display_name/window metadata for measure "${measure.name}" remains vendor-specific.`,
+          itemPath,
+        ),
+      );
+    }
+    const omittedFormatFields = databricksOmittedFormatFields(measure.format);
+    if (omittedFormatFields.length) {
+      issues.push(
+        issue(
+          'warning',
+          'vendor_metadata_omitted',
+          `Databricks ${omittedFormatFields.join(', ')} formatting for measure "${measure.name}" has no portable v1 representation.`,
+          `${itemPath}.format`,
+        ),
+      );
+    }
+  }
+  return imported;
+}
+
+function databricksFormatFromVendor(value: unknown): SemanticMeasure['format'] | null {
+  if (value === undefined) return 'number';
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const format = value as Record<string, unknown>;
+  if (format.type === 'percentage') return 'percent';
+  if (format.type === 'number') return 'number';
+  if (format.type !== 'currency' || typeof format.currency_code !== 'string') return null;
+  const code = format.currency_code.toLowerCase();
+  if (code === 'inr' || code === 'usd' || code === 'eur') return `currency_${code}`;
+  return null;
+}
+
+function databricksOmittedFormatFields(value: unknown): string[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
+  return Object.keys(value).filter((key) => key !== 'type' && key !== 'currency_code');
+}
+
+function uniqueImportedTableName(value: string, tables: ReadonlyArray<LogicalTable>): string {
+  const base = portableName(value) || `table_${tables.length}`;
+  const names = new Set(tables.map((table) => table.name));
+  if (!names.has(base)) return base;
+  let suffix = 2;
+  while (true) {
+    const suffixText = `_${suffix}`;
+    const candidate = `${base.slice(0, 64 - suffixText.length)}${suffixText}`;
+    if (!names.has(candidate)) return candidate;
+    suffix++;
+  }
+}
+
 export function importSnowflakeSemanticView(document: unknown): BuildSemanticModelResult {
   const source = objectValue(document, 'Snowflake semantic view');
   const issues: AdapterIssue[] = [];
+  const measures: SemanticMeasure[] = [];
+  const filters: PortableSemanticModel['filters'] = [];
   const tables = arrayValue(source.tables ?? []).map((value, index) => {
-    const table = objectValue(value, `tables[${index}]`);
-    const name = stringValue(table.name, `tables[${index}].name`);
-    const base = objectValue(table.base_table ?? {}, `tables[${index}].base_table`);
+    const tablePath = `tables[${index}]`;
+    const table = objectValue(value, tablePath);
+    const name = stringValue(table.name, `${tablePath}.name`);
+    const base = objectValue(table.base_table ?? {}, `${tablePath}.base_table`);
     const qualified = [base.database, base.schema, base.table]
       .filter((part): part is string => typeof part === 'string' && !!part)
       .join('.');
+    const definition = optionalString(base.definition);
     const logical = vendorTable(`table_${index + 1}`, name, qualified || name);
     logical.description = optionalString(table.description);
-    logical.fields = [
-      ...arrayValue(table.dimensions ?? []).map((field, fieldIndex) =>
-        vendorField(field, `tables[${index}].dimensions[${fieldIndex}]`, 'dimension'),
-      ),
-      ...arrayValue(table.time_dimensions ?? []).map((field, fieldIndex) =>
-        vendorField(field, `tables[${index}].time_dimensions[${fieldIndex}]`, 'time_dimension'),
-      ),
-      ...arrayValue(table.facts ?? []).map((field, fieldIndex) =>
-        vendorField(field, `tables[${index}].facts[${fieldIndex}]`, 'fact'),
-      ),
+    logical.synonyms = stringList(table.synonyms);
+    if (definition && !qualified) {
+      logical.binding.relation = definition;
+      logical.binding.qualifiedName = null;
+      issues.push(
+        issue(
+          'warning',
+          'query_source_not_structured',
+          `Snowflake SQL definition for "${logical.name}" is retained as an opaque binding; its projection and lineage were not parsed.`,
+          `${tablePath}.base_table.definition`,
+        ),
+      );
+    }
+    const rawFields = [
+      ...arrayValue(table.dimensions ?? []).map((field, fieldIndex) => ({
+        value: field,
+        path: `${tablePath}.dimensions[${fieldIndex}]`,
+        kind: 'dimension' as const,
+      })),
+      ...arrayValue(table.time_dimensions ?? []).map((field, fieldIndex) => ({
+        value: field,
+        path: `${tablePath}.time_dimensions[${fieldIndex}]`,
+        kind: 'time_dimension' as const,
+      })),
+      ...arrayValue(table.facts ?? []).map((field, fieldIndex) => ({
+        value: field,
+        path: `${tablePath}.facts[${fieldIndex}]`,
+        kind: 'fact' as const,
+      })),
     ];
+    logical.fields = [
+      ...rawFields.map(({ value: field, path, kind }) => {
+        const record = objectValue(field, path);
+        if (stringList(record.labels).includes('filter')) {
+          filters.push({
+            name: portableName(stringValue(record.name, `${path}.name`)) || 'filter',
+            tableId: logical.id,
+            expression: stringValue(record.expr, `${path}.expr`),
+            description: optionalString(record.description),
+            synonyms: stringList(record.synonyms),
+            governance: freshGovernance(),
+          });
+        }
+        recordSnowflakeMetadataLoss(record, path, issues);
+        return vendorField(record, path, kind);
+      }),
+    ];
+    if (table.primary_key !== undefined) {
+      const primaryKey = objectValue(table.primary_key, `${tablePath}.primary_key`);
+      const columns = stringList(primaryKey.columns).map(portableName).filter(Boolean);
+      const fields = new Set(logical.fields.map((field) => field.name));
+      if (columns.length && columns.every((column) => fields.has(column))) {
+        logical.grain = { columns, verified: true };
+      } else {
+        issues.push(
+          issue(
+            'warning',
+            'primary_key_unbound',
+            `Snowflake primary key for "${logical.name}" references columns that are not imported semantic fields and was retained only as a diagnostic.`,
+            `${tablePath}.primary_key`,
+          ),
+        );
+      }
+    }
+    if (arrayValue(table.unique_keys ?? []).length) {
+      issues.push(
+        issue(
+          'warning',
+          'unique_keys_omitted',
+          `Snowflake unique keys for "${logical.name}" have no portable v1 representation.`,
+          `${tablePath}.unique_keys`,
+        ),
+      );
+    }
+    for (const [metricIndex, metricValue] of arrayValue(table.metrics ?? []).entries()) {
+      const metricPath = `${tablePath}.metrics[${metricIndex}]`;
+      const metric = objectValue(metricValue, metricPath);
+      recordSnowflakeMetadataLoss(metric, metricPath, issues);
+      measures.push(vendorMeasure(metric, metricPath, logical.id));
+    }
+    for (const [filterIndex, filterValue] of arrayValue(table.filters ?? []).entries()) {
+      const filterPath = `${tablePath}.filters[${filterIndex}]`;
+      const filter = objectValue(filterValue, filterPath);
+      filters.push({
+        name: portableName(stringValue(filter.name, `${filterPath}.name`)) || 'filter',
+        tableId: logical.id,
+        expression: stringValue(filter.expr, `${filterPath}.expr`),
+        description: optionalString(filter.description),
+        synonyms: stringList(filter.synonyms),
+        governance: freshGovernance(),
+      });
+    }
+    if ('tags' in table) {
+      issues.push(
+        issue(
+          'warning',
+          'vendor_metadata_omitted',
+          `Snowflake tags for logical table "${logical.name}" remain vendor-specific.`,
+          `${tablePath}.tags`,
+        ),
+      );
+    }
     return logical;
   });
   const tableByName = new Map(tables.map((table) => [table.name, table]));
@@ -861,19 +1128,21 @@ export function importSnowflakeSemanticView(document: unknown): BuildSemanticMod
         toTableId: to.id,
         columnPairs: arrayValue(relationship.relationship_columns ?? []).map(
           (pairValue, pairIndex) => {
-            const pair = objectValue(
-              pairValue,
-              `relationships[${index}].relationship_columns[${pairIndex}]`,
-            );
+            const pairPath = `relationships[${index}].relationship_columns[${pairIndex}]`;
+            const pair = objectValue(pairValue, pairPath);
+            if ('type' in pair || 'right_range' in pair) {
+              issues.push(
+                issue(
+                  'warning',
+                  'relationship_type_omitted',
+                  `Snowflake ASOF/range semantics in ${pairPath} have no portable v1 representation; only the equality column pair was imported.`,
+                  pairPath,
+                ),
+              );
+            }
             return {
-              from: stringValue(
-                pair.left_column,
-                `relationships[${index}].relationship_columns[${pairIndex}].left_column`,
-              ),
-              to: stringValue(
-                pair.right_column,
-                `relationships[${index}].relationship_columns[${pairIndex}].right_column`,
-              ),
+              from: stringValue(pair.left_column, `${pairPath}.left_column`),
+              to: stringValue(pair.right_column, `${pairPath}.right_column`),
             };
           },
         ),
@@ -884,16 +1153,45 @@ export function importSnowflakeSemanticView(document: unknown): BuildSemanticMod
       },
     ];
   });
+  for (const [index, value] of arrayValue(source.metrics ?? []).entries()) {
+    const metricPath = `metrics[${index}]`;
+    const metric = objectValue(value, metricPath);
+    recordSnowflakeMetadataLoss(metric, metricPath, issues);
+    measures.push(vendorMeasure(metric, metricPath));
+  }
+  const verifiedQueries = arrayValue(source.verified_queries ?? []).map((value, index) => {
+    const queryPath = `verified_queries[${index}]`;
+    const query = objectValue(value, queryPath);
+    if ('use_as_onboarding_question' in query) {
+      issues.push(
+        issue(
+          'warning',
+          'vendor_metadata_omitted',
+          `Snowflake onboarding status for verified query "${String(query.name ?? index)}" remains vendor-specific.`,
+          `${queryPath}.use_as_onboarding_question`,
+        ),
+      );
+    }
+    return {
+      name: portableName(stringValue(query.name, `${queryPath}.name`)) || `query_${index + 1}`,
+      question: stringValue(query.question, `${queryPath}.question`),
+      sql: stringValue(query.sql, `${queryPath}.sql`),
+      verifiedBy: optionalString(query.verified_by) || null,
+      verifiedAt: snowflakeVerifiedAt(query.verified_at, queryPath, issues),
+    };
+  });
   if (
     'module_custom_instructions' in source ||
     'custom_instructions' in source ||
-    'max_staleness' in source
+    'max_staleness' in source ||
+    'variables' in source ||
+    'tags' in source
   ) {
     issues.push(
       issue(
         'warning',
         'vendor_feature_omitted',
-        'Snowflake custom instructions/materialization staleness are vendor-specific and were not imported into portable v1.',
+        'Snowflake variables, tags, custom instructions, and materialization staleness are vendor-specific and were not imported into portable v1.',
         null,
       ),
     );
@@ -906,16 +1204,64 @@ export function importSnowflakeSemanticView(document: unknown): BuildSemanticMod
       description: optionalString(source.description),
       tables,
       dimensions: [],
-      measures: arrayValue(source.metrics ?? []).map((value, index) =>
-        vendorMeasure(value, `metrics[${index}]`),
-      ),
-      filters: [],
+      measures,
+      filters,
       relationships,
-      verifiedQueries: [],
+      verifiedQueries,
       governance: freshGovernance(),
     },
     issues,
   };
+}
+
+function recordSnowflakeMetadataLoss(
+  value: Record<string, unknown>,
+  path: string,
+  issues: AdapterIssue[],
+): void {
+  const fields = [
+    ...(value.access_modifier === 'private_access' ? ['access_modifier'] : []),
+    ...[
+      'tags',
+      'is_enum',
+      'cortex_search_service',
+      'sample_values',
+      'non_additive_dimensions',
+      'using_relationships',
+    ].filter((key) => key in value),
+    ...(stringList(value.labels).some((label) => label !== 'filter') ? ['labels'] : []),
+  ];
+  if (!fields.length) return;
+  issues.push(
+    issue(
+      'warning',
+      'vendor_metadata_omitted',
+      `Snowflake ${fields.join(', ')} metadata at ${path} has no lossless portable v1 representation.`,
+      path,
+    ),
+  );
+}
+
+function snowflakeVerifiedAt(value: unknown, path: string, issues: AdapterIssue[]): string | null {
+  if (value === undefined || value === null) return null;
+  const seconds =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    issues.push(
+      issue(
+        'warning',
+        'verified_at_invalid',
+        `Snowflake ${path}.verified_at is not a positive Unix-seconds integer and was omitted.`,
+        `${path}.verified_at`,
+      ),
+    );
+    return null;
+  }
+  return new Date(seconds * 1000).toISOString();
 }
 
 export function toYaml(value: unknown): string {
@@ -1245,7 +1591,6 @@ function snowflakeMeasure(measure: SemanticMeasure): Record<string, unknown> {
   return {
     name: measure.name,
     expr: measure.expression,
-    access_modifier: measure.governance.deprecated ? 'private_access' : 'public_access',
     ...(measure.description ? { description: measure.description } : {}),
     ...(measure.synonyms.length ? { synonyms: measure.synonyms } : {}),
   };
@@ -1354,13 +1699,18 @@ function vendorField(
   };
 }
 
-function vendorMeasure(value: unknown, path: string): SemanticMeasure {
+function vendorMeasure(
+  value: unknown,
+  path: string,
+  tableId: string | null = null,
+  format: SemanticMeasure['format'] = 'number',
+): SemanticMeasure {
   const measure = objectValue(value, path);
   return {
     name: portableName(stringValue(measure.name, `${path}.name`)) || 'measure',
-    tableId: null,
+    tableId,
     expression: stringValue(measure.expr, `${path}.expr`),
-    format: 'number',
+    format,
     description: optionalString(measure.description ?? measure.comment),
     synonyms: stringList(measure.synonyms),
     governance: freshGovernance(),

@@ -331,34 +331,227 @@ describe('portable semantic model', () => {
       version: '1.1',
       comment: 'Revenue',
       source: 'prod.sales.orders',
-      fields: [{ name: 'order_date', expr: 'order_date' }],
-      measures: [{ name: 'revenue', expr: 'SUM(amount)' }],
+      joins: [
+        {
+          name: 'customer_nation',
+          source: 'prod.sales.customer_nations',
+          using: ['nation_id'],
+        },
+        {
+          name: 'customer',
+          source: 'prod.sales.customers',
+          on: 'source.customer_id = customer.customer_id',
+          rely: { at_most_one_match: true },
+          joins: [
+            {
+              name: 'nation',
+              source: 'prod.sales.nations',
+              using: ['nation_id'],
+            },
+          ],
+        },
+      ],
+      fields: [
+        {
+          name: 'order_date',
+          expr: 'order_date',
+          display_name: 'Order Date',
+        },
+        { expr: 'customer.*' },
+      ],
+      measures: [
+        {
+          name: 'revenue',
+          expr: 'SUM(amount)',
+          format: {
+            type: 'currency',
+            currency_code: 'USD',
+            decimal_places: { type: 'exact', places: 2 },
+            abbreviation: 'compact',
+          },
+          window: [{ order: 'order_date' }],
+        },
+      ],
       filter: "status = 'complete'",
       parameters: [{ name: 'threshold' }],
+      materialization: { schedule: 'EVERY 1 HOUR' },
     });
     expect(databricks.model.tables[0]?.binding.catalog).toBe('prod');
-    expect(databricks.model.measures[0]?.name).toBe('revenue');
-    expect(databricks.issues.map((issue) => issue.code)).toContain('vendor_feature_omitted');
+    expect(databricks.model.tables.map((table) => table.name)).toEqual([
+      'source',
+      'customer_nation',
+      'customer',
+      'customer_nation_2',
+    ]);
+    expect(databricks.model.tables[0]?.fields.map((field) => field.name)).toEqual(['order_date']);
+    expect(databricks.model.measures[0]).toMatchObject({
+      name: 'revenue',
+      tableId: 'root',
+      format: 'currency_usd',
+    });
+    expect(databricks.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        'join_expression_unparsed',
+        'join_metadata_omitted',
+        'join_alias_renamed',
+        'wildcard_import_omitted',
+        'vendor_metadata_omitted',
+        'vendor_feature_omitted',
+      ]),
+    );
+    expect(databricks.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'vendor_metadata_omitted',
+          path: 'measures[0].format',
+        }),
+      ]),
+    );
 
     const snowflake = importSnowflakeSemanticView({
       name: 'revenue_analysis',
       tables: [
         {
           name: 'orders',
+          synonyms: ['purchases'],
           base_table: { database: 'PROD', schema: 'SALES', table: 'ORDERS' },
-          dimensions: [{ name: 'status', expr: 'status', data_type: 'VARCHAR' }],
-          facts: [{ name: 'amount', expr: 'amount', data_type: 'NUMBER' }],
+          primary_key: { columns: ['order_id'] },
+          unique_keys: [{ columns: ['external_id'] }],
+          dimensions: [
+            { name: 'order_id', expr: 'order_id', data_type: 'NUMBER' },
+            {
+              name: 'status',
+              expr: 'status',
+              data_type: 'VARCHAR',
+              is_enum: true,
+            },
+            {
+              name: 'high_value',
+              expr: 'amount > 1000',
+              data_type: 'BOOLEAN',
+              labels: ['filter'],
+            },
+          ],
+          facts: [
+            {
+              name: 'amount',
+              expr: 'amount',
+              data_type: 'NUMBER',
+              access_modifier: 'private_access',
+            },
+          ],
+          metrics: [
+            {
+              name: 'revenue',
+              expr: 'SUM(amount)',
+              access_modifier: 'private_access',
+              non_additive_dimensions: [{ table: 'orders', dimension: 'order_id' }],
+            },
+          ],
+          filters: [{ name: 'completed', expr: "status = 'complete'" }],
+        },
+        {
+          name: 'customers',
+          base_table: { database: 'PROD', schema: 'SALES', table: 'CUSTOMERS' },
+          dimensions: [{ name: 'customer_id', expr: 'customer_id', data_type: 'NUMBER' }],
         },
       ],
-      metrics: [{ name: 'revenue', expr: 'SUM(orders.amount)' }],
+      relationships: [
+        {
+          name: 'orders_to_customers',
+          left_table: 'orders',
+          right_table: 'customers',
+          relationship_columns: [
+            {
+              left_column: 'order_id',
+              right_column: 'customer_id',
+              type: 'asof',
+            },
+          ],
+        },
+      ],
+      metrics: [{ name: 'revenue_per_customer', expr: 'orders.revenue / 2' }],
+      verified_queries: [
+        {
+          name: 'top_revenue',
+          question: 'What is revenue?',
+          sql: 'SELECT 1',
+          verified_at: 1720000000,
+          verified_by: 'Analyst',
+          use_as_onboarding_question: true,
+        },
+      ],
+      variables: [{ name: 'threshold', data_type: 'NUMBER' }],
+      tags: [{ name: 'department', value: 'sales' }],
       max_staleness: 3600,
+    });
+    expect(snowflake.model.tables[0]).toMatchObject({
+      synonyms: ['purchases'],
+      grain: { columns: ['order_id'], verified: true },
     });
     expect(snowflake.model.tables[0]?.fields.map((field) => field.kind)).toEqual([
       'dimension',
+      'dimension',
+      'dimension',
       'fact',
     ]);
-    expect(snowflake.model.measures[0]?.name).toBe('revenue');
-    expect(snowflake.issues.map((issue) => issue.code)).toContain('vendor_feature_omitted');
+    expect(snowflake.model.measures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'revenue', tableId: 'table_1' }),
+        expect.objectContaining({ name: 'revenue_per_customer', tableId: null }),
+      ]),
+    );
+    expect(snowflake.model.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'high_value', tableId: 'table_1' }),
+        expect.objectContaining({ name: 'completed', tableId: 'table_1' }),
+      ]),
+    );
+    expect(snowflake.model.verifiedQueries[0]).toMatchObject({
+      name: 'top_revenue',
+      verifiedBy: 'Analyst',
+      verifiedAt: '2024-07-03T09:46:40.000Z',
+    });
+    expect(snowflake.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        'unique_keys_omitted',
+        'vendor_metadata_omitted',
+        'relationship_type_omitted',
+        'vendor_feature_omitted',
+      ]),
+    );
+    expect(validatePortableSemanticModel(snowflake.model)).toEqual([]);
+  });
+
+  it('does not reinterpret portable deprecation as Snowflake private access', () => {
+    const { model } = build();
+    const measure = model.measures[0];
+    if (!measure) throw new Error('missing measure fixture');
+    measure.governance.deprecated = true;
+    const result = exportSnowflakeSemanticView(model);
+    const metrics = result.document.metrics as Array<Record<string, unknown>>;
+    expect(metrics[0]).not.toHaveProperty('access_modifier');
+    expect(result.issues.map((issue) => issue.code)).toContain('governance_not_mapped');
+  });
+
+  it('reserves suffix space when Databricks join aliases collide after truncation', () => {
+    const prefix = 'a'.repeat(64);
+    const result = importDatabricksMetricView({
+      version: '1.1',
+      source: 'prod.sales.orders',
+      joins: [
+        { name: `${prefix}x`, source: 'prod.sales.first' },
+        { name: `${prefix}y`, source: 'prod.sales.second' },
+      ],
+      fields: [{ name: 'id', expr: 'id' }],
+    });
+    expect(result.model.tables.map((table) => table.name)).toEqual([
+      'source',
+      prefix,
+      `${'a'.repeat(62)}_2`,
+    ]);
+    expect(result.issues.map((issue) => issue.code)).toContain('join_alias_renamed');
+    expect(validatePortableSemanticModel(result.model)).toEqual([]);
   });
 
   it('serializes YAML deterministically and safely quotes punctuation', () => {

@@ -92,6 +92,28 @@ Append-only. Format per AGENTHANDOFF §5.
   forms without exposing values. Conformance is **4/4** and the full suite is
   **1,541/1,541**; branded entry points remain disabled.
 
+### Decision FA-5 — vendor semantic imports preserve scope and report every known loss
+
+- **Context.** The portable semantic model was already the source of truth,
+  but current vendor YAML had outgrown the narrow import slice. Snowflake
+  table metrics, keys, filters, and verified queries were dropped; Databricks
+  nested/wildcard shapes could fail or collide; and portable deprecation was
+  incorrectly repurposed as Snowflake private access.
+- **Decision.** Import representable vendor concepts at their real table or
+  global scope. Map Snowflake entity-labelled and standalone filters, table and
+  derived metrics, bindable primary keys, relationships, and verified queries.
+  Recurse through Databricks join bindings, make aliases collision-safe within
+  the 64-character portable limit, skip live-schema wildcards explicitly, and
+  map only the portable format subset. Emit structured loss diagnostics for
+  every current vendor-only feature encountered. Never map governance
+  deprecation to access control.
+- **Consequence.** Valid current-spec documents degrade transparently instead
+  of failing or silently changing semantics. Names can repeat across different
+  logical-table scopes but not within one scope. Fresh-eyes review found
+  Snowflake entity-filter loss, ordinary and truncation-boundary Databricks
+  alias collisions, and silent fine-grained format loss; all are fixed with
+  adversarial tests. Live deployment remains outside this adapter.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

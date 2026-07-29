@@ -1,8 +1,22 @@
 # Warehouse readiness
 
 Status: the portable Iceberg REST control plane and credential-free
-vendor-shaped fixtures are implemented. This is not a claim of live Databricks
-or Snowflake compatibility. Both branded entry points remain disabled.
+vendor-shaped fixtures are implemented, and the current Databricks/Snowflake
+semantic-model formats have explicit compatibility accounting. This is not a
+claim of live Databricks or Snowflake compatibility. Both branded entry points
+remain disabled.
+
+## Next implementation boundary
+
+The next local checkpoint is the bounded storage-read data plane: apply vended
+S3/GCS/ADLS credentials in memory, own their provider-specific expiry and
+refresh lifecycle, cancel reads cleanly, and keep diagnostics redacted. Live
+catalog matrices follow only when safe test endpoints and credentials are
+available.
+
+Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
+separate packaged Compute Bridge concern; success on the Iceberg REST path must
+not enable or imply either bridge.
 
 ## Databricks Unity Catalog matrix
 
