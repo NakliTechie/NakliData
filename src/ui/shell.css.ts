@@ -1,7 +1,7 @@
 // Inlined CSS string. esbuild bundles this with the TS so the shell HTML
 // references one stylesheet; no external CSS file in production.
 
-import { Neutral } from '../tokens/colors.ts';
+import { Neutral, OverlayColor, StatusColor } from '../tokens/colors.ts';
 import { Radius, Shadow, Space, Type } from '../tokens/spacing.ts';
 
 export const shellCss = `
@@ -9,16 +9,41 @@ export const shellCss = `
   color-scheme: light;
   --bg: ${Neutral.bg};
   --surface: ${Neutral.surface};
+  --surface-subtle: ${Neutral.surfaceSubtle};
+  --surface-cool: ${Neutral.surfaceCool};
   --surface-alt: ${Neutral.surfaceAlt};
   --border: ${Neutral.border};
   --border-strong: ${Neutral.borderStrong};
   --text: ${Neutral.text};
   --text-muted: ${Neutral.textMuted};
+  --text-cool-muted: ${Neutral.textCoolMuted};
+  --on-strong: ${Neutral.onStrong};
   --accent: ${Neutral.accent};
+  --accent-hover: ${Neutral.accentHover};
   --focus: ${Neutral.focus};
   --danger: ${Neutral.danger};
   --success: ${Neutral.success};
   --warning: ${Neutral.warning};
+  --danger-soft: ${StatusColor.dangerSoft};
+  --danger-bg: ${StatusColor.dangerBg};
+  --info-bg: ${StatusColor.infoBg};
+  --info-text: ${StatusColor.infoText};
+  --info-accent: ${StatusColor.infoAccent};
+  --warning-bg: ${StatusColor.warningBg};
+  --warning-text: ${StatusColor.warningText};
+  --warning-accent: ${StatusColor.warningAccent};
+  --success-bg: ${StatusColor.successBg};
+  --success-text: ${StatusColor.successText};
+  --success-accent: ${StatusColor.successAccent};
+  --overlay-scrim: ${OverlayColor.scrim};
+  --overlay-dim: ${OverlayColor.dim};
+  --overlay-shadow: ${OverlayColor.shadow};
+  --overlay-border-08: ${OverlayColor.border08};
+  --overlay-border-12: ${OverlayColor.border12};
+  --overlay-border-16: ${OverlayColor.border16};
+  --overlay-muted: ${OverlayColor.muted};
+  --overlay-hover: ${OverlayColor.hover};
+  --overlay-selected: ${OverlayColor.selected};
   --font: ${Type.family};
   --font-mono: ${Type.familyMono};
   --shadow-sm: ${Shadow.sm};
@@ -226,10 +251,10 @@ button {
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 .btn-primary {
   background: var(--accent);
-  color: white;
+  color: var(--on-strong);
   border-color: var(--accent);
 }
-.btn-primary:hover { background: #963115; border-color: #963115; }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-ghost:hover { background: var(--surface-alt); }
 
@@ -384,11 +409,11 @@ button {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-5);
-  background: #FDECE3;
+  background: var(--danger-soft);
   color: var(--text);
   border-bottom: 1px solid var(--border);
 }
-.banner.danger { background: #F6D6D3; }
+.banner.danger { background: var(--danger-bg); }
 .banner button { margin-left: auto; }
 
 /* Session switcher (header dropdown) */
@@ -483,7 +508,7 @@ button {
 .schema-graph-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(31, 27, 22, 0.5);
+  background: var(--overlay-dim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -611,7 +636,7 @@ button {
 .settings-active-pill {
   font-size: ${Type.size.xs};
   background: var(--accent);
-  color: white;
+  color: var(--on-strong);
   padding: 2px 8px;
   border-radius: 999px;
 }
@@ -680,7 +705,7 @@ button {
   margin-top: var(--space-2);
 }
 .cell-sidecar-error {
-  background: #F6D6D3;
+  background: var(--danger-bg);
   color: var(--text);
   border-radius: var(--radius-sm);
   padding: var(--space-3);
@@ -1213,16 +1238,16 @@ button {
   font-weight: 600;
 }
 .lineage-kind-source {
-  background: #eff6ff;
-  color: #1e40af;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 .lineage-kind-cell {
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 .lineage-kind-sink {
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 .lineage-edges {
   list-style: none;

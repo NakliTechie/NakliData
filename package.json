@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node scripts/generate-product-truth.mjs --check && node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs --dev",
-    "check": "tsc --noEmit && biome check src tests eval && node scripts/check-engine-boundary.mjs && node scripts/generate-product-truth.mjs --check && node scripts/check-bundle-size.mjs",
+    "check": "tsc --noEmit && biome check src tests eval && node scripts/check-color-tokens.mjs && node scripts/check-engine-boundary.mjs && node scripts/generate-product-truth.mjs --check && node scripts/check-bundle-size.mjs",
     "fmt": "biome format --write src tests eval",
     "lint": "biome lint src tests eval",
     "test": "vitest run",

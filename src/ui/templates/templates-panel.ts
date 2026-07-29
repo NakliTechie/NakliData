@@ -307,7 +307,7 @@ function injectCss(): void {
   padding: 0 5px;
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-strong);
   font-size: 10px;
   font-weight: 600;
   text-align: center;

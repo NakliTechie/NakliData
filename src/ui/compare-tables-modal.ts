@@ -368,24 +368,24 @@ function injectCompareCss(): void {
 const COMPARE_CSS = `
 .compare-tables-overlay {
   position: fixed; inset: 0;
-  background: rgba(31, 27, 22, 0.42);
+  background: var(--overlay-scrim);
   display: flex; align-items: center; justify-content: center;
   z-index: 9000;
 }
 .compare-tables-modal {
-  background: var(--surface-card, #FFFCF6);
-  color: var(--text-default, #1F1B16);
+  background: var(--surface);
+  color: var(--text);
   border-radius: 8px;
   width: min(720px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
   display: flex; flex-direction: column;
-  box-shadow: 0 16px 48px rgba(31, 27, 22, 0.32);
+  box-shadow: 0 16px 48px var(--overlay-shadow);
   overflow: hidden;
 }
 .compare-tables-header {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-muted, rgba(31, 27, 22, 0.12));
+  border-bottom: 1px solid var(--overlay-border-12);
 }
 .compare-tables-header strong { flex: 1; font-size: 14px; }
 .compare-tables-body {
@@ -404,14 +404,14 @@ const COMPARE_CSS = `
 .compare-tables-pickers select,
 .compare-tables-keys select {
   padding: 6px 8px;
-  border: 1px solid var(--border-muted, rgba(31, 27, 22, 0.16));
+  border: 1px solid var(--overlay-border-16);
   border-radius: 4px;
-  background: var(--surface-card, #FFFCF6);
+  background: var(--surface);
   font: inherit;
   font-size: 13px;
 }
 .compare-tables-label {
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
+  color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -426,15 +426,15 @@ const COMPARE_CSS = `
 .compare-tables-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
+  color: var(--text-muted);
 }
 .compare-tables-error {
   margin: 0;
   font-size: 12px;
-  color: var(--accent-warn, #A8453F);
+  color: var(--danger);
 }
 .compare-tables-summary {
-  background: rgba(31, 27, 22, 0.04);
+  background: var(--overlay-hover);
   border-radius: 6px;
   padding: 10px 12px;
   display: flex; flex-direction: column; gap: 6px;
@@ -445,7 +445,7 @@ const COMPARE_CSS = `
 .compare-tables-meta code,
 .compare-tables-diff code {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  background: rgba(31, 27, 22, 0.06);
+  background: var(--overlay-selected);
   padding: 1px 4px;
   border-radius: 3px;
 }
@@ -456,7 +456,7 @@ const COMPARE_CSS = `
 .compare-tables-buckets strong { font-variant-numeric: tabular-nums; }
 .compare-tables-meta {
   font-size: 11px;
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
+  color: var(--text-muted);
 }
 .compare-tables-diff {
   width: 100%;
@@ -467,11 +467,11 @@ const COMPARE_CSS = `
 .compare-tables-diff td {
   text-align: left;
   padding: 4px 8px;
-  border-bottom: 1px solid var(--border-muted, rgba(31, 27, 22, 0.08));
+  border-bottom: 1px solid var(--overlay-border-08);
   vertical-align: top;
 }
 .compare-tables-diff th {
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
+  color: var(--text-muted);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;

@@ -97,6 +97,7 @@ import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { roleFamilyForType } from './taxonomy/universal.ts';
+import { Neutral, OverlayColor } from './tokens/colors.ts';
 import { bindAgentSurface, exportDataDictionaryMarkdown } from './ui/agent-bridge.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
@@ -186,14 +187,14 @@ function bootUnsupported(reason: string): void {
   root.innerHTML = `
     <div style="max-width: 520px; margin: 80px auto; padding: 32px; text-align: center; font-family: system-ui, sans-serif;">
       <h1 style="font-size: 22px;">NakliData isn't supported here yet</h1>
-      <p style="color: #6B6358;">
+      <p style="color: ${Neutral.textMuted};">
         ${
           reason === 'safari'
             ? 'NakliData uses File System Access and OPFS APIs that Safari does not yet implement. Try Chrome, Edge, or Opera 122+.'
             : 'Your browser is missing required capabilities. Try a recent Chrome, Edge, or Opera build.'
         }
       </p>
-      <p style="color: #6B6358; font-size: 13px;">No data is sent anywhere by this page.</p>
+      <p style="color: ${Neutral.textMuted}; font-size: 13px;">No data is sent anywhere by this page.</p>
     </div>
   `;
 }
@@ -4717,13 +4718,12 @@ function toast(
   if (!el) {
     el = document.createElement('div');
     el.id = 'naklidata-toast';
-    el.style.cssText =
-      'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:#1F1B16;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;max-width:520px;display:flex;gap:12px;align-items:center;';
+    el.style.cssText = `position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:${Neutral.text};color:${Neutral.onStrong};padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 8px 24px ${OverlayColor.toastShadow};z-index:9999;max-width:520px;display:flex;gap:12px;align-items:center;`;
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
-  el.style.background = kind === 'error' ? '#A8453F' : '#1F1B16';
+  el.style.background = kind === 'error' ? Neutral.danger : Neutral.text;
   // Rebuild children so a previous action button doesn't leak.
   el.replaceChildren();
   const text = document.createElement('span');
@@ -4734,8 +4734,7 @@ function toast(
     btn.type = 'button';
     btn.textContent = action.label;
     btn.dataset.action = 'toast-action';
-    btn.style.cssText =
-      'background:transparent;color:#FFB066;border:1px solid #FFB066;border-radius:4px;padding:4px 10px;font:inherit;cursor:pointer;';
+    btn.style.cssText = `background:transparent;color:${Neutral.actionWarm};border:1px solid ${Neutral.actionWarm};border-radius:4px;padding:4px 10px;font:inherit;cursor:pointer;`;
     btn.addEventListener('click', () => {
       // Dismiss eagerly so the user gets immediate feedback before the
       // follow-up toast (if any) replaces the content.

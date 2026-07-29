@@ -11,6 +11,8 @@
 // `@cellName` plumbing). Data is always re-queried at render — a
 // report is never a data copy (handoff §M3).
 
+import { Neutral } from '../tokens/colors.ts';
+
 export type ReportPageSize = 'A4' | 'Letter';
 
 /**
@@ -149,7 +151,7 @@ export function buildPageCss(report: ReportDefinition): string {
         size: ${pageSize === 'A4' ? 'A4' : 'Letter'};
         margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;
       }
-      body { background: #fff; }
+      body { background: ${Neutral.surface}; }
       .report-cell { box-shadow: none; border: 0; }
       .report-item { page-break-inside: avoid; break-inside: avoid; }
       .report-page-break { page-break-after: always; break-after: page; }

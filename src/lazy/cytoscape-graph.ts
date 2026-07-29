@@ -33,8 +33,8 @@ export interface GraphHandle {
   refit: () => void;
 }
 
-const ACCENT = '#B5371C';
-const ACCENT_DIM = '#E9C1B5';
+const ACCENT = Neutral.accent;
+const ACCENT_DIM = Neutral.accentSoft;
 const TEXT = Neutral.text;
 const TEXT_MUTED = Neutral.textMuted;
 const SURFACE_ALT = Neutral.surfaceAlt;

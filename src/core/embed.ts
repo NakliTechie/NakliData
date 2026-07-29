@@ -16,6 +16,8 @@
 // **Engine-boundary contract (v1.3 M0):** pure string transform. No DOM,
 // no FSA, no globals.
 
+import { Neutral } from '../tokens/colors.ts';
+
 export interface EmbedOptions {
   /** Iframe pixel height. Clamped to [120, 4000]. Default 600. */
   height?: number;
@@ -31,5 +33,5 @@ export function buildEmbedSnippet(standaloneHtml: string, opts: EmbedOptions = {
   // Escape `&` first (so we don't re-hit the `&` we introduce for `"`),
   // then `"`. `<`/`>` are legal inside a double-quoted attribute value.
   const srcdoc = standaloneHtml.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  return `<iframe title="NakliData notebook" sandbox style="width:100%;height:${height}px;border:1px solid #d9d2c4;border-radius:8px;" srcdoc="${srcdoc}"></iframe>`;
+  return `<iframe title="NakliData notebook" sandbox style="width:100%;height:${height}px;border:1px solid ${Neutral.border};border-radius:8px;" srcdoc="${srcdoc}"></iframe>`;
 }

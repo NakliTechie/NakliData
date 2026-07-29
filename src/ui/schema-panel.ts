@@ -961,7 +961,7 @@ const SCHEMA_CSS = `
   font-style: italic;
 }
 .schema-profile-pane.schema-profile-error {
-  background: #F6D6D3;
+  background: var(--danger-bg);
   color: var(--text);
 }
 .schema-profile-grid {

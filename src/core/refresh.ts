@@ -197,7 +197,11 @@ export function cascadeStaleness(
  * code paths have the `File` in hand; this turns it into a
  * fingerprint without leaking the kind into call sites.
  */
-export function fingerprintFromFile(file: File): SourceFingerprint {
+export function fingerprintFromFile(file: {
+  name: string;
+  size: number;
+  lastModified: number;
+}): SourceFingerprint {
   const metadata = `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
   return {
     kind: 'fsa',

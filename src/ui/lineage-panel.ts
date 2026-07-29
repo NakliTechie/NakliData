@@ -16,6 +16,7 @@ import type {
   LineageGraph,
   LineageNode,
 } from '../core/lineage-store.ts';
+import { StatusColor } from '../tokens/colors.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
@@ -397,7 +398,7 @@ function renderSvg(graph: LineageGraph): string {
     .join('\n');
 
   return `
-    <div class="lineage-svg-wrap" style="padding:var(--space-3) var(--space-4);overflow:auto;min-width:0;background:var(--surface-subtle,#f9fafb);">
+    <div class="lineage-svg-wrap" style="padding:var(--space-3) var(--space-4);overflow:auto;min-width:0;background:var(--surface-subtle);">
       <svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lineage diagram (SVG)">
         <defs>
           <marker id="lineage-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -499,15 +500,15 @@ function layoutNodes(graph: LineageGraph): {
 // inline rather than promoted into `src/tokens/colors.ts`. Deliberate — not a
 // stray hardcode. (Same call as the anonymize-modal sensitivity badges.)
 function nodeFill(n: LineageNode): string {
-  if (n.kind === 'source') return '#eff6ff';
-  if (n.kind === 'sink') return '#f0fdf4';
-  return '#fffbeb';
+  if (n.kind === 'source') return StatusColor.infoBg;
+  if (n.kind === 'sink') return StatusColor.successBg;
+  return StatusColor.warningBg;
 }
 
 function nodeStroke(n: LineageNode): string {
-  if (n.kind === 'source') return '#3b82f6';
-  if (n.kind === 'sink') return '#16a34a';
-  return '#f59e0b';
+  if (n.kind === 'source') return StatusColor.infoAccent;
+  if (n.kind === 'sink') return StatusColor.successAccent;
+  return StatusColor.warningAccent;
 }
 
 function ellipsize(s: string, max: number): string {

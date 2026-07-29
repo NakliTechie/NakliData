@@ -14,6 +14,7 @@
 // declaration shim; not worth it for the minimal-controls map.
 
 import maplibre from 'maplibre-gl';
+import { MapSeries, Neutral } from '../tokens/colors.ts';
 
 export type MapBasemap = 'none' | 'osm';
 
@@ -43,8 +44,8 @@ export interface MapHandle {
   map: maplibre.Map;
 }
 
-const ACCENT = '#B5371C';
-const BACKGROUND = '#FAF7F0';
+const ACCENT = Neutral.accent;
+const BACKGROUND = Neutral.surfaceMap;
 
 const EMPTY_STYLE: maplibre.StyleSpecification = {
   version: 8,
@@ -121,20 +122,7 @@ export function mountMap({
         new Set(features.map((f) => String(f.properties?.[colorBy] ?? '')).filter((v) => v !== '')),
       ).slice(0, 12);
       if (vals.length > 1) {
-        const palette = [
-          '#B5371C',
-          '#6F7E76',
-          '#D6A24E',
-          '#3C5A6B',
-          '#8C6F4A',
-          '#4F7B6E',
-          '#A56A8C',
-          '#9C5230',
-          '#5B7F9B',
-          '#7B6FB1',
-          '#506650',
-          '#A77E5F',
-        ];
+        const palette = [...MapSeries];
         const stops: Array<string> = [];
         vals.forEach((v, i) => {
           stops.push(v, palette[i % palette.length] ?? ACCENT);
@@ -168,7 +156,7 @@ export function mountMap({
         paint: {
           'circle-color': fillColorPaint,
           'circle-radius': 5,
-          'circle-stroke-color': '#1F1B16',
+          'circle-stroke-color': Neutral.text,
           'circle-stroke-width': 0.75,
         },
       });
@@ -178,7 +166,7 @@ export function mountMap({
       type: 'line',
       source: 'features',
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
-      paint: { 'line-color': '#1F1B16', 'line-width': 0.5 },
+      paint: { 'line-color': Neutral.text, 'line-width': 0.5 },
     });
 
     // Fit bounds to data.

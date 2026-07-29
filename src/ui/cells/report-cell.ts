@@ -7,6 +7,7 @@
 // clip across pages.
 
 import { type ReportItem, buildPageCss, clampMm } from '../../core/report-layout.ts';
+import { Neutral, OverlayColor } from '../../tokens/colors.ts';
 import { iconSvg } from '../../tokens/icons.ts';
 import type { CellHandlers, ReportCellState } from './types.ts';
 
@@ -32,14 +33,14 @@ export function renderReportCell(cell: ReportCellState, handlers: CellHandlers):
       <button class="btn btn-primary" data-action="report-print" data-cell-id="${cell.id}" title="Open the browser's print dialog → Save as PDF">${iconSvg('download', 12)} <span>Print to PDF</span></button>
       <button class="btn btn-ghost" data-action="cell-delete" data-cell-id="${cell.id}" aria-label="Delete cell">${iconSvg('x', 12)}</button>
     </div>
-    <div class="report-paper" style="background:#fff;padding:24mm;max-width:210mm;margin:var(--space-3) auto;box-shadow:0 1px 4px rgba(0,0,0,0.1);border-radius:4px;font-family:'Helvetica Neue', Arial, sans-serif;">
-      <header style="border-bottom:2px solid #111;padding-bottom:8mm;margin-bottom:8mm;">
-        <h1 style="margin:0;font-size:24px;font-weight:700;color:#111;">${escapeHtml(cell.definition.title)}</h1>
-        ${cell.definition.subtitle ? `<p style="margin:4px 0 0 0;font-size:14px;color:#666;">${escapeHtml(cell.definition.subtitle)}</p>` : ''}
-        <p style="margin:6px 0 0 0;font-size:11px;color:#999;">${today}</p>
+    <div class="report-paper" style="background:${Neutral.surface};padding:24mm;max-width:210mm;margin:var(--space-3) auto;box-shadow:0 1px 4px ${OverlayColor.reportShadow};border-radius:4px;font-family:'Helvetica Neue', Arial, sans-serif;">
+      <header style="border-bottom:2px solid ${Neutral.textStrong};padding-bottom:8mm;margin-bottom:8mm;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:${Neutral.textStrong};">${escapeHtml(cell.definition.title)}</h1>
+        ${cell.definition.subtitle ? `<p style="margin:4px 0 0 0;font-size:14px;color:${Neutral.textSecondary};">${escapeHtml(cell.definition.subtitle)}</p>` : ''}
+        <p style="margin:6px 0 0 0;font-size:11px;color:${Neutral.textFaint};">${today}</p>
       </header>
       <div class="report-body">${itemsHtml}</div>
-      <footer style="position:relative;border-top:1px solid #ccc;padding-top:6mm;margin-top:8mm;font-size:10px;color:#999;text-align:center;">
+      <footer style="position:relative;border-top:1px solid ${Neutral.borderMuted};padding-top:6mm;margin-top:8mm;font-size:10px;color:${Neutral.textFaint};text-align:center;">
         NakliData report — printed ${today}
       </footer>
     </div>
@@ -68,10 +69,10 @@ const EXEC_TEMPLATE_PICKER: ReadonlyArray<{ id: string; name: string }> = [
 function renderTemplatePicker(cellId: string): string {
   const btns = EXEC_TEMPLATE_PICKER.map(
     (t) =>
-      `<button class="btn btn-ghost" data-action="report-template" data-cell-id="${escapeAttr(cellId)}" data-template-id="${t.id}" style="border:1px solid #d1d5db;background:#fff;color:#374151;">${escapeHtml(t.name)}</button>`,
+      `<button class="btn btn-ghost" data-action="report-template" data-cell-id="${escapeAttr(cellId)}" data-template-id="${t.id}" style="border:1px solid ${Neutral.borderCool};background:${Neutral.surface};color:${Neutral.textCool};">${escapeHtml(t.name)}</button>`,
   ).join('');
   return `
-    <div class="report-item report-empty-picker" style="text-align:center;color:#6b7280;padding:14mm 0;">
+    <div class="report-item report-empty-picker" style="text-align:center;color:${Neutral.textCoolMuted};padding:14mm 0;">
       <p style="margin:0 0 10px 0;font-size:13px;">Empty report — add cells from the toolbar, or start from an executive template:</p>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">${btns}</div>
     </div>
@@ -92,9 +93,9 @@ function renderItem(item: ReportItem): string {
     const tilesHtml = item.tiles
       .map(
         (t) => `
-          <div class="report-kpi-tile" style="flex:1;padding:12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;text-align:center;">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;font-weight:600;margin-bottom:6px;">${escapeHtml(t.label)}</div>
-            <div style="font-size:24px;font-weight:700;color:#111;" data-measure="${escapeAttr(t.measure)}">${t.value ? escapeHtml(t.value) : '…'}</div>
+          <div class="report-kpi-tile" style="flex:1;padding:12px;background:${Neutral.surfaceSubtle};border:1px solid ${Neutral.borderLight};border-radius:6px;text-align:center;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:${Neutral.textCoolMuted};font-weight:600;margin-bottom:6px;">${escapeHtml(t.label)}</div>
+            <div style="font-size:24px;font-weight:700;color:${Neutral.textStrong};" data-measure="${escapeAttr(t.measure)}">${t.value ? escapeHtml(t.value) : '…'}</div>
           </div>
         `,
       )
@@ -107,7 +108,7 @@ function renderItem(item: ReportItem): string {
   // host (which clones the referenced cell's rendered output into
   // the placeholder).
   return `
-    <div class="report-item report-cell-ref" data-cell-ref="${escapeAttr(item.cellName)}" style="margin-bottom:10mm;border:1px dashed #d1d5db;padding:8mm;border-radius:4px;color:#9ca3af;font-style:italic;">
+    <div class="report-item report-cell-ref" data-cell-ref="${escapeAttr(item.cellName)}" style="margin-bottom:10mm;border:1px dashed ${Neutral.borderCool};padding:8mm;border-radius:4px;color:${Neutral.placeholder};font-style:italic;">
       [@${escapeHtml(item.cellName)} — content embedded at render]
     </div>
   `;

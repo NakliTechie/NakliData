@@ -6,6 +6,7 @@
 //   - Close — changed fingerprints are NOT persisted.
 
 import { iconSvg } from '../tokens/icons.ts';
+import { Neutral, StatusColor } from '../tokens/colors.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
@@ -118,7 +119,7 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
       ? `<ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${sources
           .map(
             (l) =>
-              `<li style="padding:6px 8px;background:#fef3c7;border-left:3px solid #f59e0b;margin-bottom:4px;font-size:13px;color:#92400e;border-radius:3px;">${escapeHtml(l)}</li>`,
+              `<li style="padding:6px 8px;background:${StatusColor.financialBg};border-left:3px solid ${StatusColor.warningAccent};margin-bottom:4px;font-size:13px;color:${StatusColor.warningText};border-radius:3px;">${escapeHtml(l)}</li>`,
           )
           .join('')}</ul>`
       : '';
@@ -127,7 +128,7 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
       ? `<ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${cells
           .map(
             (l) =>
-              `<li style="padding:6px 8px;background:#eff6ff;border-left:3px solid #3b82f6;margin-bottom:4px;font-size:13px;color:#1e40af;border-radius:3px;">${escapeHtml(l)}</li>`,
+              `<li style="padding:6px 8px;background:${StatusColor.infoBg};border-left:3px solid ${StatusColor.infoAccent};margin-bottom:4px;font-size:13px;color:${StatusColor.infoText};border-radius:3px;">${escapeHtml(l)}</li>`,
           )
           .join('')}</ul>`
       : '';
@@ -136,7 +137,7 @@ function renderDiffBody(desc: RefreshModalDescriptor): string {
       ? `<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:var(--space-2) 0 var(--space-1) 0;">Couldn't check (permission, network, or validator unavailable)</h3><ul class="refresh-list" style="margin:0 0 var(--space-3) 0;padding:0;list-style:none;">${unchecked
           .map(
             (l) =>
-              `<li style="padding:6px 8px;background:#f3f4f6;border-left:3px solid #6b7280;margin-bottom:4px;font-size:13px;color:#374151;border-radius:3px;">${escapeHtml(l)}</li>`,
+              `<li style="padding:6px 8px;background:${Neutral.surfaceCool};border-left:3px solid ${Neutral.textCoolMuted};margin-bottom:4px;font-size:13px;color:${Neutral.textCool};border-radius:3px;">${escapeHtml(l)}</li>`,
           )
           .join('')}</ul>`
       : '';

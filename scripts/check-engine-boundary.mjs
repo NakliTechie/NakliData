@@ -1,133 +1,134 @@
 #!/usr/bin/env node
-// v1.3 M0 — Extraction-readiness lint boundary.
+// Extraction-readiness lint boundary.
 //
-// Enforces the standing rule from the v1.3 handoff:
-//
-//   "Engine-layer modules — taxonomy, measures, lineage, cell model,
-//    anonymization, chart-config schema — must contain no DOM, FSA,
-//    or browser-global imports; UI binds to them, never the reverse."
-//
-// Rationale (handoff §M0): these modules are slated for extraction
-// as shared packages consumed by a future server-side sibling. Keep
-// the boundary clean now — retrofitting later is not cheap.
-//
-// Files in the watched set may not reference any of:
-//   - `document.` / `window.` / `navigator.` / `location.`
-//   - DOM types: `HTMLElement`, `Element`, `Node`, `Document`
-//   - FSA: `FileSystemHandle`, `showOpenFilePicker`, `showSaveFilePicker`
-//   - Browser APIs: `localStorage`, `sessionStorage`, `indexedDB`,
-//     `fetch` (engine modules use injection where they need I/O),
-//     `URL.createObjectURL`, `Blob`, `File`
-//
-// One exception: `crypto` (subtle / getRandomValues) is allowed
-// because it's available in Node.js, Workers, AND the browser — it's
-// already the engine-shape we want.
+// Pure engine modules may not depend on DOM, FSA, persistence, or direct
+// network globals. Directory discovery keeps newly-added taxonomy, agent,
+// cleaning, and sidecar-pure modules inside the gate automatically. The
+// small exception map names browser adapters explicitly and requires a
+// reason, so an unreviewed file cannot silently escape the boundary.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
-const WATCHED_PATHS = [
-  // v1.3 explicitly-named engine modules:
-  'src/taxonomy/types.ts',
-  'src/taxonomy/detectors.ts',
-  'src/taxonomy/checksums.ts',
-  'src/taxonomy/load.ts',
+const REQUIRED_ENGINE_FILES = [
   'src/core/lineage.ts',
   'src/core/lineage-store.ts',
   'src/core/anonymize.ts',
   'src/core/chart-config.ts',
-  'src/core/query-builder.ts', // v1.2 M5 pure emitter
-  'src/core/refresh.ts', // v1.2 M3 pure types + cascade
-  // v1.3 modules added in subsequent milestones (M2/M4) will land
-  // here as files are created. The presence check below catches
-  // missing files so the watched-set drift is loud.
-];
-
-// Optional v1.3 modules — checked when present.
-const WATCHED_OPTIONAL = [
-  'src/core/measures.ts', // v1.3 M2 (created later)
-  'src/core/selections.ts', // v1.3 M1
-  'src/core/stats.ts', // v1.3 M4
-  'src/core/report-layout.ts', // v1.3 M3
-  'src/core/chart-shelves.ts', // v1.3 M5 — shelf-based chart authoring
-  'src/core/lineage-edit.ts', // v1.3 M6 — lineage edit mode (pure ops)
-  'src/core/clustering.ts', // Resolve M1 — fuzzy-merge core (pure)
-  'src/core/segments.ts', // Resolve M2 — segment primitive (pure)
-  'src/core/golden.ts', // Resolve M3 — golden-table survivorship (pure)
-  'src/core/embed-search.ts', // Facet — embedSearch VSS + ranking (pure)
-  // Facet graph analytics. These two are load-bearing here, not aspirational:
-  // they run INSIDE the graph-metrics worker, where `document`/`window` don't
-  // exist at all — a browser-global creeping in is a runtime crash, not just a
-  // future extraction problem.
+  'src/core/query-builder.ts',
+  'src/core/refresh.ts',
+  'src/core/measures.ts',
+  'src/core/selections.ts',
+  'src/core/stats.ts',
+  'src/core/report-layout.ts',
+  'src/core/chart-shelves.ts',
+  'src/core/lineage-edit.ts',
+  'src/core/clustering.ts',
+  'src/core/segments.ts',
+  'src/core/golden.ts',
+  'src/core/embed-search.ts',
   'src/core/graph-metrics.ts',
   'src/core/graph-metrics-protocol.ts',
-  // Agent surfaces (2026-07-24). The registry is the pure verb contract + the
-  // injected AgentHost interface; the validator is the read-only SQL guard. Both
-  // are DI'd (no engine/DOM/window) so they extract into a server-side sibling
-  // unchanged — the browser wiring lives in src/ui/agent-surface.ts, never here.
-  'src/core/agent/registry.ts',
-  'src/core/agent/sql-validator.ts',
-  'src/core/agent/data-dictionary.ts', // Chunk 4 — pure describe→Markdown serializer
-  // Cleaning surface (C0) — the fix registry is pure proposal logic and the
-  // cache is a Map; both must stay extractable (a server-side sibling would
-  // want the same suggestions).
-  'src/core/cleaning/fix-registry.ts',
-  'src/core/cleaning/fix-cache.ts',
+];
+
+const WATCHED_DIRECTORIES = [
+  {
+    path: 'src/taxonomy',
+    exceptions: {
+      'src/taxonomy/client.ts': 'browser worker URL/bootstrap adapter',
+    },
+  },
+  { path: 'src/core/agent', exceptions: {} },
+  { path: 'src/core/cleaning', exceptions: {} },
+  {
+    path: 'src/core/sidecar',
+    exceptions: {
+      'src/core/sidecar/byok.ts': 'browser credential-persistence adapter',
+      'src/core/sidecar/local-cache.ts': 'OPFS cache adapter',
+      'src/core/sidecar/providers/anthropic.ts': 'Anthropic network transport',
+      'src/core/sidecar/providers/custom-openai.ts': 'custom OpenAI-compatible network transport',
+      'src/core/sidecar/providers/openai.ts': 'OpenAI network transport',
+    },
+  },
 ];
 
 const FORBIDDEN_PATTERNS = [
-  // DOM
   { name: 'document.', regex: /\bdocument\./ },
   { name: 'window.', regex: /\bwindow\./ },
   { name: 'navigator.', regex: /\bnavigator\./ },
   { name: 'location.', regex: /\blocation\./ },
-  // DOM types
   { name: 'HTMLElement', regex: /\bHTMLElement\b/ },
   { name: 'Document type', regex: /:\s*Document\b/ },
   { name: 'Element type', regex: /:\s*Element\b/ },
   { name: 'Node type', regex: /:\s*Node\b/ },
-  // FSA
   { name: 'FileSystemHandle', regex: /\bFileSystemHandle\b/ },
   { name: 'showOpenFilePicker', regex: /\bshowOpenFilePicker\b/ },
   { name: 'showSaveFilePicker', regex: /\bshowSaveFilePicker\b/ },
-  // Browser persistence (engine uses injection or pure types)
   { name: 'localStorage', regex: /\blocalStorage\b/ },
   { name: 'sessionStorage', regex: /\bsessionStorage\b/ },
   { name: 'indexedDB', regex: /\bindexedDB\b/ },
-  // Browser blobs / URLs
   { name: 'URL.createObjectURL', regex: /URL\.createObjectURL/ },
   { name: 'createElement', regex: /\bcreateElement\b/ },
   { name: 'querySelector', regex: /\bquerySelector\b/ },
-  // I/O — engine modules use injection; UI passes a fetcher in
   { name: 'fetch(', regex: /\bfetch\s*\(/ },
+  { name: 'Blob', regex: /\bBlob\b/ },
+  { name: 'File type', regex: /:\s*File\b/ },
 ];
 
-let violations = 0;
-
-function checkFile(path) {
-  let content;
-  try {
-    content = readFileSync(path, 'utf8');
-  } catch (err) {
-    // For required paths only — optional misses are OK.
-    return { exists: false };
-  }
-  // Strip block + line comments before matching so `// fetches X`
-  // in a comment doesn't trip the lint.
-  const stripped = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  const issues = [];
-  for (const { name, regex } of FORBIDDEN_PATTERNS) {
-    if (regex.test(stripped)) {
-      issues.push(name);
-    }
-  }
-  return { exists: true, issues };
+function collectTypeScriptFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return collectTypeScriptFiles(path);
+    return entry.isFile() && path.endsWith('.ts') && !path.endsWith('.test.ts') ? [path] : [];
+  });
 }
 
-for (const path of WATCHED_PATHS) {
-  const { exists, issues } = checkFile(path);
-  if (!exists) {
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
+function checkFile(path) {
+  const source = stripComments(readFileSync(path, 'utf8'));
+  return FORBIDDEN_PATTERNS.filter(({ regex }) => regex.test(source)).map(({ name }) => name);
+}
+
+let violations = 0;
+const watched = new Set(REQUIRED_ENGINE_FILES);
+let exceptionCount = 0;
+
+for (const path of REQUIRED_ENGINE_FILES) {
+  try {
+    if (!statSync(path).isFile()) throw new Error('not a file');
+  } catch {
     console.error(`[engine-boundary] MISSING required path: ${path}`);
     violations++;
+  }
+}
+
+for (const directory of WATCHED_DIRECTORIES) {
+  const discovered = collectTypeScriptFiles(directory.path);
+  const discoveredSet = new Set(discovered);
+  for (const [path, reason] of Object.entries(directory.exceptions)) {
+    exceptionCount++;
+    if (!reason.trim()) {
+      console.error(`[engine-boundary] exception lacks a reason: ${path}`);
+      violations++;
+    }
+    if (!discoveredSet.has(path)) {
+      console.error(`[engine-boundary] stale exception does not resolve to a module: ${path}`);
+      violations++;
+    }
+  }
+  for (const path of discovered) {
+    if (!(path in directory.exceptions)) watched.add(path);
+  }
+}
+
+for (const path of watched) {
+  let issues;
+  try {
+    issues = checkFile(path);
+  } catch {
     continue;
   }
   if (issues.length > 0) {
@@ -136,31 +137,13 @@ for (const path of WATCHED_PATHS) {
   }
 }
 
-for (const path of WATCHED_OPTIONAL) {
-  const { exists, issues } = checkFile(path);
-  if (!exists) continue;
-  if (issues.length > 0) {
-    console.error(`[engine-boundary] ${path} uses forbidden browser globals: ${issues.join(', ')}`);
-    violations++;
-  }
-}
-
 if (violations > 0) {
   console.error(
-    `[engine-boundary] FAILED: ${violations} violation(s). Engine modules must stay extractable — move DOM/FSA/browser-global code into a UI module or inject it through a function parameter.`,
+    `[engine-boundary] FAILED: ${violations} violation(s). Move browser code into an explicit adapter or inject it through a function parameter.`,
   );
   process.exit(1);
 }
 
 console.log(
-  `[engine-boundary] OK: ${WATCHED_PATHS.length} required + ${
-    WATCHED_OPTIONAL.filter((p) => {
-      try {
-        readFileSync(p, 'utf8');
-        return true;
-      } catch {
-        return false;
-      }
-    }).length
-  } optional engine modules clean.`,
+  `[engine-boundary] OK: ${watched.size} engine modules clean; ${exceptionCount} explicit browser adapters documented.`,
 );

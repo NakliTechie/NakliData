@@ -49,25 +49,6 @@ export async function deleteHandle(id: string): Promise<void> {
   });
 }
 
-export async function listHandles(): Promise<Array<{ id: string; handle: AnyHandle }>> {
-  return await withStore(HANDLES_STORE, 'readonly', (store) => {
-    return new Promise<Array<{ id: string; handle: AnyHandle }>>((resolve) => {
-      const req = store.openCursor();
-      const out: Array<{ id: string; handle: AnyHandle }> = [];
-      req.onsuccess = () => {
-        const cur = req.result;
-        if (!cur) {
-          resolve(out);
-          return;
-        }
-        out.push({ id: String(cur.key), handle: cur.value as AnyHandle });
-        cur.continue();
-      };
-      req.onerror = () => resolve(out);
-    });
-  });
-}
-
 /**
  * Ensure we still have permission to read the handle. Returns true if
  * permission is granted (now or after the user re-grants). The user MUST

@@ -18,6 +18,7 @@
 
 import type { MountedSource } from '../core/mount.ts';
 import { describeSource } from '../core/source-provenance.ts';
+import { Neutral, StatusColor } from '../tokens/colors.ts';
 import { renderMarkdownToHtml } from '../ui/cells/markdown-cell.ts';
 
 export interface ExportOpts {
@@ -366,9 +367,9 @@ export function buildStandaloneExport(opts: ExportOpts): StaticExportResult {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <style>
-:root{--ink:#101113;--muted:#6b6f76;--surface:#fafafa;--border:#e5e7eb;--accent:#0a66c2}
+:root{--ink:${Neutral.textStrong};--muted:${Neutral.textCoolMuted};--surface:${Neutral.surfaceSubtle};--border:${Neutral.borderLight};--accent:${Neutral.accent};--paper:${Neutral.surface};--manifest:${StatusColor.warningBg}}
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;padding:48px 24px;background:#fff;color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+body{margin:0;padding:48px 24px;background:var(--paper);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 main{max-width:880px;margin:0 auto}
 header{margin-bottom:32px;padding-bottom:16px;border-bottom:1px solid var(--border)}
 header h1{margin:0 0 4px;font-size:24px;font-weight:600}
@@ -388,17 +389,17 @@ header .meta{color:var(--muted);font-size:13px}
 .placeholder-note{color:var(--muted);font-size:13px}
 .placeholder-note strong{color:var(--ink)}
 .cell .note{color:var(--muted);font-style:italic;font-size:13px}
-.cell table{width:100%;border-collapse:collapse;font-size:13px;background:#fff}
+.cell table{width:100%;border-collapse:collapse;font-size:13px;background:var(--paper)}
 .cell th,.cell td{border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top}
 .cell th{background:var(--surface);font-weight:600}
 .cell td.numeric{text-align:right;font-variant-numeric:tabular-nums}
 .cell.sql details{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0 12px}
 .cell.sql summary{cursor:pointer;padding:10px 0;font-size:13px;color:var(--muted);font-weight:500}
 .cell.sql summary::-webkit-details-marker{color:var(--muted)}
-.cell pre.sql{background:#fff;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;overflow:auto;margin:8px 0}
+.cell pre.sql{background:var(--paper);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;overflow:auto;margin:8px 0}
 .cell.sql .result-table{margin:8px 0 12px;font-size:12.5px}
 .cell.report .report-paper{box-shadow:none!important;max-width:none!important;margin:0!important}
-.export-manifest{margin:0 0 32px;padding:12px 16px;background:#fff8e8;border:1px solid #ead8a8;border-radius:6px;font-size:13px}
+.export-manifest{margin:0 0 32px;padding:12px 16px;background:var(--manifest);border:1px solid var(--border);border-radius:6px;font-size:13px}
 .export-manifest summary{font-weight:600;cursor:pointer}
 .export-manifest p{margin:8px 0;color:var(--muted)}
 .export-manifest ol{margin:8px 0;padding-left:22px}
@@ -410,7 +411,7 @@ footer a{color:var(--accent);text-decoration:none}
 .provenance .src-list{margin:0;padding-left:18px;font-size:13px}
 .provenance .src-list>li{margin:4px 0}
 .provenance .src-kind{color:var(--muted);font-size:12px}
-.provenance code{background:#fff;padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;word-break:break-all}
+.provenance code{background:var(--paper);padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;word-break:break-all}
 .provenance ul ul{margin:2px 0;color:var(--muted);font-size:12px}
 </style>
 </head>

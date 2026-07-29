@@ -85,7 +85,7 @@ export const notebookCss = `
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--danger);
-  background: #FDECE3;
+  background: var(--danger-soft);
   white-space: pre-wrap;
 }
 .python-code {

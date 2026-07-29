@@ -11,6 +11,11 @@ const DEV = process.argv.includes('--dev');
 const OUT_DIR = 'dist';
 const LAZY_DIR = 'src/lazy';
 const CHUNKS_OUT = `${OUT_DIR}/chunks`;
+const COLOR_TOKENS_SOURCE = await readFile('src/tokens/colors.ts', 'utf8');
+const THEME_COLOR = COLOR_TOKENS_SOURCE.match(/\baccent:\s*'([^']+)'/)?.[1];
+if (!THEME_COLOR) {
+  throw new Error('Could not resolve Neutral.accent from src/tokens/colors.ts.');
+}
 const BUILD_VERSION = (() => {
   try {
     return execFileSync('git', ['describe', '--tags', '--always', '--dirty'], {
@@ -176,7 +181,10 @@ async function buildShell() {
       "object-src 'none'",
       "form-action 'self'",
     ].join('; ');
-    const shellHtml = await readFile('src/index.html', 'utf8');
+    const shellHtml = (await readFile('src/index.html', 'utf8')).replace(
+      '__NAKLIDATA_THEME_COLOR__',
+      THEME_COLOR,
+    );
     // NB: use function-form replacers when inserting bundle output —
     // string-form replacement treats `$&` / `$$` / `` $` `` in the
     // *replacement* as special tokens, and minified JS/CSS routinely
@@ -229,7 +237,10 @@ async function buildShell() {
       await cp('taxonomy', `${OUT_DIR}/taxonomy`, { recursive: true });
     }
   } else {
-    const shellHtml = await readFile('src/index.html', 'utf8');
+    const shellHtml = (await readFile('src/index.html', 'utf8')).replace(
+      '__NAKLIDATA_THEME_COLOR__',
+      THEME_COLOR,
+    );
     const inlined = shellHtml
       .replace('<!-- INLINE_CSS -->', '<link rel="stylesheet" href="/main.css">')
       .replace('<!-- INLINE_JS -->', '<script type="module" src="/main.js"></script>');

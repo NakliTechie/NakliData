@@ -45,7 +45,7 @@ export function renderAssertionCell(
       const pill = document.createElement('span');
       pill.className = `assertion-verdict assertion-verdict--${passed ? 'pass' : 'fail'}`;
       pill.style.cssText = passed
-        ? 'font-size:11px;color:var(--success,#2f8a4a);margin-left:8px;padding:2px 8px;border:1px solid var(--success,#2f8a4a);border-radius:999px;font-weight:600;'
+        ? 'font-size:11px;color:var(--success);margin-left:8px;padding:2px 8px;border:1px solid var(--success);border-radius:999px;font-weight:600;'
         : 'font-size:11px;color:var(--danger);margin-left:8px;padding:2px 8px;border:1px solid var(--danger);border-radius:999px;font-weight:600;';
       pill.textContent = passed
         ? '✓ PASS'

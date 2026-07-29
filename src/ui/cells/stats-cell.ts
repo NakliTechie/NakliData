@@ -145,7 +145,7 @@ function renderCorrelationMatrix(
           const g = v < 0 ? 79 : 175;
           const b = v < 0 ? 79 : 79;
           const bg = `rgba(${r}, ${g}, ${b}, ${colorIntensity * 0.7})`;
-          return `<td class="numeric" style="background:${bg};color:${colorIntensity > 0.5 ? '#fff' : 'inherit'};">${v.toFixed(2)}</td>`;
+          return `<td class="numeric" style="background:${bg};color:${colorIntensity > 0.5 ? 'var(--on-strong)' : 'inherit'};">${v.toFixed(2)}</td>`;
         })
         .join('');
       return `<tr><th>${escapeHtml(row)}</th>${cells}</tr>`;

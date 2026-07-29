@@ -184,32 +184,32 @@ function injectOverrideRulesCss(): void {
 const OVERRIDE_RULES_CSS = `
 .override-rules-overlay {
   position: fixed; inset: 0;
-  background: rgba(31, 27, 22, 0.42);
+  background: var(--overlay-scrim);
   display: flex; align-items: center; justify-content: center;
   z-index: 9000;
 }
 .override-rules-modal {
-  background: var(--surface-card, #FFFCF6);
-  color: var(--text-default, #1F1B16);
+  background: var(--surface);
+  color: var(--text);
   border-radius: 8px;
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
   display: flex; flex-direction: column;
-  box-shadow: 0 16px 48px rgba(31, 27, 22, 0.32);
+  box-shadow: 0 16px 48px var(--overlay-shadow);
   overflow: hidden;
 }
 .override-rules-header {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-muted, rgba(31, 27, 22, 0.12));
+  border-bottom: 1px solid var(--overlay-border-12);
 }
 .override-rules-header strong { flex: 1; font-size: 14px; }
 .override-rules-help {
   margin: 0;
   padding: 12px 16px;
   font-size: 12px;
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
-  border-bottom: 1px solid var(--border-muted, rgba(31, 27, 22, 0.12));
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--overlay-border-12);
 }
 .override-rules-list {
   padding: 8px 12px;
@@ -219,14 +219,14 @@ const OVERRIDE_RULES_CSS = `
 .override-rules-empty {
   margin: 12px 4px;
   font-size: 12px;
-  color: var(--text-muted, rgba(31, 27, 22, 0.6));
+  color: var(--text-muted);
 }
 .override-rules-row {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px;
   border-radius: 6px;
 }
-.override-rules-row:hover { background: rgba(31, 27, 22, 0.04); }
+.override-rules-row:hover { background: var(--overlay-hover); }
 .override-rules-text {
   flex: 1;
   display: flex; align-items: center; gap: 8px;
@@ -234,11 +234,11 @@ const OVERRIDE_RULES_CSS = `
 }
 .override-rules-text code {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  background: rgba(31, 27, 22, 0.06);
+  background: var(--overlay-selected);
   padding: 2px 6px;
   border-radius: 4px;
 }
-.override-rules-arrow { color: var(--text-muted, rgba(31, 27, 22, 0.6)); }
+.override-rules-arrow { color: var(--text-muted); }
 .override-rules-target {
   font-weight: 600;
 }
