@@ -384,8 +384,18 @@ LIMIT 100`,
   }
 
   deleteCell(id: string): void {
+    // A cell owns both its UI state and its materialised `cell_<id>` relation.
+    // Abort first so an in-flight run cannot recreate the relation after the
+    // delete has started, then invalidate its generation and drop the relation.
+    this.aborts.get(id)?.abort();
+    this.aborts.delete(id);
+    this.runGen.set(id, (this.runGen.get(id) ?? 0) + 1);
+    void this.engine.drop(`cell_${id}`).catch((err) => {
+      console.warn(`[naklidata] drop deleted cell relation failed for cell_${id}`, err);
+    });
     // Release the CM6 editor instance if any (the registry is per-cell-id).
     disposeSqlCellEditor(id);
+    disposeCodeEditorHost(id);
     // L27: drop any cached network-cell force layout for this id.
     disposeNetworkCell(id);
     // Finalize this cell's WebGL surface (deck.gl / MapLibre) if it has one, so
@@ -399,6 +409,15 @@ LIMIT 100`,
       cells: this.state.cells.filter((c) => c.id !== id),
     };
     this.notify();
+  }
+
+  /** Cancel every in-flight run before a workspace boundary clears state. */
+  cancelAll(): void {
+    for (const [id, controller] of this.aborts) {
+      controller.abort();
+      this.runGen.set(id, (this.runGen.get(id) ?? 0) + 1);
+    }
+    this.aborts.clear();
   }
 
   patchCell(id: string, patch: Record<string, unknown>): void {

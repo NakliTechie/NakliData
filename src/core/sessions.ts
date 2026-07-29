@@ -13,6 +13,8 @@ import { kvDelete, kvGet, kvPut } from './idb.ts';
 import { loadChunk } from './lazy-loader.ts';
 import type { NakliDataFile } from './persistence.ts';
 import { clearFingerprints } from './refresh-store.ts';
+import { clearResultSnapshots } from './result-snapshots.ts';
+import { forgetSourceSecrets } from './secrets/source-secrets.ts';
 
 const INDEX_KEY = 'sessions/index';
 const LEGACY_SNAPSHOT_KEY = 'workbook/current';
@@ -150,45 +152,7 @@ export async function deleteSession(id: string): Promise<void> {
   if (idx.sessions.length <= 1) {
     throw new Error('Cannot delete the last session.');
   }
-  // Free any FSA handles this session's sources kept in IDB before the
-  // snapshot that references them is deleted — otherwise the handle
-  // leaks forever (forward-pass H1). L9: a handle ref CAN be shared across
-  // sessions (a .naklidata loaded into two sessions, or a lens), so only
-  // delete a handle no surviving session's snapshot still references.
-  // Best-effort: an IDB hiccup must not block the delete.
-  const snapshot = await loadSnapshot(id);
-  if (snapshot) {
-    const survivingRefs = new Set<string>();
-    for (const other of idx.sessions) {
-      if (other.id === id) continue;
-      const os = await loadSnapshot(other.id);
-      if (!os) continue;
-      for (const s of os.sources) {
-        if (s.ref) survivingRefs.add(s.ref);
-      }
-    }
-    for (const s of snapshot.sources) {
-      if (
-        (s.kind === 'fsa-folder' || s.kind === 'fsa-file') &&
-        s.ref &&
-        !survivingRefs.has(s.ref)
-      ) {
-        try {
-          await deleteHandle(s.ref);
-        } catch {
-          // ignore
-        }
-      }
-    }
-  }
-  await kvDelete(snapshotKey(id));
-  // L7: drop the session's refresh fingerprints so the IDB record doesn't
-  // outlive the session metadata.
-  try {
-    await clearFingerprints(id);
-  } catch {
-    // ignore
-  }
+  await clearSessionArtifacts(id, idx);
   const remaining = idx.sessions.filter((s) => s.id !== id);
   if (remaining.length === 0) throw new Error('unreachable: length check above');
   const head = remaining[0];
@@ -222,4 +186,54 @@ export async function saveSnapshot(id: string, snapshot: NakliDataFile): Promise
 
 export async function clearSnapshot(id: string): Promise<void> {
   await kvDelete(snapshotKey(id));
+}
+
+/**
+ * Delete every separately stored artifact owned by a session. A session is
+ * more than its main workbook snapshot: result rows, refresh fingerprints,
+ * source credentials, and FSA handles otherwise survive deletion/Start Fresh.
+ *
+ * Handle refs can be shared by two saved sessions, so only delete a handle
+ * when no surviving snapshot still points at it. All deletions are attempted
+ * before an error is surfaced; callers must not claim success on a partial
+ * cleanup.
+ */
+export async function clearSessionArtifacts(id: string, knownIndex?: SessionsIndex): Promise<void> {
+  const idx = knownIndex ?? (await loadIndex());
+  const snapshot = await loadSnapshot(id);
+  const survivingRefs = new Set<string>();
+  for (const other of idx.sessions) {
+    if (other.id === id) continue;
+    const otherSnapshot = await loadSnapshot(other.id);
+    if (!otherSnapshot) continue;
+    for (const source of otherSnapshot.sources) {
+      if (source.ref) survivingRefs.add(source.ref);
+    }
+  }
+
+  const cleanup: Array<Promise<unknown>> = [
+    kvDelete(snapshotKey(id)),
+    clearResultSnapshots(id),
+    clearFingerprints(id),
+  ];
+  if (snapshot) {
+    for (const source of snapshot.sources) {
+      cleanup.push(forgetSourceSecrets(source.id, source.kind));
+      if (
+        (source.kind === 'fsa-folder' || source.kind === 'fsa-file') &&
+        source.ref &&
+        !survivingRefs.has(source.ref)
+      ) {
+        cleanup.push(deleteHandle(source.ref));
+      }
+    }
+  }
+
+  const settled = await Promise.allSettled(cleanup);
+  const failures = settled.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    throw new Error(
+      `Could not remove ${failures.length} stored session artifact${failures.length === 1 ? '' : 's'}.`,
+    );
+  }
 }

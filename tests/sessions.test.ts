@@ -16,6 +16,27 @@ vi.mock('../src/core/idb.ts', () => ({
   },
 }));
 
+class MemoryStorage {
+  private store = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+  clear(): void {
+    this.store.clear();
+  }
+}
+const _sessionStorage = new MemoryStorage();
+Object.defineProperty(globalThis, 'sessionStorage', {
+  configurable: true,
+  value: _sessionStorage,
+});
+
 const {
   createSession,
   deleteSession,
@@ -26,9 +47,11 @@ const {
   saveSnapshot,
   setActiveSession,
 } = await import('../src/core/sessions.ts');
+const { saveSecret } = await import('../src/core/secrets/source-secrets.ts');
 
 beforeEach(() => {
   _store.clear();
+  _sessionStorage.clear();
   _primeChunkForTests('persistence-validation', persistenceValidator);
 });
 
@@ -140,6 +163,40 @@ describe('sessions — CRUD', () => {
     await deleteSession(b.id);
     const idx = await loadIndex();
     expect(idx.activeId).toBe(a.id);
+  });
+
+  it('deleteSession removes result rows, fingerprints, and every source credential copy', async () => {
+    await ensureActiveSession();
+    const doomed = await createSession('Doomed');
+    const snapshot = makeSnapshot('doomed');
+    snapshot.sources = [
+      {
+        id: 's3-owned',
+        kind: 's3-endpoint',
+        label: 'Private bucket',
+        ref: 's3://private/data.parquet',
+        tables: [
+          {
+            id: 'table-owned',
+            name: 'private_data',
+            format: 'parquet',
+            origin: 's3://private/data.parquet',
+            rowCount: 1,
+          },
+        ],
+      },
+    ];
+    await saveSnapshot(doomed.id, snapshot);
+    await saveSecret('s3-owned', 'access_key_id', 'SESSION-KEY', false);
+    await saveSecret('s3-owned', 'secret_access_key', 'PERSISTED-SECRET', true);
+    _store.set(`result-snapshots/${doomed.id}`, { c1: { rows: [{ secret: true }] } });
+    _store.set(`refresh:${doomed.id}:fingerprints`, { 's3-owned': { kind: 'unsupported' } });
+
+    await deleteSession(doomed.id);
+
+    expect([..._store.keys()].filter((key) => key.includes(doomed.id))).toEqual([]);
+    expect(_store.has('source-secrets/s3-owned/secret_access_key')).toBe(false);
+    expect(_sessionStorage.getItem('naklidata.source-secret.s3-owned.access_key_id')).toBeNull();
   });
 });
 

@@ -9,6 +9,7 @@
 // `forgetSource(sourceId)` cleans up both stores.
 
 import { kvDelete, kvGet, kvPut } from '../idb.ts';
+import type { SourceKind } from '../mount.ts';
 
 const SESSION_PREFIX = 'naklidata.source-secret.';
 const IDB_PREFIX = 'source-secrets/';
@@ -83,6 +84,24 @@ export async function forgetSource(sourceId: string, names: string[]): Promise<v
   for (const name of names) {
     await forgetSecret(sourceId, name);
   }
+}
+
+const SECRET_NAMES_BY_KIND: Partial<Record<SourceKind, ReadonlyArray<string>>> = {
+  's3-endpoint': ['access_key_id', 'secret_access_key'],
+  'iceberg-table': ['bearer_token'],
+  'iceberg-catalog': ['bearer_token'],
+  'compute-bridge': ['bearer_token'],
+  'compute-bridge-catalog': ['bearer_token'],
+};
+
+/**
+ * Drop every credential kind owned by one persisted source. Keeping this map
+ * beside the storage keys lets session deletion clean credentials without
+ * reimplementing source-kind knowledge in the session index.
+ */
+export async function forgetSourceSecrets(sourceId: string, kind: SourceKind): Promise<void> {
+  const names = SECRET_NAMES_BY_KIND[kind];
+  if (names) await forgetSource(sourceId, [...names]);
 }
 
 function sessionKey(sourceId: string, name: string): string {

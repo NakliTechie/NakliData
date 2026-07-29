@@ -237,6 +237,43 @@ function uniquifyName(base: string, used: ReadonlySet<string>): string {
 }
 
 /**
+ * Mount-owned relation names for each live Engine. Every source kind passes
+ * through this allocator before registration, so a second `data.csv`, a URL
+ * ending in `data.csv`, and a folder entry with the same sanitized name cannot
+ * silently replace one another.
+ */
+const mountedRelationNames = new WeakMap<Engine, Set<string>>();
+
+function reserveMountedTableName(
+  engine: Engine,
+  preferred: string,
+  additionallyUsed: ReadonlySet<string> = new Set(),
+): string {
+  let owned = mountedRelationNames.get(engine);
+  if (!owned) {
+    owned = new Set();
+    mountedRelationNames.set(engine, owned);
+  }
+  const combined = new Set([...owned, ...additionallyUsed]);
+  const allocated = uniquifyName(preferred, combined);
+  owned.add(allocated);
+  return allocated;
+}
+
+/** Release names after their owning source relations have been dropped. */
+export function releaseMountedTableNames(engine: Engine, names: ReadonlyArray<string>): void {
+  const owned = mountedRelationNames.get(engine);
+  if (!owned) return;
+  for (const name of names) owned.delete(name);
+  if (owned.size === 0) mountedRelationNames.delete(engine);
+}
+
+/** Workspace teardown drops every mounted relation, so its reservations end too. */
+export function clearMountedTableNames(engine: Engine): void {
+  mountedRelationNames.delete(engine);
+}
+
+/**
  * Register a file with DuckDB and return the list of table/view names
  * that resulted. Single-file formats return a 1-element array; multi-table
  * formats (SQLite, DuckDB attach, multi-sheet xlsx) return one entry per
@@ -385,7 +422,7 @@ export async function mountExampleBundle(
         const blob = await fileRes.blob();
         const filename = f.path.split('/').pop() ?? 'data';
         const file = new File([blob], filename, { type: blob.type });
-        const tableLabel = sanitizeTableName(f.table);
+        const tableLabel = reserveMountedTableName(engine, sanitizeTableName(f.table));
         const registered = await registerFileByFormat(engine, f.format, {
           tableName: tableLabel,
           file,
@@ -454,13 +491,8 @@ export async function mountFolder(
   // M8: on a boot-time remount the handle is already persisted in IDB — reuse
   // its id instead of minting + storing a fresh one (which orphaned a handle
   // record on every restore, since remountFolderFromHandle then discarded it).
-  let handleId: string;
-  if (opts.reuseHandleId) {
-    handleId = opts.reuseHandleId;
-  } else {
-    handleId = newHandleId();
-    await putHandle(handleId, dirHandle as AnyHandle);
-  }
+  const handleId = opts.reuseHandleId ?? newHandleId();
+  const persistHandleAfterSuccessfulScan = !opts.reuseHandleId;
   const sourceId = genId('src');
   const source: MountedSource = {
     id: sourceId,
@@ -502,7 +534,7 @@ export async function mountFolder(
     // other via CREATE OR REPLACE VIEW. Suffix collisions (data, data_2).
     // Deterministic in folder-iteration order, so a reload reproduces the
     // same names → assignment keys still resolve.
-    const tableLabel = uniquifyName(sanitizeTableName(name), usedTableNames);
+    const tableLabel = reserveMountedTableName(engine, sanitizeTableName(name), usedTableNames);
     try {
       // getFile() is inside the try — it can throw NotFoundError if the file
       // vanished after the folder was picked.
@@ -552,6 +584,18 @@ export async function mountFolder(
       `No supported files found in "${dirHandle.name}" (looked for CSV, TSV, JSONL, Parquet, Arrow, Excel, SQLite/DuckDB, SPSS/Stata/SAS, and GeoJSON/KML).${subHint}`,
     );
   }
+  if (persistHandleAfterSuccessfulScan) {
+    try {
+      await putHandle(handleId, dirHandle as AnyHandle);
+    } catch (err) {
+      for (const table of source.tables) await engine.drop(table.name);
+      releaseMountedTableNames(
+        engine,
+        source.tables.map((table) => table.name),
+      );
+      throw err;
+    }
+  }
   return source;
 }
 
@@ -575,6 +619,47 @@ export async function remountFolderFromHandle(
   return { ...source, id: sourceId, ref: handleId };
 }
 
+export interface FolderReconciliation {
+  source: MountedSource;
+  addedOrigins: string[];
+  missingOrigins: string[];
+}
+
+interface PersistedTableIdentity {
+  id: string;
+  name: string;
+  origin: string;
+}
+
+/**
+ * Restore persisted table ids after a folder is scanned again. Folder order
+ * and generated table names can change when files are added/removed, while
+ * semantic assignments are keyed by table id. Origin is the stable key; name
+ * is a compatibility fallback for older snapshots.
+ */
+export function reconcileRemountedFolder(
+  remounted: MountedSource,
+  persistedTables: ReadonlyArray<PersistedTableIdentity>,
+): FolderReconciliation {
+  const byOrigin = new Map(persistedTables.map((table) => [table.origin, table]));
+  const byName = new Map(persistedTables.map((table) => [table.name, table]));
+  const matchedIds = new Set<string>();
+  const addedOrigins: string[] = [];
+  const tables = remounted.tables.map((table) => {
+    const persisted = byOrigin.get(table.origin) ?? byName.get(table.name);
+    if (!persisted || matchedIds.has(persisted.id)) {
+      addedOrigins.push(table.origin);
+      return { ...table, sourceId: remounted.id };
+    }
+    matchedIds.add(persisted.id);
+    return { ...table, id: persisted.id, sourceId: remounted.id };
+  });
+  const missingOrigins = persistedTables
+    .filter((table) => !matchedIds.has(table.id))
+    .map((table) => table.origin);
+  return { source: { ...remounted, tables }, addedOrigins, missingOrigins };
+}
+
 /**
  * Mount a single File (from `<input type="file">` or showOpenFilePicker).
  * Sources can hold multiple files via repeated calls.
@@ -595,7 +680,10 @@ export async function mountFile(
       `Unsupported file type: "${file.name}". NakliData mounts CSV, TSV, JSONL/NDJSON, Parquet, Arrow/Feather, Excel (.xlsx), SQLite, DuckDB, SPSS/Stata/SAS (.sav/.dta/.sas7bdat/.xpt), and GeoJSON/KML files.`,
     );
   }
-  const tableLabel = opts.tableName ?? sanitizeTableName(file.name);
+  const tableLabel = reserveMountedTableName(
+    engine,
+    opts.tableName ?? sanitizeTableName(file.name),
+  );
   let registered: string[];
   try {
     registered = await registerFileByFormat(engine, format, {
@@ -664,7 +752,10 @@ export async function mountUrl(
     );
   }
   const sourceId = genId('src');
-  const tableLabel = opts.tableName ?? sanitizeTableName(lastSegment || 'remote');
+  const tableLabel = reserveMountedTableName(
+    engine,
+    opts.tableName ?? sanitizeTableName(lastSegment || 'remote'),
+  );
   await engine.registerUrl({ tableName: tableLabel, url, format });
   const rowCount = await getRowCount(engine, tableLabel);
   return {
@@ -754,7 +845,7 @@ export async function mountS3Endpoint(
     urlStyle: opts.urlStyle,
   });
   const sourceId = genId('src');
-  const tableLabel = sanitizeTableName(last || opts.bucket);
+  const tableLabel = reserveMountedTableName(engine, sanitizeTableName(last || opts.bucket));
   const s3Url = `s3://${opts.bucket.trim()}/${pathPrefix}`;
   await engine.registerS3Url({ tableName: tableLabel, s3Url, format });
   const rowCount = await getRowCount(engine, tableLabel);
@@ -852,7 +943,7 @@ export async function mountIcebergCatalog(
   // token for the data tier; harmless for catalogs that don't).
   await engine.configureIceberg({ bearerToken });
   const sourceId = genId('src');
-  const tableLabel = sanitizeTableName(opts.table.trim());
+  const tableLabel = reserveMountedTableName(engine, sanitizeTableName(opts.table.trim()));
   await engine.registerIcebergTable({
     tableName: tableLabel,
     metadataUrl: metadataLocation,
@@ -933,7 +1024,10 @@ export async function mountIcebergTable(
     }
     return last || 'iceberg_table';
   })();
-  const tableLabel = opts.tableName ?? sanitizeTableName(fallbackName);
+  const tableLabel = reserveMountedTableName(
+    engine,
+    opts.tableName ?? sanitizeTableName(fallbackName),
+  );
   await engine.registerIcebergTable({ tableName: tableLabel, metadataUrl });
   const rowCount = await getRowCount(engine, tableLabel);
   return {
@@ -1025,7 +1119,7 @@ export async function mountComputeBridge(
   }
   // 3) Register the result as a local DuckDB table.
   const sourceId = genId('src');
-  const tableLabel = sanitizeTableName(opts.tableName.trim());
+  const tableLabel = reserveMountedTableName(engine, sanitizeTableName(opts.tableName.trim()));
   await engine.registerArrowBuffer({ tableName: tableLabel, bytes });
   const rowCount = await getRowCount(engine, tableLabel);
   return {
@@ -1131,7 +1225,10 @@ export async function mountComputeBridgeCatalog(
   for (const pick of opts.tables) {
     if (!pick.name.trim()) continue;
     const cap = clampRowCap(pick.rowCap);
-    const localName = sanitizeTableName(pick.localName?.trim() || pick.name.trim());
+    const localName = reserveMountedTableName(
+      engine,
+      sanitizeTableName(pick.localName?.trim() || pick.name.trim()),
+    );
     const sql = `SELECT * FROM ${quoteBridgeIdent(pick.name.trim())} LIMIT ${cap}`;
     try {
       const buffer = await client.query(sql);

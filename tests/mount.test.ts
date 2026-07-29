@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { describeReadFailure, detectFormat, sanitizeTableName } from '../src/core/mount.ts';
+import {
+  describeReadFailure,
+  detectFormat,
+  reconcileRemountedFolder,
+  sanitizeTableName,
+} from '../src/core/mount.ts';
 
 describe('detectFormat', () => {
   it.each([
@@ -86,6 +91,67 @@ describe('sanitizeTableName', () => {
   });
 });
 
+describe('reconcileRemountedFolder', () => {
+  it('preserves table ids by stable origin and reports added/missing files', () => {
+    const persisted = [
+      {
+        id: 'stable-orders',
+        sourceId: 'folder-source',
+        name: 'orders',
+        format: 'csv' as const,
+        origin: 'folder/orders.csv',
+        rowCount: 10,
+        registered: true,
+      },
+      {
+        id: 'removed-customers',
+        sourceId: 'folder-source',
+        name: 'customers',
+        format: 'csv' as const,
+        origin: 'folder/customers.csv',
+        rowCount: 4,
+        registered: true,
+      },
+    ];
+    const result = reconcileRemountedFolder(
+      {
+        id: 'folder-source',
+        kind: 'fsa-folder',
+        label: 'folder',
+        ref: 'handle-1',
+        tables: [
+          {
+            id: 'new-random-id',
+            sourceId: 'folder-source',
+            name: 'orders_2',
+            format: 'csv',
+            origin: 'folder/orders.csv',
+            rowCount: 12,
+            registered: true,
+          },
+          {
+            id: 'new-inventory',
+            sourceId: 'folder-source',
+            name: 'inventory',
+            format: 'csv',
+            origin: 'folder/inventory.csv',
+            rowCount: 2,
+            registered: true,
+          },
+        ],
+      },
+      persisted,
+    );
+
+    expect(result.source.tables.map((table) => table.id)).toEqual([
+      'stable-orders',
+      'new-inventory',
+    ]);
+    expect(result.addedOrigins).toEqual(['folder/inventory.csv']);
+    expect(result.missingOrigins).toEqual(['folder/customers.csv']);
+  });
+});
+
 // ---- routing tests against a mock engine ---------------------------------
 //
 // We import the internal `registerFileByFormat` via dynamic eval since it
@@ -125,6 +191,25 @@ describe('mountFile routes formats to the right engine method', () => {
     expect(src.tables).toHaveLength(1);
     expect(src.tables[0]?.name).toBe('vendors');
     expect(src.tables[0]?.format).toBe('csv');
+  });
+
+  it('allocates distinct relation names for same-name and sanitized-name collisions', async () => {
+    const engine = mockEngine();
+    const first = await mountFile(engine as never, fakeFile('data.csv'));
+    const sameName = await mountFile(engine as never, fakeFile('data.csv'));
+    const spaced = await mountFile(engine as never, fakeFile('a b.csv'));
+    const underscored = await mountFile(engine as never, fakeFile('a_b.csv'));
+
+    expect(first.tables[0]?.name).toBe('data');
+    expect(sameName.tables[0]?.name).toBe('data_2');
+    expect(spaced.tables[0]?.name).toBe('a_b');
+    expect(underscored.tables[0]?.name).toBe('a_b_2');
+    expect(engine.registerCsv.mock.calls.map(([opts]) => opts.tableName)).toEqual([
+      'data',
+      'data_2',
+      'a_b',
+      'a_b_2',
+    ]);
   });
 
   it('sqlite → registerSqlite, producing multiple tables', async () => {
@@ -209,6 +294,23 @@ describe('mountUrl (Wave 2 slice 1)', () => {
     expect(src.tables).toHaveLength(1);
     expect(src.tables[0]?.format).toBe('parquet');
     expect(src.tables[0]?.name).toBe('vendors');
+  });
+
+  it('does not let a URL source replace a same-named local source', async () => {
+    const engine = {
+      ...mockEngine(),
+      registerUrl: vi.fn().mockResolvedValue(undefined),
+    };
+    const local = await mountFile(engine as never, fakeFile('orders.csv'));
+    const remote = await mountUrl(engine as never, {
+      url: 'https://example.com/orders.csv',
+    });
+
+    expect(local.tables[0]?.name).toBe('orders');
+    expect(remote.tables[0]?.name).toBe('orders_2');
+    expect(engine.registerUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'orders_2' }),
+    );
   });
 
   it.each([

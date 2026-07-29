@@ -1,6 +1,11 @@
 import { getAssociationsStore } from './core/associations.ts';
 import { pickChartColumns } from './core/chart-columns.ts';
-import { getFixesFor, setFixesFor } from './core/cleaning/fix-cache.ts';
+import {
+  clearFixes,
+  clearFixesForSource,
+  getFixesFor,
+  setFixesFor,
+} from './core/cleaning/fix-cache.ts';
 import type { ValueCount } from './core/clustering.ts';
 import { buildCorrelationGraphPlan } from './core/correlation-graph.ts';
 import { setDemoMode } from './core/demo-mode.ts';
@@ -21,6 +26,7 @@ import {
   MountError,
   type MountedSource,
   S3_SECRET_NAMES,
+  clearMountedTableNames,
   mountComputeBridge,
   mountComputeBridgeCatalog,
   mountExampleBundle,
@@ -30,6 +36,8 @@ import {
   mountIcebergTable,
   mountS3Endpoint,
   mountUrl,
+  reconcileRemountedFolder,
+  releaseMountedTableNames,
   remountFolderFromHandle,
 } from './core/mount.ts';
 import {
@@ -56,6 +64,7 @@ import { getSegmentsStore } from './core/segments.ts';
 import { getSelectionsStore } from './core/selections.ts';
 import {
   type SessionMeta,
+  clearSessionArtifacts,
   clearSnapshot,
   createSession,
   deleteSession,
@@ -474,8 +483,8 @@ async function boot(): Promise<void> {
   // that explicitly. Without this, a first-time user who returns to the
   // page sees the empty state flicker away and the notebook view appear
   // — they have no idea their work was restored or where it came from.
-  // The "Start fresh" action clears just the active session's snapshot
-  // and reloads, dropping them on the clean empty state.
+  // The "Start fresh" action clears every artifact owned by the active
+  // session and reloads, dropping them on the clean empty state.
   if (restoredFromSnapshot) {
     const wb = getWorkbook().get();
     const sourceCount = wb.sources.length;
@@ -490,11 +499,15 @@ async function boot(): Promise<void> {
         onClick: () => {
           void (async () => {
             try {
-              await clearSnapshot(getActiveSessionId());
+              await clearSessionArtifacts(getActiveSessionId());
+              location.reload();
             } catch (err) {
-              console.warn('[naklidata] clearSnapshot failed', err);
+              console.warn('[naklidata] clearSessionArtifacts failed', err);
+              toast(
+                'Could not remove every stored session artifact. Nothing was reloaded.',
+                'error',
+              );
             }
-            location.reload();
           })();
         },
       },
@@ -1891,13 +1904,15 @@ function fullSerializeInput(engine: Engine, notebookName: string): SerializeInpu
  * no longer visible in its UI. Best-effort: a failed drop is logged, not fatal.
  */
 async function dropCurrentWorkspaceArtifacts(engine: Engine): Promise<void> {
+  const notebook = getNotebook(engine);
+  notebook.cancelAll();
   const names = new Set<string>();
   for (const src of getWorkbook().get().sources) {
     for (const t of src.tables) {
       names.add(t.name);
     }
   }
-  for (const cell of getNotebook(engine).get().cells) {
+  for (const cell of notebook.get().cells) {
     names.add(`cell_${cell.id}`);
   }
   for (const name of names) {
@@ -1908,6 +1923,24 @@ async function dropCurrentWorkspaceArtifacts(engine: Engine): Promise<void> {
     }
   }
   await engine.dropRegisteredFiles();
+  clearMountedTableNames(engine);
+  try {
+    await engine.clearS3Config();
+  } catch (err) {
+    console.warn('[naklidata] clearing S3 connection settings failed', err);
+  }
+  try {
+    await engine.clearIcebergConfig();
+  } catch (err) {
+    console.warn('[naklidata] clearing Iceberg connection headers failed', err);
+  }
+  clearFixes();
+  getLineageStore().loadFromJson({ version: 1, nodes: [], edges: [] });
+  getMeasuresStore().loadFromFile(undefined);
+  getSelectionsStore().loadFromFile(undefined);
+  getAssociationsStore().loadFromFile(undefined);
+  getDimensionsStore().loadFromFile(undefined);
+  getSegmentsStore().loadFromFile(undefined);
 }
 
 async function persistSnapshot(engine: Engine): Promise<void> {
@@ -2076,6 +2109,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             console.warn(`[naklidata] drop view failed for ${t.name}`, err);
           }
         }
+        releaseMountedTableNames(
+          engine,
+          src.tables.map((table) => table.name),
+        );
         // Wave 2 slice 2 + 3a — secrets owned by this source should not
         // outlive it. Quiet on failure (IDB unavailable, etc.).
         if (src.kind === 's3-endpoint') {
@@ -2083,6 +2120,11 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             await forgetSource(id, [...S3_SECRET_NAMES]);
           } catch (err) {
             console.warn(`[naklidata] secret cleanup failed for ${id}`, err);
+          }
+          try {
+            await engine.clearS3Config();
+          } catch (err) {
+            console.warn('[naklidata] clearing S3 connection settings failed', err);
           }
         }
         if (src.kind === 'iceberg-table' || src.kind === 'iceberg-catalog') {
@@ -2102,7 +2144,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
             );
           if (!otherIceberg) {
             try {
-              await engine.configureIceberg({ bearerToken: null });
+              await engine.clearIcebergConfig();
             } catch (err) {
               console.warn('[naklidata] clearing iceberg http headers failed', err);
             }
@@ -2126,6 +2168,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
           }
         }
       }
+      clearFixesForSource(id);
       workbook.removeSource(id);
       return;
     }
@@ -2779,6 +2822,7 @@ async function doApplyLoadedFile(
   // round-trip with an empty list — no migration step needed.
   workbook.setOverrideRules(file.override_rules ?? []);
   const reconnectNeeded: Array<{ id: string; label: string }> = [];
+  const folderChanges: string[] = [];
   const restoredSources: MountedSource[] = [];
   for (const ps of file.sources) {
     if (ps.kind === 'example-bundle') {
@@ -2827,7 +2871,13 @@ async function doApplyLoadedFile(
               ps.label,
               ps.id,
             );
-            restoredSources.push(remounted);
+            const reconciled = reconcileRemountedFolder(remounted, ps.tables);
+            restoredSources.push(reconciled.source);
+            if (reconciled.addedOrigins.length > 0 || reconciled.missingOrigins.length > 0) {
+              folderChanges.push(
+                `${ps.label}: ${reconciled.addedOrigins.length} added, ${reconciled.missingOrigins.length} missing`,
+              );
+            }
           }
         }
       } catch (err) {
@@ -3073,6 +3123,8 @@ async function doApplyLoadedFile(
   _sessionWasNonEmpty = restoredSources.length > 0 || file.cells.length > 0;
   if (reconnectNeeded.length > 0) {
     toast(`Reconnect needed: ${reconnectNeeded.map((s) => s.label).join(', ')}`, 'error');
+  } else if (folderChanges.length > 0) {
+    toast(`Folder contents changed — ${folderChanges.join('; ')}.`, 'info');
   } else if (!opts.silent) {
     toast(`Loaded "${file.name}".`);
   }

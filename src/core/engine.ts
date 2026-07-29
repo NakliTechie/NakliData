@@ -182,6 +182,9 @@ export class Engine {
   private status: EngineStatus = 'idle';
   private listeners = new Map<EngineEventName, Set<(payload: unknown) => void>>();
   private loadedExtensions = new Set<string>();
+  private registeredFileSeq = 0;
+  private filesByRelation = new Map<string, Set<string>>();
+  private relationsByFile = new Map<string, Set<string>>();
 
   on<E extends EngineEventName>(event: E, fn: (payload: EngineEvents[E]) => void): () => void {
     let set = this.listeners.get(event);
@@ -379,18 +382,74 @@ export class Engine {
     );
   }
 
+  /** Opaque, per-engine VFS name that never derives ownership from a filename. */
+  private nextRegisteredFileName(owner: string, originalName: string): string {
+    const dot = originalName.lastIndexOf('.');
+    const extension =
+      dot >= 0 && dot < originalName.length - 1
+        ? sanitizeFileName(originalName.slice(dot).toLowerCase())
+        : '';
+    this.registeredFileSeq += 1;
+    return `__nd_src_${this.registeredFileSeq.toString(36)}_${sanitizeIdent(owner)}${extension}`;
+  }
+
+  private async dropRegisteredFile(name: string): Promise<void> {
+    if (!this.db) return;
+    try {
+      await this.db.dropFile(name);
+    } catch {
+      // Best effort after a failed relation create.
+    }
+  }
+
+  private ownRegisteredFile(relationName: string, fileName: string): void {
+    const relation = sanitizeIdent(relationName);
+    const files = this.filesByRelation.get(relation) ?? new Set<string>();
+    files.add(fileName);
+    this.filesByRelation.set(relation, files);
+    const relations = this.relationsByFile.get(fileName) ?? new Set<string>();
+    relations.add(relation);
+    this.relationsByFile.set(fileName, relations);
+  }
+
+  private async dropFilesOwnedByRelation(relationName: string): Promise<void> {
+    const relation = sanitizeIdent(relationName);
+    const files = this.filesByRelation.get(relation);
+    if (!files) return;
+    this.filesByRelation.delete(relation);
+    for (const fileName of files) {
+      const owners = this.relationsByFile.get(fileName);
+      owners?.delete(relation);
+      if (owners && owners.size > 0) continue;
+      this.relationsByFile.delete(fileName);
+      await this.dropRegisteredFile(fileName);
+    }
+  }
+
   /** Register a CSV file as a table via `read_csv_auto`. */
   async registerCsv({ tableName, file }: RegisterFileOptions): Promise<void> {
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     await this.registerFile(fname, file);
-    await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size);
+    try {
+      await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size);
+      this.ownRegisteredFile(tableName, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /** Register a TSV (tab-delimited) file. */
   async registerTsv({ tableName, file }: RegisterFileOptions): Promise<void> {
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     await this.registerFile(fname, file);
-    await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size, '\t');
+    try {
+      await this.createDelimitedView(fname, sanitizeIdent(tableName), file.name, file.size, '\t');
+      this.ownRegisteredFile(tableName, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /**
@@ -426,13 +485,14 @@ export class Engine {
     displayName: string,
     fileSize: number,
     delim?: string,
+    replace = false,
   ): Promise<void> {
     const lit = escapeLiteral(fname);
     const view = quoteIdent(table);
     const delimClause = delim ? `, delim='${delim === '\t' ? '\\t' : escapeLiteral(delim)}'` : '';
     const readOpts = `sample_size=-1, ignore_errors=true, null_padding=true${delimClause}`;
     await this.exec(
-      `CREATE OR REPLACE VIEW ${view} AS SELECT * FROM read_csv_auto('${lit}', ${readOpts})`,
+      `CREATE ${replace ? 'OR REPLACE ' : ''}VIEW ${view} AS SELECT * FROM read_csv_auto('${lit}', ${readOpts})`,
     );
 
     // Best-effort reject tally so a skip is never silent. Bounded to files
@@ -492,24 +552,36 @@ export class Engine {
 
   /** Register a JSONL (NDJSON) file. */
   async registerJsonl({ tableName, file }: RegisterFileOptions): Promise<void> {
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     await this.registerFile(fname, file);
     const safeTable = sanitizeIdent(tableName);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS
-       SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
-    );
+    try {
+      await this.exec(
+        `CREATE VIEW ${quoteIdent(safeTable)} AS
+         SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
+      );
+      this.ownRegisteredFile(safeTable, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /** Register a Parquet file. */
   async registerParquet({ tableName, file }: RegisterFileOptions): Promise<void> {
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     await this.registerFile(fname, file);
     const safeTable = sanitizeIdent(tableName);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS
-       SELECT * FROM read_parquet('${escapeLiteral(fname)}')`,
-    );
+    try {
+      await this.exec(
+        `CREATE VIEW ${quoteIdent(safeTable)} AS
+         SELECT * FROM read_parquet('${escapeLiteral(fname)}')`,
+      );
+      this.ownRegisteredFile(safeTable, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /**
@@ -543,9 +615,7 @@ export class Engine {
       jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
       parquet: `read_parquet('${lit}')`,
     };
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`,
-    );
+    await this.exec(`CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`);
   }
 
   /**
@@ -578,6 +648,22 @@ export class Engine {
   }
 
   /**
+   * Remove connection-wide S3 credentials at a source/workspace boundary.
+   * DuckDB-wasm does not yet give these mounts source-scoped named secrets,
+   * so clearing the shared settings is the only way to ensure a removed
+   * source cannot authenticate a later query.
+   */
+  async clearS3Config(): Promise<void> {
+    if (!this.loadedExtensions.has('httpfs')) return;
+    await this.exec("SET s3_access_key_id = ''");
+    await this.exec("SET s3_secret_access_key = ''");
+    await this.exec("SET s3_session_token = ''");
+    await this.exec("SET s3_endpoint = ''");
+    await this.exec("SET s3_region = ''");
+    await this.exec("SET s3_url_style = 'vhost'");
+  }
+
+  /**
    * Register a view backed by an `s3://...` URL. Assumes `configureS3()`
    * has already been called this session — otherwise the SELECT fails
    * with an auth/region error from DuckDB.
@@ -600,9 +686,7 @@ export class Engine {
       jsonl: `read_json_auto('${lit}', format='newline_delimited')`,
       parquet: `read_parquet('${lit}')`,
     };
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`,
-    );
+    await this.exec(`CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM ${reader[format]}`);
   }
 
   /**
@@ -638,6 +722,12 @@ export class Engine {
     }
   }
 
+  /** Clear Iceberg's connection-wide bearer header without loading the extension. */
+  async clearIcebergConfig(): Promise<void> {
+    if (!this.loadedExtensions.has('iceberg')) return;
+    await this.exec('SET extra_http_headers = MAP {}');
+  }
+
   /**
    * Register a view backed by an Iceberg table. `metadataUrl` is the
    * URL of the table's metadata.json (or a directory whose latest
@@ -653,9 +743,7 @@ export class Engine {
   }): Promise<void> {
     const safeTable = sanitizeIdent(tableName);
     const lit = escapeLiteral(metadataUrl);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM iceberg_scan('${lit}')`,
-    );
+    await this.exec(`CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM iceberg_scan('${lit}')`);
   }
 
   /**
@@ -737,39 +825,56 @@ export class Engine {
     }
     if (!this.db) throw new EngineError('Engine not booted');
     const created: string[] = [];
-    for (const t of tables) {
-      const view = sanitizeIdent(tables.length === 1 ? tableName : `${tableName}__${t.name}`);
-      if (t.rowCount > 0) {
-        // Register the table's NDJSON and expose it via a view over
-        // read_json_auto — mirrors registerCsv's view-over-reader shape.
-        const fname = sanitizeFileName(`${file.name}__${t.name}.ndjson`);
-        await this.db.registerFileBuffer(fname, t.ndjson);
-        await this.exec(
-          `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
-           SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
-        );
-      } else {
-        // Empty table — no rows to infer from, so build a 0-row shell
-        // with the SQLite column names typed as VARCHAR (best-effort;
-        // a mounted-but-empty table still shows its schema).
-        const colDefs = t.columns.length
-          ? t.columns.map((c) => `${quoteIdent(c)} VARCHAR`).join(', ')
-          : '_empty VARCHAR';
-        await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(view)}`);
-        await this.exec(`CREATE TABLE ${quoteIdent(view)} (${colDefs})`);
+    try {
+      for (const t of tables) {
+        const view = sanitizeIdent(tables.length === 1 ? tableName : `${tableName}__${t.name}`);
+        if (t.rowCount > 0) {
+          // Register the table's NDJSON and expose it via a view over
+          // read_json_auto — mirrors registerCsv's view-over-reader shape.
+          const fname = this.nextRegisteredFileName(view, `${t.name}.ndjson`);
+          await this.db.registerFileBuffer(fname, t.ndjson);
+          try {
+            await this.exec(
+              `CREATE VIEW ${quoteIdent(view)} AS
+               SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
+            );
+            this.ownRegisteredFile(view, fname);
+          } catch (err) {
+            await this.dropRegisteredFile(fname);
+            throw err;
+          }
+        } else {
+          // Empty table — no rows to infer from, so build a 0-row shell
+          // with the SQLite column names typed as VARCHAR (best-effort;
+          // a mounted-but-empty table still shows its schema).
+          const colDefs = t.columns.length
+            ? t.columns.map((c) => `${quoteIdent(c)} VARCHAR`).join(', ')
+            : '_empty VARCHAR';
+          await this.exec(`CREATE TABLE ${quoteIdent(view)} (${colDefs})`);
+        }
+        created.push(view);
       }
-      created.push(view);
+    } catch (err) {
+      for (const name of created) await this.drop(name);
+      throw err;
     }
     return created;
   }
 
   /** Mount a native DuckDB database file via ATTACH. Multi-table. */
   async registerDuckdb({ tableName, file }: RegisterFileOptions): Promise<string[]> {
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     // Same random-access requirement as SQLite — a native DuckDB file ATTACHed
     // read-only reads pages at arbitrary offsets.
     await this.registerFileHandle(fname, file);
-    return await this.attachDatabase(fname, tableName);
+    try {
+      const relations = await this.attachDatabase(fname, tableName);
+      for (const relation of relations) this.ownRegisteredFile(relation, fname);
+      return relations;
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /**
@@ -826,8 +931,7 @@ export class Engine {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const { arrowToStreamIPC } = await loadChunk('arrow-reader');
     const streamBytes = arrowToStreamIPC(bytes);
-    // create:true → CREATE TABLE; replaces if exists via prior DROP.
-    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(safeTable)}`);
+    // create:true must fail when another source already owns this relation.
     await conn.insertArrowFromIPCStream(streamBytes, { name: safeTable, create: true });
     return [safeTable];
   }
@@ -876,9 +980,23 @@ export class Engine {
    */
   async registerCsvBuffer(tableName: string, bytes: Uint8Array): Promise<void> {
     if (!this.db) throw new EngineError('Engine not booted');
-    const fname = sanitizeFileName(`${tableName}__rout.csv`);
+    const fname = this.nextRegisteredFileName(tableName, `${tableName}__rout.csv`);
     await this.db.registerFileBuffer(fname, bytes);
-    await this.createDelimitedView(fname, sanitizeIdent(tableName), fname, bytes.length);
+    try {
+      await this.createDelimitedView(
+        fname,
+        sanitizeIdent(tableName),
+        fname,
+        bytes.length,
+        undefined,
+        true,
+      );
+      await this.dropFilesOwnedByRelation(tableName);
+      this.ownRegisteredFile(tableName, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
   }
 
   /**
@@ -887,7 +1005,7 @@ export class Engine {
    */
   async registerParquetBuffer(tableName: string, bytes: Uint8Array): Promise<void> {
     if (!this.db) throw new EngineError('Engine not booted');
-    const fname = sanitizeFileName(`${tableName}__pyout.parquet`);
+    const fname = this.nextRegisteredFileName(tableName, `${tableName}__pyout.parquet`);
     await this.db.registerFileBuffer(fname, bytes);
     const view = quoteIdent(sanitizeIdent(tableName));
     await this.exec(
@@ -914,7 +1032,6 @@ export class Engine {
   }): Promise<string[]> {
     const conn = this.requireConn();
     const safeTable = sanitizeIdent(tableName);
-    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(safeTable)}`);
     await conn.insertArrowFromIPCStream(bytes, { name: safeTable, create: true });
     return [safeTable];
   }
@@ -938,20 +1055,25 @@ export class Engine {
     const table = await readStatFile(bytes, format);
     const view = sanitizeIdent(tableName);
     if (table.rowCount > 0 && table.ndjson.length > 0) {
-      const fname = sanitizeFileName(`${file.name}.ndjson`);
+      const fname = this.nextRegisteredFileName(view, `${file.name}.ndjson`);
       if (!this.db) throw new EngineError('Engine not booted');
       await this.db.registerFileBuffer(fname, table.ndjson);
-      await this.exec(
-        `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
-         SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
-      );
+      try {
+        await this.exec(
+          `CREATE VIEW ${quoteIdent(view)} AS
+           SELECT * FROM read_json_auto('${escapeLiteral(fname)}', format='newline_delimited')`,
+        );
+        this.ownRegisteredFile(view, fname);
+      } catch (err) {
+        await this.dropRegisteredFile(fname);
+        throw err;
+      }
     } else {
       // Empty file — build a 0-row shell from the variable names so the
       // mounted table still shows its schema (mirrors registerSqlite).
       const colDefs = table.columns.length
         ? table.columns.map((c) => `${quoteIdent(c)} VARCHAR`).join(', ')
         : '_empty VARCHAR';
-      await this.exec(`DROP TABLE IF EXISTS ${quoteIdent(view)}`);
       await this.exec(`CREATE TABLE ${quoteIdent(view)} (${colDefs})`);
     }
     return [view];
@@ -966,14 +1088,20 @@ export class Engine {
    */
   async registerSpatial({ tableName, file }: RegisterFileOptions): Promise<string[]> {
     await this.ensureExtension('spatial');
-    const fname = sanitizeFileName(file.name);
+    const fname = this.nextRegisteredFileName(tableName, file.name);
     await this.registerFile(fname, file);
     const view = sanitizeIdent(tableName);
-    await this.exec(
-      `CREATE OR REPLACE VIEW ${quoteIdent(view)} AS
-       SELECT ST_AsGeoJSON(geom) AS geometry, * EXCLUDE (geom)
-       FROM ST_Read('${escapeLiteral(fname)}')`,
-    );
+    try {
+      await this.exec(
+        `CREATE VIEW ${quoteIdent(view)} AS
+         SELECT ST_AsGeoJSON(geom) AS geometry, * EXCLUDE (geom)
+         FROM ST_Read('${escapeLiteral(fname)}')`,
+      );
+      this.ownRegisteredFile(view, fname);
+    } catch (err) {
+      await this.dropRegisteredFile(fname);
+      throw err;
+    }
     return [view];
   }
 
@@ -992,11 +1120,18 @@ export class Engine {
           AND schema_name NOT IN ('information_schema', 'pg_catalog')`,
     );
     const created: string[] = [];
-    for (const { table_name, schema_name } of tables) {
-      const view = sanitizeIdent(tables.length === 1 ? tableLabel : `${tableLabel}__${table_name}`);
-      const qualified = `${quoteIdent(attachName)}.${quoteIdent(schema_name)}.${quoteIdent(table_name)}`;
-      await this.exec(`CREATE OR REPLACE VIEW ${quoteIdent(view)} AS SELECT * FROM ${qualified}`);
-      created.push(view);
+    try {
+      for (const { table_name, schema_name } of tables) {
+        const view = sanitizeIdent(
+          tables.length === 1 ? tableLabel : `${tableLabel}__${table_name}`,
+        );
+        const qualified = `${quoteIdent(attachName)}.${quoteIdent(schema_name)}.${quoteIdent(table_name)}`;
+        await this.exec(`CREATE VIEW ${quoteIdent(view)} AS SELECT * FROM ${qualified}`);
+        created.push(view);
+      }
+    } catch (err) {
+      for (const name of created) await this.drop(name);
+      throw err;
     }
     return created;
   }
@@ -1350,6 +1485,9 @@ export class Engine {
       await this.db.dropFiles();
     } catch {
       // Best effort — relation cleanup still preserves SQL isolation.
+    } finally {
+      this.filesByRelation.clear();
+      this.relationsByFile.clear();
     }
   }
 
@@ -1368,6 +1506,7 @@ export class Engine {
     } catch {
       // best effort
     }
+    await this.dropFilesOwnedByRelation(safe);
   }
 
   /** Execute a statement, discarding the result rows. */

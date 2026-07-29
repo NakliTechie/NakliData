@@ -10,6 +10,15 @@ async function waitForEngineReady(page: Page): Promise<void> {
   );
 }
 
+async function dismissWelcomeIfPresent(page: Page): Promise<void> {
+  await page
+    .locator('.help-overlay')
+    .waitFor({ state: 'visible', timeout: 3_000 })
+    .catch(() => {});
+  const close = page.locator('.help-overlay .schema-graph-close');
+  if (await close.isVisible()) await close.click();
+}
+
 async function waitForClassificationStable(
   page: Page,
   timeoutMs = 60_000,
@@ -45,6 +54,7 @@ test.describe('multi-session sidebar', () => {
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
+    await dismissWelcomeIfPresent(page);
 
     // Header switcher should show the seed session "Untitled".
     const initialName = await page.textContent('.session-switcher .session-trigger .session-name');
@@ -116,6 +126,7 @@ test.describe('multi-session sidebar', () => {
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
+    await dismissWelcomeIfPresent(page);
 
     // Stub window.confirm to always accept (we shouldn't even get there
     // because the handler short-circuits, but stub anyway so a confirm
