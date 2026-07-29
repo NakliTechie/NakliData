@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-29 — Goal Phase 2B: proposal-only agent contract (ER)
+
+### Decision ER-1 — remove agent execution instead of granting session-wide authority
+
+- **Context.** The v1 catalogue exposed `runCell(id)` behind a persisted
+  `agentWritesEnabled` flag. The documented control did not exist in Settings,
+  and a session-wide boolean could execute whatever content happened to occupy
+  that cell ID without confirmation bound to the exact current content.
+- **Decision.** Remove `runCell` from the registry, lazy host, WebMCP
+  registration, and `window.naklidata` proxy. Publish the breaking safety
+  correction as agent contract v2. Retain `proposeCell` as the only mutating
+  verb: it adds editable SQL in an un-run cell. Expose a real, default-off
+  Settings → Agent proposals toggle. Keep the persisted field name only for
+  backward compatibility; its authority is proposal-only.
+- **Consequence.** No shipping agent path can execute a notebook cell.
+  Previously enabled sessions may still allow proposals after upgrade, but
+  those proposals never run without the human clicking Run.
+
+### Decision ER-2 — reject alternate row forms and cap accepted SQL before execution
+
+- **Context.** DuckDB supports row-producing `TABLE`, `VALUES`, FROM-first, and
+  `DESCRIBE` forms in addition to `SELECT`. Result slicing alone would bound the
+  JavaScript return value but not the SQL handed to the engine.
+- **Decision.** The value-provenance guard accepts only direct `SELECT`
+  projections from one uniquely owned mounted table. All alternate row forms
+  are rejected before `engine.query`. Accepted SQL is normalized to remove one
+  tolerated trailing semicolon, then wrapped in an outer 1,000-row limit before
+  DuckDB sees it; JavaScript slicing remains defense in depth.
+- **Consequence.** Every agent value path is either rejected without engine
+  access or carries a materialization boundary in its executed SQL. Unit tests
+  spy on the engine for all four alternate forms; production smoke proves the
+  v2 five-tool catalogue, absence of an execution proxy, default-off Settings
+  toggle, redaction, and validator rejections. Gate: **1,473 vitest**,
+  **SMOKE PASSED**, bundle **774,344 / 786,432 bytes** (11.8 KiB headroom);
+  final static check runs after documentation.
+
 ## 2026-07-29 — Goal Phase 2B: taxonomy execution hardening (EQ)
 
 ### Decision EQ-1 — user regexes enter a deliberately smaller language

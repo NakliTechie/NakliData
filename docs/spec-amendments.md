@@ -40,6 +40,7 @@ The original spec stays authoritative for everything not listed here.
 | [A30](#a30--shell-bundle-budget-raised-to-750-kb-v13-prior-art-amends-spec-71) | §7.1 | Shell bundle budget raised 600 KB → 750 KB for v1.3's six notebook-native surfaces (M1–M6). Lazy-load stays the default for heavy libraries; the raised cap covers accumulated shared-shell surface, not a license to dump deps. No trust boundary moves. |
 | [A31](#a31--sidecar-jobs-9--10-assign-type--nl-to-schema-wave-7-amends-spec-43) | §4.3 | Two new sidecar jobs. Job 9 `assign-type`: column → semantic type from the full taxonomy vocabulary (complements Job 1, covers `unknown` columns; per-column + bulk surfaces). Job 10 `nl-to-schema`: NL dataset description → typed schema, inserted as an un-run CREATE TABLE cell. Both structured-output-only with parser-side hallucination guards. |
 | [A37](#a37--user-regex-admission-and-taxonomy-worker-lifecycle-amends-spec-32--34) | §3.2 + §3.4 | User regexes use a conservative safe subset; taxonomy worker boot is single-flight and every request has a deadline plus clean-restart semantics. |
+| [A38](#a38--proposal-only-agent-contract-v2-amends-the-agent-surface) | Agent surface | Agent contract v2 removes cell execution; proposals remain editable and un-run, while value queries reject alternate row forms and carry a pre-execution row cap. |
 
 ---
 
@@ -1661,6 +1662,39 @@ forever.
 hostile imports, sidecar suggestions, concurrent boots, init/request timeouts,
 fatal workers, clean replacement, numeric user types, blank strings, and
 `INTERVAL` versus `INT`.
+
+---
+
+## A38 — Proposal-only agent contract v2 (amends the agent surface)
+
+**Original contract (DECISIONS EE):** the in-tab agent catalogue exposed six
+verbs. `proposeCell` and `runCell` were both gated by one default-off
+`agentWritesEnabled` setting.
+
+**Amended contract:** `window.naklidata.version` is `"2"` and exposes five
+verbs: `describe`, `listTables`, `listCells`, `query`, and `proposeCell`.
+There is no agent cell-execution verb. `proposeCell` adds an editable, un-run SQL
+cell and remains behind a default-off Settings → Agent proposals control. The
+legacy persisted field name remains readable to avoid resetting user settings,
+but it grants proposal authority only.
+
+Agent value queries accept only direct `SELECT` projections from one uniquely
+owned mounted table. `TABLE`, `VALUES`, FROM-first, `DESCRIBE`, and other
+non-`SELECT` forms reject before engine access. Accepted SQL is wrapped in an
+outer 1,000-row limit before execution; the returned array is also sliced to the
+same cap as defense in depth.
+
+**Reasoning:** a session-wide permission cannot safely authorize execution when
+it is not bound to an exact cell ID plus content hash at the moment of action.
+Removing execution is the smaller and safer contract. Keeping proposals useful
+preserves agent-assisted authoring while making the human Run action the only
+execution boundary.
+
+**Status:** adopted 2026-07-29. DECISIONS ER. Unit coverage proves alternate
+row forms never call the engine and an enabled proposal gate still cannot
+dispatch `runCell`. Production smoke proves the v2 five-verb catalogue, missing
+execution proxy, default-off proposal toggle, row/redaction boundary, and
+validator failures.
 
 ---
 
