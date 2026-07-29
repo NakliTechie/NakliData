@@ -68,6 +68,30 @@ Append-only. Format per AGENTHANDOFF §5.
   adversarial tests. The full **1,537-test** suite and production smoke pass;
   the bundle remains **766.6 / 768.0 KB**.
 
+### Decision FA-4 — fixture conformance is a pre-live gate, never a compatibility claim
+
+- **Context.** Live Databricks and Snowflake credentials are an external stop
+  line, but the documented vendor protocol shapes can still regress locally.
+  A generic happy-path mock would be circular if the fake server derived its
+  expected routes from the same profile values as the client, and would risk
+  turning fixture success into marketing language.
+- **Decision.** Package `npm run warehouse:conformance` as a synthetic,
+  in-process suite over the production Iceberg client. Assert the exact
+  Unity Catalog `catalogs/<catalog>` and Open Catalog/Polaris request sequences
+  independently; exercise prefix, nested namespace, endpoint, access
+  delegation, table metadata, and S3/ADLS vending shapes; inspect only
+  non-secret output; and fail if generic Iceberg or any Databricks/Snowflake-
+  named source option is available. Keep the live matrix in tracked docs.
+- **Consequence.** CI and local development can detect protocol-shape drift
+  without network access or secrets, while the product keeps a bright line
+  between fixture compatibility and live verification. Fresh-eyes review found
+  the incorrect Databricks prefix, circular route assertions, host-scoped ADLS
+  expiry incompatibility, an incomplete readiness guard, an ignored matrix,
+  and incomplete table metadata; all are fixed. Production expiry summaries
+  now recognize Databricks generic and Polaris S3, GCS, and host-scoped ADLS
+  forms without exposing values. Conformance is **4/4** and the full suite is
+  **1,541/1,541**; branded entry points remain disabled.
+
 ## 2026-07-29 — Goal Phase 5D: enforced engineering boundaries (EZ)
 
 ### Decision EZ-1 — color tokens are a checked source boundary, including generated artifacts

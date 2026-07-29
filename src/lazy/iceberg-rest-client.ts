@@ -528,17 +528,27 @@ function detectProvider(
 }
 
 function collectExpiration(config: Record<string, string>, expirations: number[]): void {
-  const value = config['expires-at-ms'];
-  if (value === undefined) return;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new IcebergCatalogError(
-      'Catalog expires-at-ms must be a positive integer.',
-      200,
-      'invalid_catalog',
-    );
+  for (const [key, value] of Object.entries(config)) {
+    if (!isCredentialExpirationKey(key)) continue;
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new IcebergCatalogError(
+        `Catalog ${key} must be a positive integer.`,
+        200,
+        'invalid_catalog',
+      );
+    }
+    expirations.push(parsed);
   }
-  expirations.push(parsed);
+}
+
+function isCredentialExpirationKey(key: string): boolean {
+  return (
+    key === 'expires-at-ms' ||
+    key === 's3.session-token-expires-at-ms' ||
+    key === 'gcs.oauth2.token-expires-at' ||
+    key.startsWith('adls.sas-token-expires-at-ms.')
+  );
 }
 
 function isCredentialKey(key: string): boolean {
