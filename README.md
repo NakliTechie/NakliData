@@ -35,6 +35,8 @@ It also **resolves** data locally — the sovereign, file-owned take on a CDP's
 - **Taxonomy:** 232 semantic types across 29 domains.
 - **Local file formats (14):** CSV · TSV · JSONL / NDJSON · Parquet · SQLite · DuckDB · Excel (.xlsx) · Arrow / Feather · SPSS · Stata · SAS7BDAT · SAS XPORT · GeoJSON · KML.
 - **Optional sidecar jobs (10):** `explain-error` · `disambiguate-type` · `define-type` · `recommend-reports` · `summarise-result` · `nl-to-sql` · `propose-chart` · `propose-merge` · `assign-type` · `nl-to-schema`.
+- **Agent contract:** versions 2 + 3; scopes `metadata:read` · `values:read` · `workspace:propose`; no execution scope; value reads capped at 1,000 rows.
+- **Agent adapters:** Browser API v2: available · Browser API v3: planned · WebMCP adapter: experimental · External MCP server: planned. Experimental/planned adapters are not release claims.
 - **Build identity:** the app header is injected from the current git release tag and build revision.
 
 | Group | Choice | Readiness | Boundary |

@@ -2,6 +2,50 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Agent surface v3 product contract (FC)
+
+### Decision FC-1 — explicit per-tab scopes replace ambient proposal authority
+
+- **Context.** The shipping v2 browser API keeps metadata and bounded value
+  reads ambient while proposal authority is a persisted setting. That does not
+  give users a clear per-tab consent boundary, cannot cancel work when consent
+  is revoked, and risks silently carrying authority into a later session.
+- **Decision.** Productize v3 around exactly three scopes:
+  default-on `metadata:read`, explicit memory-only `values:read`, and explicit
+  memory-only `workspace:propose`. The latter two clear on replacement,
+  teardown, and fatal engine reset; revocation cancels affected work. The
+  legacy persisted `agentWritesEnabled` value grants nothing and is removed
+  during migration. There is no execution scope and no tool that runs a
+  proposal. V2 remains callable while v3 is adopted rather than changing its
+  response contract in place.
+- **Consequence.** Every v3 result has a version, tool, scope, stable error
+  code, provenance, bounds, redaction, and untrusted-content metadata. Value
+  reads remain validator-gated, direct-projection-only, sensitivity-aware, and
+  capped at 1,000 rows. The UI must expose grant/revoke state and a bounded
+  metadata-only activity ledger.
+
+### Decision FC-2 — one registry, artifact-first MCP, and no agent/AI/compute blur
+
+- **Context.** The browser API, experimental WebMCP API, external MCP ecosystem,
+  BYOK sidecar, and Compute Bridge solve different problems. A separate tool
+  implementation per transport would drift; a tab-to-localhost MCP design is
+  blocked by CSP and would introduce certificate/native-runtime support; and
+  live-tab automation would create a larger trust boundary than artifact
+  authoring requires.
+- **Decision.** All agent adapters call one pure internal registry. Keep
+  WebMCP feature-detected and flag-gated, never load-bearing. Define the first
+  external MCP boundary as artifact-first inspection, validation, and authoring
+  of `.naklidata`; defer a live-tab server until a secure browser/native bridge
+  is separately designed. Agent tools do not provide generic chat, result
+  narration, background polling, credentials, remote writes, or warehouse
+  execution. The AI sidecar and Compute Bridge retain their existing bounded
+  responsibilities.
+- **Consequence.** V3 may add metadata, lineage, dictionary, artifact
+  validation, and proposal tools by orchestrating existing product cores.
+  `proposeCleaningStep` stays unavailable until table-context cleaning batch N5
+  lands. No WebMCP or external-MCP availability claim is made by contract
+  documentation alone.
+
 ## 2026-07-30 — Iceberg migration authorization and repository disposition (FB)
 
 ### Decision FB-1 — authorize the proven DuckDB-WASM migration, not a connector release

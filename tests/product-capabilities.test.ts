@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_ADAPTERS,
+  AGENT_BOUNDS,
+  AGENT_COMPATIBILITY_VERSIONS,
+  AGENT_ERROR_CODES,
+  AGENT_SCOPES,
+  AGENT_V3_TOOL_SCOPES,
+  DEFAULT_AGENT_SCOPES,
+} from '../src/core/agent/contract.ts';
+import {
   ICEBERG_UNAVAILABLE_REASON,
   PRIVACY_POSTURE_COPY,
   SOURCE_GROUPS,
@@ -46,5 +55,39 @@ describe('product capability registry', () => {
   it('has 14 canonical logical file-format identifiers', () => {
     expect(SUPPORTED_FILE_FORMATS).toHaveLength(14);
     expect(new Set(SUPPORTED_FILE_FORMATS).size).toBe(SUPPORTED_FILE_FORMATS.length);
+  });
+});
+
+describe('agent product contract', () => {
+  it('defaults to metadata only and defines no execution authority', () => {
+    expect(DEFAULT_AGENT_SCOPES).toEqual(['metadata:read']);
+    expect(AGENT_SCOPES).toEqual(['metadata:read', 'values:read', 'workspace:propose']);
+    expect(AGENT_SCOPES.some((scope) => scope.includes('execute'))).toBe(false);
+    expect(Object.values(AGENT_V3_TOOL_SCOPES).every((scope) => AGENT_SCOPES.includes(scope))).toBe(
+      true,
+    );
+  });
+
+  it('keeps v2 compatibility while v3 productizes explicit envelopes', () => {
+    expect(AGENT_COMPATIBILITY_VERSIONS).toEqual(['2', '3']);
+    expect(AGENT_ERROR_CODES).toContain('permission_denied');
+    expect(AGENT_ERROR_CODES).toContain('cancelled');
+    expect(AGENT_BOUNDS).toEqual({
+      queryRows: 1000,
+      activityEntries: 50,
+      artifactBytes: 2 * 1024 * 1024,
+    });
+  });
+
+  it('does not market experimental or planned adapters as available', () => {
+    expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'window-v2')?.readiness).toBe(
+      'available',
+    );
+    expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'webmcp')?.readiness).toBe(
+      'experimental',
+    );
+    expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'external-mcp')?.readiness).toBe(
+      'planned',
+    );
   });
 });

@@ -54,6 +54,7 @@ The original spec stays authoritative for everything not listed here.
 | [A52](#a52--opaque-vended-credential-leases-amends-spec-41) | §4.1 | Short-lived S3/GCS/ADLS credentials cross an opaque, revocable, in-memory target boundary with expiry and refresh ownership. |
 | [A53](#a53--read-only-bounded-compute-bridge-v2-amends-spec-41) | §4.1 | Compute Bridge v2 makes read-only enforcement, structured opaque table requests, row caps, downstream cancellation, and claim-scoped warehouse profiles mandatory. |
 | [A54](#a54--executable-warehouse-adapter-reference-cores-amends-spec-41) | §4.1 | Dependency-free Databricks/Snowflake state-machine cores make vendor protocol obligations executable without shipping or claiming a connector. |
+| [A55](#a55--scoped-proposal-only-agent-surface-v3-amends-the-agent-surface) | Agent surface | V3 separates metadata, value, and proposal authority into revocable per-tab scopes with structured provenance and no execution capability. |
 
 ---
 
@@ -2327,6 +2328,44 @@ those obligations reviewable before credentials or deployment exist.
 HTTP route layer, concrete Arrow assembler/encoder, server package, image,
 installer, credential store, dialect parser/allowlist, or live vendor
 verification. Branded entry points remain disabled.
+
+---
+
+## A55 — Scoped proposal-only agent surface v3 (amends the agent surface)
+
+**Original behavior:** the shipping browser contract v2 exposed metadata reads,
+a bounded value query, and an editable un-run SQL-cell proposal. Value reads
+were ambient and proposal authority came from a persisted setting.
+
+**Amended behavior:** v3 retains explicit v2 compatibility and introduces three
+scopes: default `metadata:read`, per-tab memory-only `values:read`, and per-tab
+memory-only `workspace:propose`. The latter two are never restored from
+persistence and clear on workspace replacement, teardown, and fatal engine
+reset. Revocation cancels affected in-flight requests. There is no execution
+scope and no tool that runs a proposed cell.
+
+Every v3 result identifies the contract version, tool, required scope, stable
+error code, source/workspace provenance, enforced bounds, semantic redaction,
+and whether content is user-controlled and therefore untrusted. Value queries
+remain read-only, mounted-table-scoped, direct-projection-only,
+sensitivity-aware, and capped at 1,000 rows. The in-tab activity ledger is
+memory-only, bounded to 50 metadata records, and never stores SQL, values,
+artifact contents, or credentials.
+
+All browser and future transport adapters call one internal registry. WebMCP
+remains feature-detected and experimental. The first external MCP boundary is
+artifact-first validation, inspection, and authoring of `.naklidata`; no
+live-tab server, companion runtime, generic chat, result narration, background
+polling, credentials, remote writes, or warehouse execution is implied.
+
+**Reasoning:** agent authority should be visible, revocable, and tied to the
+current tab—not silently inherited from a durable preference. Separating the
+tool contract from transport prevents WebMCP/MCP churn from becoming product
+policy, while the no-execution boundary preserves human review.
+
+**Status:** adopted 2026-07-30. DECISIONS FC. See
+[`agent-surface-v3.md`](agent-surface-v3.md). Runtime and release evidence are
+tracked in workplan A1–A5; this amendment alone is not an availability claim.
 
 ---
 
