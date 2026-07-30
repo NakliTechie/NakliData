@@ -24,15 +24,18 @@
  * minimal schema. Producers needing those types fall back to the
  * chart cell's existing manual-config path.
  */
-export type ChartType =
-  | 'bar'
-  | 'line'
-  | 'area'
-  | 'scatter'
-  | 'pie'
-  | 'histogram'
-  | 'stat'
-  | 'table';
+export const CHART_TYPES = [
+  'bar',
+  'line',
+  'area',
+  'scatter',
+  'pie',
+  'histogram',
+  'stat',
+  'table',
+] as const;
+
+export type ChartType = (typeof CHART_TYPES)[number];
 
 export interface ChartConfig {
   /** Required: one of the 8 supported types. */
@@ -50,8 +53,28 @@ export interface ChartConfig {
   title: string;
 }
 
-// Note: `isChartConfig`, `validateAgainstColumns`, and `defaultChartConfig`
-// validators were removed as dead code (forward-pass S1) — they were
-// exported but never wired to any producer. This module's job is the
-// shared ChartConfig type ("one schema, three producers"); re-add a
-// validator here if a load-path / sidecar-parser check is ever wired.
+/**
+ * Validate the canonical config against an exact result-column allowlist.
+ * Sidecar responses and agent proposals share this boundary so neither can
+ * persist an unrenderable type or a hallucinated column reference.
+ */
+export function validateChartConfig(config: ChartConfig, columnNames: readonly string[]): string[] {
+  const errors: string[] = [];
+  if (!CHART_TYPES.includes(config.chartType)) {
+    errors.push('chartType is unsupported.');
+  }
+  const columns = new Set(columnNames);
+  for (const [field, value] of [
+    ['xColumn', config.xColumn],
+    ['yColumn', config.yColumn],
+    ['groupColumn', config.groupColumn],
+  ] as const) {
+    if (value !== null && !columns.has(value)) {
+      errors.push(`${field} must reference an exact input column.`);
+    }
+  }
+  if (!config.title.trim() || config.title.length > 80) {
+    errors.push('title must contain 1–80 characters.');
+  }
+  return errors;
+}

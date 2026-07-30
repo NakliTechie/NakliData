@@ -1,3 +1,4 @@
+import type { ChartConfig } from '../chart-config.ts';
 import {
   AGENT_ADAPTERS,
   AGENT_BOUNDS,
@@ -29,9 +30,37 @@ export interface AgentArtifactValidation {
   summary: Record<string, unknown>;
 }
 
+export interface AgentAffectedObject {
+  kind: 'source' | 'table' | 'cell';
+  id: string;
+  label: string;
+}
+
+export interface AgentProposalResult {
+  proposalType: 'sql-cell' | 'chart' | 'quality-check';
+  createdCell: {
+    id: string;
+    kind: 'sql' | 'chart' | 'assertion';
+    status: 'un-run';
+  };
+  preview: Record<string, unknown>;
+  affectedObjects: AgentAffectedObject[];
+  warnings: string[];
+  editable: true;
+  humanAction: string;
+}
+
+export interface AgentChartProposalInput {
+  inputCellId: string;
+  config: ChartConfig;
+}
+
 export interface AgentV3Host extends AgentHost {
   getLineage(): unknown;
   validateArtifact(kind: AgentArtifactKind, artifact: unknown): Promise<AgentArtifactValidation>;
+  proposeSqlCell(sql: string, signal: AbortSignal): Promise<AgentProposalResult>;
+  proposeChart(input: AgentChartProposalInput, signal: AbortSignal): Promise<AgentProposalResult>;
+  proposeQualityCheck(check: unknown, signal: AbortSignal): Promise<AgentProposalResult>;
 }
 
 export interface AgentV3ToolExecution<T = unknown> {
@@ -197,6 +226,79 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
         return queryExecution(data);
       },
     },
+    proposalTool(
+      'proposeSqlCell',
+      'Add one editable SQL cell in the idle state. The tool never runs the cell.',
+      async (input, signal) => {
+        const sql = stringField(input, 'sql');
+        if (sql === null || !sql.trim()) {
+          throw new AgentV3Fault('invalid_input', 'proposeSqlCell expects { sql: string }.');
+        }
+        enforceProposalBytes(sql);
+        return proposalExecution(await host.proposeSqlCell(sql, signal));
+      },
+      {
+        type: 'object',
+        properties: { sql: { type: 'string', minLength: 1 } },
+        required: ['sql'],
+        additionalProperties: false,
+      },
+    ),
+    proposalTool(
+      'proposeChart',
+      'Add one editable chart cell against an existing result cell. Exact column ownership is validated and the chart is never executed.',
+      async (input, signal) => {
+        const record = objectInput(input, 'proposeChart');
+        const inputCellId = record.inputCellId;
+        if (typeof inputCellId !== 'string' || !inputCellId.trim()) {
+          throw new AgentV3Fault('invalid_input', 'proposeChart expects a non-empty inputCellId.');
+        }
+        const config = chartConfig(record.config);
+        return proposalExecution(
+          await host.proposeChart({ inputCellId: inputCellId.trim(), config }, signal),
+        );
+      },
+      {
+        type: 'object',
+        properties: {
+          inputCellId: { type: 'string', minLength: 1 },
+          config: {
+            type: 'object',
+            properties: {
+              chartType: {
+                enum: ['bar', 'line', 'area', 'scatter', 'pie', 'histogram', 'stat', 'table'],
+              },
+              xColumn: { type: ['string', 'null'] },
+              yColumn: { type: ['string', 'null'] },
+              groupColumn: { type: ['string', 'null'] },
+              title: { type: 'string', minLength: 1, maxLength: 80 },
+            },
+            required: ['chartType', 'xColumn', 'yColumn', 'groupColumn', 'title'],
+            additionalProperties: false,
+          },
+        },
+        required: ['inputCellId', 'config'],
+        additionalProperties: false,
+      },
+    ),
+    proposalTool(
+      'proposeQualityCheck',
+      'Validate a portable data-quality check and add it as one tagged, editable assertion cell. The tool never runs the check.',
+      async (input, signal) => {
+        const record = objectInput(input, 'proposeQualityCheck');
+        if (!Object.hasOwn(record, 'check')) {
+          throw new AgentV3Fault('invalid_input', 'proposeQualityCheck expects a check object.');
+        }
+        enforceProposalBytes(record.check);
+        return proposalExecution(await host.proposeQualityCheck(record.check, signal));
+      },
+      {
+        type: 'object',
+        properties: { check: { type: 'object' } },
+        required: ['check'],
+        additionalProperties: false,
+      },
+    ),
   ];
   return tools;
 }
@@ -314,6 +416,22 @@ function metadataTool(
   };
 }
 
+function proposalTool(
+  name: keyof typeof AGENT_V3_TOOL_SCOPES,
+  description: string,
+  run: (input: unknown, signal: AbortSignal) => Promise<AgentV3ToolExecution>,
+  inputSchema: JsonSchema,
+): AgentV3Tool {
+  return {
+    name,
+    description,
+    scope: 'workspace:propose',
+    inputSchema,
+    annotations: { readOnlyHint: false, untrustedContentHint: true, gated: true },
+    execute: run,
+  };
+}
+
 function describeExecution(data: DescribeResult): AgentV3ToolExecution<DescribeResult> {
   return execution(data, {
     sourceIds: data.tables.map((table) => table.sourceId),
@@ -336,6 +454,14 @@ function queryExecution(data: QueryResult): AgentV3ToolExecution<QueryResult> {
     rowsReturned: data.rowCount,
     truncated: data.truncated ?? data.rowCount >= AGENT_BOUNDS.queryRows,
     redactedColumnNames: data.redactedColumns,
+  });
+}
+
+function proposalExecution(data: AgentProposalResult): AgentV3ToolExecution<AgentProposalResult> {
+  return execution(data, {
+    sourceIds: data.affectedObjects.filter((item) => item.kind === 'source').map((item) => item.id),
+    tableIds: data.affectedObjects.filter((item) => item.kind === 'table').map((item) => item.id),
+    untrustedContent: true,
   });
 }
 
@@ -441,6 +567,53 @@ function artifactBytes(artifact: unknown): number {
     if (error instanceof AgentV3Fault) throw error;
     throw new AgentV3Fault('invalid_input', 'Artifact must be finite JSON-compatible data.');
   }
+}
+
+function enforceProposalBytes(value: unknown): void {
+  if (artifactBytes(value) > AGENT_BOUNDS.proposalCodeBytes) {
+    throw new AgentV3Fault(
+      'validation_failed',
+      `Proposal exceeds the ${AGENT_BOUNDS.proposalCodeBytes}-byte limit.`,
+    );
+  }
+}
+
+function chartConfig(value: unknown): ChartConfig {
+  const record = objectInput(value, 'proposeChart.config');
+  const chartType = record.chartType;
+  const title = record.title;
+  const nullableColumn = (name: 'xColumn' | 'yColumn' | 'groupColumn'): string | null => {
+    const column = record[name];
+    if (column !== null && typeof column !== 'string') {
+      throw new AgentV3Fault(
+        'invalid_input',
+        `proposeChart.config.${name} must be a string or null.`,
+      );
+    }
+    return column;
+  };
+  if (
+    chartType !== 'bar' &&
+    chartType !== 'line' &&
+    chartType !== 'area' &&
+    chartType !== 'scatter' &&
+    chartType !== 'pie' &&
+    chartType !== 'histogram' &&
+    chartType !== 'stat' &&
+    chartType !== 'table'
+  ) {
+    throw new AgentV3Fault('invalid_input', 'proposeChart.config.chartType is unsupported.');
+  }
+  if (typeof title !== 'string') {
+    throw new AgentV3Fault('invalid_input', 'proposeChart.config.title must be a string.');
+  }
+  return {
+    chartType,
+    xColumn: nullableColumn('xColumn'),
+    yColumn: nullableColumn('yColumn'),
+    groupColumn: nullableColumn('groupColumn'),
+    title,
+  };
 }
 
 function boundedMessage(message: string): string {

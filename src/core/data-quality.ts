@@ -431,7 +431,7 @@ function violationCondition(
   return `${column} IS NOT NULL AND NOT regexp_full_match(CAST(${column} AS VARCHAR), ${quoteLiteral(constraint.pattern)})`;
 }
 
-function parseDataQualityCheck(value: unknown): DataQualityCheck {
+export function parseDataQualityCheck(value: unknown): DataQualityCheck {
   const item = objectValue(value, 'quality check');
   const rawKind = stringValue(item.kind, 'quality check.kind');
   if (!DATA_QUALITY_CHECK_KINDS.includes(rawKind as DataQualityCheckKind)) {

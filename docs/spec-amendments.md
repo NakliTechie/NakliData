@@ -2358,14 +2358,23 @@ artifact-first validation, inspection, and authoring of `.naklidata`; no
 live-tab server, companion runtime, generic chat, result narration, background
 polling, credentials, remote writes, or warehouse execution is implied.
 
+V3 proposal tools reuse canonical product state: `proposeSqlCell` aliases the
+v2 SQL proposal path, `proposeChart` uses chart inference/configuration, and
+`proposeQualityCheck` uses the portable tagged assertion core. Every proposal
+is editable and explicitly un-run, returns a deterministic preview, affected
+objects, warnings, and the next human action, and is bounded to 64 KiB of
+proposal code. `proposeCleaningStep` remains unavailable until table-context
+cleaning batch N5 exists.
+
 **Reasoning:** agent authority should be visible, revocable, and tied to the
 current tab—not silently inherited from a durable preference. Separating the
 tool contract from transport prevents WebMCP/MCP churn from becoming product
 policy, while the no-execution boundary preserves human review.
 
-**Status:** adopted 2026-07-30. DECISIONS FC. See
+**Status:** adopted 2026-07-30; runtime A1–A3 implemented internally.
+DECISIONS FC/FD/FE. See
 [`agent-surface-v3.md`](agent-surface-v3.md). Runtime and release evidence are
-tracked in workplan A1–A5; this amendment alone is not an availability claim.
+tracked in workplan A4–A5; this amendment alone is not an availability claim.
 
 ---
 

@@ -56,6 +56,33 @@ function host(overrides: Partial<AgentV3Host> = {}): AgentV3Host {
       truncated: false,
     }),
     proposeCell: async (sql) => ({ id: 'c1', sql, editable: true }),
+    proposeSqlCell: async (sql) => ({
+      proposalType: 'sql-cell',
+      createdCell: { id: 'c1', kind: 'sql', status: 'un-run' },
+      preview: { sql },
+      affectedObjects: [{ kind: 'cell', id: 'c1', label: 'c1' }],
+      warnings: [],
+      editable: true,
+      humanAction: 'Review and click Run.',
+    }),
+    proposeChart: async ({ inputCellId, config }) => ({
+      proposalType: 'chart',
+      createdCell: { id: 'c2', kind: 'chart', status: 'un-run' },
+      preview: { inputCellId, config },
+      affectedObjects: [{ kind: 'cell', id: 'c2', label: config.title }],
+      warnings: [],
+      editable: true,
+      humanAction: 'Review the chart.',
+    }),
+    proposeQualityCheck: async () => ({
+      proposalType: 'quality-check',
+      createdCell: { id: 'c3', kind: 'assertion', status: 'un-run' },
+      preview: {},
+      affectedObjects: [{ kind: 'cell', id: 'c3', label: 'quality check' }],
+      warnings: [],
+      editable: true,
+      humanAction: 'Review and click Run.',
+    }),
     valuesEnabled: () => true,
     proposalsEnabled: () => true,
     getLineage: () => ({
@@ -92,6 +119,7 @@ describe('agent v3 registry', () => {
       contractVersion: string;
       executionScope: null;
       tools: Array<{ name: string; scope: string }>;
+      deferredTools: Record<string, string>;
     };
     expect(data.contractVersion).toBe('3');
     expect(data.executionScope).toBeNull();
@@ -104,8 +132,13 @@ describe('agent v3 registry', () => {
       'exportDataDictionary',
       'validateArtifact',
       'query',
+      'proposeSqlCell',
+      'proposeChart',
+      'proposeQualityCheck',
     ]);
     expect(data.tools.some((tool) => /execute|runCell/i.test(tool.name))).toBe(false);
+    expect(data.deferredTools.proposeCleaningStep).toMatch(/table-context cleaning/i);
+    expect(data.tools.some((tool) => tool.name === 'proposeCleaningStep')).toBe(false);
   });
 
   it('returns provenance, bounds, redaction, and untrusted-content metadata', async () => {
@@ -159,6 +192,65 @@ describe('agent v3 registry', () => {
       error: { code: 'permission_denied', retryable: false },
     });
     expect(called).toBe(false);
+  });
+
+  it('gates every proposal before mutation and never exposes an execution tool', async () => {
+    let mutations = 0;
+    const tools = buildAgentV3Tools(
+      host({
+        proposeSqlCell: async () => {
+          mutations++;
+          throw new Error('should not mutate');
+        },
+      }),
+    );
+    await expect(
+      dispatchAgentV3Tool(tools, 'proposeSqlCell', { sql: 'SELECT 1' }, context(false)),
+    ).resolves.toMatchObject({
+      ok: false,
+      scope: 'workspace:propose',
+      error: { code: 'permission_denied' },
+    });
+    expect(mutations).toBe(0);
+    expect(tools.some((tool) => /run|execute|apply/i.test(tool.name))).toBe(false);
+  });
+
+  it('returns the deterministic editable, un-run proposal contract', async () => {
+    await expect(
+      dispatchAgentV3Tool(
+        buildAgentV3Tools(host()),
+        'proposeSqlCell',
+        { sql: 'SELECT 1' },
+        context(),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      scope: 'workspace:propose',
+      data: {
+        proposalType: 'sql-cell',
+        createdCell: { id: 'c1', kind: 'sql', status: 'un-run' },
+        preview: { sql: 'SELECT 1' },
+        editable: true,
+        humanAction: expect.any(String),
+      },
+      meta: {
+        bounds: { rowsReturned: null },
+        untrustedContent: true,
+      },
+    });
+  });
+
+  it('rejects malformed and oversized proposals before host mutation', async () => {
+    const tools = buildAgentV3Tools(host());
+    await expect(
+      dispatchAgentV3Tool(tools, 'proposeChart', { inputCellId: 'c1' }, context()),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+    await expect(
+      dispatchAgentV3Tool(tools, 'proposeSqlCell', { sql: 'x'.repeat(64 * 1024 + 1) }, context()),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'validation_failed' } });
+    await expect(
+      dispatchAgentV3Tool(tools, 'proposeQualityCheck', {}, context()),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_input' } });
   });
 
   it('maps validator refusals and malformed inputs to stable codes', async () => {

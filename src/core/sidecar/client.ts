@@ -5,6 +5,12 @@
 // Tests substitute the provider call via the `transport` option so
 // unit tests don't need real API access.
 
+import {
+  CHART_TYPES,
+  type ChartConfig,
+  type ChartType,
+  validateChartConfig,
+} from '../chart-config.ts';
 import { validateSafeRegexPattern } from '../regex-safety.ts';
 import { loadKey } from './byok.ts';
 import { getLocalGenerator } from './local-runtime.ts';
@@ -1019,27 +1025,6 @@ export function buildProposeChartPrompt(job: ProposeChartJob): {
   return { system: PROPOSE_CHART_SYSTEM, user };
 }
 
-const CHART_TYPES = new Set([
-  'bar',
-  'line',
-  'area',
-  'scatter',
-  'pie',
-  'histogram',
-  'stat',
-  'table',
-] as const);
-
-type AllowedChartType =
-  | 'bar'
-  | 'line'
-  | 'area'
-  | 'scatter'
-  | 'pie'
-  | 'histogram'
-  | 'stat'
-  | 'table';
-
 /**
  * Parse the model's response into a `ProposeChartResponse`. Strict —
  * any of the following → return `{kind: 'propose-chart', proposal: null}`:
@@ -1075,25 +1060,18 @@ export function parseProposeChartResponse(
   }
   const obj = parsed as Record<string, unknown>;
   const chartType = obj.chart_type;
-  if (typeof chartType !== 'string' || !CHART_TYPES.has(chartType as AllowedChartType)) {
+  if (typeof chartType !== 'string' || !CHART_TYPES.includes(chartType as ChartType)) {
     return { kind: 'propose-chart', proposal: null };
   }
-  const colSet = new Set(columnNames);
-  // If a non-null string was supplied but it's not in the column
-  // allowlist, DROP the whole proposal (hallucination guard).
-  const xRaw = obj.x_column;
-  const yRaw = obj.y_column;
-  const groupRaw = obj.group_column;
-  const validateRef = (v: unknown): { ok: boolean; value: string | null } => {
+  const readRef = (v: unknown): { ok: boolean; value: string | null } => {
     if (v === null || v === undefined) return { ok: true, value: null };
     if (typeof v !== 'string') return { ok: false, value: null };
     if (v === '') return { ok: true, value: null };
-    if (!colSet.has(v)) return { ok: false, value: null };
     return { ok: true, value: v };
   };
-  const x = validateRef(xRaw);
-  const y = validateRef(yRaw);
-  const grp = validateRef(groupRaw);
+  const x = readRef(obj.x_column);
+  const y = readRef(obj.y_column);
+  const grp = readRef(obj.group_column);
   if (!x.ok || !y.ok || !grp.ok) {
     return { kind: 'propose-chart', proposal: null };
   }
@@ -1101,16 +1079,16 @@ export function parseProposeChartResponse(
   if (typeof title !== 'string' || title.length === 0 || title.length > 80) {
     return { kind: 'propose-chart', proposal: null };
   }
-  return {
-    kind: 'propose-chart',
-    proposal: {
-      chartType: chartType as AllowedChartType,
-      xColumn: x.value,
-      yColumn: y.value,
-      groupColumn: grp.value,
-      title: title.trim(),
-    },
+  const proposal: ChartConfig = {
+    chartType: chartType as ChartType,
+    xColumn: x.value,
+    yColumn: y.value,
+    groupColumn: grp.value,
+    title: title.trim(),
   };
+  return validateChartConfig(proposal, columnNames).length
+    ? { kind: 'propose-chart', proposal: null }
+    : { kind: 'propose-chart', proposal };
 }
 
 // ---- propose-merge prompt + parser (Resolve M1, Job 8) --------------

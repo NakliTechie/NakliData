@@ -7,7 +7,12 @@ import {
   suggestDataQualityChecks,
 } from '../core/data-quality.ts';
 
-export { parseDataQualityAssertion, validateDataQualityCheck } from '../core/data-quality.ts';
+export {
+  encodeDataQualityAssertion,
+  parseDataQualityAssertion,
+  parseDataQualityCheck,
+  validateDataQualityCheck,
+} from '../core/data-quality.ts';
 
 export interface QualityAssertionSummary {
   id: string;

@@ -23,8 +23,9 @@ Every verb returns `{ ok: true, data }` or `{ ok: false, error }` (a UI-safe
 message). All verbs are async. The proposal-only contract reports
 `window.naklidata.version === "2"`.
 
-The scoped v3 contract is ratified but is **not released yet**. Its permission
-model, result envelopes, adapter boundary, and release gate are documented in
+The scoped v3 contract and its internal read/proposal registry are implemented
+but **not released yet**. Its permission model, result envelopes, adapter
+boundary, and release gate are documented in
 [`agent-surface-v3.md`](agent-surface-v3.md). Until that gate passes, callers
 must treat only the v2 API below as available.
 

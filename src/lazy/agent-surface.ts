@@ -31,6 +31,8 @@ import { describeToMarkdown } from '../core/agent/data-dictionary.ts';
 import {
   type AgentArtifactKind,
   type AgentArtifactValidation,
+  type AgentChartProposalInput,
+  type AgentProposalResult,
   type AgentV3Host,
   type AgentV3Tool,
   buildAgentV3Tools,
@@ -50,6 +52,8 @@ import {
 } from '../core/agent/registry.ts';
 import { AgentPermissionError, type AgentRequest, AgentSession } from '../core/agent/session.ts';
 import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
+import { validateChartConfig } from '../core/chart-config.ts';
+import { inferChartBindings, inferFieldClass } from '../core/chart-shelves.ts';
 import type { Engine } from '../core/engine.ts';
 import { loadChunk } from '../core/lazy-loader.ts';
 import type { LineageGraph } from '../core/lineage-store.ts';
@@ -347,7 +351,7 @@ export function createAgentHost(
     };
   }
 
-  async function proposeCell(sql: string): Promise<{ id: string; sql: string; editable: true }> {
+  async function proposeSqlCell(sql: string): Promise<{ id: string; sql: string; editable: true }> {
     const cell = deps.notebook.addCell('sql');
     // Set the code + re-render so the proposed cell SHOWS the SQL, un-run.
     deps.notebook.patchCell(cell.id, { code: sql });
@@ -359,7 +363,7 @@ export function createAgentHost(
     listTables,
     listCells,
     query,
-    proposeCell,
+    proposeCell: proposeSqlCell,
     valuesEnabled: () => access.has('values:read'),
     proposalsEnabled: () => access.has('workspace:propose'),
   };
@@ -416,11 +420,126 @@ function v3Tools(deps: AgentSurfaceDeps): AgentV3Tool[] {
 }
 
 function createAgentV3Host(deps: AgentSurfaceDeps): AgentV3Host {
+  const legacy = createAgentHost(deps, session(deps));
   return {
-    ...createAgentHost(deps, session(deps)),
+    ...legacy,
     getLineage: deps.getLineageGraph,
     validateArtifact: deps.validateArtifact ?? validateArtifact,
+    proposeSqlCell: async (sql, signal) => {
+      abortIfNeeded(signal);
+      const proposed = await legacy.proposeCell(sql);
+      return {
+        proposalType: 'sql-cell',
+        createdCell: { id: proposed.id, kind: 'sql', status: 'un-run' },
+        preview: { sql },
+        affectedObjects: [{ kind: 'cell', id: proposed.id, label: proposed.id }],
+        warnings: ['Proposed SQL is editable and has not been executed.'],
+        editable: true,
+        humanAction: 'Review and edit the SQL, then click Run on the new cell.',
+      };
+    },
+    proposeChart: (input, signal) => proposeChart(deps, input, signal),
+    proposeQualityCheck: (check, signal) => proposeQualityCheck(deps, check, signal),
   };
+}
+
+async function proposeChart(
+  deps: AgentSurfaceDeps,
+  input: AgentChartProposalInput,
+  signal: AbortSignal,
+): Promise<AgentProposalResult> {
+  abortIfNeeded(signal);
+  const source = deps.notebook.get().cells.find((cell) => cell.id === input.inputCellId);
+  if (!source || !('lastResult' in source) || !source.lastResult) {
+    throw new Error(
+      'Invalid chart input: inputCellId must own a currently materialized notebook result.',
+    );
+  }
+  const columns = source.lastResult.columns;
+  const rows = source.lastResult.rows;
+  const resolved = inferChartBindings(input.config, columns, (name) => inferFieldClass(name, rows));
+  const errors = validateChartConfig(resolved, columns);
+  if (errors.length) throw new Error(`Invalid chart proposal: ${errors.join(' ')}`);
+  abortIfNeeded(signal);
+  const cell = deps.notebook.addCell('chart');
+  deps.notebook.patchCell(cell.id, {
+    inputCell: source.id,
+    chartType: resolved.chartType,
+    x: resolved.xColumn,
+    y: resolved.yColumn,
+    facet: resolved.groupColumn,
+    name: resolved.title.slice(0, 40),
+  });
+  const inferred =
+    resolved.xColumn !== input.config.xColumn || resolved.yColumn !== input.config.yColumn;
+  return {
+    proposalType: 'chart',
+    createdCell: { id: cell.id, kind: 'chart', status: 'un-run' },
+    preview: {
+      inputCellId: source.id,
+      config: resolved,
+    },
+    affectedObjects: [
+      { kind: 'cell', id: source.id, label: source.name ?? source.id },
+      { kind: 'cell', id: cell.id, label: resolved.title },
+    ],
+    warnings: inferred
+      ? ['Missing or stale axis bindings were resolved through the chart inference path.']
+      : [],
+    editable: true,
+    humanAction:
+      'Review the chart type and bindings in the new cell; run its upstream cell if the result is stale.',
+  };
+}
+
+async function proposeQualityCheck(
+  deps: AgentSurfaceDeps,
+  input: unknown,
+  signal: AbortSignal,
+): Promise<AgentProposalResult> {
+  const quality = await loadChunk('data-quality');
+  const check = quality.parseDataQualityCheck(input);
+  const owners = deps
+    .getWorkbookState()
+    .sources.flatMap((source) =>
+      source.tables
+        .filter((table) => table.name === check.table)
+        .map((table) => ({ source, table })),
+    );
+  if (owners.length !== 1) {
+    throw new Error(
+      'Invalid quality-check ownership: table must name exactly one mounted workspace table.',
+    );
+  }
+  const owner = owners[0];
+  if (!owner) throw new Error('Invalid quality-check ownership.');
+  const assignmentKey = `${owner.source.id}::${owner.table.id}::${check.column}`;
+  if (!Object.hasOwn(deps.getWorkbookState().assignments, assignmentKey)) {
+    throw new Error(
+      'Invalid quality-check ownership: column must name an exact column on the mounted table.',
+    );
+  }
+  const code = quality.encodeDataQualityAssertion(check);
+  abortIfNeeded(signal);
+  const cell = deps.notebook.addCell('assertion');
+  deps.notebook.patchCell(cell.id, { name: check.name, code });
+  return {
+    proposalType: 'quality-check',
+    createdCell: { id: cell.id, kind: 'assertion', status: 'un-run' },
+    preview: { check, taggedAssertion: code },
+    affectedObjects: [
+      { kind: 'source', id: owner.source.id, label: owner.source.label },
+      { kind: 'table', id: owner.table.id, label: owner.table.name },
+      { kind: 'cell', id: cell.id, label: check.name },
+    ],
+    warnings: ['The assertion is editable and has not been run.'],
+    editable: true,
+    humanAction: 'Review the tagged assertion, then click Run on the new assertion cell.',
+  };
+}
+
+function abortIfNeeded(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error('Agent request cancelled.');
 }
 
 async function validateArtifact(

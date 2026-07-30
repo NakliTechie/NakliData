@@ -1,7 +1,7 @@
 # Agent surface v3 contract
 
-Status: **ratified product contract; A1 permissions and the internal A2 v3 read
-registry are implemented; proposal/adapters/release tracked in workplan A3–A5**.
+Status: **ratified product contract; A1 permissions, A2 reads, and A3 proposal
+tools are implemented internally; adapters/release tracked in workplan A4–A5**.
 The v3 registry is not yet published on the page global.
 The shipping live-tab API remains v2 until the runtime, permission UX, tests,
 and release gate all pass. This document is not a WebMCP or external-MCP
@@ -123,9 +123,19 @@ Value tool:
 
 Proposal tools:
 
-- `proposeSqlCell`
-- `proposeChart`
-- `proposeQualityCheck`
+- `proposeSqlCell` adds the same editable, idle SQL cell as the v2
+  `proposeCell` compatibility alias.
+- `proposeChart` validates exact ownership and result columns, resolves missing
+  bindings through the chart cell's canonical inference path, and writes the
+  existing chart-cell state.
+- `proposeQualityCheck` parses the portable quality-check core, validates exact
+  mounted table/column ownership, and writes the same tagged assertion used by
+  the data-quality surface.
+
+Each proposal reports a deterministic preview, created/affected objects,
+warnings, `editable: true`, an explicit `un-run` state, and the exact human
+review action. Proposal code is capped at 64 KiB. No proposal calls
+`Notebook.runCell`, sends a remote write, or starts background work.
 
 `proposeCleaningStep` remains unavailable until the table-context cleaning
 boundary in batch N5 exists. No transport may bypass that dependency.

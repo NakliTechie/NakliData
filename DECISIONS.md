@@ -2,6 +2,29 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Agent surface v3 proposal registry (FE)
+
+### Decision FE-1 — proposals reuse canonical cell, chart, and quality state
+
+- **Context.** A proposal tool that invents its own chart schema, assertion
+  format, or mutation path would drift from human authoring and could obscure
+  whether work had executed. Proposal and value authority must also remain
+  separate, with no latent run/apply verb.
+- **Decision.** Add `proposeSqlCell`, `proposeChart`, and
+  `proposeQualityCheck` under `workspace:propose`. SQL uses the same notebook
+  insertion as the v2 `proposeCell` alias. Charts validate exact result-cell
+  ownership and canonical `ChartConfig`, resolve bindings through the existing
+  inference path, and persist ordinary chart-cell fields. Quality checks use
+  the portable parser/compiler and ordinary tagged assertion-cell path, with
+  exact mounted table/column ownership. Every response includes preview,
+  affected objects, warnings, editable/un-run state, and the next human
+  action; proposal code is capped at 64 KiB.
+- **Consequence.** No proposal invokes `runCell`, performs a remote write, or
+  starts background work. `proposeCleaningStep` stays advertised only as
+  unavailable until N5 provides table-context-safe suggestions; per-column row
+  dedupe is not reintroduced. Browser API v3 remains unpublished until A4 and
+  A5 close.
+
 ## 2026-07-30 — Agent surface v3 read registry (FD)
 
 ### Decision FD-1 — structured v3 reads orchestrate existing product cores
