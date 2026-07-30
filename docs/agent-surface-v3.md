@@ -1,7 +1,8 @@
 # Agent surface v3 contract
 
-Status: **ratified product contract; A1 permission/activity boundary implemented;
-runtime productization tracked in workplan A2–A5**.
+Status: **ratified product contract; A1 permissions and the internal A2 v3 read
+registry are implemented; proposal/adapters/release tracked in workplan A3–A5**.
+The v3 registry is not yet published on the page global.
 The shipping live-tab API remains v2 until the runtime, permission UX, tests,
 and release gate all pass. This document is not a WebMCP or external-MCP
 availability claim.
@@ -100,7 +101,8 @@ type AgentV3Result<T> =
 Messages are bounded and safe to display. Error codes are stable; messages may
 improve. User-controlled values or artifact text set `untrustedContent: true`.
 Query results report their source ownership, enforced row bound, and semantic
-redaction. The initial value cap is 1,000 rows. Activity is kept in a 50-entry
+redaction. The initial value cap is 1,000 rows and each call has a 30-second
+deadline. Activity is kept in a 50-entry
 in-memory ring buffer and records metadata only—never SQL, result values, file
 contents, or credentials.
 

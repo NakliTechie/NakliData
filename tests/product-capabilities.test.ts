@@ -76,6 +76,7 @@ describe('agent product contract', () => {
       queryRows: 1000,
       activityEntries: 50,
       artifactBytes: 2 * 1024 * 1024,
+      requestDeadlineMs: 30_000,
     });
   });
 

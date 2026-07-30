@@ -2,6 +2,31 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Agent surface v3 read registry (FD)
+
+### Decision FD-1 — structured v3 reads orchestrate existing product cores
+
+- **Context.** V2 has five transport-shaped verbs and string errors, while the
+  ratified v3 contract requires stable scopes, provenance, bounds, redaction,
+  untrusted-content metadata, cancellation, and high-level semantic tools.
+  Reimplementing lineage, dictionary export, or artifact validation inside an
+  agent adapter would create drift from the human-facing product.
+- **Decision.** Add one pure v3 registry with eight initial read tools:
+  `describe`, `listTables`, `listCells`, `getCapabilities`, `getLineage`,
+  `exportDataDictionary`, `validateArtifact`, and `query`. The browser host
+  injects the live lineage snapshot and the existing lazy `.naklidata`,
+  portable-semantic-model, and tagged-quality-assertion validators. V3
+  envelopes use stable error codes and carry workspace/source/table ownership,
+  enforced bounds, exact redacted columns, and untrusted-content state. Calls
+  have a 30-second deadline; an epoch change during a call fails as
+  `workspace_changed` and requires re-grounding.
+- **Consequence.** No validator, serializer, engine, or transport becomes a
+  parallel authority. V2 remains unchanged except for additive query
+  provenance fields. The v3 registry is implemented and tested internally but
+  is not yet published on the page global; that remains workplan A4 after the
+  proposal tools land. Product truth continues to label Browser API v3
+  `planned`.
+
 ## 2026-07-30 — Agent surface v3 product contract (FC)
 
 ### Decision FC-1 — explicit per-tab scopes replace ambient proposal authority

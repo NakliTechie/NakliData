@@ -12,6 +12,7 @@
 
 import type { Engine } from '../core/engine.ts';
 import { loadChunk } from '../core/lazy-loader.ts';
+import { getLineageStore } from '../core/lineage-store.ts';
 import { getWorkbook } from '../core/workbook.ts';
 import type { AgentSurfaceDeps } from '../lazy/agent-surface.ts';
 import { getTaxonomyClient } from '../taxonomy/client.ts';
@@ -24,6 +25,14 @@ export interface AgentBridgeDeps {
 
 let _workspaceEpoch = 0;
 let _boundDeps: AgentSurfaceDeps | null = null;
+let _agentModule: typeof import('../lazy/agent-surface.ts') | null = null;
+
+function loadAgentModule(): Promise<typeof import('../lazy/agent-surface.ts')> {
+  return loadChunk('agent-surface').then((module) => {
+    _agentModule = module;
+    return module;
+  });
+}
 
 /** The public shape bound to `window.naklidata`. Every verb is async (it loads
  *  the chunk on first call); `listTools` returns the catalogue; `version` marks
@@ -52,7 +61,7 @@ declare global {
 export function bindAgentSurface(deps: AgentBridgeDeps): void {
   const fullDeps = buildAgentDeps(deps);
   _boundDeps = fullDeps;
-  const load = () => loadChunk('agent-surface');
+  const load = loadAgentModule;
   const verb =
     (name: string) =>
     (input?: unknown): Promise<unknown> =>
@@ -88,6 +97,7 @@ function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
     getWorkspaceEpoch: () => _workspaceEpoch,
     getWorkbookState: () => getWorkbook().get(),
     getBundle: () => getTaxonomyClient().getBundle(),
+    getLineageGraph: () => getLineageStore().toJSON(),
   };
 }
 
@@ -98,7 +108,7 @@ function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
  * same artifact.
  */
 export async function exportDataDictionaryMarkdown(deps: AgentBridgeDeps): Promise<string> {
-  const m = await loadChunk('agent-surface');
+  const m = await loadAgentModule();
   return m.exportDataDictionary(buildAgentDeps(deps));
 }
 
@@ -106,6 +116,7 @@ export async function exportDataDictionaryMarkdown(deps: AgentBridgeDeps): Promi
  * load. The chunk observes the epoch on its next snapshot or invocation. */
 export function resetAgentAccess(): void {
   _workspaceEpoch++;
+  if (_agentModule && _boundDeps) _agentModule.syncAgentAccess(_boundDeps);
 }
 
 /** Hydrate Settings → Agent access from the lazy agent chunk. */
@@ -114,7 +125,7 @@ export async function renderAgentAccessSettings(root: HTMLElement): Promise<void
     root.textContent = 'Agent access becomes available after the workspace engine starts.';
     return;
   }
-  const m = await loadChunk('agent-surface');
+  const m = await loadAgentModule();
   m.renderAgentAccessPanel(root, _boundDeps);
 }
 

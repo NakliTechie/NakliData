@@ -29,6 +29,14 @@ import {
 } from '../core/agent/contract.ts';
 import { describeToMarkdown } from '../core/agent/data-dictionary.ts';
 import {
+  type AgentArtifactKind,
+  type AgentArtifactValidation,
+  type AgentV3Host,
+  type AgentV3Tool,
+  buildAgentV3Tools,
+  dispatchAgentV3Tool,
+} from '../core/agent/registry-v3.ts';
+import {
   type AgentHost,
   type AgentTool,
   type CellSummary,
@@ -43,6 +51,8 @@ import {
 import { AgentPermissionError, type AgentRequest, AgentSession } from '../core/agent/session.ts';
 import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import type { Engine } from '../core/engine.ts';
+import { loadChunk } from '../core/lazy-loader.ts';
+import type { LineageGraph } from '../core/lineage-store.ts';
 import type { DirectResultProjection } from '../core/result-snapshots.ts';
 import type { WorkbookState } from '../core/workbook.ts';
 import type { TaxonomyBundle, TypeSensitivity } from '../taxonomy/types.ts';
@@ -83,6 +93,13 @@ export interface AgentSurfaceDeps {
   getWorkbookState: () => WorkbookState;
   /** Live read of the shell's taxonomy bundle (injected). */
   getBundle: () => TaxonomyBundle | null;
+  getLineageGraph: () => LineageGraph;
+  /** Test seam for the artifact validators. Production uses the lazy validators
+   * below so their orchestration does not consume shell bytes. */
+  validateArtifact?: (
+    kind: AgentArtifactKind,
+    artifact: unknown,
+  ) => Promise<AgentArtifactValidation>;
 }
 
 type AgentColumnSensitivity = TypeSensitivity | 'unclassified' | 'unavailable';
@@ -319,7 +336,15 @@ export function createAgentHost(
         }
       }
     }
-    return { columns, rows, rowCount: rows.length, redactedColumns };
+    return {
+      columns,
+      rows,
+      rowCount: rows.length,
+      redactedColumns,
+      sourceId: owned.source.id,
+      tableId: owned.table.id,
+      truncated: rows.length >= AGENT_QUERY_ROW_CAP,
+    };
   }
 
   async function proposeCell(sql: string): Promise<{ id: string; sql: string; editable: true }> {
@@ -368,16 +393,108 @@ export type ToolCatalogue = Array<
 
 // The tool list is stable per session (deps don't change), so build once.
 let _tools: AgentTool[] | null = null;
+let _v3Tools: AgentV3Tool[] | null = null;
 let _session: AgentSession | null = null;
 
 function session(deps: AgentSurfaceDeps): AgentSession {
-  _session ??= new AgentSession(deps.getWorkspaceEpoch, AGENT_BOUNDS.activityEntries);
+  _session ??= new AgentSession(
+    deps.getWorkspaceEpoch,
+    AGENT_BOUNDS.activityEntries,
+    AGENT_BOUNDS.requestDeadlineMs,
+  );
   return _session;
 }
 
 function tools(deps: AgentSurfaceDeps): AgentTool[] {
   _tools ??= buildAgentTools(createAgentHost(deps, session(deps)));
   return _tools;
+}
+
+function v3Tools(deps: AgentSurfaceDeps): AgentV3Tool[] {
+  _v3Tools ??= buildAgentV3Tools(createAgentV3Host(deps));
+  return _v3Tools;
+}
+
+function createAgentV3Host(deps: AgentSurfaceDeps): AgentV3Host {
+  return {
+    ...createAgentHost(deps, session(deps)),
+    getLineage: deps.getLineageGraph,
+    validateArtifact: deps.validateArtifact ?? validateArtifact,
+  };
+}
+
+async function validateArtifact(
+  kind: AgentArtifactKind,
+  artifact: unknown,
+): Promise<AgentArtifactValidation> {
+  try {
+    if (kind === 'naklidata') {
+      const validator = await loadChunk('persistence-validation');
+      const file =
+        typeof artifact === 'string'
+          ? validator.parse(artifact)
+          : validator.validateNakliDataFile(artifact);
+      return {
+        kind,
+        valid: true,
+        errors: [],
+        summary: {
+          format: file.format,
+          version: file.version,
+          name: file.name,
+          sourceCount: file.sources.length,
+          cellCount: file.cells.length,
+        },
+      };
+    }
+    if (kind === 'portable-semantic-model') {
+      const semantic = await loadChunk('semantic-model');
+      const errors = semantic.validatePortableSemanticModel(artifact as never);
+      return {
+        kind,
+        valid: errors.length === 0,
+        errors,
+        summary: {
+          tableCount:
+            typeof artifact === 'object' &&
+            artifact !== null &&
+            Array.isArray((artifact as Record<string, unknown>).tables)
+              ? ((artifact as Record<string, unknown>).tables as unknown[]).length
+              : 0,
+        },
+      };
+    }
+    const quality = await loadChunk('data-quality');
+    if (typeof artifact !== 'string') {
+      throw new Error('A data-quality assertion artifact must be a tagged SQL string.');
+    }
+    const parsed = quality.parseDataQualityAssertion(artifact);
+    if (!parsed) throw new Error('The SQL is missing the naklidata-quality metadata tag.');
+    const errors = quality.validateDataQualityCheck(parsed.check);
+    return {
+      kind,
+      valid: errors.length === 0,
+      errors,
+      summary: {
+        checkId: parsed.check.id,
+        checkKind: parsed.check.kind,
+        table: parsed.check.table,
+        column: parsed.check.column,
+      },
+    };
+  } catch (error) {
+    return {
+      kind,
+      valid: false,
+      errors: [boundedValidationMessage(error)],
+      summary: {},
+    };
+  }
+}
+
+function boundedValidationMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, ' ').trim().slice(0, 500) || 'Artifact validation failed.';
 }
 
 /** Dispatch a verb by name. The shell's `window.naklidata.<verb>` proxies route
@@ -410,6 +527,44 @@ function scopeForLegacyVerb(verb: string): AgentScope {
   if (verb === 'query') return 'values:read';
   if (verb === 'proposeCell') return 'workspace:propose';
   return 'metadata:read';
+}
+
+export async function dispatchV3(deps: AgentSurfaceDeps, name: string, input: unknown) {
+  const found = v3Tools(deps).find((tool) => tool.name === name);
+  const scope = found?.scope ?? 'metadata:read';
+  const state = session(deps).snapshot();
+  let request: AgentRequest | null = null;
+  try {
+    request = session(deps).begin(scope, name);
+  } catch (error) {
+    if (!(error instanceof AgentPermissionError)) throw error;
+  }
+  const fallbackController = new AbortController();
+  const result = await dispatchAgentV3Tool(v3Tools(deps), name, input, {
+    workspaceRevision: state.workspaceRevision,
+    readWorkspaceRevision: () => session(deps).snapshot().workspaceRevision,
+    signal: request?.signal ?? fallbackController.signal,
+    permissionGranted: request !== null,
+  });
+  request?.finish(
+    result.ok ? 'ok' : 'error',
+    {
+      rowsReturned: result.meta.bounds.rowsReturned,
+      redactedColumns: result.meta.redaction.columns.length,
+    },
+    result.ok ? null : result.error.code,
+  );
+  return result;
+}
+
+export function catalogueV3(deps: AgentSurfaceDeps) {
+  return v3Tools(deps).map(({ name, description, scope, inputSchema, annotations }) => ({
+    name,
+    description,
+    scope,
+    inputSchema,
+    annotations,
+  }));
 }
 
 /** The verb catalogue (WebMCP-shaped metadata). */
@@ -460,6 +615,12 @@ export function setAgentGrant(
 
 export function revokeAgentGrants(deps: AgentSurfaceDeps): void {
   session(deps).revokeAll();
+}
+
+/** Force observation of a shell epoch change so replacement aborts already
+ * in-flight calls immediately when this chunk has been loaded. */
+export function syncAgentAccess(deps: AgentSurfaceDeps): void {
+  session(deps).snapshot();
 }
 
 /** Render the Settings → Agent access panel from this lazy chunk so the

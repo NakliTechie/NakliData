@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentPermissionError, AgentSession } from '../src/core/agent/session.ts';
 
 describe('AgentSession', () => {
+  afterEach(() => vi.useRealTimers());
   it('defaults to metadata only and never revokes metadata', () => {
     const session = new AgentSession(() => 0);
     expect(session.snapshot().grants).toEqual({
@@ -65,5 +66,19 @@ describe('AgentSession', () => {
       request.finish('ok');
     }
     expect(session.snapshot().activity.map((entry) => entry.tool)).toEqual(['c', 'b']);
+  });
+
+  it('aborts calls at the configured deadline', () => {
+    vi.useFakeTimers();
+    const session = new AgentSession(() => 0, 50, 25);
+    const request = session.begin('metadata:read', 'describe');
+    vi.advanceTimersByTime(25);
+    expect(request.signal.aborted).toBe(true);
+    expect(request.signal.reason).toBe('deadline');
+    request.finish('error');
+    expect(session.snapshot().activity[0]).toMatchObject({
+      outcome: 'cancelled',
+      errorCode: 'cancelled',
+    });
   });
 });

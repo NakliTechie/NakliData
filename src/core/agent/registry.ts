@@ -132,6 +132,10 @@ export interface QueryResult {
   rowCount: number;
   /** Output columns whose values were redacted by sensitivity tier. */
   redactedColumns: string[];
+  /** Additive v3 provenance fields; v2 callers may ignore them. */
+  sourceId?: string;
+  tableId?: string;
+  truncated?: boolean;
 }
 
 /** Result of proposing a cell — the propose-don't-execute shape. The cell is

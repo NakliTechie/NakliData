@@ -49,7 +49,10 @@ export interface AgentRequest {
 export class AgentSession {
   private grants = new Set<AgentScope>(['metadata:read']);
   private activity: AgentActivityEntry[] = [];
-  private inFlight = new Map<number, { scope: AgentScope; controller: AbortController }>();
+  private inFlight = new Map<
+    number,
+    { scope: AgentScope; controller: AbortController; deadline: ReturnType<typeof setTimeout> }
+  >();
   private listeners = new Set<() => void>();
   private nextId = 1;
   private epoch: number;
@@ -57,6 +60,7 @@ export class AgentSession {
   constructor(
     private readonly readEpoch: () => number,
     private readonly activityLimit = 50,
+    private readonly requestDeadlineMs = 30_000,
   ) {
     this.epoch = readEpoch();
   }
@@ -120,8 +124,9 @@ export class AgentSession {
       throw new AgentPermissionError(scope);
     }
     const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort('deadline'), this.requestDeadlineMs);
     const requestEpoch = this.epoch;
-    this.inFlight.set(id, { scope, controller });
+    this.inFlight.set(id, { scope, controller, deadline });
     this.notify();
     let finished = false;
     return {
@@ -129,6 +134,7 @@ export class AgentSession {
       finish: (outcome, details, errorCode = null) => {
         if (finished) return;
         finished = true;
+        clearTimeout(deadline);
         this.inFlight.delete(id);
         if (requestEpoch !== this.epoch) return;
         this.record({
@@ -165,12 +171,18 @@ export class AgentSession {
 
   private abortScope(scope: AgentScope): void {
     for (const request of this.inFlight.values()) {
-      if (request.scope === scope) request.controller.abort();
+      if (request.scope === scope) {
+        clearTimeout(request.deadline);
+        request.controller.abort();
+      }
     }
   }
 
   private abortAll(): void {
-    for (const request of this.inFlight.values()) request.controller.abort();
+    for (const request of this.inFlight.values()) {
+      clearTimeout(request.deadline);
+      request.controller.abort();
+    }
   }
 
   private record(entry: AgentActivityEntry): void {
