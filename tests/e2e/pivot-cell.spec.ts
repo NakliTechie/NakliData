@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -20,7 +21,7 @@ test.describe('pivot-table cell (Theme 2 wave 2)', () => {
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,

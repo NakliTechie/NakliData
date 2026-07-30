@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -11,7 +12,7 @@ async function waitForEngineReady(page: Page): Promise<void> {
 }
 
 async function waitForExamplesClassified(page: Page): Promise<void> {
-  await page.click('[data-action="browse-examples"]');
+  await mountExamples(page);
   await page.waitForFunction(() => document.querySelectorAll('.schema-column').length >= 15, null, {
     timeout: 60_000,
   });

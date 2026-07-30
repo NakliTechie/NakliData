@@ -8,6 +8,7 @@
 // regressions surface as test failures, not screenshot diffs.
 
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function bootAndMount(page: Page, present: boolean): Promise<void> {
@@ -21,7 +22,7 @@ async function bootAndMount(page: Page, present: boolean): Promise<void> {
     { timeout: 90_000 },
   );
   // Mount the example bundle so there's a notebook to look at.
-  await page.click('[data-action="browse-examples"]');
+  await mountExamples(page);
   await page.waitForFunction(() => document.querySelectorAll('.source-row').length > 0, null, {
     timeout: 30_000,
   });

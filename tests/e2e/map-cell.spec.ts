@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -8,9 +9,6 @@ async function waitForEngineReady(page: Page): Promise<void> {
     null,
     { timeout: 90_000 },
   );
-  await page.waitForSelector('.help-overlay', { timeout: 15_000 });
-  await page.click('.help-overlay [data-close]');
-  await page.waitForFunction(() => document.querySelector('.help-overlay') === null);
 }
 
 test.describe('map cell (Theme 2 wave 4)', () => {
@@ -33,7 +31,7 @@ test.describe('map cell (Theme 2 wave 4)', () => {
 
     // Mount example data so the notebook seeds a SQL cell; we'll overwrite
     // its query with a literal-GeoJSON SELECT.
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,
@@ -134,7 +132,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,
@@ -215,7 +213,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await page.waitForFunction(
       () => document.querySelectorAll('.schema-column').length >= 10,
       null,

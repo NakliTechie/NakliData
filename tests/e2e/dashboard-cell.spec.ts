@@ -9,6 +9,7 @@
 // markdown / chart / pivot / map can be embedded" affordance.
 
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function bootWithSources(page: Page): Promise<void> {
@@ -20,7 +21,7 @@ async function bootWithSources(page: Page): Promise<void> {
     null,
     { timeout: 90_000 },
   );
-  await page.click('[data-action="browse-examples"]');
+  await mountExamples(page);
   await page.waitForFunction(() => document.querySelectorAll('.source-row').length > 0, null, {
     timeout: 30_000,
   });

@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -11,7 +12,7 @@ async function waitForEngineReady(page: Page): Promise<void> {
 }
 
 async function waitForExamplesClassified(page: Page): Promise<void> {
-  await page.click('[data-action="browse-examples"]');
+  await mountExamples(page);
   await page.waitForFunction(() => document.querySelectorAll('.schema-column').length >= 15, null, {
     timeout: 60_000,
   });
@@ -84,6 +85,11 @@ test.describe('compare-tables modal (Theme 4 wave 2 / B2)', () => {
     // subscribers fire on tick), so the close-side restoration falls
     // back to a live `[data-action]` lookup when the stored element ref
     // has been detached.
+    await page.waitForFunction(
+      () => (document.activeElement as HTMLElement | null)?.dataset?.action === 'compare-tables',
+      null,
+      { timeout: 2_000 },
+    );
     const focusedAfterClose = await page.evaluate(
       () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
     );

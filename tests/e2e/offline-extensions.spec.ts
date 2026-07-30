@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -36,7 +37,7 @@ test.describe('offline DuckDB extensions (Theme 1 wave 3)', () => {
 
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     // 4 tables = 3 CSVs (vendors / invoices / payments) + JSONL access
     // log. The JSONL load only works if the json extension is reachable;
     // in offline mode that means it must come from the local vendor.

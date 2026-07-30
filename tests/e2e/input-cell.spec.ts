@@ -8,6 +8,7 @@
 // produces a query that respects the value.
 
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function bootWithSources(page: Page): Promise<void> {
@@ -19,7 +20,7 @@ async function bootWithSources(page: Page): Promise<void> {
     null,
     { timeout: 90_000 },
   );
-  await page.click('[data-action="browse-examples"]');
+  await mountExamples(page);
   await page.waitForFunction(() => document.querySelectorAll('.source-row').length > 0, null, {
     timeout: 30_000,
   });
@@ -116,8 +117,9 @@ test.describe('W6.1 — interactive-input cell', () => {
     });
     await page.waitForTimeout(2_500);
 
-    // The result table should contain "5000" (the input value coerced
-    // to a bare numeric and selected as the picked column).
+    // The result table should contain the locale-formatted "5,000" (the input
+    // value is still coerced to a bare numeric before the result renderer
+    // applies display formatting).
     const detail = await page.evaluate(() => {
       const cells = Array.from(
         document.querySelectorAll<HTMLElement>('.cell[data-cell-kind="sql"]'),
@@ -134,7 +136,7 @@ test.describe('W6.1 — interactive-input cell', () => {
       };
     });
     expect(detail.errored, `cell errored: ${detail.errorText}`).toBe(false);
-    expect(detail.resultText, `code was: ${detail.cellCode}`).toContain('5000');
+    expect(detail.resultText, `code was: ${detail.cellCode}`).toContain('5,000');
   });
 
   test('switching inputType to "select" reveals the comma-separated options editor', async ({

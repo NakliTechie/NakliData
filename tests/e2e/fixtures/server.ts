@@ -1,9 +1,12 @@
-import { readFile, stat } from 'node:fs/promises';
 // Tiny static server pointing at dist/. Shared by all e2e tests.
+import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
 
 const ROOT = resolve('dist');
+const E2E_WELCOME_SCRIPT = "localStorage.setItem('naklidata.welcomed','1');";
+const E2E_WELCOME_HASH = createHash('sha256').update(E2E_WELCOME_SCRIPT).digest('base64');
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -21,6 +24,21 @@ const MIME: Record<string, string> = {
 export interface StaticServer {
   url: string;
   close: () => Promise<void>;
+}
+
+function prepareE2eHtml(body: Buffer): Buffer {
+  const html = body.toString('utf8');
+  if (!html.includes('<script type="module">')) return body;
+  const withHash = html.replace(
+    "script-src 'self'",
+    `script-src 'self' 'sha256-${E2E_WELCOME_HASH}'`,
+  );
+  return Buffer.from(
+    withHash.replace(
+      '<script type="module">',
+      `<script>${E2E_WELCOME_SCRIPT}</script>\n    <script type="module">`,
+    ),
+  );
 }
 
 export async function startStaticServer(): Promise<StaticServer> {
@@ -41,7 +59,8 @@ export async function startStaticServer(): Promise<StaticServer> {
         res.end('not found');
         return;
       }
-      const body = await readFile(filePath);
+      const fileBody = await readFile(filePath);
+      const body = extname(filePath) === '.html' ? prepareE2eHtml(fileBody) : fileBody;
       const partial = parsedUrl.searchParams.has('__partial');
       const headers: Record<string, string> = {
         'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',

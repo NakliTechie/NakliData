@@ -61,6 +61,8 @@ It also **resolves** data locally — the sovereign, file-owned take on a CDP's
 
 Developers cloning the repo:
 
+Requires Node.js 22 or newer.
+
 ```bash
 git clone https://github.com/NakliTechie/NakliData
 cd NakliData

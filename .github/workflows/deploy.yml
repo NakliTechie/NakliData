@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -71,7 +71,7 @@ jobs:
       - name: Smoke (headless build + browser)
         run: npm run smoke
 
-      - name: E2e (Playwright, 55 specs, offline path)
+      - name: E2e (Playwright, 68 specs, offline path)
         # Reuses the Chromium installed above. The specs serve dist/ via
         # their own static server with ?offline=1, so no CDN dependency.
         # 2 workers matches the config default (ubuntu-latest has 2 cores;

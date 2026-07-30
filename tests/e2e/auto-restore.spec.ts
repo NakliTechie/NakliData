@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 /**
@@ -58,7 +59,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
     // need to wait until the schema-panel count stops growing, otherwise
     // we'd snapshot an intermediate state and miss columns the auto-save
     // captures later.
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await waitForClassificationStable(page);
 
     const before = await page.evaluate(() => ({
@@ -127,7 +128,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
       { timeout: 90_000 },
     );
     // Mount example data so the schema-panel slider is rendered.
-    await page.click('[data-action="browse-examples"]');
+    await mountExamples(page);
     await waitForClassificationStable(page);
 
     // Move the threshold slider via direct dispatch (CodeMirror not in play).

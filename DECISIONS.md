@@ -2,6 +2,45 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Verify recovery and dependency advisory policy (FH)
+
+### Decision FH-1 — patch the graph; do not weaken the advisory gate
+
+- **Context.** Every `main` Verify run since `2f31368` stopped at
+  `npm audit --audit-level=high` before build or tests. The 2026-07-30 registry
+  view reported 16 advisories, including a critical Vitest chain, fixable
+  Vite/esbuild/PostCSS/Wrangler/Miniflare findings, and no-fix parent ranges
+  through Transformers' Node-only helpers. The application and agent commits
+  were not the cause.
+- **Decision.** Keep the high-severity audit gate strict and move CI/development
+  to Node 22. Upgrade Vitest, Vite, esbuild, Wrangler, Miniflare, Undici, and
+  ws through supported parent releases. Pin four narrow transitive overrides:
+  patched `adm-zip` and `sharp` for Transformers' Node-only paths,
+  `protobufjs` for ONNX Runtime Web, and `tsx` for WebR/Vite compatibility.
+  Do not use `npm audit fix --force` or an advisory allowlist.
+- **Consequence.** `npm audit` reports zero vulnerabilities and `npm ls` is
+  valid. The full 1,680-test suite, production smoke, and 68-spec two-worker
+  E2E gate pass. P8 tracks retiring each override when its parent publishes a
+  patched compatible range. P9 separately tracks the breaking
+  `@r-wasm/webr` → `webr` package migration and its deprecated xterm tail;
+  neither warning weakens the advisory gate.
+
+### Decision FH-2 — E2E suppresses onboarding centrally; smoke owns first-run
+
+- **Context.** Once the audit blocker was removed, Playwright exposed a
+  pre-existing harness defect: the first-run welcome modal intercepted empty
+  state, S3, and URL actions in fresh contexts. Ad-hoc dismissal existed in
+  only some specs. One input-cell assertion also expected raw `5000` although
+  the renderer correctly displays `5,000`.
+- **Decision.** The shared E2E static server injects the benign
+  `naklidata.welcomed` preference before the application module and adds the
+  exact test-only CSP hash. A shared example-mount helper still handles either
+  product entry point. E2E waits for asynchronous focus restoration and asserts
+  the formatted numeric display. Production code and CSP are unchanged.
+- **Consequence.** Feature specs start from a consistent post-onboarding state;
+  production smoke remains the single first-visit welcome gate. All 68 E2E
+  specs pass with the same two-worker configuration used by GitHub.
+
 ## 2026-07-30 — Browser agent v3 release boundary (FG)
 
 ### Decision FG-1 — Browser API v3 available; experimental/planned adapters stay distinct
