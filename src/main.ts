@@ -80,7 +80,7 @@ import {
   saveSnapshot,
   setActiveSession,
 } from './core/sessions.ts';
-import { type Settings, currentSettings, loadSettings, saveSettings } from './core/settings.ts';
+import { type Settings, loadSettings, saveSettings } from './core/settings.ts';
 import { loadKey } from './core/sidecar/byok.ts';
 import { configureCloudActionConfirmation, dispatchJob } from './core/sidecar/client.ts';
 import { getLocalGenerator, registerLocalGenerator } from './core/sidecar/local-runtime.ts';
@@ -98,7 +98,11 @@ import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
 import type { ClassificationResult } from './taxonomy/types.ts';
 import { roleFamilyForType } from './taxonomy/universal.ts';
 import { Neutral, OverlayColor } from './tokens/colors.ts';
-import { bindAgentSurface, exportDataDictionaryMarkdown } from './ui/agent-bridge.ts';
+import {
+  bindAgentSurface,
+  exportDataDictionaryMarkdown,
+  resetAgentAccess,
+} from './ui/agent-bridge.ts';
 import { type AssocColumnOption, openAssociationsModal } from './ui/associations-modal.ts';
 import { openCalcFieldModal } from './ui/calc-field-modal.ts';
 import { paintResultSelectionStates } from './ui/cells/sql-cell.ts';
@@ -303,7 +307,10 @@ async function boot(): Promise<void> {
   wireActions(root);
 
   const engine = getEngine();
-  engine.on('status', ({ status, message }) => updateEngineStatus(root, status, message));
+  engine.on('status', ({ status, message }) => {
+    updateEngineStatus(root, status, message);
+    if (status === 'error') resetAgentAccess();
+  });
 
   // Cells can't import the main-local `toast`; they raise it via a window
   // event instead (e.g. the chart cell's shelf-compile warnings, M5).
@@ -375,14 +382,12 @@ async function boot(): Promise<void> {
     if (notebookMount) renderNotebook(notebookMount, nb, sqlExtra());
   });
 
-  // Agent surfaces (DECISIONS EE/ER) — bind `window.naklidata`: read verbs
-  // (describe / listTables / listCells / query) on by default; the only
-  // mutating verb adds an editable, un-run proposal and is gated by the legacy
-  // `agentWritesEnabled` setting. Agents have no cell-execution verb.
+  // Agent surfaces (DECISIONS EE/ER/FC) — bind `window.naklidata`. Metadata is
+  // available by default; value reads and editable, un-run proposals require
+  // separate memory-only per-tab grants. Agents have no cell-execution verb.
   bindAgentSurface({
     engine,
     notebook: nb,
-    isWritesEnabled: () => currentSettings().agentWritesEnabled,
   });
 
   // Cmd/Ctrl+Shift+Enter → run all cells.
@@ -853,7 +858,6 @@ function renderSchemaPanelWithCurrentState(
             const md = await exportDataDictionaryMarkdown({
               engine,
               notebook: getNotebook(engine),
-              isWritesEnabled: () => currentSettings().agentWritesEnabled,
             });
             const written = await saveTextFile(md, 'data-dictionary.md', {
               mime: 'text/markdown',
@@ -987,6 +991,7 @@ async function switchToSession(engine: Engine, root: HTMLElement, id: string): P
   // neither mounted sources nor materialised cell results stay queryable from
   // the incoming session.
   await dropCurrentWorkspaceArtifacts(engine);
+  resetAgentAccess();
   getWorkbook().clear();
   getNotebook(engine).load([]);
   await restoreFromActiveSession(engine);
@@ -1096,6 +1101,7 @@ function installAutoSave(engine: Engine): void {
   // L8: flush the pending debounced save on tab close/hide so the last ≤300 ms
   // of edits aren't lost. pagehide fires on both close and bfcache eviction.
   window.addEventListener('pagehide', () => {
+    resetAgentAccess();
     if (_autoSaveTimer !== null) {
       window.clearTimeout(_autoSaveTimer);
       _autoSaveTimer = null;
@@ -2423,6 +2429,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       if (!root) return;
       await persistSnapshot(engine); // flush current
       await dropCurrentWorkspaceArtifacts(engine);
+      resetAgentAccess();
       const meta = await createSession();
       _activeSession = meta;
       _workspaceCreated = meta.created;
@@ -2481,6 +2488,7 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         const nextActive = fresh.sessions.find((s) => s.id === fresh.activeId);
         if (nextActive) {
           await dropCurrentWorkspaceArtifacts(engine);
+          resetAgentAccess();
           _activeSession = nextActive;
           _workspaceCreated = nextActive.created;
           getWorkbook().clear();
@@ -3076,6 +3084,7 @@ async function doApplyLoadedFile(
   // Drop the previous workspace's DuckDB relations before loading — otherwise
   // old sources and materialised cell results stay queryable from the new file.
   await dropCurrentWorkspaceArtifacts(engine);
+  resetAgentAccess();
   workbook.clear();
   // Restore user-defined types from the file before sources mount, so the
   // override menu has them available when the schema panel re-renders.

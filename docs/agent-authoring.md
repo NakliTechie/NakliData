@@ -33,7 +33,7 @@ must treat only the v2 API below as available.
 | `describe()` | read | no | Every table + column with **semantic type, sensitivity tier, universal term, null %, cardinality, and (public columns only) min/max range**, plus source provenance and a versioned envelope. No values — this is the grounding, redacted by design. |
 | `listTables()` | read | no | Lightweight table index (row/column counts). |
 | `listCells()` | read | no | Notebook cells (id, kind, name, code). Never results. |
-| `query(sql)` | read | no | Runs a bounded **read-only** SQL SELECT that projects direct columns from one mounted table. See the safety model below. Non-public and unclassified columns are redacted. Capped at 1000 rows. |
+| `query(sql)` | read | **yes** | Runs a bounded **read-only** SQL SELECT that projects direct columns from one mounted table. Requires the per-tab `values:read` grant. See the safety model below. Non-public and unclassified columns are redacted. Capped at 1000 rows. |
 | `proposeCell(sql)` | write | **yes** | Adds an **un-run** SQL cell for the human to review and run. Returns `{ id, sql, editable: true }`. |
 
 `window.naklidata.listTools()` returns the full catalogue (name, description,
@@ -62,10 +62,14 @@ The deliberately narrow value contract keeps schema and semantic grounding
 available while refusing a projection whose source cannot be proven. Derived
 values can expand later when result-column lineage is explicit.
 
-Rejections are loud (`{ ok: false, error }`), never silent. **Writes are only
-proposals; the human runs them.** `proposeCell` is off unless the user enables
-Agent proposals in Settings. The setting grants permission to add an editable,
-un-run cell; the shipping agent catalogue has no execution verb.
+Rejections are loud (`{ ok: false, error }`), never silent. Metadata grounding
+is available by default. Row-value queries require the memory-only, per-tab
+`values:read` grant; proposals separately require `workspace:propose`.
+**Writes are only proposals; the human runs them.** Both sensitive grants live
+under Settings → Agent access, clear when the workspace is replaced or the
+engine fails, and are never restored from persistence. The panel shows a
+50-entry metadata-only activity ledger. The shipping agent catalogue has no
+execution verb.
 
 ---
 

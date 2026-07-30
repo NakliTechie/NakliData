@@ -562,6 +562,18 @@ async function main() {
     `✓ Cleaning surface: clean fixture silent (EJ-3) · dirty column suggested "${suggestion.label}" · click emitted an UN-RUN trim cell (EJ-1)`,
   );
 
+  // Agent value access is explicit and per-tab. Prove both sensitive scopes
+  // start denied, then grant only values for the bounded read checks below.
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-agent-scope="values:read"]', { timeout: 10000 });
+  const initialValueGrant = page.locator('[data-agent-scope="values:read"]');
+  const initialProposalGrant = page.locator('[data-agent-scope="workspace:propose"]');
+  if ((await initialValueGrant.isChecked()) || (await initialProposalGrant.isChecked())) {
+    fail('agent access: sensitive scopes were not denied by default');
+  }
+  await initialValueGrant.check();
+  await page.click('[data-action="close-settings"]');
+
   // KAG-01: mount a no-range Latin-1 response through the production public-URL
   // UI, then query the owned relation twice through the bounded read surface.
   await page.click('[data-action="add-source"]');
@@ -881,9 +893,15 @@ async function main() {
   ) {
     fail('settings: cloud/basemap disclosure copy is missing');
   }
-  const agentProposalToggle = page.locator('[data-action="settings-agent-proposals"]');
-  if ((await agentProposalToggle.count()) !== 1 || (await agentProposalToggle.isChecked())) {
-    fail('settings: proposal-only agent permission is missing or not off by default');
+  const agentValueToggle = page.locator('[data-agent-scope="values:read"]');
+  const agentProposalToggle = page.locator('[data-agent-scope="workspace:propose"]');
+  if (
+    (await agentValueToggle.count()) !== 1 ||
+    (await agentProposalToggle.count()) !== 1 ||
+    !(await agentValueToggle.isChecked()) ||
+    (await agentProposalToggle.isChecked())
+  ) {
+    fail('settings: per-tab value grant did not survive this workspace or proposal default changed');
   }
   await page.evaluate(() => {
     const en = document.querySelector('[data-action="settings-enable"]');
@@ -1733,8 +1751,9 @@ async function main() {
   // 10j. Agent surfaces — drive `window.naklidata` end-to-end (DECISIONS EE).
   // The whole point is that the semantic layer is the agent surface, so this
   // exercises the real binding in the real browser: the verb catalogue, a valid
-  // read query, the read-only validator's loud rejection of a write, table
-  // scoping, and the default-off write gate.
+  // read query after the explicit per-tab value grant, the read-only
+  // validator's loud rejection of a write, table scoping, and the separate
+  // default-off proposal gate.
   const agent = await page.evaluate(async () => {
     const nd = window.naklidata;
     if (!nd) return { error: 'window.naklidata is not bound' };
@@ -2921,6 +2940,21 @@ async function main() {
     null,
     { timeout: 10000 },
   );
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-agent-scope="values:read"]', { timeout: 10000 });
+  if (
+    (await page.locator('[data-agent-scope="values:read"]').isChecked()) ||
+    (await page.locator('[data-agent-scope="workspace:propose"]').isChecked())
+  ) {
+    fail('agent access: a session/workspace replacement retained a sensitive grant');
+  }
+  const resetActivityCopy = await page
+    .locator('[data-region="agent-access"]')
+    .textContent();
+  if (!resetActivityCopy?.includes('No agent activity in this workspace')) {
+    fail('agent access: workspace replacement retained the prior activity ledger');
+  }
+  await page.click('[data-action="close-settings"]');
   await page.click('[data-action="browse-examples"]');
   await page.waitForFunction(
     () =>

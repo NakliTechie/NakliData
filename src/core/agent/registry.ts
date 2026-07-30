@@ -46,7 +46,7 @@ export interface AgentTool {
   description: string;
   inputSchema: JsonSchema;
   annotations: AgentToolAnnotations;
-  execute(input: unknown): Promise<AgentToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<AgentToolResult>;
 }
 
 // ── Shared data shapes the host returns (defined here so host + tools + a future
@@ -150,16 +150,17 @@ export interface ProposeResult {
  * the tools trust the host to be the safety boundary, not the model.
  */
 export interface AgentHost {
-  describe(): DescribeResult | Promise<DescribeResult>;
+  describe(signal?: AbortSignal): DescribeResult | Promise<DescribeResult>;
   listTables(): TableSummary[] | Promise<TableSummary[]>;
   listCells(): CellSummary[] | Promise<CellSummary[]>;
   /** Validate (read-only + scoped) → execute → redact. Rejects by throwing an
    *  Error whose message is UI-safe. */
-  query(sql: string): Promise<QueryResult>;
+  query(sql: string, signal?: AbortSignal): Promise<QueryResult>;
   /** Add an un-run SQL cell carrying `sql`. Does NOT execute it. */
   proposeCell(sql: string): Promise<ProposeResult>;
   /** The 0b gate: may an agent add an editable, un-run proposal? */
-  writesEnabled(): boolean;
+  valuesEnabled(): boolean;
+  proposalsEnabled(): boolean;
 }
 
 /** Narrow an unknown input to `{ [key]: string }` — the shape every verb here
@@ -186,10 +187,17 @@ async function guarded<T>(fn: () => Promise<T> | T): Promise<AgentToolResult<T>>
  * registers them with WebMCP via the identical annotations.
  */
 export function buildAgentTools(host: AgentHost): AgentTool[] {
-  const gate = (): void => {
-    if (!host.writesEnabled()) {
+  const valuesGate = (): void => {
+    if (!host.valuesEnabled()) {
       throw new Error(
-        'This action is disabled. Turn on agent proposal access in Settings → Agent proposals to let an agent add editable, un-run cells.',
+        'This action requires per-tab value access. Turn on “Read row values” in Settings → Agent access.',
+      );
+    }
+  };
+  const proposalGate = (): void => {
+    if (!host.proposalsEnabled()) {
+      throw new Error(
+        'This action requires per-tab proposal access. Turn on “Add un-run proposals” in Settings → Agent access.',
       );
     }
   };
@@ -201,7 +209,7 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
         'Describe the mounted workspace: every table and column with its semantic type, sensitivity tier, and universal term. Values are never returned except a few samples for public columns — this is the grounding an agent needs without the data leaving the tab.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: true, gated: false },
-      execute: () => guarded(() => host.describe()),
+      execute: (_input, signal) => guarded(() => host.describe(signal)),
     },
     {
       name: 'listTables',
@@ -229,12 +237,13 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
         required: ['sql'],
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: true, untrustedContentHint: true, gated: false },
-      execute: (input) =>
+      annotations: { readOnlyHint: true, untrustedContentHint: true, gated: true },
+      execute: (input, signal) =>
         guarded(() => {
+          valuesGate();
           const sql = stringField(input, 'sql');
           if (sql === null) throw new Error('query expects { sql: string }.');
-          return host.query(sql);
+          return host.query(sql, signal);
         }),
     },
     {
@@ -250,7 +259,7 @@ export function buildAgentTools(host: AgentHost): AgentTool[] {
       annotations: { readOnlyHint: false, untrustedContentHint: false, gated: true },
       execute: (input) =>
         guarded(() => {
-          gate();
+          proposalGate();
           const sql = stringField(input, 'sql');
           if (sql === null) throw new Error('proposeCell expects { sql: string }.');
           return host.proposeCell(sql);
@@ -268,6 +277,7 @@ export async function dispatchAgentTool(
   tools: AgentTool[],
   name: string,
   input: unknown,
+  signal?: AbortSignal,
 ): Promise<AgentToolResult> {
   const tool = tools.find((t) => t.name === name);
   if (!tool) {
@@ -276,5 +286,5 @@ export async function dispatchAgentTool(
       error: `Unknown verb "${name}". Available: ${tools.map((t) => t.name).join(', ')}.`,
     };
   }
-  return tool.execute(input);
+  return tool.execute(input, signal);
 }

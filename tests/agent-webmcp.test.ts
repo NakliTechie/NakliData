@@ -19,7 +19,7 @@ const deps = {
     addCell: () => ({ id: 'c1', kind: 'sql' }),
     patchCell: () => {},
   },
-  isWritesEnabled: () => false,
+  getWorkspaceEpoch: () => 0,
   getWorkbookState: () => ({ sources: [], assignments: {} }),
   getBundle: () => null,
 } as unknown as AgentSurfaceDeps;
@@ -41,6 +41,12 @@ function mockRoot() {
   };
 }
 
+function registeredTool(defs: WebMcpToolDef[], name: string): WebMcpToolDef {
+  const found = defs.find((def) => def.name === name);
+  if (!found) throw new Error(`Missing registered test tool: ${name}`);
+  return found;
+}
+
 describe('registerWithWebMcp', () => {
   it('registers five verbs and no execution tool in WebMCP shape', () => {
     const m = mockRoot();
@@ -60,10 +66,10 @@ describe('registerWithWebMcp', () => {
     }
   });
 
-  it('maps an ok result to an MCP text-content result', async () => {
+  it('maps an ok metadata result to an MCP text-content result', async () => {
     const m = mockRoot();
     registerWithWebMcp(m.root, deps);
-    const listTables = m.registered.find((d) => d.name === 'listTables')!;
+    const listTables = registeredTool(m.registered, 'listTables');
     const out = await listTables.execute({});
     expect(out.isError).toBe(false);
     expect(out.content[0]?.type).toBe('text');
@@ -73,7 +79,7 @@ describe('registerWithWebMcp', () => {
   it('flows a gated refusal through as isError', async () => {
     const m = mockRoot();
     registerWithWebMcp(m.root, deps);
-    const proposeCell = m.registered.find((d) => d.name === 'proposeCell')!;
+    const proposeCell = registeredTool(m.registered, 'proposeCell');
     const out = await proposeCell.execute({ sql: 'SELECT 1' });
     expect(out.isError).toBe(true);
     expect(out.content[0]?.text).toMatch(/error/i);

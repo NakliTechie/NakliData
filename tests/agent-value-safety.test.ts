@@ -110,7 +110,7 @@ function makeDeps(opts: {
       addCell: () => ({ id: 'c1', kind: 'sql' }),
       patchCell: () => {},
     },
-    isWritesEnabled: () => false,
+    getWorkspaceEpoch: () => 0,
     getWorkbookState: () => state,
     getBundle: () => (opts.activeBundle === undefined ? bundle : opts.activeBundle),
   } as unknown as AgentSurfaceDeps;

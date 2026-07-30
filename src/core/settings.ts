@@ -56,16 +56,6 @@ export interface Settings {
    * opt-in. Spec amendment A13.
    */
   mapBasemap: 'none' | 'osm';
-  /**
-   * Agent surfaces (2026-07-24, DECISIONS EE-0b) — proposal access for the
-   * `window.naklidata` agent bridge. The READ verbs (describe / listTables /
-   * listCells / query) are always on: they're validator-gated, value-redacted,
-   * and are the whole point (the semantic layer is the agent surface). The
-   * only mutating verb, proposeCell, adds editable SQL but never executes it.
-   * It is refused unless this is on. The legacy field name is retained for
-   * settings compatibility; it no longer grants execution authority.
-   */
-  agentWritesEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -77,7 +67,6 @@ export const DEFAULT_SETTINGS: Settings = {
   sidecarModelByProvider: {},
   demoMode: false,
   mapBasemap: 'none',
-  agentWritesEnabled: false,
 };
 
 const KEY = 'settings/v1';
@@ -96,8 +85,12 @@ export function currentSettings(): Settings {
 }
 
 export async function loadSettings(): Promise<Settings> {
-  const raw = await kvGet<Partial<Settings>>(KEY);
-  _current = raw ? { ...DEFAULT_SETTINGS, ...normalize(raw) } : { ...DEFAULT_SETTINGS };
+  const raw = await kvGet<Partial<Settings> & { agentWritesEnabled?: unknown }>(KEY);
+  const normalized = raw ? normalize(raw) : {};
+  _current = { ...DEFAULT_SETTINGS, ...normalized };
+  // V3 authority is per-tab memory only. Scrub the legacy durable proposal
+  // flag instead of silently converting it into a session grant.
+  if (raw && Object.hasOwn(raw, 'agentWritesEnabled')) await kvPut(KEY, normalized);
   return { ..._current };
 }
 
@@ -142,7 +135,6 @@ function normalize(s: Partial<Settings>): Partial<Settings> {
   }
   if (typeof s.demoMode === 'boolean') out.demoMode = s.demoMode;
   if (s.mapBasemap === 'none' || s.mapBasemap === 'osm') out.mapBasemap = s.mapBasemap;
-  if (typeof s.agentWritesEnabled === 'boolean') out.agentWritesEnabled = s.agentWritesEnabled;
   return out;
 }
 

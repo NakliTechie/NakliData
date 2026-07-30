@@ -24,6 +24,7 @@ import { registerLocalGenerator } from '../core/sidecar/local-runtime.ts';
 import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
+import { renderAgentAccessSettings } from './agent-bridge.ts';
 import { restoreModalFocus } from './modal-focus.ts';
 
 const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
@@ -128,10 +129,6 @@ async function refresh(): Promise<void> {
   if (enableInput) enableInput.checked = settings.sidecarEnabled;
   const demoInput = overlay.querySelector<HTMLInputElement>('[data-action="settings-demo-mode"]');
   if (demoInput) demoInput.checked = settings.demoMode;
-  const agentInput = overlay.querySelector<HTMLInputElement>(
-    '[data-action="settings-agent-proposals"]',
-  );
-  if (agentInput) agentInput.checked = settings.agentWritesEnabled;
   const basemapInput = overlay.querySelector<HTMLInputElement>(
     '[data-action="settings-map-basemap"]',
   );
@@ -169,6 +166,8 @@ async function refresh(): Promise<void> {
     await refreshLocalCacheList(overlay);
   }
   await renderProviderBlocks(overlay, settings);
+  const agentRegion = overlay.querySelector<HTMLElement>('[data-region="agent-access"]');
+  if (agentRegion) await renderAgentAccessSettings(agentRegion);
 }
 
 /**
@@ -419,13 +418,8 @@ function renderModal(): HTMLElement {
         </section>
         <section class="settings-group">
           <h2>Advanced / agents</h2>
-          <div class="settings-section">
-          <h3>Agent proposals</h3>
-          <label class="settings-remember">
-            <input type="checkbox" data-action="settings-agent-proposals" />
-            <span>Allow agents to add editable, un-run SQL cells</span>
-          </label>
-          <p class="settings-hint">Off by default. This permission allows proposals only: agents cannot run a cell, and every proposed query stays editable until you explicitly click Run.</p>
+          <div class="settings-section" data-region="agent-access">
+            <p class="settings-hint">Loading per-tab agent access…</p>
           </div>
         </section>
       </div>
@@ -460,10 +454,6 @@ function renderModal(): HTMLElement {
       document.dispatchEvent(
         new CustomEvent('naklidata-demo-mode-changed', { detail: { enabled } }),
       );
-    }
-    if (action === 'settings-agent-proposals') {
-      const enabled = (target as HTMLInputElement).checked;
-      await patchSettings({ agentWritesEnabled: enabled });
     }
     if (action === 'settings-map-basemap') {
       const enabled = (target as HTMLInputElement).checked;

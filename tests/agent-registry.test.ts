@@ -24,7 +24,8 @@ function fakeHost(overrides: Partial<AgentHost> = {}): AgentHost {
       _sql: sql,
     }),
     proposeCell: async (sql: string) => ({ id: 'cell1', sql, editable: true as const }),
-    writesEnabled: () => true,
+    valuesEnabled: () => true,
+    proposalsEnabled: () => true,
     ...overrides,
   };
 }
@@ -32,6 +33,12 @@ function fakeHost(overrides: Partial<AgentHost> = {}): AgentHost {
 const byName = (host: AgentHost) => {
   const tools = buildAgentTools(host);
   return new Map(tools.map((t) => [t.name, t]));
+};
+
+const tool = (host: AgentHost, name: string) => {
+  const found = byName(host).get(name);
+  if (!found) throw new Error(`Missing test tool: ${name}`);
+  return found;
 };
 
 describe('buildAgentTools — catalogue shape', () => {
@@ -51,48 +58,55 @@ describe('buildAgentTools — catalogue shape', () => {
       expect(typeof t.execute).toBe('function');
     }
   });
-  it('read verbs are readOnly + ungated; write verbs are gated + not readOnly', () => {
+  it('metadata reads are ungated while value reads and proposals are gated', () => {
     const m = byName(fakeHost());
-    for (const n of ['describe', 'listTables', 'listCells', 'query']) {
+    for (const n of ['describe', 'listTables', 'listCells']) {
       expect(m.get(n)?.annotations.readOnlyHint).toBe(true);
       expect(m.get(n)?.annotations.gated).toBe(false);
     }
+    expect(m.get('query')?.annotations.readOnlyHint).toBe(true);
+    expect(m.get('query')?.annotations.gated).toBe(true);
     expect(m.get('proposeCell')?.annotations.readOnlyHint).toBe(false);
     expect(m.get('proposeCell')?.annotations.gated).toBe(true);
     expect(m.has('runCell')).toBe(false);
   });
 });
 
-describe('read verbs work regardless of the write gate', () => {
+describe('read verbs use separate metadata and value gates', () => {
   it('describe returns the semantic layer', async () => {
-    const r = await byName(fakeHost({ writesEnabled: () => false }))
-      .get('describe')!
-      .execute({});
+    const r = await tool(fakeHost({ proposalsEnabled: () => false }), 'describe').execute({});
     expect(r).toEqual({
       ok: true,
       data: { version: '1', tables: [], taxonomyVersion: 'v1', sensitivityLayerLoaded: true },
     });
   });
   it('query passes the sql through to the host', async () => {
-    const r = await byName(fakeHost()).get('query')!.execute({ sql: 'SELECT 1' });
+    const r = await tool(fakeHost(), 'query').execute({ sql: 'SELECT 1' });
     expect(r.ok).toBe(true);
     if (r.ok) expect((r.data as { _sql: string })._sql).toBe('SELECT 1');
   });
   it('query rejects a bad input shape', async () => {
-    const r = await byName(fakeHost()).get('query')!.execute({ notSql: 1 });
+    const r = await tool(fakeHost(), 'query').execute({ notSql: 1 });
     expect(r).toEqual({ ok: false, error: 'query expects { sql: string }.' });
+  });
+  it('query is refused without the per-tab value grant', async () => {
+    const r = await tool(fakeHost({ valuesEnabled: () => false }), 'query').execute({
+      sql: 'SELECT 1',
+    });
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/value access/i) });
   });
 });
 
 describe('proposal gate (0b)', () => {
   it('proposeCell is refused when proposals are disabled', async () => {
-    const m = byName(fakeHost({ writesEnabled: () => false }));
-    const p = await m.get('proposeCell')!.execute({ sql: 'SELECT 1' });
+    const p = await tool(fakeHost({ proposalsEnabled: () => false }), 'proposeCell').execute({
+      sql: 'SELECT 1',
+    });
     expect(p.ok).toBe(false);
-    if (!p.ok) expect(p.error).toMatch(/Settings/);
+    if (!p.ok) expect(p.error).toMatch(/proposal access/i);
   });
   it('proposeCell returns the propose-dont-execute shape when enabled', async () => {
-    const r = await byName(fakeHost()).get('proposeCell')!.execute({ sql: 'SELECT 42' });
+    const r = await tool(fakeHost(), 'proposeCell').execute({ sql: 'SELECT 42' });
     expect(r).toEqual({ ok: true, data: { id: 'cell1', sql: 'SELECT 42', editable: true } });
   });
   it('runCell remains unavailable even when proposals are enabled', async () => {
@@ -109,7 +123,7 @@ describe('error wrapping + dispatch', () => {
         throw new Error('Rejected: DROP is not allowed');
       },
     });
-    const r = await byName(host).get('query')!.execute({ sql: 'DROP TABLE t' });
+    const r = await tool(host, 'query').execute({ sql: 'DROP TABLE t' });
     expect(r).toEqual({ ok: false, error: 'Rejected: DROP is not allowed' });
   });
   it('dispatchAgentTool routes by name', async () => {

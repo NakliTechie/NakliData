@@ -20,9 +20,10 @@ import type { Notebook } from './notebook.ts';
 export interface AgentBridgeDeps {
   engine: Engine;
   notebook: Notebook;
-  /** Live read of the legacy `agentWritesEnabled` proposal-only gate. */
-  isWritesEnabled: () => boolean;
 }
+
+let _workspaceEpoch = 0;
+let _boundDeps: AgentSurfaceDeps | null = null;
 
 /** The public shape bound to `window.naklidata`. Every verb is async (it loads
  *  the chunk on first call); `listTools` returns the catalogue; `version` marks
@@ -50,6 +51,7 @@ declare global {
  */
 export function bindAgentSurface(deps: AgentBridgeDeps): void {
   const fullDeps = buildAgentDeps(deps);
+  _boundDeps = fullDeps;
   const load = () => loadChunk('agent-surface');
   const verb =
     (name: string) =>
@@ -83,7 +85,7 @@ function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
   return {
     engine: deps.engine,
     notebook: deps.notebook,
-    isWritesEnabled: deps.isWritesEnabled,
+    getWorkspaceEpoch: () => _workspaceEpoch,
     getWorkbookState: () => getWorkbook().get(),
     getBundle: () => getTaxonomyClient().getBundle(),
   };
@@ -98,6 +100,22 @@ function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
 export async function exportDataDictionaryMarkdown(deps: AgentBridgeDeps): Promise<string> {
   const m = await loadChunk('agent-surface');
   return m.exportDataDictionary(buildAgentDeps(deps));
+}
+
+/** Invalidate all non-metadata grants without forcing the lazy agent chunk to
+ * load. The chunk observes the epoch on its next snapshot or invocation. */
+export function resetAgentAccess(): void {
+  _workspaceEpoch++;
+}
+
+/** Hydrate Settings → Agent access from the lazy agent chunk. */
+export async function renderAgentAccessSettings(root: HTMLElement): Promise<void> {
+  if (!_boundDeps) {
+    root.textContent = 'Agent access becomes available after the workspace engine starts.';
+    return;
+  }
+  const m = await loadChunk('agent-surface');
+  m.renderAgentAccessPanel(root, _boundDeps);
 }
 
 /** True when the page asked for the WebMCP spike via `?webmcp=1`. */

@@ -1,6 +1,7 @@
 # Agent surface v3 contract
 
-Status: **ratified product contract; implementation tracked in workplan A1–A5**.
+Status: **ratified product contract; A1 permission/activity boundary implemented;
+runtime productization tracked in workplan A2–A5**.
 The shipping live-tab API remains v2 until the runtime, permission UX, tests,
 and release gate all pass. This document is not a WebMCP or external-MCP
 availability claim.

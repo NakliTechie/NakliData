@@ -21,6 +21,12 @@
 //     describe() returns schema+semantics with no values (query is the redacted
 //     value path).
 
+import {
+  AGENT_ADAPTERS,
+  AGENT_BOUNDS,
+  AGENT_CONTRACT_VERSION,
+  type AgentScope,
+} from '../core/agent/contract.ts';
 import { describeToMarkdown } from '../core/agent/data-dictionary.ts';
 import {
   type AgentHost,
@@ -34,6 +40,7 @@ import {
   buildAgentTools,
   dispatchAgentTool,
 } from '../core/agent/registry.ts';
+import { AgentPermissionError, type AgentRequest, AgentSession } from '../core/agent/session.ts';
 import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import type { Engine } from '../core/engine.ts';
 import type { DirectResultProjection } from '../core/result-snapshots.ts';
@@ -48,7 +55,7 @@ import type { Notebook } from '../ui/notebook.ts';
 
 /** Cap on rows returned to an agent — enough to be useful, bounded so a verb
  *  can't flood the caller's context with a whole table. */
-const AGENT_QUERY_ROW_CAP = 1000;
+const AGENT_QUERY_ROW_CAP = AGENT_BOUNDS.queryRows;
 
 /** Assignment key format — mirrors `assignmentKey` in schema-panel.ts (kept
  *  inline to avoid pulling the schema panel into this chunk). */
@@ -68,8 +75,9 @@ export function traceDirectResultProjection(sql: string): DirectResultProjection
 export interface AgentSurfaceDeps {
   engine: Engine;
   notebook: Notebook;
-  /** Live read of the legacy `agentWritesEnabled` proposal gate. */
-  isWritesEnabled: () => boolean;
+  /** Shell-owned epoch; increments without loading this chunk when the current
+   * workspace is replaced or the engine enters a fatal state. */
+  getWorkspaceEpoch: () => number;
   /** Live read of the shell's Workbook singleton state (injected, NOT imported —
    *  see the module header on singleton divergence). */
   getWorkbookState: () => WorkbookState;
@@ -83,7 +91,10 @@ type AgentColumnSensitivity = TypeSensitivity | 'unclassified' | 'unavailable';
  * Build the `AgentHost` — the capability surface the registry verbs orchestrate.
  * Reads the live workbook/engine/notebook on every call (never a stale snapshot).
  */
-export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
+export function createAgentHost(
+  deps: AgentSurfaceDeps,
+  access: { has(scope: AgentScope): boolean } = { has: () => true },
+): AgentHost {
   const workbook = () => deps.getWorkbookState();
   const bundle = () => deps.getBundle();
 
@@ -96,7 +107,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     return names;
   }
 
-  async function describe(): Promise<DescribeResult> {
+  async function describe(signal?: AbortSignal): Promise<DescribeResult> {
     const b = bundle();
     const layerLoaded = b ? hasSensitivityLayer(b) : false;
     const { assignments } = workbook();
@@ -107,6 +118,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
         try {
           const described = await deps.engine.query<{ column_name: string; column_type: string }>(
             `DESCRIBE ${quoteIdent(t.name)}`,
+            signal ? { signal } : {},
           );
           columns = described.map((row) => {
             const name = String(row.column_name);
@@ -138,7 +150,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
           });
           // One aggregate query per table fills null%/cardinality for every
           // column + min/max for the public numeric/date ones. Best-effort.
-          await enrichColumnStats(t.name, columns);
+          await enrichColumnStats(t.name, columns, signal);
         } catch {
           // A table that won't DESCRIBE (mid-mount, dropped) contributes no
           // columns rather than failing the whole describe.
@@ -169,7 +181,11 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
   /** Fill null%/cardinality (+ min/max for public numeric/date) via ONE
    *  aggregate query over the table. Mutates `columns` in place; best-effort —
    *  a stats failure leaves the nulls, it never fails describe. */
-  async function enrichColumnStats(tableName: string, columns: DescribedColumn[]): Promise<void> {
+  async function enrichColumnStats(
+    tableName: string,
+    columns: DescribedColumn[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (columns.length === 0) return;
     const parts: string[] = ['COUNT(*) AS _n'];
     columns.forEach((c, i) => {
@@ -186,6 +202,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     try {
       const [stats] = await deps.engine.query<Record<string, unknown>>(
         `SELECT ${parts.join(', ')} FROM ${quoteIdent(tableName)}`,
+        signal ? { signal } : {},
       );
       if (!stats) return;
       const n = Number(stats._n) || 0;
@@ -239,7 +256,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     }));
   }
 
-  async function query(sql: string): Promise<QueryResult> {
+  async function query(sql: string, signal?: AbortSignal): Promise<QueryResult> {
     const verdict = validateReadOnlySql(sql, { allowedTables: allowedTableNames() });
     if (!verdict.ok) throw new Error(verdict.reason);
     const b = bundle();
@@ -266,7 +283,7 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     if (!owned) throw new Error('Agent value query refused because its table is unavailable.');
 
     const runSql = boundedAgentQuerySql(sql);
-    const raw = await deps.engine.query(runSql);
+    const raw = await deps.engine.query(runSql, signal ? { signal } : {});
     const rows = raw.slice(0, AGENT_QUERY_ROW_CAP) as Array<Record<string, unknown>>;
     const columns = rows.length > 0 ? Object.keys(rows[0] as object) : [];
 
@@ -318,7 +335,8 @@ export function createAgentHost(deps: AgentSurfaceDeps): AgentHost {
     listCells,
     query,
     proposeCell,
-    writesEnabled: deps.isWritesEnabled,
+    valuesEnabled: () => access.has('values:read'),
+    proposalsEnabled: () => access.has('workspace:propose'),
   };
 }
 
@@ -350,15 +368,48 @@ export type ToolCatalogue = Array<
 
 // The tool list is stable per session (deps don't change), so build once.
 let _tools: AgentTool[] | null = null;
+let _session: AgentSession | null = null;
+
+function session(deps: AgentSurfaceDeps): AgentSession {
+  _session ??= new AgentSession(deps.getWorkspaceEpoch, AGENT_BOUNDS.activityEntries);
+  return _session;
+}
+
 function tools(deps: AgentSurfaceDeps): AgentTool[] {
-  _tools ??= buildAgentTools(createAgentHost(deps));
+  _tools ??= buildAgentTools(createAgentHost(deps, session(deps)));
   return _tools;
 }
 
 /** Dispatch a verb by name. The shell's `window.naklidata.<verb>` proxies route
  *  here after loading this chunk. */
-export function dispatch(deps: AgentSurfaceDeps, verb: string, input: unknown) {
-  return dispatchAgentTool(tools(deps), verb, input);
+export async function dispatch(deps: AgentSurfaceDeps, verb: string, input: unknown) {
+  const scope = scopeForLegacyVerb(verb);
+  let request: AgentRequest;
+  try {
+    request = session(deps).begin(scope, verb);
+  } catch (err) {
+    if (err instanceof AgentPermissionError) return { ok: false as const, error: err.message };
+    throw err;
+  }
+  const result = await dispatchAgentTool(tools(deps), verb, input, request.signal);
+  const cancelled = request.signal.aborted;
+  const queryResult = result.ok && verb === 'query' ? (result.data as QueryResult) : null;
+  request.finish(result.ok ? 'ok' : 'error', {
+    rowsReturned: queryResult?.rowCount ?? null,
+    redactedColumns: queryResult?.redactedColumns.length ?? null,
+  });
+  return cancelled
+    ? {
+        ok: false as const,
+        error: 'Agent request cancelled because its per-tab access was revoked.',
+      }
+    : result;
+}
+
+function scopeForLegacyVerb(verb: string): AgentScope {
+  if (verb === 'query') return 'values:read';
+  if (verb === 'proposeCell') return 'workspace:propose';
+  return 'metadata:read';
 }
 
 /** The verb catalogue (WebMCP-shaped metadata). */
@@ -388,6 +439,100 @@ export function buildTools(deps: AgentSurfaceDeps): AgentTool[] {
 export async function exportDataDictionary(deps: AgentSurfaceDeps): Promise<string> {
   const result = await createAgentHost(deps).describe();
   return describeToMarkdown(result);
+}
+
+export function agentAccessSnapshot(deps: AgentSurfaceDeps) {
+  return {
+    version: AGENT_CONTRACT_VERSION,
+    bounds: AGENT_BOUNDS,
+    adapters: AGENT_ADAPTERS,
+    ...session(deps).snapshot(),
+  };
+}
+
+export function setAgentGrant(
+  deps: AgentSurfaceDeps,
+  scope: Exclude<AgentScope, 'metadata:read'>,
+  granted: boolean,
+): void {
+  session(deps).setGrant(scope, granted);
+}
+
+export function revokeAgentGrants(deps: AgentSurfaceDeps): void {
+  session(deps).revokeAll();
+}
+
+/** Render the Settings → Agent access panel from this lazy chunk so the
+ * size-constrained shell carries only a placeholder. */
+export function renderAgentAccessPanel(root: HTMLElement, deps: AgentSurfaceDeps): void {
+  const state = agentAccessSnapshot(deps);
+  const activity =
+    state.activity.length === 0
+      ? '<p class="settings-hint">No agent activity in this workspace.</p>'
+      : `<ol>${state.activity
+          .map(
+            (entry) =>
+              `<li><code>${escapeAgentText(entry.tool)}</code> · ${entry.scope} · ${entry.outcome} · ${entry.durationMs} ms${entry.rowsReturned === null ? '' : ` · ${entry.rowsReturned} rows`}${entry.redactedColumns === null ? '' : ` · ${entry.redactedColumns} redacted`} · <time>${escapeAgentText(entry.finishedAt)}</time></li>`,
+          )
+          .join('')}</ol>`;
+  root.innerHTML = `
+    <h3>Agent access</h3>
+    <p class="settings-hint">Contract v${state.version}. Browser v2 is compatible; v3 permissions are enforced here. Metadata grounding is always available. There is no execution permission.</p>
+    <label class="settings-remember">
+      <input type="checkbox" checked disabled />
+      <span>Read schema, semantics, cells, and lineage <code>metadata:read</code></span>
+    </label>
+    <label class="settings-remember">
+      <input type="checkbox" data-agent-scope="values:read" ${state.grants['values:read'] ? 'checked' : ''} />
+      <span>Read bounded, sensitivity-redacted row values <code>values:read</code></span>
+    </label>
+    <label class="settings-remember">
+      <input type="checkbox" data-agent-scope="workspace:propose" ${state.grants['workspace:propose'] ? 'checked' : ''} />
+      <span>Add editable, un-run proposals <code>workspace:propose</code></span>
+    </label>
+    <p class="settings-hint">Per-tab only. Grants clear when this workspace is replaced or the engine fails. Queries are capped at ${state.bounds.queryRows.toLocaleString('en-US')} rows; activity keeps ${state.bounds.activityEntries} metadata-only entries.</p>
+    <button class="btn btn-ghost" data-agent-action="revoke">Revoke value and proposal access</button>
+    <h3>Adapters</h3>
+    <p class="settings-hint">${state.adapters
+      .map((adapter) => `${escapeAgentText(adapter.label)}: ${adapter.readiness}`)
+      .join(' · ')}</p>
+    <h3>Activity (${state.inFlight} in flight)</h3>
+    <div aria-live="polite">${activity}</div>
+  `;
+  if (root.dataset.agentAccessBound === '1') return;
+  root.dataset.agentAccessBound = '1';
+  root.addEventListener('change', (event) => {
+    const input = (event.target as HTMLElement | null)?.closest<HTMLInputElement>(
+      '[data-agent-scope]',
+    );
+    if (!input) return;
+    const scope = input.dataset.agentScope;
+    if (scope !== 'values:read' && scope !== 'workspace:propose') return;
+    setAgentGrant(deps, scope, input.checked);
+    renderAgentAccessPanel(root, deps);
+  });
+  root.addEventListener('click', (event) => {
+    const action = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-agent-action]')
+      ?.dataset.agentAction;
+    if (action !== 'revoke') return;
+    revokeAgentGrants(deps);
+    renderAgentAccessPanel(root, deps);
+  });
+  const unsubscribe = session(deps).subscribe(() => {
+    if (!root.isConnected) {
+      unsubscribe();
+      return;
+    }
+    renderAgentAccessPanel(root, deps);
+  });
+}
+
+function escapeAgentText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ── WebMCP adapter (Chunk 7 — flag-gated SPIKE, DECISIONS EE-0d) ──────────────
@@ -438,7 +583,7 @@ export function registerWithWebMcp(root: WebMcpRoot, deps: AgentSurfaceDeps): We
         untrustedContentHint: tool.annotations.untrustedContentHint,
       },
       execute: async (input: unknown) => {
-        const result = await tool.execute(input);
+        const result = await dispatch(deps, tool.name, input);
         const payload = result.ok ? result.data : { error: result.error };
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
