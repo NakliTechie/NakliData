@@ -2,6 +2,49 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Iceberg migration authorization and repository disposition (FB)
+
+### Decision FB-1 — authorize the proven DuckDB-WASM migration, not a connector release
+
+- **Context.** The checked-in product still uses `@duckdb/duckdb-wasm` 1.29.0
+  with DuckDB 1.1.1, which cannot load the Iceberg extension. The no-install
+  candidate gate has already pinned and browser-proven DuckDB-WASM 1.32.0 /
+  DuckDB 1.4.3, both EH and MVP cores, the same-origin `httpfs` + `iceberg` +
+  `parquet` + `avro` dependency closure, public reads, S3/GCS credential
+  lifecycles, and fail-closed network cases. The shared-engine change required
+  explicit owner authorization before it could enter the product runtime.
+- **Decision.** Chirag explicitly authorizes the checked-in migration described
+  in `BLOCKER.md`. Initial browser data-plane scope is AWS-backed Databricks
+  Unity Catalog and S3/GCS-backed Snowflake Open Catalog/Polaris. Azure-backed
+  Databricks and ADLS-backed catalogs remain unavailable because the reviewed
+  v1.4.3 WASM registry publishes no Azure extension. Credential input remains
+  session-only and least-privilege; no secret enters git, logs, screenshots,
+  workbook state, or browser persistence.
+- **Consequence.** R1/R2 implementation may update the pinned package, vendored
+  core/worker/extension bytes and hashes, runtime selection, integrity/CSP
+  inputs, engine adapters, and affected regressions. This does **not** authorize
+  a deploy, vendor credentials, remote writes, generic or branded card
+  enablement, tagging, or publishing. Table-by-URL, live catalog profiles, and
+  warehouse Compute Bridge adapters keep their independent release gates.
+
+### Decision FB-2 — preserve review records; remove audited redundant Git state
+
+- **Context.** Repository replay found a clean, fully merged autopilot
+  worktree/branch; two remote branches with zero commits absent from `main`; a
+  local documentation branch whose complete EB outcome is consolidated in the
+  current decision log; a Kaggle safety stash whose changes are present in
+  newer `STATUS.md`/`codex-290726.md`; and two unique, user-requested review
+  documents left untracked.
+- **Decision.** Remove the audited worktree, local branches, three remote
+  branches, and superseded stash. Preserve `codex-250726.md` and
+  `codex-280726.md` as tracked historical review artifacts, repairing their
+  links to the folded reports under `plan/_archive/`.
+- **Consequence.** No unique product or decision content is lost. The removed
+  local branch and dropped stash remain recoverable only through Git object
+  retention/reflog until garbage collection; deleted remote branch names are
+  no longer advertised. The two review documents become durable inputs to
+  `codex-290726.md` and the consolidated workplan.
+
 ## 2026-07-29 — Real-data ingestion correctness (FA)
 
 ### Decision FA-15 — vendor adapter cores are executable specifications, not connector claims

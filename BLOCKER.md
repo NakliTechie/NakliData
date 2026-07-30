@@ -1,10 +1,23 @@
-# Blocker — checked-in Iceberg reads require an authorized DuckDB-WASM migration
+# Resolved blocker — checked-in Iceberg runtime migration authorized
 
-- Status: **candidate proven; runtime migration authorization required**
+- Status: **authorization granted 2026-07-30; implementation ready**
 - Recorded: 2026-07-29
+- Resolved: 2026-07-30 (DECISIONS FB-1)
 - Scope: Databricks Unity Catalog and Snowflake Open Catalog/Polaris data plane
 
-## Why work stops here
+## Resolution
+
+Chirag approved the exact checked-in DuckDB-WASM migration described below:
+`@duckdb/duckdb-wasm` 1.29.0 → 1.32.0 and embedded DuckDB 1.1.1 → 1.4.3,
+including the pinned runtime assets, same-origin extension closure, integrity
+inputs, engine adapters, and required regressions.
+
+The approved initial browser data plane is AWS-backed Databricks plus
+S3/GCS-backed Snowflake Open Catalog/Polaris. Azure/ADLS stays unavailable.
+The approval does not authorize deployment, vendor credentials, remote writes,
+card enablement, tagging, publishing, or broader connector claims.
+
+## Original stop-line rationale
 
 The generic catalog client now negotiates configuration, browses objects,
 loads table metadata, and owns short-lived S3/GCS/ADLS credentials through an
@@ -55,13 +68,13 @@ References:
 - [DuckDB Iceberg extension](https://duckdb.org/docs/current/core_extensions/iceberg/overview)
 - [DuckDB-WASM repository](https://github.com/duckdb/duckdb-wasm)
 
-## Authorization needed
+## Authorization granted
 
-Approve the checked-in DuckDB-WASM migration using the proven 1.32.0/v1.4.3
-candidate. It may update the pinned npm runtime, vendored workers/WASM files,
-extension artifacts, integrity hashes, engine adapters, and affected
-regressions. It does not authorize a deployment, live vendor credentials,
-remote writes, or enabling generic or branded Iceberg source cards.
+The checked-in DuckDB-WASM migration using the proven 1.32.0/v1.4.3 candidate
+is approved under DECISIONS FB-1. It may update the pinned npm runtime,
+vendored workers/WASM files, extension artifacts, integrity hashes, engine
+adapters, and affected regressions. All release and external-access stop lines
+remain in force.
 
 ## Acceptance gate for the spike
 
