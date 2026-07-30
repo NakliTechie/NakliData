@@ -168,11 +168,12 @@ async function main() {
 
   // Egress in this sandbox blocks cdn.jsdelivr.net, so force the vendored
   // fallback path (?offline=1) for the smoke test.
-  const targetUrl = `${url}/index.html?offline=1`;
+  const targetUrl = `${url}/index.html?offline=1&webmcp=1`;
   log(`loading ${targetUrl}`);
   // 'load' (not 'domcontentloaded'): the app hydrates after DOMContentLoaded,
   // so waiting for the full load event reduces flake on slower CI runners.
   await page.goto(targetUrl, { waitUntil: 'load' });
+  const nativeWebMcpPresent = await page.evaluate(() => 'modelContext' in document);
 
   // 1. The shell mounted.
   await page.waitForSelector('.shell-header', { timeout: 5000 });
@@ -1770,6 +1771,13 @@ async function main() {
     const fileScan = await nd.query({ sql: "SELECT * FROM 'file:///etc/passwd'" });
     const gated = await nd.proposeCell({ sql: 'SELECT 1' });
     const describe = await nd.describe();
+    const v3Tools = (await nd.v3.listTools()).map((tool) => tool.name).sort();
+    const v3Capabilities = await nd.v3.invoke('getCapabilities');
+    const v3Query = await nd.v3.invoke('query', {
+      sql: 'SELECT contact_email FROM vendors LIMIT 1',
+    });
+    const v3ProposalDenied = await nd.v3.invoke('proposeSqlCell', { sql: 'SELECT 1' });
+    const v3CleaningUnavailable = await nd.v3.invoke('proposeCleaningStep');
     // Chunk 4 enrichment: envelope version + per-table provenance + column stats.
     let describeEnriched = false;
     if (describe.ok === true && describe.data.tables.length > 0) {
@@ -1785,7 +1793,13 @@ async function main() {
     }
     return {
       version: nd.version,
+      v3Version: nd.v3.version,
       tools,
+      v3Tools,
+      v3Capabilities,
+      v3Query,
+      v3ProposalDenied,
+      v3CleaningUnavailable,
       okQuery,
       sensitiveQuery,
       aliasRejected: aliasQuery.ok === false ? aliasQuery.error : '(NOT REJECTED)',
@@ -1802,9 +1816,63 @@ async function main() {
   if (agent.error) fail(`agent surface: ${agent.error}`);
   if (agent.version !== '2')
     fail(`agent surface: expected proposal-only contract v2, got v${agent.version}`);
+  if (agent.v3Version !== '3')
+    fail(`agent surface: expected nested contract v3, got v${agent.v3Version}`);
   const expectVerbs = ['describe', 'listCells', 'listTables', 'proposeCell', 'query'];
   if (JSON.stringify(agent.tools) !== JSON.stringify(expectVerbs)) {
     fail(`agent surface: verbs ${JSON.stringify(agent.tools)} != ${JSON.stringify(expectVerbs)}`);
+  }
+  const expectV3Verbs = [
+    'describe',
+    'exportDataDictionary',
+    'getCapabilities',
+    'getLineage',
+    'listCells',
+    'listTables',
+    'proposeChart',
+    'proposeQualityCheck',
+    'proposeSqlCell',
+    'query',
+    'validateArtifact',
+  ];
+  if (JSON.stringify(agent.v3Tools) !== JSON.stringify(expectV3Verbs)) {
+    fail(
+      `agent surface: v3 verbs ${JSON.stringify(agent.v3Tools)} != ${JSON.stringify(expectV3Verbs)}`,
+    );
+  }
+  if (
+    !agent.v3Capabilities.ok ||
+    agent.v3Capabilities.version !== '3' ||
+    agent.v3Capabilities.data.executionScope !== null ||
+    !agent.v3Capabilities.data.deferredTools.proposeCleaningStep
+  ) {
+    fail(`agent surface: v3 capabilities are incomplete (${JSON.stringify(agent.v3Capabilities)})`);
+  }
+  if (
+    !agent.v3Query.ok ||
+    agent.v3Query.scope !== 'values:read' ||
+    agent.v3Query.data.rows[0]?.contact_email !== '[redacted:pii]' ||
+    agent.v3Query.meta.redaction.columns[0] !== 'contact_email' ||
+    agent.v3Query.meta.provenance.sourceIds.length !== 1 ||
+    agent.v3Query.meta.provenance.tableIds.length !== 1
+  ) {
+    fail(`agent surface: v3 value envelope is unsafe/incomplete (${JSON.stringify(agent.v3Query)})`);
+  }
+  if (
+    agent.v3ProposalDenied.ok !== false ||
+    agent.v3ProposalDenied.error.code !== 'permission_denied'
+  ) {
+    fail(
+      `agent surface: v3 proposal was not independently permission-gated (${JSON.stringify(agent.v3ProposalDenied)})`,
+    );
+  }
+  if (
+    agent.v3CleaningUnavailable.ok !== false ||
+    agent.v3CleaningUnavailable.error.code !== 'unavailable'
+  ) {
+    fail(
+      `agent surface: deferred cleaning was not reported honestly (${JSON.stringify(agent.v3CleaningUnavailable)})`,
+    );
   }
   if (
     !(
@@ -1846,8 +1914,71 @@ async function main() {
     fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
   }
   log(
-    `✓ Agent surface (window.naklidata v${agent.version}): ${agent.tools.length} verbs · no execution verb · direct public query → 1 row · direct PII redacted · aliased PII + write + out-of-scope + file-scan rejected · proposeCell gated off · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
+    `✓ Agent surface: v2 compatibility (${agent.tools.length} verbs) + nested v3 (${agent.v3Tools.length} tools) · no execution scope/verb · v3 provenance+redaction envelope · deferred cleaning honest · proposals independently gated · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
+
+  // Grant proposal authority explicitly, add one v3 SQL proposal, inspect its
+  // idle/editable state, then revoke all sensitive access and prove the next
+  // proposal is denied. The activity ledger must name the tool without storing
+  // the proposed SQL text.
+  await page.click('[data-action="open-settings"]');
+  const proposalToggle = page.locator('[data-agent-scope="workspace:propose"]');
+  await proposalToggle.check();
+  await page.click('[data-action="close-settings"]');
+  const proposedSql = 'SELECT 42 AS agent_proposal';
+  const proposal = await page.evaluate(
+    async (sql) => window.naklidata?.v3.invoke('proposeSqlCell', { sql }),
+    proposedSql,
+  );
+  if (!proposal?.ok || proposal.data.createdCell.status !== 'un-run') {
+    fail(`agent access: v3 SQL proposal failed (${JSON.stringify(proposal)})`);
+  }
+  const proposedCellState = await page.evaluate((id) => {
+    const cell = document.querySelector(`.cell[data-cell-id="${id}"]`);
+    return {
+      exists: !!cell,
+      code: (cell?.querySelector('.cm-content, textarea')?.textContent ?? '').trim(),
+      hasResult: !!cell?.querySelector('.result-table tbody tr'),
+    };
+  }, proposal.data.createdCell.id);
+  if (
+    !proposedCellState.exists ||
+    proposedCellState.code !== proposedSql ||
+    proposedCellState.hasResult
+  ) {
+    fail(`agent access: proposed SQL was not editable and idle (${JSON.stringify(proposedCellState)})`);
+  }
+  await page.click('[data-action="open-settings"]');
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-region="agent-access"]')
+        ?.textContent?.includes('proposeSqlCell') === true,
+    null,
+    { timeout: 5000 },
+  );
+  const activityCopy = await page.locator('[data-region="agent-access"]').textContent();
+  if (!activityCopy?.includes('proposeSqlCell') || activityCopy.includes(proposedSql)) {
+    fail('agent access: activity ledger omitted the tool or retained proposed SQL');
+  }
+  await page.click('[data-agent-action="revoke"]');
+  if (
+    (await page.locator('[data-agent-scope="values:read"]').isChecked()) ||
+    (await page.locator('[data-agent-scope="workspace:propose"]').isChecked())
+  ) {
+    fail('agent access: revoke-all did not clear both sensitive scopes');
+  }
+  await page.click('[data-action="close-settings"]');
+  const proposalAfterRevoke = await page.evaluate(
+    async () => window.naklidata?.v3.invoke('proposeSqlCell', { sql: 'SELECT 99' }),
+  );
+  if (
+    proposalAfterRevoke?.ok !== false ||
+    proposalAfterRevoke.error.code !== 'permission_denied'
+  ) {
+    fail(`agent access: proposal survived revoke (${JSON.stringify(proposalAfterRevoke)})`);
+  }
+  log('✓ Agent access UX: explicit proposal grant → editable un-run cell → metadata-only activity → revoke-all → stable denial');
 
   // 10k. Accessibility legibility (Chunk 6). A DOM/ARIA-driving agent (Operator,
   // Atlas, Claude-in-Chrome) reads the accessibility tree, not our data-action
@@ -2988,6 +3119,67 @@ async function main() {
   }
   log(
     `✓ Session isolation: ${outgoingCellViews.length} outgoing cell relation(s) dropped before the new workspace mounted`,
+  );
+
+  // 12n. WebMCP is optional: the main leg already loaded with ?webmcp=1 and
+  // remains healthy when the native API is absent. A second page injects the
+  // current async API shape before application code, proving same-origin
+  // exposure, structured v3 results, eleven-tool discovery, and abort-scoped
+  // teardown without making smoke depend on browser support.
+  const webMcpPage = await context.newPage();
+  await webMcpPage.addInitScript(() => {
+    globalThis.__webMcpTools = [];
+    globalThis.__webMcpAbortCount = 0;
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: {
+        registerTool: async (definition, options) => {
+          globalThis.__webMcpTools.push({ definition, exposedTo: options?.exposedTo ?? [] });
+          options?.signal?.addEventListener(
+            'abort',
+            () => {
+              globalThis.__webMcpAbortCount++;
+            },
+            { once: true },
+          );
+        },
+      },
+    });
+  });
+  await webMcpPage.goto(`${url}/index.html?offline=1&webmcp=1`, { waitUntil: 'load' });
+  await webMcpPage.waitForFunction(() => globalThis.__webMcpTools?.length === 11, null, {
+    timeout: 90000,
+  });
+  const webMcpProbe = await webMcpPage.evaluate(async () => {
+    const tools = globalThis.__webMcpTools;
+    const capabilities = tools.find((item) => item.definition.name === 'getCapabilities');
+    return {
+      names: tools.map((item) => item.definition.name).sort(),
+      exposure: [...new Set(tools.flatMap((item) => item.exposedTo))],
+      result: await capabilities.definition.execute({}),
+    };
+  });
+  if (
+    webMcpProbe.names.length !== 11 ||
+    webMcpProbe.names.some((name) => /run|execute/i.test(name)) ||
+    webMcpProbe.exposure.length !== 1 ||
+    webMcpProbe.exposure[0] !== new URL(url).origin ||
+    webMcpProbe.result.version !== '3' ||
+    webMcpProbe.result.ok !== true
+  ) {
+    fail(`WebMCP adapter contract failed: ${JSON.stringify(webMcpProbe)}`);
+  }
+  const webMcpAbortCount = await webMcpPage.evaluate(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return globalThis.__webMcpAbortCount;
+  });
+  if (webMcpAbortCount !== 11) {
+    fail(`WebMCP adapter did not abort all registrations on teardown (${webMcpAbortCount}/11)`);
+  }
+  await webMcpPage.close();
+  log(
+    `✓ WebMCP: graceful native ${nativeWebMcpPresent ? 'presence' : 'absence'} · mock current API registered 11 same-origin v3 tools · structured result · abort teardown`,
   );
 
   // 13. Sanity: no uncaught errors in the console. (SB5: this used to log and

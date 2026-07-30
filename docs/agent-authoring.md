@@ -12,22 +12,43 @@ sidecar actions are explicit, and cloud actions disclose their payload before
 sending.
 
 An agent can work with NakliData two ways. Both are **propose-don't-execute** by
-design — the model is never the safety boundary.
+design—the model is never the safety boundary.
 
 ---
 
 ## 1. Drive a live tab — `window.naklidata`
 
-When a NakliData tab is open, it exposes a verb namespace on `window.naklidata`.
-Every verb returns `{ ok: true, data }` or `{ ok: false, error }` (a UI-safe
-message). All verbs are async. The proposal-only contract reports
-`window.naklidata.version === "2"`.
+When a NakliData tab is open, it exposes the compatible v2 namespace at
+`window.naklidata` and the scoped v3 namespace at `window.naklidata.v3`. All
+calls are async. V2 reports `window.naklidata.version === "2"`; v3 reports
+`window.naklidata.v3.version === "3"`.
 
-The scoped v3 contract and its internal read/proposal registry are implemented
-but **not released yet**. Its permission model, result envelopes, adapter
-boundary, and release gate are documented in
-[`agent-surface-v3.md`](agent-surface-v3.md). Until that gate passes, callers
-must treat only the v2 API below as available.
+Use v3 for new integrations:
+
+```js
+const tools = await window.naklidata.v3.listTools();
+const result = await window.naklidata.v3.invoke("getCapabilities", {});
+if (!result.ok) console.error(result.error.code, result.error.message);
+```
+
+Every v3 result is a structured, versioned success or failure envelope with
+the tool, required scope, workspace/source provenance, enforced bounds,
+redaction summary, and an `untrustedContent` marker. Stable failures include
+`invalid_input`, `permission_denied`, `safety_refusal`, `unavailable`,
+`cancelled`, and `workspace_changed`. See
+[`agent-surface-v3.md`](agent-surface-v3.md) for the complete contract.
+
+| V3 tools | Scope | Behavior |
+|---|---|---|
+| `describe`, `listTables`, `listCells`, `getCapabilities`, `getLineage`, `exportDataDictionary`, `validateArtifact` | `metadata:read` | Grounding and validation without result-row values |
+| `query` | `values:read` | Bounded, read-only, direct-projection values with sensitivity redaction |
+| `proposeSqlCell`, `proposeChart`, `proposeQualityCheck` | `workspace:propose` | Add editable, explicitly un-run artifacts through canonical product paths |
+
+`proposeCleaningStep` is discoverable as deferred and returns `unavailable`
+until the table-context cleaning boundary ships. There is no execution scope
+or run-cell tool.
+
+The v2 compatibility verbs remain:
 
 | Verb | Reads/writes | Gated? | What it does |
 |---|---|---|---|
@@ -37,9 +58,11 @@ must treat only the v2 API below as available.
 | `query(sql)` | read | **yes** | Runs a bounded **read-only** SQL SELECT that projects direct columns from one mounted table. Requires the per-tab `values:read` grant. See the safety model below. Non-public and unclassified columns are redacted. Capped at 1000 rows. |
 | `proposeCell(sql)` | write | **yes** | Adds an **un-run** SQL cell for the human to review and run. Returns `{ id, sql, editable: true }`. |
 
-`window.naklidata.listTools()` returns the full catalogue (name, description,
-JSON input schema, annotations) — WebMCP's tool shape, so a WebMCP-capable agent
-sees the same verbs.
+`window.naklidata.listTools()` returns the v2 catalogue.
+`window.naklidata.v3.listTools()` returns the eleven-tool v3 catalogue with
+scope, JSON input schema, and annotations. WebMCP is separately
+feature-detected and experimental; do not assume its presence from the browser
+API.
 
 ### The safety model (what `query` enforces)
 

@@ -83,3 +83,15 @@ Append to the relevant `eval/fixtures/<job>.json`. Each case needs:
 
 Current seed: ~10–12 cases per job. Grow toward 20–50 as real
 production edge cases surface.
+
+## Agent-surface v3 gate
+
+The agent surface has a separate deterministic fixture at
+`eval/fixtures/agent-surface-v3.json`. `eval/agent-surface.ts` scores exact tool
+selection, minimal scope, success/error outcome, and stable error code; it does
+not use an LLM judge or a network call.
+
+`tests/agent-surface-eval.test.ts` runs the fixture in the normal Vitest gate.
+Companion adversarial tests cover prompt-like headers/values, provenance,
+redaction, ambiguous ownership, cancellation, workspace replacement, malformed
+inputs, unavailable tools, and the no-execution contract.

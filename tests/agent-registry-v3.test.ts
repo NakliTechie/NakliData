@@ -267,6 +267,9 @@ describe('agent v3 registry', () => {
     await expect(
       dispatchAgentV3Tool(tools, 'query', { nope: true }, context()),
     ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_input' } });
+    await expect(
+      dispatchAgentV3Tool(tools, 'listTables', { ignored: true }, context()),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_input' } });
   });
 
   it('validates bounded artifacts without mutating the host workspace', async () => {
@@ -295,6 +298,13 @@ describe('agent v3 registry', () => {
     await expect(dispatchAgentV3Tool(tools, 'runCell', {}, context())).resolves.toMatchObject({
       ok: false,
       error: { code: 'unknown_tool' },
+    });
+    await expect(
+      dispatchAgentV3Tool(tools, 'proposeCleaningStep', {}, context()),
+    ).resolves.toMatchObject({
+      ok: false,
+      scope: 'workspace:propose',
+      error: { code: 'unavailable', retryable: false },
     });
     const controller = new AbortController();
     controller.abort();

@@ -25,6 +25,7 @@ import {
   AGENT_ADAPTERS,
   AGENT_BOUNDS,
   AGENT_CONTRACT_VERSION,
+  AGENT_V3_TOOL_SCOPES,
   type AgentScope,
 } from '../core/agent/contract.ts';
 import { describeToMarkdown } from '../core/agent/data-dictionary.ts';
@@ -650,7 +651,10 @@ function scopeForLegacyVerb(verb: string): AgentScope {
 
 export async function dispatchV3(deps: AgentSurfaceDeps, name: string, input: unknown) {
   const found = v3Tools(deps).find((tool) => tool.name === name);
-  const scope = found?.scope ?? 'metadata:read';
+  const declaredScope = Object.hasOwn(AGENT_V3_TOOL_SCOPES, name)
+    ? AGENT_V3_TOOL_SCOPES[name as keyof typeof AGENT_V3_TOOL_SCOPES]
+    : null;
+  const scope = found?.scope ?? declaredScope ?? 'metadata:read';
   const state = session(deps).snapshot();
   let request: AgentRequest | null = null;
   try {
@@ -831,54 +835,91 @@ export interface WebMcpToolDef {
   description: string;
   inputSchema: unknown;
   annotations: { readOnlyHint: boolean; untrustedContentHint: boolean };
-  execute: (
-    input: unknown,
-  ) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
+  execute: (input: unknown) => Promise<unknown>;
 }
 export interface WebMcpRoot {
-  registerTool: (def: WebMcpToolDef, opts?: unknown) => unknown;
-  unregisterTool?: (name: string) => void;
+  registerTool: (
+    def: WebMcpToolDef,
+    options?: { signal?: AbortSignal; exposedTo?: string[] },
+  ) => Promise<unknown> | unknown;
 }
 
 export interface WebMcpRegistration {
   registered: string[];
+  signal: AbortSignal;
   unregister: () => void;
 }
 
 /**
- * Register every agent verb with a WebMCP root. Maps our tool contract to
- * WebMCP's: the `execute` runs our verb (validator + gate included) and wraps the
- * `{ ok, data | error }` result as an MCP text-content result. Returns the
- * registered names + an unregister fn. Injected the root, so a mock drives it.
+ * Register every v3 tool with WebMCP's current asynchronous, abort-scoped
+ * contract. Execute returns the structured v3 envelope directly: WebMCP accepts
+ * any promise result, so an MCP text-content compatibility wrapper would only
+ * discard type information.
  */
-export function registerWithWebMcp(root: WebMcpRoot, deps: AgentSurfaceDeps): WebMcpRegistration {
+export async function registerWithWebMcp(
+  root: WebMcpRoot,
+  deps: AgentSurfaceDeps,
+  options: { signal?: AbortSignal; exposedTo?: string[] } = {},
+): Promise<WebMcpRegistration> {
   const registered: string[] = [];
-  for (const tool of tools(deps)) {
-    const def: WebMcpToolDef = {
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: {
-        readOnlyHint: tool.annotations.readOnlyHint,
-        untrustedContentHint: tool.annotations.untrustedContentHint,
-      },
-      execute: async (input: unknown) => {
-        const result = await dispatch(deps, tool.name, input);
-        const payload = result.ok ? result.data : { error: result.error };
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
-          isError: !result.ok,
-        };
-      },
-    };
-    root.registerTool(def);
-    registered.push(tool.name);
+  const lifetime = new AbortController();
+  if (options.signal?.aborted) lifetime.abort(options.signal.reason);
+  options.signal?.addEventListener('abort', () => lifetime.abort(options.signal?.reason), {
+    once: true,
+  });
+  try {
+    for (const tool of v3Tools(deps)) {
+      const def: WebMcpToolDef = {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: {
+          readOnlyHint: tool.annotations.readOnlyHint,
+          untrustedContentHint: tool.annotations.untrustedContentHint,
+        },
+        execute: (input: unknown) => dispatchV3(deps, tool.name, input),
+      };
+      await root.registerTool(def, {
+        signal: lifetime.signal,
+        exposedTo: options.exposedTo ?? [],
+      });
+      registered.push(tool.name);
+    }
+  } catch (error) {
+    lifetime.abort(error);
+    throw error;
   }
   return {
     registered,
-    unregister: () => {
-      if (!root.unregisterTool) return;
-      for (const name of registered) root.unregisterTool(name);
-    },
+    signal: lifetime.signal,
+    unregister: () => lifetime.abort('NakliData WebMCP registration ended.'),
   };
+}
+
+let _webMcpRegistration: WebMcpRegistration | null = null;
+
+/** Feature-detected document adapter. This runs only after `?webmcp=1` caused
+ * the shell to load this chunk; WebMCP remains optional and non-load-bearing. */
+export async function registerWebMcpForDocument(deps: AgentSurfaceDeps): Promise<void> {
+  const root = (document as unknown as { modelContext?: WebMcpRoot }).modelContext;
+  if (!root) {
+    console.info(
+      '[naklidata] WebMCP requested (?webmcp=1) but document.modelContext is unavailable in this browser.',
+    );
+    return;
+  }
+  _webMcpRegistration?.unregister();
+  const registration = await registerWithWebMcp(root, deps, {
+    exposedTo: [window.location.origin],
+  });
+  _webMcpRegistration = registration;
+  window.addEventListener(
+    'pagehide',
+    () => {
+      registration.unregister();
+      if (_webMcpRegistration === registration) _webMcpRegistration = null;
+    },
+    { once: true },
+  );
+  console.info(`[naklidata] WebMCP: registered ${registration.registered.length} v3 tools.`);
 }

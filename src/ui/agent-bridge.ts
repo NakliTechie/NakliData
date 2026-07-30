@@ -44,6 +44,11 @@ export interface NakliDataAgentApi {
   query(input?: unknown): Promise<unknown>;
   proposeCell(input?: unknown): Promise<unknown>;
   listTools(): Promise<unknown>;
+  v3: {
+    invoke(tool: string, input?: unknown): Promise<unknown>;
+    listTools(): Promise<unknown>;
+    version: '3';
+  };
   version: string;
 }
 
@@ -66,6 +71,8 @@ export function bindAgentSurface(deps: AgentBridgeDeps): void {
     (name: string) =>
     (input?: unknown): Promise<unknown> =>
       load().then((m) => m.dispatch(fullDeps, name, input ?? {}));
+  const invokeV3 = (name: string, input?: unknown): Promise<unknown> =>
+    load().then((m) => m.dispatchV3(fullDeps, name, input ?? {}));
   window.naklidata = {
     describe: verb('describe'),
     listTables: verb('listTables'),
@@ -73,17 +80,22 @@ export function bindAgentSurface(deps: AgentBridgeDeps): void {
     query: verb('query'),
     proposeCell: verb('proposeCell'),
     listTools: () => load().then((m) => m.catalogue(fullDeps)),
+    v3: {
+      invoke: invokeV3,
+      listTools: () => load().then((m) => m.catalogueV3(fullDeps)),
+      version: '3',
+    },
     // v2 removes the latent runCell execution capability. This is intentionally
     // a breaking safety correction rather than pretending the v1 catalogue is
     // unchanged.
     version: '2',
   };
 
-  // WebMCP spike (Chunk 7, DECISIONS EE-0d) — flag-gated, ships nothing
-  // load-bearing. Only when `?webmcp=1` AND the browser exposes
-  // `document.modelContext` (Chrome-149 origin trial) do we register the same
-  // verbs as WebMCP tools. Fire-and-forget; degrades to a console note.
-  maybeRegisterWebMcp(load, fullDeps);
+  if (webMcpRequested()) {
+    void load()
+      .then((module) => module.registerWebMcpForDocument(fullDeps))
+      .catch((error) => console.warn('[naklidata] WebMCP registration failed:', error));
+  }
 }
 
 /** Build the chunk's deps, injecting the SHELL's live store singletons. Single
@@ -136,27 +148,4 @@ function webMcpRequested(): boolean {
   } catch {
     return false;
   }
-}
-
-function maybeRegisterWebMcp(
-  load: () => Promise<typeof import('../lazy/agent-surface.ts')>,
-  fullDeps: AgentSurfaceDeps,
-): void {
-  if (!webMcpRequested()) return;
-  const root = (document as unknown as { modelContext?: unknown }).modelContext;
-  if (!root) {
-    console.info(
-      '[naklidata] WebMCP requested (?webmcp=1) but document.modelContext is unavailable in this browser.',
-    );
-    return;
-  }
-  void load()
-    .then((m) => {
-      const reg = m.registerWithWebMcp(
-        root as Parameters<typeof m.registerWithWebMcp>[0],
-        fullDeps,
-      );
-      console.info(`[naklidata] WebMCP: registered ${reg.registered.length} tools.`);
-    })
-    .catch((e) => console.warn('[naklidata] WebMCP registration failed:', e));
 }

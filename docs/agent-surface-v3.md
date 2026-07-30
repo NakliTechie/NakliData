@@ -1,11 +1,9 @@
 # Agent surface v3 contract
 
-Status: **ratified product contract; A1 permissions, A2 reads, and A3 proposal
-tools are implemented internally; adapters/release tracked in workplan A4–A5**.
-The v3 registry is not yet published on the page global.
-The shipping live-tab API remains v2 until the runtime, permission UX, tests,
-and release gate all pass. This document is not a WebMCP or external-MCP
-availability claim.
+Status: **Browser API v3 available; workplan A0–A5 complete**. The scoped v3
+namespace is published at `window.naklidata.v3`; Browser API v2 remains the
+root compatibility contract. WebMCP is experimental and the external MCP
+package remains planned—neither is an availability claim.
 
 ## Product boundary
 
@@ -44,7 +42,10 @@ notebook cell.
 ## Versions and result envelope
 
 `window.naklidata` v2 remains callable during v3 adoption. V3 is negotiated
-explicitly and never changes a v2 result in place.
+explicitly through `window.naklidata.v3.version === "3"`,
+`window.naklidata.v3.listTools()`, and
+`window.naklidata.v3.invoke(tool, input)`. It never changes a v2 result in
+place.
 
 Every v3 invocation resolves to a structured envelope:
 
@@ -143,9 +144,14 @@ boundary in batch N5 exists. No transport may bypass that dependency.
 ## Adapter and MCP boundary
 
 - Browser API v2 is available.
-- Browser API v3 ships only after A1–A5 pass.
+- Browser API v3 is available on the nested namespace and calls the same lazy
+  registry as v2.
 - WebMCP remains feature-detected and flag-gated while the browser API is
-  experimental. It is an adapter, not a dependency.
+  experimental. When `?webmcp=1` and `document.modelContext` exists, it
+  registers the same eleven v3 tools asynchronously, exposes them only to the
+  page origin, returns structured v3 envelopes, and uses one abort-scoped
+  lifetime that ends on failure or page teardown. It is an adapter, not a
+  dependency.
 - The first external MCP boundary is **artifact-first**: validate, inspect, and
   author `.naklidata` documents without controlling a browser tab. A live-tab
   server is deferred until a secure, supportable browser/native bridge exists.
@@ -153,10 +159,24 @@ boundary in batch N5 exists. No transport may bypass that dependency.
   Adding a runtime dependency, companion binary, or remote service requires a
   separate repository/runtime decision.
 
-## Release gate
+The external boundary spike is recorded in
+[`external-mcp-boundary.md`](external-mcp-boundary.md): artifact-only stdio is
+GO for future implementation planning; an extension/native live-tab bridge is
+DEFER; localhost-from-page, remote-first, and Compute-Bridge reuse are NO-GO.
+No MCP package ships today.
 
-The v3 release requires deterministic unit tests, browser smoke for permission
-grant/revoke and workspace resets, adversarial prompt-injection fixtures,
-sensitivity failures, oversized outputs, cancellation races, malformed
-artifacts, and proof that neither the registry nor an adapter exposes execution,
-credentials, remote writes, or background polling.
+## Release evidence
+
+The 2026-07-30 A5 gate covers deterministic tool/scope/error selection,
+malformed and unavailable calls, prompt-like headers and values, aliases,
+expressions, joins, ambiguous ownership, missing sensitivity, workspace
+replacement, cancellation, proposal bounds, and current-shape WebMCP lifecycle
+behavior. Production browser smoke verifies v2 compatibility, all eleven v3
+tools, permission grant/revoke, metadata-only activity, an editable un-run SQL
+proposal, ARIA/canvas discovery, graceful native WebMCP absence, and an
+abort-scoped same-origin mock registration.
+
+The catalogue contains no execution scope or verb. Registry, transport, and
+browser tests prove proposals do not execute cells, write remote data, retain
+credentials, or start background polling. `proposeCleaningStep` remains an
+honest `unavailable` response until N5.

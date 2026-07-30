@@ -5,7 +5,7 @@ import {
   AGENT_COMPATIBILITY_VERSIONS,
   AGENT_CONTRACT_VERSION,
   AGENT_SCOPES,
-  type AGENT_V3_TOOL_SCOPES,
+  AGENT_V3_TOOL_SCOPES,
   type AgentErrorCode,
   type AgentResultMeta,
   type AgentScope,
@@ -168,6 +168,7 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
       'Validate a .naklidata workbook, portable semantic model, or tagged data-quality assertion without mutating the workspace.',
       async (input) => {
         const record = objectInput(input, 'validateArtifact');
+        exactKeys(record, ['kind', 'artifact'], 'validateArtifact');
         const kind = record.kind;
         if (
           kind !== 'naklidata' &&
@@ -218,7 +219,9 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
       },
       annotations: { readOnlyHint: true, untrustedContentHint: true, gated: true },
       execute: async (input, signal) => {
-        const sql = stringField(input, 'sql');
+        const record = objectInput(input, 'query');
+        exactKeys(record, ['sql'], 'query');
+        const sql = stringField(record, 'sql');
         if (sql === null) {
           throw new AgentV3Fault('invalid_input', 'query expects { sql: string }.');
         }
@@ -230,7 +233,9 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
       'proposeSqlCell',
       'Add one editable SQL cell in the idle state. The tool never runs the cell.',
       async (input, signal) => {
-        const sql = stringField(input, 'sql');
+        const record = objectInput(input, 'proposeSqlCell');
+        exactKeys(record, ['sql'], 'proposeSqlCell');
+        const sql = stringField(record, 'sql');
         if (sql === null || !sql.trim()) {
           throw new AgentV3Fault('invalid_input', 'proposeSqlCell expects { sql: string }.');
         }
@@ -249,6 +254,7 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
       'Add one editable chart cell against an existing result cell. Exact column ownership is validated and the chart is never executed.',
       async (input, signal) => {
         const record = objectInput(input, 'proposeChart');
+        exactKeys(record, ['inputCellId', 'config'], 'proposeChart');
         const inputCellId = record.inputCellId;
         if (typeof inputCellId !== 'string' || !inputCellId.trim()) {
           throw new AgentV3Fault('invalid_input', 'proposeChart expects a non-empty inputCellId.');
@@ -286,6 +292,7 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
       'Validate a portable data-quality check and add it as one tagged, editable assertion cell. The tool never runs the check.',
       async (input, signal) => {
         const record = objectInput(input, 'proposeQualityCheck');
+        exactKeys(record, ['check'], 'proposeQualityCheck');
         if (!Object.hasOwn(record, 'check')) {
           throw new AgentV3Fault('invalid_input', 'proposeQualityCheck expects a check object.');
         }
@@ -310,8 +317,21 @@ export async function dispatchAgentV3Tool(
   context: AgentV3DispatchContext,
 ): Promise<AgentV3Result> {
   const tool = tools.find((candidate) => candidate.name === name);
-  const scope = tool?.scope ?? 'metadata:read';
+  const deferred = Object.hasOwn(DEFERRED_AGENT_TOOLS, name);
+  const scope =
+    tool?.scope ??
+    (deferred ? AGENT_V3_TOOL_SCOPES[name as keyof typeof AGENT_V3_TOOL_SCOPES] : 'metadata:read');
   if (!tool) {
+    if (deferred) {
+      return failure(
+        name,
+        scope,
+        context.workspaceRevision,
+        'unavailable',
+        DEFERRED_AGENT_TOOLS[name as keyof typeof DEFERRED_AGENT_TOOLS],
+        false,
+      );
+    }
     return failure(
       name,
       scope,
@@ -400,19 +420,26 @@ function metadataTool(
   name: keyof typeof AGENT_V3_TOOL_SCOPES,
   description: string,
   run: (input: unknown, signal: AbortSignal) => Promise<AgentV3ToolExecution>,
-  inputSchema: JsonSchema = {
+  inputSchema?: JsonSchema,
+): AgentV3Tool {
+  const schema = inputSchema ?? {
     type: 'object',
     properties: {},
     additionalProperties: false,
-  },
-): AgentV3Tool {
+  };
   return {
     name,
     description,
     scope: 'metadata:read',
-    inputSchema,
+    inputSchema: schema,
     annotations: { readOnlyHint: true, untrustedContentHint: true, gated: false },
-    execute: run,
+    execute: inputSchema
+      ? run
+      : async (input, signal) => {
+          const record = objectInput(input, name);
+          exactKeys(record, [], name);
+          return run(record, signal);
+        },
   };
 }
 
@@ -580,6 +607,11 @@ function enforceProposalBytes(value: unknown): void {
 
 function chartConfig(value: unknown): ChartConfig {
   const record = objectInput(value, 'proposeChart.config');
+  exactKeys(
+    record,
+    ['chartType', 'xColumn', 'yColumn', 'groupColumn', 'title'],
+    'proposeChart.config',
+  );
   const chartType = record.chartType;
   const title = record.title;
   const nullableColumn = (name: 'xColumn' | 'yColumn' | 'groupColumn'): string | null => {
@@ -614,6 +646,21 @@ function chartConfig(value: unknown): ChartConfig {
     groupColumn: nullableColumn('groupColumn'),
     title,
   };
+}
+
+function exactKeys(
+  record: Record<string, unknown>,
+  allowed: readonly string[],
+  tool: string,
+): void {
+  const allowedSet = new Set(allowed);
+  const unexpected = Object.keys(record).filter((key) => !allowedSet.has(key));
+  if (unexpected.length > 0) {
+    throw new AgentV3Fault(
+      'invalid_input',
+      `${tool} received unexpected field${unexpected.length === 1 ? '' : 's'}: ${unexpected.join(', ')}.`,
+    );
+  }
 }
 
 function boundedMessage(message: string): string {

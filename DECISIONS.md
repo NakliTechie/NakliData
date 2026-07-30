@@ -2,6 +2,63 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-07-30 — Browser agent v3 release boundary (FG)
+
+### Decision FG-1 — Browser API v3 available; experimental/planned adapters stay distinct
+
+- **Context.** Workplan A5 now has deterministic selection/scope/error fixtures,
+  prompt-injection and provenance adversarial tests, strict unexpected-field
+  rejection, current-shape WebMCP lifecycle tests, and production browser
+  evidence for permissions, revocation, v2 compatibility, proposals, and
+  accessibility. Native WebMCP is absent in the smoke Chromium and a separate
+  external MCP package has not been built.
+- **Decision.** Label only the nested `window.naklidata.v3` browser API
+  available. Keep root v2 available for compatibility, WebMCP experimental and
+  flag-gated, and external MCP planned. Keep `proposeCleaningStep`
+  discoverable but `unavailable` until N5 supplies the table-context boundary.
+- **Consequence.** The shipping browser surface has eleven tools, three explicit
+  scopes, stable structured envelopes, per-tab sensitive grants, and no
+  execution authority. Current-shape WebMCP behavior is regression-tested but
+  does not become a supported-browser promise; artifact-only external MCP
+  remains a separate future package decision.
+
+## 2026-07-30 — Agent adapters and external MCP boundary (FF)
+
+### Decision FF-1 — nested browser v3 and abort-scoped experimental WebMCP
+
+- **Context.** V3 must be callable without mutating the stable v2 root
+  contract. The current WebMCP draft makes `registerTool` asynchronous, uses an
+  `AbortSignal` for registration lifetime, accepts explicit origin exposure,
+  and returns arbitrary structured values; the old spike registered v2 tools
+  synchronously and depended on an obsolete `unregisterTool`.
+- **Decision.** Publish v3 as `window.naklidata.v3` with `version`,
+  `listTools`, and `invoke`; leave the five v2 verbs and root `version: "2"`
+  intact. The flag-gated WebMCP adapter registers all eleven v3 tools from the
+  same registry, awaits each registration, exposes only the current origin,
+  returns the v3 envelope directly, and aborts the shared lifetime on partial
+  failure, replacement, or page teardown.
+- **Consequence.** WebMCP remains experimental and non-load-bearing. Graceful
+  absence is a supported state, and the available product label waits for A5
+  browser evidence. No CSP change or third-party browser runtime is needed.
+
+### Decision FF-2 — external MCP starts artifact-only or does not start
+
+- **Context.** A live-tab MCP server needs a trusted browser/native channel;
+  page-to-localhost would weaken CSP and create authentication/support burden,
+  while the warehouse Compute Bridge has unrelated credentials and ownership.
+  MCP `2026-07-28` is now the protocol target and the stable SDK v2 line
+  implements it.
+- **Decision.** GO future planning for a separately released
+  `naklidata-agent` artifact-only stdio package pinned to `2026-07-28`. DEFER a
+  reviewed browser-extension/native live-tab bridge. NO-GO page-to-localhost,
+  Compute-Bridge reuse, and a remote multi-tenant first release.
+- **Consequence.** The proposed package has no network, credentials, browser
+  stores, execution, or implicit filesystem root; it validates/inspects/authors
+  bounded portable artifacts at explicit paths. `external-mcp` remains
+  `planned` until repository ownership, dependency approval, conformance,
+  confinement tests, and release documentation pass. See
+  `docs/external-mcp-boundary.md`.
+
 ## 2026-07-30 — Agent surface v3 proposal registry (FE)
 
 ### Decision FE-1 — proposals reuse canonical cell, chart, and quality state

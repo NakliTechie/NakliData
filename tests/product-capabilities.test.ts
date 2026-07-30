@@ -85,6 +85,9 @@ describe('agent product contract', () => {
     expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'window-v2')?.readiness).toBe(
       'available',
     );
+    expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'window-v3')?.readiness).toBe(
+      'available',
+    );
     expect(AGENT_ADAPTERS.find((adapter) => adapter.id === 'webmcp')?.readiness).toBe(
       'experimental',
     );

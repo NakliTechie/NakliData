@@ -2371,10 +2371,11 @@ current tab—not silently inherited from a durable preference. Separating the
 tool contract from transport prevents WebMCP/MCP churn from becoming product
 policy, while the no-execution boundary preserves human review.
 
-**Status:** adopted 2026-07-30; runtime A1–A3 implemented internally.
-DECISIONS FC/FD/FE. See
-[`agent-surface-v3.md`](agent-surface-v3.md). Runtime and release evidence are
-tracked in workplan A4–A5; this amendment alone is not an availability claim.
+**Status:** adopted and shipped in the Browser API on 2026-07-30; workplan
+A0–A5 complete. DECISIONS FC–FG. See
+[`agent-surface-v3.md`](agent-surface-v3.md). WebMCP remains experimental,
+external MCP remains planned, and the cleaning proposal remains unavailable
+until N5.
 
 ---
 

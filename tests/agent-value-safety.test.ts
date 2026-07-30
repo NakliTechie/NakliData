@@ -114,7 +114,7 @@ function makeDeps(opts: {
     getWorkbookState: () => state,
     getBundle: () => (opts.activeBundle === undefined ? bundle : opts.activeBundle),
   } as unknown as AgentSurfaceDeps;
-  return { deps, query };
+  return { deps, query, state };
 }
 
 describe('agent value safety', () => {
@@ -167,6 +167,26 @@ describe('agent value safety', () => {
       await expect(createAgentHost(deps).query(sql)).rejects.toThrow();
       expect(query).not.toHaveBeenCalled();
     }
+  });
+
+  it('refuses an ambiguous table owner before execution', async () => {
+    const { deps, query, state } = makeDeps({});
+    const original = state.sources[0];
+    if (!original) throw new Error('Missing people fixture source.');
+    state.sources.push({
+      ...original,
+      id: 'src_people_duplicate',
+      label: 'People duplicate',
+      tables: original.tables.map((table) => ({
+        ...table,
+        id: 'tbl_people_duplicate',
+        sourceId: 'src_people_duplicate',
+      })),
+    });
+    await expect(createAgentHost(deps).query('SELECT name FROM people')).rejects.toThrow(
+      /does not have unique ownership/i,
+    );
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('returns direct public values and redacts direct sensitive and unclassified values', async () => {

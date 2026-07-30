@@ -26,17 +26,23 @@ const deps = {
 
 function mockRoot() {
   const registered: WebMcpToolDef[] = [];
+  const options: Array<{ signal?: AbortSignal; exposedTo?: string[] }> = [];
   const unregistered: string[] = [];
   return {
     root: {
-      registerTool: (def: WebMcpToolDef) => {
+      registerTool: async (
+        def: WebMcpToolDef,
+        registrationOptions?: { signal?: AbortSignal; exposedTo?: string[] },
+      ) => {
         registered.push(def);
-      },
-      unregisterTool: (name: string) => {
-        unregistered.push(name);
+        options.push(registrationOptions ?? {});
+        registrationOptions?.signal?.addEventListener('abort', () => unregistered.push(def.name), {
+          once: true,
+        });
       },
     },
     registered,
+    options,
     unregistered,
   };
 }
@@ -48,12 +54,27 @@ function registeredTool(defs: WebMcpToolDef[], name: string): WebMcpToolDef {
 }
 
 describe('registerWithWebMcp', () => {
-  it('registers five verbs and no execution tool in WebMCP shape', () => {
+  it('asynchronously registers eleven v3 tools and no execution tool in WebMCP shape', async () => {
     const m = mockRoot();
-    const reg = registerWithWebMcp(m.root, deps);
+    const reg = await registerWithWebMcp(m.root, deps, {
+      exposedTo: ['https://naklidata.example'],
+    });
     expect(reg.registered.sort()).toEqual(
-      ['describe', 'listCells', 'listTables', 'proposeCell', 'query'].sort(),
+      [
+        'describe',
+        'listTables',
+        'listCells',
+        'getCapabilities',
+        'getLineage',
+        'exportDataDictionary',
+        'validateArtifact',
+        'query',
+        'proposeSqlCell',
+        'proposeChart',
+        'proposeQualityCheck',
+      ].sort(),
     );
+    expect(reg.registered.some((name) => /run|execute/i.test(name))).toBe(false);
     for (const def of m.registered) {
       expect(typeof def.name).toBe('string');
       expect(typeof def.description).toBe('string');
@@ -64,31 +85,63 @@ describe('registerWithWebMcp', () => {
       expect(def.annotations).not.toHaveProperty('gated');
       expect(typeof def.execute).toBe('function');
     }
+    expect(m.options).toHaveLength(11);
+    expect(m.options.every((options) => options.signal === reg.signal)).toBe(true);
+    expect(
+      m.options.every((options) => options.exposedTo?.[0] === 'https://naklidata.example'),
+    ).toBe(true);
   });
 
-  it('maps an ok metadata result to an MCP text-content result', async () => {
+  it('returns the structured v3 envelope directly', async () => {
     const m = mockRoot();
-    registerWithWebMcp(m.root, deps);
+    await registerWithWebMcp(m.root, deps);
     const listTables = registeredTool(m.registered, 'listTables');
     const out = await listTables.execute({});
-    expect(out.isError).toBe(false);
-    expect(out.content[0]?.type).toBe('text');
-    expect(out.content[0]?.text).toBe('[]'); // empty workbook → no tables
+    expect(out).toMatchObject({
+      version: '3',
+      ok: true,
+      tool: 'listTables',
+      data: [],
+      meta: { provenance: { workspaceRevision: 0 } },
+    });
   });
 
-  it('flows a gated refusal through as isError', async () => {
+  it('flows a gated refusal through as a stable structured error', async () => {
     const m = mockRoot();
-    registerWithWebMcp(m.root, deps);
-    const proposeCell = registeredTool(m.registered, 'proposeCell');
-    const out = await proposeCell.execute({ sql: 'SELECT 1' });
-    expect(out.isError).toBe(true);
-    expect(out.content[0]?.text).toMatch(/error/i);
+    await registerWithWebMcp(m.root, deps);
+    const proposeCell = registeredTool(m.registered, 'proposeSqlCell');
+    await expect(proposeCell.execute({ sql: 'SELECT 1' })).resolves.toMatchObject({
+      version: '3',
+      ok: false,
+      scope: 'workspace:propose',
+      error: { code: 'permission_denied' },
+    });
   });
 
-  it('unregister removes every registered tool', () => {
+  it('aborts one shared lifetime to unregister every tool', async () => {
     const m = mockRoot();
-    const reg = registerWithWebMcp(m.root, deps);
+    const reg = await registerWithWebMcp(m.root, deps);
     reg.unregister();
+    expect(reg.signal.aborted).toBe(true);
     expect(m.unregistered.sort()).toEqual(reg.registered.sort());
+  });
+
+  it('rolls back earlier registrations when asynchronous registration fails', async () => {
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    await expect(
+      registerWithWebMcp(
+        {
+          registerTool: async (_def, options) => {
+            calls++;
+            if (options?.signal) signals.push(options.signal);
+            if (calls === 3) throw new Error('origin trial rejected registration');
+          },
+        },
+        deps,
+      ),
+    ).rejects.toThrow(/origin trial rejected/i);
+    expect(signals).toHaveLength(3);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 });

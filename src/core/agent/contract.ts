@@ -108,8 +108,8 @@ export const AGENT_ADAPTERS: readonly AgentAdapterCapability[] = [
   {
     id: 'window-v3',
     label: 'Browser API v3',
-    readiness: 'planned',
-    boundary: 'Versioned scoped surface; implementation is not yet released.',
+    readiness: 'available',
+    boundary: 'Nested versioned surface with explicit per-tab value and proposal grants.',
   },
   {
     id: 'webmcp',
@@ -137,6 +137,7 @@ export const AGENT_V3_TOOL_SCOPES = {
   proposeSqlCell: 'workspace:propose',
   proposeChart: 'workspace:propose',
   proposeQualityCheck: 'workspace:propose',
+  proposeCleaningStep: 'workspace:propose',
 } as const satisfies Record<string, AgentScope>;
 
 export const DEFERRED_AGENT_TOOLS = {
