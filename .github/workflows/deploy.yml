@@ -34,6 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Build identity uses `git describe`; tags and history are required.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:

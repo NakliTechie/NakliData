@@ -41,6 +41,18 @@ Append-only. Format per AGENTHANDOFF §5.
   production smoke remains the single first-visit welcome gate. All 68 E2E
   specs pass with the same two-worker configuration used by GitHub.
 
+### Decision FH-3 — CI fetches release history for build provenance
+
+- **Context.** The first recovery run cleared audit, build, check, and all unit
+  tests, then smoke rejected the header build identity `461aae8`. Local smoke
+  saw `v1.7.0-191-g461aae8`; GitHub's default one-commit checkout had neither
+  the release tags nor enough history for `git describe`.
+- **Decision.** Verify checks out complete tag/history metadata with
+  `fetch-depth: 0`. Do not weaken the smoke assertion to accept a bare hash:
+  the product promise is a release-relative, git-derived build identity.
+- **Consequence.** Local and GitHub builds derive the same version shape, and
+  the release-provenance smoke assertion remains meaningful.
+
 ## 2026-07-30 — Browser agent v3 release boundary (FG)
 
 ### Decision FG-1 — Browser API v3 available; experimental/planned adapters stay distinct
