@@ -2,6 +2,27 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-09 — Standards and ontology interoperability commitment (FI)
+
+### Decision FI-1 — queue standards profiles behind a canonical foundation
+
+- **Context.** NakliData already has a semantic taxonomy, portable semantic
+  model, data contracts, entity resolution, graph analytics, and observed
+  lineage. It does not yet implement compatible SHACL, SKOS, OWL, or PROV-O
+  artifacts, a standards-bounded reasoner, or cross-tool ontology conformance.
+- **Decision.** Commit a later standards release train covering a canonical
+  interchange foundation, SKOS vocabulary profile, SHACL constraint profile,
+  PROV-O provenance profile, bounded OWL profile, deterministic reasoning over
+  supported profiles, and an independent interoperability release matrix.
+  Imported mappings, constraints, axioms, and inferred facts remain reviewable
+  proposals. No product claim uses a standard or ontology-interoperability name
+  before that profile's conformance, round-trip, negative, and product gates.
+- **Consequence.** `plan/workplan.md` owns Batches S0–S6. `plan/pending.md` owns
+  P11 until the semantic model, relationships, data contracts, observed
+  lineage, stable identifiers, and bundle headroom satisfy S0's entry gate.
+  The current Iceberg, warehouse, cleaning, accessibility, resilience, and
+  release sequence retains priority.
+
 ## 2026-07-30 — Verify recovery and dependency advisory policy (FH)
 
 ### Decision FH-1 — patch the graph; do not weaken the advisory gate
