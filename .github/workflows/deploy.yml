@@ -49,6 +49,9 @@ jobs:
         # The smoke + e2e specs boot with ?offline=1 against those bytes.
         run: npm ci
 
+      - name: Install Compute Bridge dependencies
+        run: npm --prefix packages/compute-bridge ci
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
@@ -57,6 +60,18 @@ jobs:
         # High/critical production or development dependency findings fail the
         # build; the local offline workflow remains deterministic.
         run: npm audit --audit-level=high
+
+      - name: Compute Bridge advisory and SBOM gate
+        run: npm run bridge:audit
+
+      - name: Compute Bridge check
+        run: npm run bridge:check
+
+      - name: Compute Bridge Workers-runtime tests
+        run: npm run bridge:test
+
+      - name: Compute Bridge dry-run bundle
+        run: npm run bridge:build
 
       - name: Build
         # Build first so the bundle-size gate inside `npm run check` has a

@@ -9,7 +9,8 @@
 A single-HTML-shell tool that reads tabular data from your local disk, public
 HTTPS URLs, or S3-compatible storage and runs SQL with DuckDB-wasm in the
 browser tab. An advanced Compute Bridge client is available only when you bring
-your own compatible endpoint; NakliData does not ship a bridge server or branded
+your own compatible endpoint. The repository includes an unconfigured,
+fail-closed Cloudflare Worker foundation, but no deployed bridge or branded
 warehouse adapter. Public Iceberg table URLs are available; REST Catalog entry
 points remain disabled pending live catalog matrices. A versioned **semantic
 taxonomy** classifies your columns into types

@@ -1,8 +1,13 @@
 # NakliData Compute Bridge protocol
 
-Status: browser client and dependency-free vendor adapter reference cores are
-implemented; no bridge server, HTTP route layer, concrete Arrow converter,
-image, installer, or live connector ships in this repository.
+Status: the browser client, dependency-free vendor adapter reference cores, and
+an unconfigured Cloudflare Worker foundation are implemented. The Worker adds
+the HTTP route layer, concrete Arrow conversion, parsed SQL boundary, security
+prerequisites, limits, and credential-free conformance tests. No configured
+vendor adapter, deployed endpoint, installer, or live connector ships.
+
+The Worker package lives at [`../packages/compute-bridge`](../packages/compute-bridge/README.md).
+Its operational and security boundaries are documented beside the package.
 
 Protocol identity: `naklidata-compute-bridge`, version `2`.
 

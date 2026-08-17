@@ -1,0 +1,33 @@
+{
+  "name": "@naklidata/compute-bridge",
+  "version": "0.1.0",
+  "description": "Customer-deployed, read-only NakliData Compute Bridge.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "types": "wrangler types worker-configuration.d.ts --env-file .dev.vars.example",
+    "types:check": "wrangler types worker-configuration.d.ts --env-file .dev.vars.example --check",
+    "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",
+    "check": "npm run types:check && tsc --noEmit && biome check src test && node scripts/check-config.mjs",
+    "test": "vitest run",
+    "audit": "npm audit --audit-level=high",
+    "sbom": "npm sbom --sbom-format cyclonedx",
+    "sbom:check": "node scripts/check-sbom.mjs",
+    "startup": "wrangler check startup --env=\"\""
+  },
+  "dependencies": {
+    "apache-arrow": "17.0.0",
+    "node-sql-parser": "5.4.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@cloudflare/vitest-pool-workers": "0.21.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.123.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

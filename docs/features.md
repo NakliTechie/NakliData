@@ -41,7 +41,8 @@ no NakliData relay. CORS or signed-URL access still applies.
 - **Public Iceberg table** — mount an HTTPS metadata file or table directory.
   Reads stay browser-to-source and require CORS; no remote writes are issued.
 - **Advanced BYO Compute Bridge client** — use only with your own compatible
-  endpoint. NakliData ships no bridge server, image, installer, or branded
+  endpoint. The repository contains an unconfigured, fail-closed Cloudflare
+  Worker foundation; it ships no deployed endpoint, installer, or branded
   warehouse adapter. A bounded Arrow result is registered locally. Protocol:
   [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 

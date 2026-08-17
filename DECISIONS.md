@@ -2,6 +2,41 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Packaged Compute Bridge foundation (FL)
+
+### Decision FL-1 — package the bridge as an independent Cloudflare Worker
+
+- **Context.** The browser client and vendor state-machine reference cores had
+  no deployable HTTP route layer, concrete Arrow implementation, secret
+  boundary, or server lifecycle. A container image would add an operational
+  surface without a requirement for a process-resident runtime.
+- **Decision.** Add a separately installed and bundled
+  `packages/compute-bridge` Cloudflare Worker. Keep it outside the browser entry
+  graph. Version it independently with semantic versions. Generate binding
+  types from `wrangler.jsonc`. Supply secrets only through Worker bindings.
+  Disable persisted Cloudflare observability in checked-in configuration. Keep
+  every environment `unconfigured` until its vendor live matrix passes.
+- **Consequence.** The repository contains a credential-free bridge package
+  and CI gate without deploying it. The browser shell receives no bridge
+  dependency. Customers own their deployment, warehouse identity, secrets,
+  allowlist, monitoring choice, and rollback.
+
+### Decision FL-2 — make server readiness depend on security prerequisites
+
+- **Context.** Protocol conformance alone cannot prove that a warehouse
+  identity lacks write privileges, inventory is restricted, or cancellation
+  reaches a terminal downstream state.
+- **Decision.** Require every backend to declare read-only identity, object
+  allowlist, and downstream cancellation controls before any data route becomes
+  ready. Add an AST-based Snowflake allowlist and a conservative
+  Flink/Spark-family Databricks subset. Enforce exact bearer and CORS checks,
+  request/row/result/time ceilings, bounded Arrow IPC, generic errors, request
+  abort propagation, metadata-only audit events, configuration validation,
+  advisory scanning, and CycloneDX SBOM validation.
+- **Consequence.** Missing or false prerequisites fail closed. Declarations
+  remain untrusted deployment assertions until the Databricks or Snowflake live
+  matrix proves them. Neither branded card becomes available in Batch 6.
+
 ## 2026-08-18 — Checked-in Iceberg runtime and public table release (FK)
 
 ### Decision FK-1 — migrate the engine and release only the proven public path

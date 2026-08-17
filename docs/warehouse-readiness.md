@@ -49,19 +49,20 @@ credential lifetime, session-only handling, and current access gap are frozen
 in [`iceberg-live-fixture-envelope.md`](iceberg-live-fixture-envelope.md).
 
 Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
-separate packaged Compute Bridge concern. The browser contract is now hardened
-and exercised with credential-free vendor-shaped fixtures. Executable,
-dependency-free reference cores now cover the vendor state machines, including
-terminal cancellation and bounded result conversion boundaries, but they are
-not imported by the browser and supply no HTTP routes, concrete Arrow
-implementation, server package, image, installer, or secret store. Success on
-the reference cores, browser fixtures, or Iceberg REST path must not enable or
-imply a live bridge. See
+separate packaged Compute Bridge concern. The browser contract is hardened and
+exercised with credential-free vendor-shaped fixtures. Executable,
+dependency-free reference cores cover the vendor state machines. The
+`packages/compute-bridge` Cloudflare Worker now supplies protocol-v2 routes,
+concrete Arrow assembly/encoding, parsed SQL allowlisting, exact bearer/CORS
+boundaries, deadlines, disconnect propagation, readiness security assertions,
+and fail-closed configuration. It is not imported by the browser. It configures
+no vendor adapter or warehouse credential. Success on the package, browser
+fixtures, or Iceberg REST path must not enable or imply a live bridge. See
 [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 
-The next direct-warehouse checkpoint is packaging one core behind the exact
-Compute Bridge v2 routes with a reviewed Arrow implementation and process-level
-secret configuration. Databricks remains the preferred first live target
+The next direct-warehouse checkpoint is wiring one reference core into the
+Worker through an exact vendor factory and secret-binding contract. Databricks
+remains the preferred first live target
 because its Statement Execution API can return Arrow Stream chunks directly.
 Snowflake follows with a concrete JSONv2-to-Arrow encoder. Each package then
 needs a safe non-production workspace/account to prove authentication,

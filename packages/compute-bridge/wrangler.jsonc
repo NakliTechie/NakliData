@@ -1,0 +1,68 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "naklidata-compute-bridge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "enable_request_signal",
+    "request_signal_passthrough",
+    "disallow_eval_during_startup"
+  ],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "BRIDGE_NAME": "naklidata-compute-bridge",
+    "BRIDGE_VERSION": "0.1.0",
+    "BRIDGE_ADAPTER": "unconfigured",
+    "ALLOWED_ORIGINS": "http://localhost:5173",
+    "MAX_REQUEST_BYTES": "65536",
+    "MAX_RESULT_BYTES": "33554432",
+    "MAX_QUERY_MILLISECONDS": "30000"
+  },
+  "observability": {
+    "enabled": false,
+    "logs": {
+      "enabled": false,
+      "invocation_logs": false,
+      "head_sampling_rate": 0
+    },
+    "traces": {
+      "enabled": false,
+      "head_sampling_rate": 0
+    }
+  },
+  "env": {
+    "staging": {
+      "name": "naklidata-compute-bridge-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "BRIDGE_NAME": "naklidata-compute-bridge-staging",
+        "BRIDGE_VERSION": "0.1.0",
+        "BRIDGE_ADAPTER": "unconfigured",
+        "ALLOWED_ORIGINS": "",
+        "MAX_REQUEST_BYTES": "65536",
+        "MAX_RESULT_BYTES": "33554432",
+        "MAX_QUERY_MILLISECONDS": "30000"
+      },
+      "observability": {
+        "enabled": false
+      }
+    },
+    "production": {
+      "name": "naklidata-compute-bridge-production",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "BRIDGE_NAME": "naklidata-compute-bridge",
+        "BRIDGE_VERSION": "0.1.0",
+        "BRIDGE_ADAPTER": "unconfigured",
+        "ALLOWED_ORIGINS": "",
+        "MAX_REQUEST_BYTES": "65536",
+        "MAX_RESULT_BYTES": "33554432",
+        "MAX_QUERY_MILLISECONDS": "30000"
+      },
+      "observability": {
+        "enabled": false
+      }
+    }
+  }
+}
