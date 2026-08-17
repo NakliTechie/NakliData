@@ -2359,12 +2359,12 @@ live-tab server, companion runtime, generic chat, result narration, background
 polling, credentials, remote writes, or warehouse execution is implied.
 
 V3 proposal tools reuse canonical product state: `proposeSqlCell` aliases the
-v2 SQL proposal path, `proposeChart` uses chart inference/configuration, and
-`proposeQualityCheck` uses the portable tagged assertion core. Every proposal
+v2 SQL proposal path, `proposeChart` uses chart inference/configuration,
+`proposeQualityCheck` uses the portable tagged assertion core, and
+`proposeCleaningStep` accepts only current table-context suggestions. Every proposal
 is editable and explicitly un-run, returns a deterministic preview, affected
 objects, warnings, and the next human action, and is bounded to 64 KiB of
-proposal code. `proposeCleaningStep` remains unavailable until table-context
-cleaning batch N5 exists.
+proposal code.
 
 **Reasoning:** agent authority should be visible, revocable, and tied to the
 current tab—not silently inherited from a durable preference. Separating the
@@ -2374,8 +2374,7 @@ policy, while the no-execution boundary preserves human review.
 **Status:** adopted and shipped in the Browser API on 2026-07-30; workplan
 A0–A5 complete. DECISIONS FC–FG. See
 [`agent-surface-v3.md`](agent-surface-v3.md). WebMCP remains experimental,
-external MCP remains planned, and the cleaning proposal remains unavailable
-until N5.
+external MCP remains planned.
 
 ---
 

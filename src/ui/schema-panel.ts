@@ -4,7 +4,7 @@
 // Per column we show: name + SQL type + assigned semantic type + confidence
 // bar + expandable evidence + accept/override/define-new actions.
 
-import { getFixesFor } from '../core/cleaning/fix-cache.ts';
+import { getFixesFor, getTableFixesFor } from '../core/cleaning/fix-cache.ts';
 import { maskLabel } from '../core/demo-mode.ts';
 import type { ColumnProfile } from '../core/engine.ts';
 import { humanizeEvidence } from '../core/evidence-labels.ts';
@@ -284,11 +284,17 @@ function renderTableBlock(
 ): HTMLElement {
   const el = document.createElement('div');
   el.className = 'schema-table';
+  const prefix = assignmentKey(src.id, table.id, '');
+  const myKeys = Object.keys(state.assignments).filter((k) => k.startsWith(prefix));
+  const tableFixes = getTableFixesFor(prefix);
+  const columnFixCount = myKeys.reduce((count, key) => count + getFixesFor(key).length, 0);
+  const cleanCount = tableFixes.length + columnFixCount;
   el.innerHTML = `
     <div class="schema-table-header">
       <span aria-hidden="true">${iconSvg('table', 14)}</span>
       <strong>${escapeHtml(maskLabel('table', table.name))}</strong>
       <span class="schema-table-rowcount">${table.rowCount.toLocaleString()} rows</span>
+      ${renderTableCleaningSummary(src.id, table.id, myKeys, tableFixes, cleanCount)}
     </div>
     <ul class="schema-columns" role="list"></ul>
   `;
@@ -296,8 +302,6 @@ function renderTableBlock(
   // We rely on the controller to populate assignments per column. If we
   // don't yet have any assignments for this table, render a "classifying…"
   // placeholder.
-  const prefix = assignmentKey(src.id, table.id, '');
-  const myKeys = Object.keys(state.assignments).filter((k) => k.startsWith(prefix));
   if (myKeys.length === 0) {
     ul.innerHTML = `<li class="schema-pending">Classifying columns…</li>`;
     return el;
@@ -319,6 +323,56 @@ function renderTableBlock(
     );
   }
   return el;
+}
+
+function renderTableCleaningSummary(
+  sourceId: string,
+  tableId: string,
+  assignmentKeys: readonly string[],
+  tableFixes: ReturnType<typeof getTableFixesFor>,
+  count: number,
+): string {
+  if (count === 0) {
+    return '<span class="schema-clean-count" aria-label="No cleaning suggestions">Clean 0</span>';
+  }
+  const tableItems = tableFixes
+    .map(
+      (fix) => `<li>
+        <span class="schema-clean-scope">Table</span>
+        <button class="btn btn-ghost schema-fix" data-action="apply-table-fix"
+                data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}"
+                data-fix-id="${escapeHtml(fix.id)}" title="${escapeHtml(fix.rationale)}">
+          ${escapeHtml(fix.label)}
+        </button>
+        ${renderFixPreview(fix)}
+      </li>`,
+    )
+    .join('');
+  const columnItems = assignmentKeys
+    .flatMap((key) => {
+      const column = key.slice(key.lastIndexOf('::') + 2);
+      return getFixesFor(key).map(
+        (fix) => `<li>
+          <span class="schema-clean-scope">${escapeHtml(column)}</span>
+          <button class="btn btn-ghost schema-fix" data-action="apply-fix"
+                  data-source-id="${escapeHtml(sourceId)}" data-table-id="${escapeHtml(tableId)}"
+                  data-column="${escapeHtml(column)}" data-fix-id="${escapeHtml(fix.id)}"
+                  title="${escapeHtml(fix.rationale)}">
+            ${escapeHtml(fix.label)}
+          </button>
+          ${renderFixPreview(fix)}
+        </li>`,
+      );
+    })
+    .join('');
+  return `<details class="schema-clean-summary">
+    <summary class="btn btn-ghost" aria-label="Show ${count} cleaning suggestions">Clean ${count}</summary>
+    <div class="schema-clean-popover">
+      <strong>Cleaning suggestions</strong>
+      <p>Each choice adds an editable, un-run SQL cell.</p>
+      <ul>${tableItems}${columnItems}</ul>
+    </div>
+  </details>`;
 }
 
 function renderColumnRow(
@@ -729,6 +783,55 @@ const SCHEMA_CSS = `
   font-weight: 400;
   color: var(--text-muted);
   font-size: 11px;
+}
+.schema-clean-count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.schema-clean-summary {
+  position: relative;
+}
+.schema-clean-summary > summary {
+  list-style: none;
+  min-height: 28px;
+}
+.schema-clean-summary > summary::-webkit-details-marker { display: none; }
+.schema-clean-popover {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  width: min(320px, calc(100vw - 48px));
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+.schema-clean-popover p {
+  margin: 4px 0 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.schema-clean-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.schema-clean-popover li {
+  display: grid;
+  grid-template-columns: minmax(68px, auto) 1fr;
+  align-items: start;
+  gap: 4px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+}
+.schema-clean-scope {
+  padding-top: 6px;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 .schema-columns {
   list-style: none;

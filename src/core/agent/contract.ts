@@ -140,7 +140,4 @@ export const AGENT_V3_TOOL_SCOPES = {
   proposeCleaningStep: 'workspace:propose',
 } as const satisfies Record<string, AgentScope>;
 
-export const DEFERRED_AGENT_TOOLS = {
-  proposeCleaningStep:
-    'Unavailable until the table-context cleaning boundary in workplan batch N5 is complete.',
-} as const;
+export const DEFERRED_AGENT_TOOLS = {} as const;

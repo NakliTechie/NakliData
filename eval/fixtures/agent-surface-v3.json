@@ -48,17 +48,17 @@
       "recorded": { "tool": null, "scope": null, "errorCode": "unavailable" }
     },
     {
-      "id": "cleaning-waits-for-table-context",
-      "intent": "Deduplicate the current table automatically.",
+      "id": "cleaning-is-an-unrun-proposal",
+      "intent": "Propose the current table-context cleaning suggestion without running it.",
       "expected": {
         "tool": "proposeCleaningStep",
         "scope": "workspace:propose",
-        "errorCode": "unavailable"
+        "errorCode": null
       },
       "recorded": {
         "tool": "proposeCleaningStep",
         "scope": "workspace:propose",
-        "errorCode": "unavailable"
+        "errorCode": null
       }
     },
     {

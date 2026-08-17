@@ -54,7 +54,7 @@ function registeredTool(defs: WebMcpToolDef[], name: string): WebMcpToolDef {
 }
 
 describe('registerWithWebMcp', () => {
-  it('asynchronously registers eleven v3 tools and no execution tool in WebMCP shape', async () => {
+  it('asynchronously registers twelve v3 tools and no execution tool in WebMCP shape', async () => {
     const m = mockRoot();
     const reg = await registerWithWebMcp(m.root, deps, {
       exposedTo: ['https://naklidata.example'],
@@ -72,6 +72,7 @@ describe('registerWithWebMcp', () => {
         'proposeSqlCell',
         'proposeChart',
         'proposeQualityCheck',
+        'proposeCleaningStep',
       ].sort(),
     );
     expect(reg.registered.some((name) => /run|execute/i.test(name))).toBe(false);
@@ -85,7 +86,7 @@ describe('registerWithWebMcp', () => {
       expect(def.annotations).not.toHaveProperty('gated');
       expect(typeof def.execute).toBe('function');
     }
-    expect(m.options).toHaveLength(11);
+    expect(m.options).toHaveLength(12);
     expect(m.options.every((options) => options.signal === reg.signal)).toBe(true);
     expect(
       m.options.every((options) => options.exposedTo?.[0] === 'https://naklidata.example'),

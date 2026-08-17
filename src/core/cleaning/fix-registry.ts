@@ -101,6 +101,17 @@ export interface SuggestOptions {
   impactFloor?: number;
 }
 
+export interface TableFixFacts {
+  table: string;
+  columns: readonly ColumnFacts[];
+  /** Association participation is conservatively treated as foreign-key risk. */
+  associatedColumns: readonly string[];
+}
+
+export interface SuggestedTableFix extends SuggestedFix {
+  columns: string[];
+}
+
 const DEFAULT_IMPACT_FLOOR = 0.01;
 
 /** Text-ish columns are the only ones most string fixes make sense on. */
@@ -468,6 +479,202 @@ export function suggestFixes(facts: ColumnFacts, opts: SuggestOptions = {}): Sug
     out.push({ id: def.id, label: def.label, ...ev, sql: def.emit(facts, ev), preview });
   }
   return out.sort((a, b) => b.fraction - a.fraction);
+}
+
+/**
+ * Pure table-context cleaning boundary. Every emitted query is additive or a
+ * read-only row projection. No detector executes SQL or mutates source state.
+ */
+export function suggestTableFixes(facts: TableFixFacts): SuggestedTableFix[] {
+  const suggestions: SuggestedTableFix[] = [];
+  const associated = new Set(facts.associatedColumns);
+  const grainCandidates = facts.columns.filter(
+    (column) =>
+      column.roleFamily === 'entity' &&
+      isTableGrainName(facts.table, column.column) &&
+      !associated.has(column.column),
+  );
+  if (grainCandidates.length === 1) {
+    const key = grainCandidates[0];
+    if (
+      key &&
+      key.sampledRows !== null &&
+      key.distinctCount !== null &&
+      key.sampledRows > 0 &&
+      key.distinctCount < key.sampledRows
+    ) {
+      const duplicates = key.sampledRows - key.distinctCount;
+      const fraction = duplicates / key.sampledRows;
+      suggestions.push({
+        id: 'dedupe-exact-rows',
+        label: 'Remove exact duplicate rows',
+        columns: [key.column],
+        affected: duplicates,
+        fraction,
+        rationale: `${key.column} is the single table-grain candidate and repeats in ${duplicates} of ${key.sampledRows} sampled rows. DISTINCT removes only byte-for-byte duplicate rows; differing records with the same key remain for review.`,
+        sql: `-- Remove exact duplicate rows; records that differ in any column remain.\nSELECT DISTINCT *\nFROM ${quoteIdent(facts.table)}`,
+        preview: [
+          {
+            before: `${key.sampledRows} sampled rows; ${key.distinctCount} distinct ${key.column} values`,
+            after: 'Only rows identical across every column collapse',
+          },
+        ],
+      });
+    }
+  }
+
+  for (const group of sameSemanticTypePairs(facts.columns)) {
+    const [left, right] = group;
+    if (!left || !right || left.roleFamily === 'entity' || right.roleFamily === 'entity') continue;
+    if ((left.nullCount ?? 0) + (right.nullCount ?? 0) === 0) continue;
+    const [primary, secondary] =
+      compareNullBurden(left, right) <= 0 ? [left, right] : [right, left];
+    const output = uniqueOutputName(
+      `merged_${portableIdentifier(primary.typeId ?? primary.column)}`,
+      facts.columns,
+    );
+    const collision = uniqueOutputName(`${output}_collision`, facts.columns, [output]);
+    const p = quoteIdent(primary.column);
+    const s = quoteIdent(secondary.column);
+    suggestions.push({
+      id: `merge-columns:${primary.column}:${secondary.column}`,
+      label: `Merge ${primary.column} + ${secondary.column}`,
+      columns: [primary.column, secondary.column],
+      affected: (primary.nullCount ?? 0) + (secondary.nullCount ?? 0),
+      fraction: Math.min(1, nullFraction(primary) + nullFraction(secondary)),
+      rationale: `Both columns classify as ${primary.typeId}. ${primary.column} has precedence, NULL falls back to ${secondary.column}, and conflicting non-NULL values are flagged in ${collision}. Original columns stay present.`,
+      sql: `-- Add a merged column with explicit precedence; preserve both inputs and flag conflicts.\nSELECT *,\n  COALESCE(${p}, ${s}) AS ${quoteIdent(output)},\n  (${p} IS NOT NULL AND ${s} IS NOT NULL AND ${p} IS DISTINCT FROM ${s}) AS ${quoteIdent(collision)}\nFROM ${quoteIdent(facts.table)}`,
+      preview: [
+        {
+          before: `${primary.column} | ${secondary.column}`,
+          after: `${output} = first non-NULL; ${collision} marks disagreements`,
+        },
+      ],
+    });
+  }
+
+  for (const group of unpivotGroups(facts.columns)) {
+    const period = uniqueOutputName('period', facts.columns);
+    const value = uniqueOutputName(portableIdentifier(group.base) || 'value', facts.columns, [
+      period,
+    ]);
+    const columns = group.columns.map((column) => column.column);
+    suggestions.push({
+      id: `unpivot:${group.base}`,
+      label: `Unpivot ${group.base} columns`,
+      columns,
+      affected: columns.length,
+      fraction: 1,
+      rationale: `${columns.length} compatible year-labelled columns share the "${group.base}" stem. Unpivot preserves every other identifier column and adds deterministic ${period}/${value} outputs.`,
+      sql: `-- Melt year columns into a long table; all unlisted identifier columns are preserved.\nUNPIVOT ${quoteIdent(facts.table)}\nON ${columns.map(quoteIdent).join(', ')}\nINTO\n  NAME ${quoteIdent(period)}\n  VALUE ${quoteIdent(value)}`,
+      preview: [
+        {
+          before: columns.join(' | '),
+          after: `${period} | ${value} (${columns.length} rows per input row)`,
+        },
+      ],
+    });
+  }
+
+  return suggestions.sort((left, right) =>
+    `${left.id}:${left.columns.join(':')}`.localeCompare(`${right.id}:${right.columns.join(':')}`),
+  );
+}
+
+function isTableGrainName(table: string, column: string): boolean {
+  const normalizedTable = portableIdentifier(table);
+  const singular = normalizedTable.endsWith('ies')
+    ? `${normalizedTable.slice(0, -3)}y`
+    : normalizedTable.endsWith('s')
+      ? normalizedTable.slice(0, -1)
+      : normalizedTable;
+  const normalizedColumn = portableIdentifier(column);
+  return (
+    normalizedColumn === 'id' ||
+    normalizedColumn === `${singular}_id` ||
+    normalizedColumn === `${singular}id`
+  );
+}
+
+function sameSemanticTypePairs(columns: readonly ColumnFacts[]): ColumnFacts[][] {
+  const groups = new Map<string, ColumnFacts[]>();
+  for (const column of columns) {
+    if (!column.typeId) continue;
+    const current = groups.get(column.typeId) ?? [];
+    current.push(column);
+    groups.set(column.typeId, current);
+  }
+  return [...groups.values()].filter(
+    (group) =>
+      group.length === 2 &&
+      new Set(group.map((column) => column.column.toLowerCase())).size === group.length,
+  );
+}
+
+function compareNullBurden(left: ColumnFacts, right: ColumnFacts): number {
+  const delta = nullFraction(left) - nullFraction(right);
+  return delta === 0 ? left.column.localeCompare(right.column) : delta;
+}
+
+function nullFraction(column: ColumnFacts): number {
+  return column.sampledRows && column.nullCount ? column.nullCount / column.sampledRows : 0;
+}
+
+function unpivotGroups(
+  columns: readonly ColumnFacts[],
+): Array<{ base: string; columns: ColumnFacts[] }> {
+  const groups = new Map<string, ColumnFacts[]>();
+  for (const column of columns) {
+    const match = /^(.*?)[_-]?((?:19|20)\d{2})$/.exec(column.column);
+    const base = match?.[1]?.replace(/[_-]+$/, '') ?? '';
+    if (!base) continue;
+    const key = `${base.toLowerCase()}::${sqlTypeFamily(column.sqlType)}`;
+    const current = groups.get(key) ?? [];
+    current.push(column);
+    groups.set(key, current);
+  }
+  return [...groups.entries()]
+    .filter(
+      ([, group]) =>
+        group.length >= 2 &&
+        new Set(group.map((column) => column.column.toLowerCase())).size === group.length,
+    )
+    .map(([key, group]) => ({
+      base: key.slice(0, key.indexOf('::')),
+      columns: group.sort((left, right) => left.column.localeCompare(right.column)),
+    }));
+}
+
+function sqlTypeFamily(sqlType: string): string {
+  const type = sqlType.toUpperCase();
+  if (/(?:INT|DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL)/.test(type)) return 'numeric';
+  if (/(?:CHAR|TEXT|STRING|VARCHAR)/.test(type)) return 'text';
+  if (/(?:DATE|TIME)/.test(type)) return 'temporal';
+  return type;
+}
+
+function uniqueOutputName(
+  candidate: string,
+  columns: readonly ColumnFacts[],
+  reserved: readonly string[] = [],
+): string {
+  const occupied = new Set(
+    [...columns.map((column) => column.column), ...reserved].map((value) => value.toLowerCase()),
+  );
+  let output = candidate || 'cleaned_value';
+  let suffix = 2;
+  while (occupied.has(output.toLowerCase())) output = `${candidate}_${suffix++}`;
+  return output;
+}
+
+function portableIdentifier(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/^[0-9]/, '_$&')
+    .slice(0, 48);
 }
 
 /** The ids this build knows about — lets a caller (or a test) assert coverage

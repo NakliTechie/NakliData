@@ -76,6 +76,18 @@ const deps = {
     nodes: [{ id: 's1', kind: 'source', label: 'orders' }],
     edges: [],
   }),
+  getCleaningSuggestions: () => [
+    {
+      id: 'unpivot:revenue',
+      label: 'Unpivot revenue columns',
+      columns: ['revenue_2023', 'revenue_2024'],
+      affected: 2,
+      fraction: 1,
+      rationale: 'Two compatible year columns share one stem.',
+      sql: 'UNPIVOT "orders" ON "revenue_2023", "revenue_2024" INTO NAME "period" VALUE "revenue"',
+      preview: [{ before: 'revenue_2023 | revenue_2024', after: 'period | revenue' }],
+    },
+  ],
   validateArtifact: async (kind: 'naklidata') => ({
     kind,
     valid: true,
@@ -94,7 +106,7 @@ describe('lazy v3 agent runtime', () => {
     _primeChunkForTests('data-quality', dataQualityChunk);
   });
 
-  it('publishes eleven read/proposal tools, defers cleaning, and exposes no execution tool', () => {
+  it('publishes twelve read/proposal tools and exposes no execution tool', () => {
     const names = catalogueV3(deps).map((tool) => tool.name);
     expect(names).toEqual([
       'describe',
@@ -108,6 +120,7 @@ describe('lazy v3 agent runtime', () => {
       'proposeSqlCell',
       'proposeChart',
       'proposeQualityCheck',
+      'proposeCleaningStep',
     ]);
     expect(names.some((name) => /run|execute/i.test(name))).toBe(false);
   });
@@ -172,6 +185,33 @@ describe('lazy v3 agent runtime', () => {
     expect(cells).toMatchObject([
       { kind: 'sql', code: 'SELECT * FROM orders', status: 'idle', lastResult: null },
       { kind: 'sql', code: 'SELECT amount FROM orders', status: 'idle', lastResult: null },
+    ]);
+    expect(runCalls).toBe(0);
+  });
+
+  it('adds a cached table-context cleaning proposal without executing it', async () => {
+    setAgentGrant(deps, 'workspace:propose', true);
+    await expect(
+      dispatchV3(deps, 'proposeCleaningStep', {
+        sourceId: 'source-1',
+        tableId: 'table-1',
+        suggestionId: 'unpivot:revenue',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      data: {
+        proposalType: 'cleaning-step',
+        createdCell: { kind: 'sql', status: 'un-run' },
+        preview: { suggestionId: 'unpivot:revenue' },
+      },
+    });
+    expect(cells).toMatchObject([
+      {
+        kind: 'sql',
+        status: 'idle',
+        lastResult: null,
+        code: expect.stringContaining('UNPIVOT'),
+      },
     ]);
     expect(runCalls).toBe(0);
   });

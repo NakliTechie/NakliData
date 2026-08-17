@@ -4,7 +4,12 @@
 // suggested below the impact floor, and the result is ranked by impact.
 
 import { describe, expect, it } from 'vitest';
-import { type ColumnFacts, knownFixIds, suggestFixes } from '../src/core/cleaning/fix-registry.ts';
+import {
+  type ColumnFacts,
+  knownFixIds,
+  suggestFixes,
+  suggestTableFixes,
+} from '../src/core/cleaning/fix-registry.ts';
 
 const facts = (over: Partial<ColumnFacts> = {}): ColumnFacts => ({
   table: 'orders',
@@ -354,5 +359,122 @@ describe('registry contract (what later chunks plug into)', () => {
   it('is pure — the same facts give the same answer', () => {
     const f = facts({ sampleValues: [' a', 'b'] });
     expect(suggestFixes(f)).toEqual(suggestFixes(f));
+  });
+});
+
+describe('table-context cleaning boundary', () => {
+  it('offers exact-row dedupe only for one unassociated table-grain key', () => {
+    const orderId = facts({
+      table: 'orders',
+      column: 'order_id',
+      typeId: 'order_id',
+      roleFamily: 'entity',
+      sampledRows: 4,
+      distinctCount: 3,
+      sampleValues: ['1', '1', '2', '3'],
+    });
+    const suggested = suggestTableFixes({
+      table: 'orders',
+      columns: [orderId, facts({ table: 'orders', column: 'amount', sqlType: 'DOUBLE' })],
+      associatedColumns: [],
+    });
+    const dedupe = suggested.find((fix) => fix.id === 'dedupe-exact-rows');
+    expect(dedupe?.sql).toBe(
+      '-- Remove exact duplicate rows; records that differ in any column remain.\nSELECT DISTINCT *\nFROM "orders"',
+    );
+    expect(dedupe?.preview[0]?.after).toMatch(/identical across every column/i);
+
+    expect(
+      suggestTableFixes({
+        table: 'orders',
+        columns: [orderId],
+        associatedColumns: ['order_id'],
+      }).map((fix) => fix.id),
+    ).not.toContain('dedupe-exact-rows');
+    expect(
+      suggestTableFixes({
+        table: 'orders',
+        columns: [orderId, facts({ ...orderId, column: 'id' })],
+        associatedColumns: [],
+      }).map((fix) => fix.id),
+    ).not.toContain('dedupe-exact-rows');
+  });
+
+  it('merges equivalent columns additively with precedence, null fallback, and collision flag', () => {
+    const fixes = suggestTableFixes({
+      table: 'customer"records',
+      columns: [
+        facts({
+          table: 'customer"records',
+          column: 'customer_name',
+          typeId: 'customer_name',
+          roleFamily: 'dimension',
+          sampledRows: 100,
+          nullCount: 2,
+        }),
+        facts({
+          table: 'customer"records',
+          column: 'legacy_name',
+          typeId: 'customer_name',
+          roleFamily: 'dimension',
+          sampledRows: 100,
+          nullCount: 20,
+        }),
+      ],
+      associatedColumns: [],
+    });
+    const merge = fixes.find((fix) => fix.id.startsWith('merge-columns:'));
+    expect(merge?.sql).toContain('COALESCE("customer_name", "legacy_name")');
+    expect(merge?.sql).toContain('IS DISTINCT FROM');
+    expect(merge?.sql).toContain('SELECT *,');
+    expect(merge?.sql).toContain('FROM "customer""records"');
+    expect(merge?.rationale).toMatch(/precedence.*NULL falls back.*flagged/i);
+  });
+
+  it('un-pivots compatible year columns while preserving other columns', () => {
+    const fixes = suggestTableFixes({
+      table: 'sales',
+      columns: [
+        facts({ table: 'sales', column: 'store_id', roleFamily: 'entity' }),
+        facts({ table: 'sales', column: 'revenue_2023', sqlType: 'DOUBLE' }),
+        facts({ table: 'sales', column: 'revenue_2024', sqlType: 'DECIMAL(12,2)' }),
+      ],
+      associatedColumns: [],
+    });
+    const unpivot = fixes.find((fix) => fix.id === 'unpivot:revenue');
+    expect(unpivot?.sql).toContain('UNPIVOT "sales"');
+    expect(unpivot?.sql).toContain('ON "revenue_2023", "revenue_2024"');
+    expect(unpivot?.sql).toContain('NAME "period"');
+    expect(unpivot?.sql).toContain('VALUE "revenue"');
+    expect(unpivot?.rationale).toMatch(/preserves every other identifier/i);
+  });
+
+  it('rejects mixed-type and duplicate-header unpivot groups', () => {
+    const base = [
+      facts({ column: 'revenue_2023', sqlType: 'DOUBLE' }),
+      facts({ column: 'revenue_2024', sqlType: 'VARCHAR' }),
+    ];
+    expect(
+      suggestTableFixes({ table: 'sales', columns: base, associatedColumns: [] }).map(
+        (fix) => fix.id,
+      ),
+    ).not.toContain('unpivot:revenue');
+    expect(
+      suggestTableFixes({
+        table: 'sales',
+        columns: [base[0] as ColumnFacts, base[0] as ColumnFacts],
+        associatedColumns: [],
+      }).map((fix) => fix.id),
+    ).not.toContain('unpivot:revenue');
+    expect(
+      suggestTableFixes({
+        table: 'sales',
+        columns: [
+          facts({ column: 'Revenue_2023', sqlType: 'DOUBLE' }),
+          facts({ column: 'revenue_2023', sqlType: 'DOUBLE' }),
+        ],
+        associatedColumns: [],
+      }).map((fix) => fix.id),
+    ).not.toContain('unpivot:revenue');
   });
 });

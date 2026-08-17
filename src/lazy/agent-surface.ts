@@ -33,6 +33,7 @@ import {
   type AgentArtifactKind,
   type AgentArtifactValidation,
   type AgentChartProposalInput,
+  type AgentCleaningProposalInput,
   type AgentProposalResult,
   type AgentV3Host,
   type AgentV3Tool,
@@ -55,6 +56,7 @@ import { AgentPermissionError, type AgentRequest, AgentSession } from '../core/a
 import { validateAgentValueProjection, validateReadOnlySql } from '../core/agent/sql-validator.ts';
 import { validateChartConfig } from '../core/chart-config.ts';
 import { inferChartBindings, inferFieldClass } from '../core/chart-shelves.ts';
+import type { SuggestedTableFix } from '../core/cleaning/fix-registry.ts';
 import type { Engine } from '../core/engine.ts';
 import { loadChunk } from '../core/lazy-loader.ts';
 import type { LineageGraph } from '../core/lineage-store.ts';
@@ -99,6 +101,7 @@ export interface AgentSurfaceDeps {
   /** Live read of the shell's taxonomy bundle (injected). */
   getBundle: () => TaxonomyBundle | null;
   getLineageGraph: () => LineageGraph;
+  getCleaningSuggestions: (sourceId: string, tableId: string) => SuggestedTableFix[];
   /** Test seam for the artifact validators. Production uses the lazy validators
    * below so their orchestration does not consume shell bytes. */
   validateArtifact?: (
@@ -441,6 +444,7 @@ function createAgentV3Host(deps: AgentSurfaceDeps): AgentV3Host {
     },
     proposeChart: (input, signal) => proposeChart(deps, input, signal),
     proposeQualityCheck: (check, signal) => proposeQualityCheck(deps, check, signal),
+    proposeCleaningStep: (input, signal) => proposeCleaningStep(deps, input, signal),
   };
 }
 
@@ -536,6 +540,54 @@ async function proposeQualityCheck(
     warnings: ['The assertion is editable and has not been run.'],
     editable: true,
     humanAction: 'Review the tagged assertion, then click Run on the new assertion cell.',
+  };
+}
+
+async function proposeCleaningStep(
+  deps: AgentSurfaceDeps,
+  input: AgentCleaningProposalInput,
+  signal: AbortSignal,
+): Promise<AgentProposalResult> {
+  const owner = deps
+    .getWorkbookState()
+    .sources.find((source) => source.id === input.sourceId)
+    ?.tables.find((table) => table.id === input.tableId);
+  if (!owner) {
+    throw new Error('Invalid cleaning-step ownership: sourceId and tableId must name one table.');
+  }
+  const suggestion = deps
+    .getCleaningSuggestions(input.sourceId, input.tableId)
+    .find((candidate) => candidate.id === input.suggestionId);
+  if (!suggestion) {
+    throw new Error(
+      'Invalid cleaning suggestion: suggestionId must name a current table-context suggestion.',
+    );
+  }
+  abortIfNeeded(signal);
+  const cell = deps.notebook.addCell('sql');
+  deps.notebook.patchCell(cell.id, {
+    name: `clean_${suggestion.id.split(':')[0] ?? 'table'}`.slice(0, 40),
+    code: suggestion.sql,
+  });
+  return {
+    proposalType: 'cleaning-step',
+    createdCell: { id: cell.id, kind: 'sql', status: 'un-run' },
+    preview: {
+      suggestionId: suggestion.id,
+      label: suggestion.label,
+      rationale: suggestion.rationale,
+      columns: suggestion.columns,
+      rows: suggestion.preview,
+      sql: suggestion.sql,
+    },
+    affectedObjects: [
+      { kind: 'source', id: input.sourceId, label: input.sourceId },
+      { kind: 'table', id: input.tableId, label: owner.name },
+      { kind: 'cell', id: cell.id, label: suggestion.label },
+    ],
+    warnings: ['The cleaning SQL is editable and has not been run.'],
+    editable: true,
+    humanAction: 'Review the preview and SQL, then click Run on the new cell.',
   };
 }
 

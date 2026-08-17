@@ -149,6 +149,11 @@ Every SQL result carries one-click actions:
   `naklidata-data-contract` JSON artifact. “Expectation” (Databricks) and
   “DMF / expectation” (Snowflake) are aliases only; no monitoring, scheduling,
   enforcement, or lossy vendor export is implied.
+- **Cleaning suggestions** — every table reports a `Clean N` roll-up over
+  previewable column and table proposals. Table-context advice covers
+  exact-row dedupe with conservative grain evidence, additive merge-columns
+  with precedence and collision flags, and compatible year-column unpivot.
+  Every action creates editable, un-run SQL and preserves source data.
 - **Presentation mode** — `?present=1` hides editing surfaces; markdown / chart /
   pivot / map keep rendering.
 
@@ -157,8 +162,8 @@ Every SQL result carries one-click actions:
 The taxonomy is what makes NakliData feel different — it knows what your columns
 *mean*, not just their SQL types.
 
-- **Auto-classify** runs in a Web Worker against `taxonomy/v0.1` (204 semantic
-  types: GSTIN, HSN, IFSC, PAN, ISO currency, email, vendor name, timestamp, log
+- **Auto-classify** runs in a Web Worker against the current generated
+  `taxonomy/v0.1` registry (GSTIN, HSN, IFSC, PAN, ISO currency, email, vendor name, timestamp, log
   level, `event_name` / `user_id` / `utm_*`, …). Confidence scores + evidence
   shown; auto-accept threshold is configurable.
 - **Sensitivity badges** — each type carries `public` / `pii` / `financial` /

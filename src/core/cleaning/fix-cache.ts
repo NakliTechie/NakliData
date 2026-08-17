@@ -12,10 +12,11 @@
 //
 // Engine-boundary clean — a Map and three functions, no DOM/engine/globals.
 
-import type { SuggestedFix } from './fix-registry.ts';
+import type { SuggestedFix, SuggestedTableFix } from './fix-registry.ts';
 
 /** assignmentKey (`sourceId::tableId::columnName`) → ranked fixes. */
 const _fixes = new Map<string, SuggestedFix[]>();
+const _tableFixes = new Map<string, SuggestedTableFix[]>();
 
 /** Park the fixes for one column. An empty array is stored as "computed, and
  *  this column is clean" — distinct from "not computed yet" (undefined). */
@@ -28,10 +29,19 @@ export function getFixesFor(key: string): SuggestedFix[] {
   return _fixes.get(key) ?? [];
 }
 
+export function setTableFixesFor(key: string, fixes: SuggestedTableFix[]): void {
+  _tableFixes.set(key, fixes);
+}
+
+export function getTableFixesFor(key: string): SuggestedTableFix[] {
+  return _tableFixes.get(key) ?? [];
+}
+
 /** Drop everything — call on session switch / workbook clear so one workbook's
  *  advice never leaks into the next. */
 export function clearFixes(): void {
   _fixes.clear();
+  _tableFixes.clear();
 }
 
 /** Drop one source's entries (keys are prefixed `sourceId::`). Used when a
@@ -41,10 +51,12 @@ export function clearFixesForSource(sourceId: string): void {
   for (const k of [..._fixes.keys()]) {
     if (k.startsWith(prefix)) _fixes.delete(k);
   }
+  for (const k of [..._tableFixes.keys()]) {
+    if (k.startsWith(prefix)) _tableFixes.delete(k);
+  }
 }
 
-/** Total columns currently carrying at least one suggestion — the number a
- *  future roll-up panel (EJ-2) would headline. */
+/** Total columns currently carrying at least one suggestion. */
 export function columnsWithFixes(): number {
   let n = 0;
   for (const v of _fixes.values()) {

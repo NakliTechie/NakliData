@@ -21,6 +21,7 @@ import type { Notebook } from './notebook.ts';
 export interface AgentBridgeDeps {
   engine: Engine;
   notebook: Notebook;
+  getCleaningSuggestions?: AgentSurfaceDeps['getCleaningSuggestions'];
 }
 
 let _workspaceEpoch = 0;
@@ -110,6 +111,7 @@ function buildAgentDeps(deps: AgentBridgeDeps): AgentSurfaceDeps {
     getWorkbookState: () => getWorkbook().get(),
     getBundle: () => getTaxonomyClient().getBundle(),
     getLineageGraph: () => getLineageStore().toJSON(),
+    getCleaningSuggestions: deps.getCleaningSuggestions ?? (() => []),
   };
 }
 

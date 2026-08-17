@@ -13,6 +13,9 @@ export {
   type ColumnFacts,
   type FixPreviewRow,
   type SuggestedFix,
+  type SuggestedTableFix,
+  type TableFixFacts,
   knownFixIds,
   suggestFixes,
+  suggestTableFixes,
 } from '../core/cleaning/fix-registry.ts';

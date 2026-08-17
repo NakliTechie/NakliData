@@ -117,7 +117,7 @@ async function main() {
   // mount-by-URL path without shipping a fixture to production.
   await writeFile(
     join(ROOT, '__smoke_dirty.csv'),
-    'city,note\n  Mumbai,ok\nDelhi  ,ok\nPune,ok\n  Kochi ,ok\n',
+    'city,note,revenue_2023,revenue_2024\n  Mumbai,ok,10,12\nDelhi  ,ok,20,21\nPune,ok,30,32\n  Kochi ,ok,40,43\n',
     'utf8',
   );
   // KAG-01 regression: valid Latin-1 bytes from an ordinary origin with no
@@ -493,16 +493,21 @@ async function main() {
   // sprouts advice on every column would be invisible without this check.
   // Then force a dirty column through the real registry + real click path and
   // assert EJ-1: it emits an UN-RUN cell, and never a mutation.
-  const cleanPanel = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-action="apply-fix"]')].map((b) => ({
-      col: b.dataset.column,
-      fix: b.dataset.fixId,
-      why: (b.getAttribute('title') || '').slice(0, 120),
-    })),
-  );
-  if (cleanPanel.length !== 0) {
+  const cleanPanel = await page.evaluate(() => ({
+    fixes: [...document.querySelectorAll('[data-action="apply-fix"], [data-action="apply-table-fix"]')].map(
+      (b) => ({
+        col: b.dataset.column,
+        fix: b.dataset.fixId,
+        why: (b.getAttribute('title') || '').slice(0, 120),
+      }),
+    ),
+    counts: [...document.querySelectorAll('.schema-clean-count')].map((el) =>
+      (el.textContent || '').trim(),
+    ),
+  }));
+  if (cleanPanel.fixes.length !== 0 || cleanPanel.counts.some((count) => count !== 'Clean 0')) {
     fail(
-      `cleaning: a clean fixture showed ${cleanPanel.length} fix affordance(s) — EJ-3 says none: ${JSON.stringify(cleanPanel)}`,
+      `cleaning: clean fixture roll-up regressed — EJ-3 says Clean 0 with no actions: ${JSON.stringify(cleanPanel)}`,
     );
   }
   // Now the dirty path, driven for real: mount a CSV whose values carry
@@ -526,15 +531,37 @@ async function main() {
     timeout: 60000,
   });
   // Wait for the suggestion to appear (classification is async).
-  await page.waitForSelector('[data-action="apply-fix"][data-fix-id="trim"]', { timeout: 60000 });
+  await page.waitForSelector('.schema-column [data-action="apply-fix"][data-fix-id="trim"]', {
+    timeout: 60000,
+    state: 'attached',
+  });
   const suggestion = await page.evaluate(() => {
-    const b = document.querySelector('[data-action="apply-fix"][data-fix-id="trim"]');
-    return { label: (b.textContent || '').trim(), title: b.getAttribute('title') || '' };
+    const b = document.querySelector(
+      '.schema-column [data-action="apply-fix"][data-fix-id="trim"]',
+    );
+    const summary = b?.closest('.schema-table')?.querySelector('.schema-clean-summary');
+    if (summary instanceof HTMLDetailsElement) summary.open = true;
+    return {
+      label: (b?.textContent || '').trim(),
+      title: b?.getAttribute('title') || '',
+      count: (summary?.querySelector('summary')?.textContent || '').trim(),
+      grouped: Boolean(summary?.querySelector('[data-action="apply-fix"][data-fix-id="trim"]')),
+      copy: (summary?.querySelector('p')?.textContent || '').trim(),
+    };
   });
   if (!/whitespace/i.test(suggestion.title)) {
     fail(`cleaning: fix has no rationale in its tooltip (${suggestion.title})`);
   }
-  await page.click('[data-action="apply-fix"][data-fix-id="trim"]');
+  if (!/^Clean [1-9]\d*$/.test(suggestion.count) || !suggestion.grouped || !/editable, un-run/i.test(suggestion.copy)) {
+    fail(`cleaning: table roll-up did not expose grouped suggestions: ${JSON.stringify(suggestion)}`);
+  }
+  await page.evaluate(() => {
+    const button = document.querySelector(
+      '.schema-clean-summary [data-action="apply-fix"][data-fix-id="trim"]',
+    );
+    if (!(button instanceof HTMLElement)) throw new Error('Grouped trim action missing.');
+    button.click();
+  });
   await page.waitForFunction(
     (n) => document.querySelectorAll('.cell[data-cell-kind="sql"]').length > n,
     cellsBeforeFix,
@@ -561,7 +588,7 @@ async function main() {
     fail('cleaning: the emitted cell already ran — EJ-1 says propose, the human runs it');
   }
   log(
-    `✓ Cleaning surface: clean fixture silent (EJ-3) · dirty column suggested "${suggestion.label}" · click emitted an UN-RUN trim cell (EJ-1)`,
+    `✓ Cleaning surface: clean fixture reports Clean 0 · grouped dirty suggestion "${suggestion.label}" emitted an UN-RUN trim cell`,
   );
 
   // Agent value access is explicit and per-tab. Prove both sensitive scopes
@@ -895,6 +922,7 @@ async function main() {
   ) {
     fail('settings: cloud/basemap disclosure copy is missing');
   }
+  await page.waitForSelector('[data-agent-scope="values:read"]', { timeout: 10000 });
   const agentValueToggle = page.locator('[data-agent-scope="values:read"]');
   const agentProposalToggle = page.locator('[data-agent-scope="workspace:propose"]');
   if (
@@ -1778,7 +1806,7 @@ async function main() {
       sql: 'SELECT contact_email FROM vendors LIMIT 1',
     });
     const v3ProposalDenied = await nd.v3.invoke('proposeSqlCell', { sql: 'SELECT 1' });
-    const v3CleaningUnavailable = await nd.v3.invoke('proposeCleaningStep');
+    const v3CleaningDenied = await nd.v3.invoke('proposeCleaningStep');
     // Chunk 4 enrichment: envelope version + per-table provenance + column stats.
     let describeEnriched = false;
     if (describe.ok === true && describe.data.tables.length > 0) {
@@ -1800,7 +1828,7 @@ async function main() {
       v3Capabilities,
       v3Query,
       v3ProposalDenied,
-      v3CleaningUnavailable,
+      v3CleaningDenied,
       okQuery,
       sensitiveQuery,
       aliasRejected: aliasQuery.ok === false ? aliasQuery.error : '(NOT REJECTED)',
@@ -1831,6 +1859,7 @@ async function main() {
     'listCells',
     'listTables',
     'proposeChart',
+    'proposeCleaningStep',
     'proposeQualityCheck',
     'proposeSqlCell',
     'query',
@@ -1845,7 +1874,7 @@ async function main() {
     !agent.v3Capabilities.ok ||
     agent.v3Capabilities.version !== '3' ||
     agent.v3Capabilities.data.executionScope !== null ||
-    !agent.v3Capabilities.data.deferredTools.proposeCleaningStep
+    Object.keys(agent.v3Capabilities.data.deferredTools).length !== 0
   ) {
     fail(`agent surface: v3 capabilities are incomplete (${JSON.stringify(agent.v3Capabilities)})`);
   }
@@ -1868,11 +1897,11 @@ async function main() {
     );
   }
   if (
-    agent.v3CleaningUnavailable.ok !== false ||
-    agent.v3CleaningUnavailable.error.code !== 'unavailable'
+    agent.v3CleaningDenied.ok !== false ||
+    agent.v3CleaningDenied.error.code !== 'permission_denied'
   ) {
     fail(
-      `agent surface: deferred cleaning was not reported honestly (${JSON.stringify(agent.v3CleaningUnavailable)})`,
+      `agent surface: cleaning proposal was not independently permission-gated (${JSON.stringify(agent.v3CleaningDenied)})`,
     );
   }
   if (
@@ -1915,7 +1944,7 @@ async function main() {
     fail('agent surface: describe was not enriched (version/provenance/column stats missing)');
   }
   log(
-    `✓ Agent surface: v2 compatibility (${agent.tools.length} verbs) + nested v3 (${agent.v3Tools.length} tools) · no execution scope/verb · v3 provenance+redaction envelope · deferred cleaning honest · proposals independently gated · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
+    `✓ Agent surface: v2 compatibility (${agent.tools.length} verbs) + nested v3 (${agent.v3Tools.length} tools) · no execution scope/verb · v3 provenance+redaction envelope · proposals independently gated · describe ok (${agent.describeTableCount} tables${agent.describeEnriched ? ', enriched: version+provenance+stats' : ''})`,
   );
 
   // Grant proposal authority explicitly, add one v3 SQL proposal, inspect its
@@ -1933,6 +1962,22 @@ async function main() {
   );
   if (!proposal?.ok || proposal.data.createdCell.status !== 'un-run') {
     fail(`agent access: v3 SQL proposal failed (${JSON.stringify(proposal)})`);
+  }
+  const cleaningProposal = await page.evaluate(async () => {
+    const button = document.querySelector('[data-action="apply-table-fix"]');
+    if (!(button instanceof HTMLElement)) return { error: 'table suggestion missing' };
+    return await window.naklidata?.v3.invoke('proposeCleaningStep', {
+      sourceId: button.dataset.sourceId,
+      tableId: button.dataset.tableId,
+      suggestionId: button.dataset.fixId,
+    });
+  });
+  if (
+    !cleaningProposal?.ok ||
+    cleaningProposal.data.proposalType !== 'cleaning-step' ||
+    cleaningProposal.data.createdCell.status !== 'un-run'
+  ) {
+    fail(`agent access: cleaning proposal failed (${JSON.stringify(cleaningProposal)})`);
   }
   const proposedCellState = await page.evaluate((id) => {
     const cell = document.querySelector(`.cell[data-cell-id="${id}"]`);
@@ -1954,12 +1999,16 @@ async function main() {
     () =>
       document
         .querySelector('[data-region="agent-access"]')
-        ?.textContent?.includes('proposeSqlCell') === true,
+        ?.textContent?.includes('proposeCleaningStep') === true,
     null,
     { timeout: 5000 },
   );
   const activityCopy = await page.locator('[data-region="agent-access"]').textContent();
-  if (!activityCopy?.includes('proposeSqlCell') || activityCopy.includes(proposedSql)) {
+  if (
+    !activityCopy?.includes('proposeSqlCell') ||
+    !activityCopy.includes('proposeCleaningStep') ||
+    activityCopy.includes(proposedSql)
+  ) {
     fail('agent access: activity ledger omitted the tool or retained proposed SQL');
   }
   await page.click('[data-agent-action="revoke"]');
@@ -3125,7 +3174,7 @@ async function main() {
   // 12n. WebMCP is optional: the main leg already loaded with ?webmcp=1 and
   // remains healthy when the native API is absent. A second page injects the
   // current async API shape before application code, proving same-origin
-  // exposure, structured v3 results, eleven-tool discovery, and abort-scoped
+  // exposure, structured v3 results, twelve-tool discovery, and abort-scoped
   // teardown without making smoke depend on browser support.
   const webMcpPage = await context.newPage();
   await webMcpPage.addInitScript(() => {
@@ -3148,7 +3197,7 @@ async function main() {
     });
   });
   await webMcpPage.goto(`${url}/index.html?offline=1&webmcp=1`, { waitUntil: 'load' });
-  await webMcpPage.waitForFunction(() => globalThis.__webMcpTools?.length === 11, null, {
+  await webMcpPage.waitForFunction(() => globalThis.__webMcpTools?.length === 12, null, {
     timeout: 90000,
   });
   const webMcpProbe = await webMcpPage.evaluate(async () => {
@@ -3161,7 +3210,7 @@ async function main() {
     };
   });
   if (
-    webMcpProbe.names.length !== 11 ||
+    webMcpProbe.names.length !== 12 ||
     webMcpProbe.names.some((name) => /run|execute/i.test(name)) ||
     webMcpProbe.exposure.length !== 1 ||
     webMcpProbe.exposure[0] !== new URL(url).origin ||
@@ -3175,12 +3224,12 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 0));
     return globalThis.__webMcpAbortCount;
   });
-  if (webMcpAbortCount !== 11) {
-    fail(`WebMCP adapter did not abort all registrations on teardown (${webMcpAbortCount}/11)`);
+  if (webMcpAbortCount !== 12) {
+    fail(`WebMCP adapter did not abort all registrations on teardown (${webMcpAbortCount}/12)`);
   }
   await webMcpPage.close();
   log(
-    `✓ WebMCP: graceful native ${nativeWebMcpPresent ? 'presence' : 'absence'} · mock current API registered 11 same-origin v3 tools · structured result · abort teardown`,
+    `✓ WebMCP: graceful native ${nativeWebMcpPresent ? 'presence' : 'absence'} · mock current API registered 12 same-origin v3 tools · structured result · abort teardown`,
   );
 
   // 13. Sanity: no uncaught errors in the console. (SB5: this used to log and

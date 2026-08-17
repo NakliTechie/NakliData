@@ -42,11 +42,11 @@ redaction summary, and an `untrustedContent` marker. Stable failures include
 |---|---|---|
 | `describe`, `listTables`, `listCells`, `getCapabilities`, `getLineage`, `exportDataDictionary`, `validateArtifact` | `metadata:read` | Grounding and validation without result-row values |
 | `query` | `values:read` | Bounded, read-only, direct-projection values with sensitivity redaction |
-| `proposeSqlCell`, `proposeChart`, `proposeQualityCheck` | `workspace:propose` | Add editable, explicitly un-run artifacts through canonical product paths |
+| `proposeSqlCell`, `proposeChart`, `proposeQualityCheck`, `proposeCleaningStep` | `workspace:propose` | Add editable, explicitly un-run artifacts through canonical product paths |
 
-`proposeCleaningStep` is discoverable as deferred and returns `unavailable`
-until the table-context cleaning boundary ships. There is no execution scope
-or run-cell tool.
+`proposeCleaningStep` requires exact source/table ownership and the identifier
+of a current table-context suggestion. It cannot author arbitrary cleaning SQL.
+There is no execution scope or run-cell tool.
 
 The v2 compatibility verbs remain:
 
@@ -59,7 +59,7 @@ The v2 compatibility verbs remain:
 | `proposeCell(sql)` | write | **yes** | Adds an **un-run** SQL cell for the human to review and run. Returns `{ id, sql, editable: true }`. |
 
 `window.naklidata.listTools()` returns the v2 catalogue.
-`window.naklidata.v3.listTools()` returns the eleven-tool v3 catalogue with
+`window.naklidata.v3.listTools()` returns the twelve-tool v3 catalogue with
 scope, JSON input schema, and annotations. WebMCP is separately
 feature-detected and experimental; do not assume its presence from the browser
 API.

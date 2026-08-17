@@ -37,7 +37,7 @@ export interface AgentAffectedObject {
 }
 
 export interface AgentProposalResult {
-  proposalType: 'sql-cell' | 'chart' | 'quality-check';
+  proposalType: 'sql-cell' | 'chart' | 'quality-check' | 'cleaning-step';
   createdCell: {
     id: string;
     kind: 'sql' | 'chart' | 'assertion';
@@ -55,12 +55,22 @@ export interface AgentChartProposalInput {
   config: ChartConfig;
 }
 
+export interface AgentCleaningProposalInput {
+  sourceId: string;
+  tableId: string;
+  suggestionId: string;
+}
+
 export interface AgentV3Host extends AgentHost {
   getLineage(): unknown;
   validateArtifact(kind: AgentArtifactKind, artifact: unknown): Promise<AgentArtifactValidation>;
   proposeSqlCell(sql: string, signal: AbortSignal): Promise<AgentProposalResult>;
   proposeChart(input: AgentChartProposalInput, signal: AbortSignal): Promise<AgentProposalResult>;
   proposeQualityCheck(check: unknown, signal: AbortSignal): Promise<AgentProposalResult>;
+  proposeCleaningStep(
+    input: AgentCleaningProposalInput,
+    signal: AbortSignal,
+  ): Promise<AgentProposalResult>;
 }
 
 export interface AgentV3ToolExecution<T = unknown> {
@@ -303,6 +313,43 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
         type: 'object',
         properties: { check: { type: 'object' } },
         required: ['check'],
+        additionalProperties: false,
+      },
+    ),
+    proposalTool(
+      'proposeCleaningStep',
+      'Add one cached table-context cleaning suggestion as an editable SQL cell. The tool never runs the cell.',
+      async (input, signal) => {
+        const record = objectInput(input, 'proposeCleaningStep');
+        exactKeys(record, ['sourceId', 'tableId', 'suggestionId'], 'proposeCleaningStep');
+        const sourceId = stringField(record, 'sourceId');
+        const tableId = stringField(record, 'tableId');
+        const suggestionId = stringField(record, 'suggestionId');
+        if (!sourceId?.trim() || !tableId?.trim() || !suggestionId?.trim()) {
+          throw new AgentV3Fault(
+            'invalid_input',
+            'proposeCleaningStep expects non-empty sourceId, tableId, and suggestionId strings.',
+          );
+        }
+        return proposalExecution(
+          await host.proposeCleaningStep(
+            {
+              sourceId: sourceId.trim(),
+              tableId: tableId.trim(),
+              suggestionId: suggestionId.trim(),
+            },
+            signal,
+          ),
+        );
+      },
+      {
+        type: 'object',
+        properties: {
+          sourceId: { type: 'string', minLength: 1 },
+          tableId: { type: 'string', minLength: 1 },
+          suggestionId: { type: 'string', minLength: 1 },
+        },
+        required: ['sourceId', 'tableId', 'suggestionId'],
         additionalProperties: false,
       },
     ),

@@ -132,14 +132,14 @@ Proposal tools:
 - `proposeQualityCheck` parses the portable quality-check core, validates exact
   mounted table/column ownership, and writes the same tagged assertion used by
   the data-quality surface.
+- `proposeCleaningStep` accepts only a current cached table-context suggestion,
+  validates exact source/table ownership, and adds its previewable SQL as an
+  editable cell.
 
 Each proposal reports a deterministic preview, created/affected objects,
 warnings, `editable: true`, an explicit `un-run` state, and the exact human
 review action. Proposal code is capped at 64 KiB. No proposal calls
 `Notebook.runCell`, sends a remote write, or starts background work.
-
-`proposeCleaningStep` remains unavailable until the table-context cleaning
-boundary in batch N5 exists. No transport may bypass that dependency.
 
 ## Adapter and MCP boundary
 
@@ -148,7 +148,7 @@ boundary in batch N5 exists. No transport may bypass that dependency.
   registry as v2.
 - WebMCP remains feature-detected and flag-gated while the browser API is
   experimental. When `?webmcp=1` and `document.modelContext` exists, it
-  registers the same eleven v3 tools asynchronously, exposes them only to the
+  registers the same twelve v3 tools asynchronously, exposes them only to the
   page origin, returns structured v3 envelopes, and uses one abort-scoped
   lifetime that ends on failure or page teardown. It is an adapter, not a
   dependency.
@@ -171,12 +171,12 @@ The 2026-07-30 A5 gate covers deterministic tool/scope/error selection,
 malformed and unavailable calls, prompt-like headers and values, aliases,
 expressions, joins, ambiguous ownership, missing sensitivity, workspace
 replacement, cancellation, proposal bounds, and current-shape WebMCP lifecycle
-behavior. Production browser smoke verifies v2 compatibility, all eleven v3
+behavior. Production browser smoke verifies v2 compatibility, all twelve v3
 tools, permission grant/revoke, metadata-only activity, an editable un-run SQL
 proposal, ARIA/canvas discovery, graceful native WebMCP absence, and an
 abort-scoped same-origin mock registration.
 
 The catalogue contains no execution scope or verb. Registry, transport, and
 browser tests prove proposals do not execute cells, write remote data, retain
-credentials, or start background polling. `proposeCleaningStep` remains an
-honest `unavailable` response until N5.
+credentials, or start background polling. Cleaning proposals reuse only the
+current table-context suggestion cache and remain editable and un-run.

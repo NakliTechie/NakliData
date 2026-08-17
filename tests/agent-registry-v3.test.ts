@@ -83,6 +83,19 @@ function host(overrides: Partial<AgentV3Host> = {}): AgentV3Host {
       editable: true,
       humanAction: 'Review and click Run.',
     }),
+    proposeCleaningStep: async ({ sourceId, tableId, suggestionId }) => ({
+      proposalType: 'cleaning-step',
+      createdCell: { id: 'c4', kind: 'sql', status: 'un-run' },
+      preview: { suggestionId },
+      affectedObjects: [
+        { kind: 'source', id: sourceId, label: sourceId },
+        { kind: 'table', id: tableId, label: tableId },
+        { kind: 'cell', id: 'c4', label: suggestionId },
+      ],
+      warnings: [],
+      editable: true,
+      humanAction: 'Review and click Run.',
+    }),
     valuesEnabled: () => true,
     proposalsEnabled: () => true,
     getLineage: () => ({
@@ -135,10 +148,11 @@ describe('agent v3 registry', () => {
       'proposeSqlCell',
       'proposeChart',
       'proposeQualityCheck',
+      'proposeCleaningStep',
     ]);
     expect(data.tools.some((tool) => /execute|runCell/i.test(tool.name))).toBe(false);
-    expect(data.deferredTools.proposeCleaningStep).toMatch(/table-context cleaning/i);
-    expect(data.tools.some((tool) => tool.name === 'proposeCleaningStep')).toBe(false);
+    expect(data.deferredTools).toEqual({});
+    expect(data.tools.some((tool) => tool.name === 'proposeCleaningStep')).toBe(true);
   });
 
   it('returns provenance, bounds, redaction, and untrusted-content metadata', async () => {
@@ -304,7 +318,7 @@ describe('agent v3 registry', () => {
     ).resolves.toMatchObject({
       ok: false,
       scope: 'workspace:propose',
-      error: { code: 'unavailable', retryable: false },
+      error: { code: 'invalid_input', retryable: false },
     });
     const controller = new AbortController();
     controller.abort();

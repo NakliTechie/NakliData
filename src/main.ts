@@ -5,8 +5,11 @@ import {
   clearFixes,
   clearFixesForSource,
   getFixesFor,
+  getTableFixesFor,
   setFixesFor,
+  setTableFixesFor,
 } from './core/cleaning/fix-cache.ts';
+import type { ColumnFacts } from './core/cleaning/fix-registry.ts';
 import type { ValueCount } from './core/clustering.ts';
 import { buildCorrelationGraphPlan } from './core/correlation-graph.ts';
 import { setDemoMode } from './core/demo-mode.ts';
@@ -26,6 +29,7 @@ import {
   ICEBERG_SECRET_NAMES,
   MountError,
   type MountedSource,
+  type MountedTable,
   S3_SECRET_NAMES,
   clearMountedTableNames,
   mountComputeBridge,
@@ -93,7 +97,7 @@ import {
 } from './core/url-state.ts';
 import { getWorkbook } from './core/workbook.ts';
 import { classifyTableColumns, getTaxonomyClient } from './taxonomy/client.ts';
-import type { ClassificationResult } from './taxonomy/types.ts';
+import type { ClassificationResult, TaxonomyBundle } from './taxonomy/types.ts';
 import { roleFamilyForType } from './taxonomy/universal.ts';
 import { Neutral, OverlayColor } from './tokens/colors.ts';
 import {
@@ -329,7 +333,11 @@ async function boot(): Promise<void> {
 
   // v1.3 M1 Phase 2 — associations changing alters the effective
   // (propagated) selections, so repaint every cell's cross-filter.
-  getAssociationsStore().subscribe(() => repaintSelectionStates(root, engine));
+  getAssociationsStore().subscribe((associations) => {
+    pruneUnsafeDedupeSuggestions(associations);
+    repaintSelectionStates(root, engine);
+    renderSchemaPanelWithCurrentState(root, getWorkbook().get(), engine);
+  });
 
   const workbook = getWorkbook();
   // Signature of the mounted-source set (ids + their table ids). The notebook
@@ -384,6 +392,7 @@ async function boot(): Promise<void> {
   bindAgentSurface({
     engine,
     notebook: nb,
+    getCleaningSuggestions: availableTableFixes,
   });
 
   // Cmd/Ctrl+Shift+Enter → run all cells.
@@ -1893,6 +1902,83 @@ function handleApplyFix(sourceId: string, tableId: string, column: string, fixId
   toast(`Added an un-run cell: ${fix.label} on "${column}". Review it, then Run.`);
 }
 
+function handleApplyTableFix(sourceId: string, tableId: string, fixId: string): void {
+  const fix = availableTableFixes(sourceId, tableId).find((candidate) => candidate.id === fixId);
+  if (!fix) {
+    toast('That table suggestion is no longer available — re-classify to refresh.', 'error');
+    return;
+  }
+  const tableName = getWorkbook()
+    .get()
+    .sources.find((source) => source.id === sourceId)
+    ?.tables.find((table) => table.id === tableId)?.name;
+  if (
+    fix.id === 'dedupe-exact-rows' &&
+    tableName &&
+    getAssociationsStore()
+      .list()
+      .some(
+        (link) =>
+          (link.a.table === tableName && fix.columns.includes(link.a.column)) ||
+          (link.b.table === tableName && fix.columns.includes(link.b.column)),
+      )
+  ) {
+    toast(
+      'Dedupe is unavailable because the candidate key participates in an association.',
+      'error',
+    );
+    return;
+  }
+  const nb = getNotebook(getEngine());
+  const cell = nb.addCell('sql');
+  const name = `clean_${fix.id.split(':')[0] ?? 'table'}`.slice(0, 40);
+  nb.patchCell(cell.id, { code: fix.sql, name });
+  toast(`Added an un-run table fix: ${fix.label}. Review it, then Run.`);
+}
+
+function availableTableFixes(sourceId: string, tableId: string) {
+  const tableName = getWorkbook()
+    .get()
+    .sources.find((source) => source.id === sourceId)
+    ?.tables.find((table) => table.id === tableId)?.name;
+  if (!tableName) return [];
+  const associations = getAssociationsStore().list();
+  return getTableFixesFor(assignmentKey(sourceId, tableId, '')).filter(
+    (fix) =>
+      fix.id !== 'dedupe-exact-rows' ||
+      !associations.some(
+        (link) =>
+          (link.a.table === tableName && fix.columns.includes(link.a.column)) ||
+          (link.b.table === tableName && fix.columns.includes(link.b.column)),
+      ),
+  );
+}
+
+function pruneUnsafeDedupeSuggestions(
+  associations: ReturnType<ReturnType<typeof getAssociationsStore>['list']>,
+): void {
+  const workbook = getWorkbook().get();
+  for (const source of workbook.sources) {
+    for (const table of source.tables) {
+      const associatedColumns = new Set(
+        associations.flatMap((link) => [
+          ...(link.a.table === table.name ? [link.a.column] : []),
+          ...(link.b.table === table.name ? [link.b.column] : []),
+        ]),
+      );
+      if (associatedColumns.size === 0) continue;
+      const key = assignmentKey(source.id, table.id, '');
+      const current = getTableFixesFor(key);
+      const retained = current.filter(
+        (fix) =>
+          fix.id !== 'dedupe-exact-rows' ||
+          !fix.columns.some((column) => associatedColumns.has(column)),
+      );
+      if (retained.length !== current.length) setTableFixesFor(key, retained);
+    }
+  }
+}
+
 function handleClusterFromColumn(sourceId: string, tableId: string, column: string): void {
   const wb = getWorkbook().get();
   const table = wb.sources.find((s) => s.id === sourceId)?.tables.find((t) => t.id === tableId);
@@ -2564,6 +2650,13 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       if (sourceId && tableId && column && fixId) {
         handleApplyFix(sourceId, tableId, column, fixId);
       }
+      return;
+    }
+    case 'apply-table-fix': {
+      const sourceId = el?.dataset.sourceId;
+      const tableId = el?.dataset.tableId;
+      const fixId = el?.dataset.fixId;
+      if (sourceId && tableId && fixId) handleApplyTableFix(sourceId, tableId, fixId);
       return;
     }
     case 'xray': {
@@ -3451,35 +3544,58 @@ async function classifyMountedSources(engine: Engine, sources: MountedSource[]):
           const rules = workbook.get().overrideRules;
           const assigned = applyOverrideRule(fresh, rules);
           workbook.setAssignment(key, assigned);
-          // Cleaning surface (C0): classification already sampled this column,
-          // so suggestions cost ZERO extra queries — compute them from the same
-          // sample rather than issuing one query per column at render time.
-          const cleaning = await loadChunk('cleaning');
-          setFixesFor(
-            key,
-            cleaning.suggestFixes({
-              table: table.name,
-              column: r.column.columnName,
-              sqlType: r.column.sqlType,
-              typeId: assigned.assigned.typeId,
-              roleFamily:
-                bundle && assigned.assigned.typeId
-                  ? roleFamilyForType(bundle, assigned.assigned.typeId)
-                  : null,
-              sensitivity: 'public',
-              rowCount: table.rowCount ?? null,
-              sampledRows: r.column.totalSampled ?? null,
-              nullCount: r.column.nullCount ?? null,
-              distinctCount: r.column.distinctCount ?? null,
-              sampleValues: r.column.values,
-            }),
-          );
         }
+        await cacheCleaningSuggestions(src.id, table, results, bundle);
       } catch (err) {
         console.error(`[naklidata] classify failed for ${table.name}`, err);
       }
     }
   }
+}
+
+async function cacheCleaningSuggestions(
+  sourceId: string,
+  table: MountedTable,
+  results: readonly ClassificationResult[],
+  bundle: TaxonomyBundle | null,
+): Promise<void> {
+  const cleaning = await loadChunk('cleaning');
+  const assignments = getWorkbook().get().assignments;
+  const columns: ColumnFacts[] = results.map((result) => {
+    const key = assignmentKey(sourceId, table.id, result.column.columnName);
+    const assignment = assignments[key];
+    const typeId = assignment?.assigned.typeId ?? null;
+    const facts: ColumnFacts = {
+      table: table.name,
+      column: result.column.columnName,
+      sqlType: result.column.sqlType,
+      typeId,
+      roleFamily: bundle && typeId ? roleFamilyForType(bundle, typeId) : null,
+      sensitivity: 'public',
+      rowCount: table.rowCount,
+      sampledRows: result.column.totalSampled,
+      nullCount: result.column.nullCount,
+      distinctCount: result.column.distinctCount,
+      sampleValues: result.column.values,
+    };
+    setFixesFor(key, cleaning.suggestFixes(facts));
+    return facts;
+  });
+  const associatedColumns = new Set<string>();
+  for (const link of getAssociationsStore().list()) {
+    if (link.a.table === table.name) associatedColumns.add(link.a.column);
+    if (link.b.table === table.name) associatedColumns.add(link.b.column);
+  }
+  setTableFixesFor(
+    assignmentKey(sourceId, table.id, ''),
+    cleaning.suggestTableFixes({
+      table: table.name,
+      columns,
+      associatedColumns: [...associatedColumns],
+    }),
+  );
+  const root = document.getElementById('app');
+  if (root) renderSchemaPanelWithCurrentState(root, getWorkbook().get(), getEngine());
 }
 
 /**
@@ -3532,6 +3648,7 @@ async function reclassifyAllSources(engine: Engine): Promise<void> {
             touched++;
           }
         }
+        await cacheCleaningSuggestions(src.id, table, results, client.getBundle());
       } catch (err) {
         console.error(`[naklidata] reclassify failed for ${table.name}`, err);
       }

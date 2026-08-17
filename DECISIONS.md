@@ -2,6 +2,37 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Table-context cleaning and agent proposal boundary (FN)
+
+### Decision FN-1 — expose conservative table fixes through one pure boundary
+
+- **Context.** Per-column cleaning could not distinguish a repeated table key
+  from a foreign key. The schema panel also required users to inspect every
+  column before discovering suggestions.
+- **Decision.** Add a pure `suggestTableFixes` boundary. Offer exact-row
+  `DISTINCT` only when one unassociated entity field matches table grain and
+  repeats. Keep differing same-key rows. Merge only two non-entity columns with
+  the same semantic type. Preserve both inputs, choose lower null burden as
+  precedence, and add a collision flag. Unpivot only compatible year-labelled
+  columns. Preserve all unlisted identifiers. Render every table and column
+  suggestion under a native keyboard-accessible schema-header `Clean N`
+  disclosure.
+- **Consequence.** Cross-column proposals remain deterministic, previewable,
+  additive, editable, and un-run. Ambiguous keys, association participants,
+  mixed-type crosstabs, and duplicate headers produce no table suggestion.
+
+### Decision FN-2 — enable the agent cleaning verb only for cached suggestions
+
+- **Context.** Agent contract v3 deferred `proposeCleaningStep` until the N5
+  table-context boundary existed.
+- **Decision.** Add `proposeCleaningStep` as the twelfth v3 proposal tool. It
+  accepts exact source, table, and current suggestion identifiers. It cannot
+  author arbitrary cleaning SQL. It adds the cached SQL as an editable idle
+  cell and never executes it.
+- **Consequence.** Window v3 and experimental WebMCP expose the same twelve-tool
+  registry. Proposal permission, workspace ownership, cancellation, activity,
+  and no-execution rules remain unchanged.
+
 ## 2026-08-18 — Disabled vendor factories for the Compute Bridge (FM)
 
 ### Decision FM-1 — package both vendor factories without enabling either profile
