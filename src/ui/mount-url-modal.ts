@@ -4,7 +4,7 @@
 // in slices 2 + 3).
 
 import { iconSvg } from '../tokens/icons.ts';
-import { restoreModalFocus } from './modal-focus.ts';
+import { restoreModalFocus, trapModalTab } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
@@ -100,7 +100,11 @@ function renderModal(opts: {
     }
   });
   _onKey = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') closeMountUrlModal();
+    if (ev.key === 'Escape') {
+      closeMountUrlModal();
+      return;
+    }
+    trapModalTab(ev, overlay);
   };
   document.addEventListener('keydown', _onKey);
   return overlay;

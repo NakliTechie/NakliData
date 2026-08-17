@@ -16,7 +16,7 @@ import { type UserType, getWorkbook } from '../core/workbook.ts';
 import { getTaxonomyClient } from '../taxonomy/client.ts';
 import type { TypeSensitivity } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
-import { restoreModalFocus } from './modal-focus.ts';
+import { restoreModalFocus, trapModalTab } from './modal-focus.ts';
 import { assignmentKey } from './schema-panel.ts';
 
 let _modalEl: HTMLElement | null = null;
@@ -179,7 +179,11 @@ function renderModal(opts: OpenDefineTypeOpts): HTMLElement {
   // The previous inline self-removing handler leaked when the user
   // closed via Cancel / X — same bug fixed in schema-graph (W1.11).
   _onKey = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') closeDefineTypeModal();
+    if (ev.key === 'Escape') {
+      closeDefineTypeModal();
+      return;
+    }
+    trapModalTab(ev, overlay);
   };
   document.addEventListener('keydown', _onKey);
   return overlay;

@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { expectModalTabWrap } from './fixtures/accessibility.ts';
 import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
@@ -41,6 +42,7 @@ test.describe('compare-tables modal (Theme 4 wave 2 / B2)', () => {
       () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
     );
     expect(focusedOnOpen).toBe('close-compare-tables');
+    await expectModalTabWrap(page, '.compare-tables-overlay');
 
     // Default selections are first two tables — for the example bundle
     // those are `vendors` and `invoices`. Both have a GSTIN-typed

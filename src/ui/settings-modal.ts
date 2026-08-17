@@ -25,7 +25,7 @@ import { callCustomOpenAI } from '../core/sidecar/providers/custom-openai.ts';
 import { DEFAULT_PROVIDER_CONFIG, type SidecarProvider } from '../core/sidecar/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
 import { renderAgentAccessSettings } from './agent-bridge.ts';
-import { restoreModalFocus } from './modal-focus.ts';
+import { restoreModalFocus, trapModalTab } from './modal-focus.ts';
 
 const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
 
@@ -541,7 +541,11 @@ function renderModal(): HTMLElement {
   // Stash at module scope so closeSettingsModal() can detach it
   // regardless of which path closed the modal (X / backdrop / Escape).
   _onKey = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') closeSettingsModal();
+    if (ev.key === 'Escape') {
+      closeSettingsModal();
+      return;
+    }
+    trapModalTab(ev, overlay);
   };
   document.addEventListener('keydown', _onKey);
   return overlay;

@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { expectModalTabWrap } from './fixtures/accessibility.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -130,6 +131,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
       null,
       { timeout: 2_000 },
     );
+    await expectModalTabWrap(page, '.settings-overlay');
 
     // Sidecar is off by default; flip the enable checkbox.
     await page.evaluate(() => {

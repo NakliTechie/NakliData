@@ -8,7 +8,7 @@
 import type { OverrideRule, UserType } from '../core/workbook.ts';
 import type { TaxonomyBundle } from '../taxonomy/types.ts';
 import { iconSvg } from '../tokens/icons.ts';
-import { restoreModalFocus } from './modal-focus.ts';
+import { restoreModalFocus, trapModalTab } from './modal-focus.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _keyHandler: ((ev: KeyboardEvent) => void) | null = null;
@@ -76,7 +76,11 @@ export function openOverrideRulesModal(
     if (target.closest('[data-action="close-override-rules"]')) closeOverrideRulesModal();
   });
   _keyHandler = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') closeOverrideRulesModal();
+    if (ev.key === 'Escape') {
+      closeOverrideRulesModal();
+      return;
+    }
+    trapModalTab(ev, overlay);
   };
   document.addEventListener('keydown', _keyHandler);
   document.body.append(overlay);

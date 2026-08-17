@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Accessibility target and motion floors (FO)
+
+### Decision FO-1 — make compact controls meet measurable AA-adjacent floors
+
+- **Context.** The populated schema surface contained native disclosure targets
+  between 16.5 and 22.5 CSS pixels. The default control border measured below
+  the 3:1 non-text contrast threshold against the surface.
+- **Decision.** Set a global 24 CSS-pixel minimum for native buttons, form
+  controls, and disclosures. Darken shared border tokens to a measured 3:1 or
+  higher boundary. Disable non-essential animation, transition, and smooth
+  scrolling under `prefers-reduced-motion: reduce`. Gate populated controls,
+  token contrast, and 200%/400% zoom-equivalent reflow in Playwright.
+- **Consequence.** Compact controls retain the information-dense layout while
+  meeting the automated target floor. Separators inherit the stronger border
+  treatment. This evidence does not replace VoiceOver or NVDA workflow tests.
+
 ## 2026-08-18 — Table-context cleaning and agent proposal boundary (FN)
 
 ### Decision FN-1 — expose conservative table fixes through one pure boundary

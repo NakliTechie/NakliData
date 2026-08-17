@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { expectModalTabWrap } from './fixtures/accessibility.ts';
 import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
@@ -65,6 +66,7 @@ test.describe('define-type modal — focus a11y (W1.11 pattern)', () => {
       () => (document.activeElement as HTMLElement | null)?.dataset?.defineField ?? null,
     );
     expect(focusedOnOpen).toBe('id');
+    await expectModalTabWrap(page, '.schema-graph-overlay');
 
     // Escape closes the modal.
     await page.keyboard.press('Escape');

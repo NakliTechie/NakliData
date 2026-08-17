@@ -75,11 +75,23 @@ body {
 button {
   font: inherit;
   color: inherit;
+  min-width: 24px;
+  min-height: 24px;
 }
+input:not([type='hidden']), select, textarea { min-height: 24px; }
+summary { min-height: 24px; }
 *:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 .visually-hidden {
   position: absolute;

@@ -8,7 +8,7 @@
 import type { Engine, TableComparison } from '../core/engine.ts';
 import type { MountedSource, MountedTable } from '../core/mount.ts';
 import { iconSvg } from '../tokens/icons.ts';
-import { restoreModalFocus } from './modal-focus.ts';
+import { restoreModalFocus, trapModalTab } from './modal-focus.ts';
 import type { ColumnAssignment } from './schema-panel.ts';
 import { assignmentKey } from './schema-panel.ts';
 
@@ -110,7 +110,11 @@ export function openCompareTablesModal(input: CompareTablesModalInput): void {
     if (target.closest('[data-action="close-compare-tables"]')) closeCompareTablesModal();
   });
   _keyHandler = (ev) => {
-    if (ev.key === 'Escape') closeCompareTablesModal();
+    if (ev.key === 'Escape') {
+      closeCompareTablesModal();
+      return;
+    }
+    trapModalTab(ev, overlay);
   };
   document.addEventListener('keydown', _keyHandler);
   document.body.append(overlay);

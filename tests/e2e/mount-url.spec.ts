@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { expectModalTabWrap } from './fixtures/accessibility.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -28,6 +29,7 @@ test.describe('Paste URL mount (Wave 2 slice 1)', () => {
       () => (document.activeElement as HTMLElement | null)?.dataset?.region ?? null,
     );
     expect(focusedRegion).toBe('url-input');
+    await expectModalTabWrap(page, '.mount-url-overlay');
 
     // Type a same-origin URL pointing at one of the served example CSVs.
     await page.fill(

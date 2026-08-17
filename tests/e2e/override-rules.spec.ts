@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { expectModalTabWrap } from './fixtures/accessibility.ts';
 import { mountExamples } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
@@ -113,6 +114,7 @@ test.describe('override rules (Theme 4 wave 2 / B3)', () => {
       () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
     );
     expect(focusedOnOpen).toBe('close-override-rules');
+    await expectModalTabWrap(page, '.override-rules-overlay');
 
     // a11y: close via Escape + assert focus restoration to trigger,
     // BEFORE the remove-rule flow below destroys the trigger button.
