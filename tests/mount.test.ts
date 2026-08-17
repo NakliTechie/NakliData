@@ -567,45 +567,50 @@ describe('mountS3Endpoint (Wave 2 slice 2)', () => {
 
 // ---- mountIcebergTable (Wave 2 slice 3a) ---------------------------------
 
-import { mountIcebergTable } from '../src/core/mount.ts';
+import { mountIcebergTable, revokeIcebergSourceAccess } from '../src/core/mount.ts';
 
 function icebergMockEngine() {
   return {
     configureIceberg: vi.fn().mockResolvedValue(undefined),
     registerIcebergTable: vi.fn().mockResolvedValue(undefined),
     ensureExtension: vi.fn().mockResolvedValue(undefined),
+    exec: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockResolvedValue([{ n: 42n }]),
   };
 }
 
-// M30/SB2 (DECISIONS 2026-07-09): the iceberg extension has no wasm_eh
-// build until DuckDB core v1.3.1 (our pin is v1.1.1), so both iceberg
-// mount kinds now fail fast with ICEBERG_UNAVAILABLE_MESSAGE *before* any
-// engine or catalog-network call — the honest error that the old
-// happy-path tests (which mocked configureIceberg) masked. The URL-parsing
-// and catalog-navigation logic is preserved behind the guard for the
-// eventual DuckDB-wasm bump; re-enabling it is what restores those cases.
-describe('mountIcebergTable (Wave 2 slice 3a — flagged unavailable)', () => {
-  it('fails fast with the honest "not available in this build" error', async () => {
+describe('mountIcebergTable (Wave 2 slice 3a)', () => {
+  it('configures Iceberg and registers a bounded table view', async () => {
     const engine = icebergMockEngine();
-    await expect(
-      mountIcebergTable(engine as never, {
-        label: 'Sales table',
-        metadataUrl: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+    const source = await mountIcebergTable(engine as never, {
+      label: 'Sales table',
+      metadataUrl: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+      bearerToken: null,
+    });
+    expect(source).toMatchObject({ kind: 'iceberg-table', label: 'Sales table' });
+    expect(source.tables[0]?.rowCount).toBe(42);
+    expect(engine.configureIceberg).toHaveBeenCalledWith(
+      expect.objectContaining({
         bearerToken: null,
+        bearerScope: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/',
       }),
-    ).rejects.toThrow(/not available in this build/);
+    );
+    expect(engine.registerIcebergTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataUrl: 'https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json',
+      }),
+    );
   });
 
-  it('touches neither configureIceberg nor registerIcebergTable (fails before the engine)', async () => {
+  it('rejects unsupported URL schemes before the engine', async () => {
     const engine = icebergMockEngine();
     await expect(
       mountIcebergTable(engine as never, {
         label: '',
-        metadataUrl: 'https://example.com/table/metadata.json',
-        bearerToken: 'eyJhbGc-EXAMPLE',
+        metadataUrl: 'file:///tmp/table/metadata.json',
+        bearerToken: null,
       }),
-    ).rejects.toThrow(/DuckDB 1\.3\.1/);
+    ).rejects.toThrow(/must start with/);
     expect(engine.configureIceberg).not.toHaveBeenCalled();
     expect(engine.registerIcebergTable).not.toHaveBeenCalled();
   });
@@ -614,35 +619,81 @@ describe('mountIcebergTable (Wave 2 slice 3a — flagged unavailable)', () => {
 // ---- mountIcebergCatalog (Wave 2 slice 3b) -------------------------------
 
 import { mountIcebergCatalog } from '../src/core/mount.ts';
+import * as icebergCatalogModule from '../src/lazy/iceberg-rest-client.ts';
 
-describe('mountIcebergCatalog (Wave 2 slice 3b — flagged unavailable)', () => {
-  it('fails fast without ever calling the catalog REST endpoint or the engine', async () => {
+describe('mountIcebergCatalog (Wave 2 slice 3b)', () => {
+  it('resolves a public catalog table and registers it', async () => {
     const engine = icebergMockEngine();
-    let fetchCalled = false;
-    const fetchImpl: typeof fetch = async () => {
-      fetchCalled = true;
+    const fetchImpl: typeof fetch = async (input) => {
+      if (String(input).endsWith('/v1/config')) {
+        return new Response(JSON.stringify({ defaults: {}, overrides: {} }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       return new Response(
         JSON.stringify({
-          'metadata-location': 's3://bucket/warehouse/sales/metadata/v3.metadata.json',
+          'metadata-location': 'https://bucket.example/warehouse/sales/metadata/v3.metadata.json',
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     };
-    await expect(
-      mountIcebergCatalog(engine as never, {
-        label: '',
-        catalogUrl: 'https://catalog.example.com',
-        namespace: 'analytics',
-        table: 'sales',
+    const source = await mountIcebergCatalog(engine as never, {
+      label: '',
+      catalogUrl: 'https://catalog.example.com',
+      namespace: 'analytics',
+      table: 'sales',
+      bearerToken: null,
+      fetchImpl,
+      catalogModule: icebergCatalogModule,
+    });
+    expect(source).toMatchObject({ kind: 'iceberg-catalog', label: 'analytics.sales' });
+    expect(engine.configureIceberg).toHaveBeenCalledWith(
+      expect.objectContaining({
         bearerToken: null,
-        fetchImpl,
+        bearerScope: 'https://bucket.example/warehouse/sales/',
       }),
-    ).rejects.toThrow(/not available in this build/);
-    // Fails before any network round-trip (no SSRF surface) and before
-    // the engine is touched.
-    expect(fetchCalled).toBe(false);
-    expect(engine.configureIceberg).not.toHaveBeenCalled();
-    expect(engine.registerIcebergTable).not.toHaveBeenCalled();
+    );
+    expect(engine.registerIcebergTable).toHaveBeenCalledOnce();
+  });
+
+  it('applies scoped vended credentials and clears them on source removal', async () => {
+    const engine = icebergMockEngine();
+    const sourceId = 'src_vended_fixture';
+    const fetchImpl: typeof fetch = async (input) => {
+      if (String(input).endsWith('/v1/config')) {
+        return new Response(JSON.stringify({ defaults: {}, overrides: {} }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          'metadata-location': 's3://fixture-bucket/table/metadata/v1.metadata.json',
+          config: {
+            'expires-at-ms': String(Date.now() + 300_000),
+            's3.access-key-id': 'fixture-access',
+            's3.secret-access-key': 'fixture-secret',
+            's3.session-token': 'fixture-session',
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      );
+    };
+    await mountIcebergCatalog(engine as never, {
+      label: '',
+      catalogUrl: 'https://catalog.example.com',
+      namespace: 'analytics',
+      table: 'sales',
+      bearerToken: 'catalog-token',
+      fetchImpl,
+      sourceId,
+      catalogModule: icebergCatalogModule,
+    });
+    expect(engine.exec).toHaveBeenCalledWith(expect.stringContaining('CREATE SECRET'));
+    expect(engine.configureIceberg).toHaveBeenCalledWith(
+      expect.objectContaining({ bearerToken: null, bearerScope: null, sourceId }),
+    );
+    await revokeIcebergSourceAccess(sourceId);
+    expect(engine.exec).toHaveBeenLastCalledWith(expect.stringContaining('DROP SECRET IF EXISTS'));
   });
 });
 

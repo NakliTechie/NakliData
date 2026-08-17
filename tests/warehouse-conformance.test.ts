@@ -299,9 +299,9 @@ describe('credential-free warehouse conformance fixtures', () => {
     expect(dataRequests).toBe(0);
   });
 
-  it('keeps both branded source entry points unavailable after fixture success', () => {
+  it('keeps REST and branded profiles unavailable after fixture-only success', () => {
     expect(sourceOptionForAction('mount-iceberg')).toMatchObject({
-      readiness: 'unavailable',
+      readiness: 'available',
     });
     expect(sourceOptionForAction('mount-iceberg-catalog')).toMatchObject({
       readiness: 'unavailable',

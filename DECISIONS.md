@@ -2,6 +2,52 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Checked-in Iceberg runtime and public table release (FK)
+
+### Decision FK-1 — migrate the engine and release only the proven public path
+
+- **Context.** FB authorized DuckDB-WASM 1.32.0/DuckDB v1.4.3. The prior
+  1.29.0 runtime could not load Iceberg. REST catalog and branded platform
+  claims still lack live vendor accounts.
+- **Decision.** Pin 1.32.0. Vendor and hash EH/MVP core assets plus the
+  `httpfs`, `iceberg`, `parquet`, and `avro` closure for both variants. Keep
+  JSON, SQLite, and spatial extensions available on both variants. Release the
+  public HTTPS table-directory path after the MotherDuck S3 product probe.
+  Keep private bearer input and REST Catalog unavailable pending their live
+  matrices. Keep Azure/ADLS unavailable.
+- **Consequence.** `npm run warehouse:iceberg-runtime` proves the checked-in
+  runtime and credential mechanics. `npm run warehouse:iceberg-public` proves
+  the released product path, offline retry, cancellation, persistence,
+  remount, removal, teardown, CORS, ranges, and read-only methods. Databricks,
+  Snowflake, and generic REST claims remain gated.
+
+### Decision FK-2 — use scoped temporary HTTP secrets and lazy Iceberg surfaces
+
+- **Context.** DuckDB v1.4.3 rejects the legacy `extra_http_headers` setting.
+  The initial migration also exceeded the 768 KiB shell limit by 3,598 bytes.
+- **Decision.** Represent each bearer as a source-named temporary HTTP secret
+  with an HTTPS scope. Drop that secret on source removal and workspace
+  teardown. Move Iceberg mount orchestration and both dialogs behind the
+  canonical lazy loader without changing the shell budget.
+- **Consequence.** Bearers no longer attach globally to unrelated HTTP reads.
+  The build shell is below the unchanged 786,432-byte gate. The public card
+  pays for Iceberg UI and orchestration only when opened.
+
+### Decision FK-3 — patch the build and preview dependency graph without changing runtime scope
+
+- **Context.** The post-migration advisory gate reported high-severity ranges
+  for `nanoid` 3.3.16 through Vite/PostCSS and `undici` 7.28.0 through
+  Wrangler/Miniflare. Neither dependency ships in the browser application
+  bundle, but the trusted build and preview toolchain must remain audit-clean.
+- **Decision.** Advance Wrangler within major version 4 from 4.115.0 to
+  4.123.0, which selects Miniflare 5.20260811.1-alpha and patched Undici
+  7.29.0. Override Nano ID to the patched 3.3.18 release within PostCSS's
+  compatible major range. Retain the existing policy of removing overrides
+  individually when their parents adopt patched floors.
+- **Consequence.** `npm audit --audit-level=high` reports zero vulnerabilities.
+  The change affects development, preview, and deployment tooling only; it
+  neither deploys the application nor broadens any connector claim.
+
 ## 2026-08-18 — Iceberg live-fixture and credential envelope (FJ)
 
 ### Decision FJ-1 — freeze fixture identities without inventing vendor access

@@ -8,6 +8,7 @@ import { restoreModalFocus } from './modal-focus.ts';
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
+let _mountController: AbortController | null = null;
 
 export interface MountIcebergInput {
   label: string;
@@ -17,7 +18,7 @@ export interface MountIcebergInput {
 }
 
 export function openMountIcebergModal(opts: {
-  onMount: (input: MountIcebergInput) => Promise<void> | void;
+  onMount: (input: MountIcebergInput, signal: AbortSignal) => Promise<void> | void;
 }): void {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
@@ -28,6 +29,8 @@ export function openMountIcebergModal(opts: {
 }
 
 export function closeMountIcebergModal(): void {
+  _mountController?.abort('Iceberg mount dialog closed');
+  _mountController = null;
   if (_modalEl?.parentElement) {
     _modalEl.parentElement.removeChild(_modalEl);
   }
@@ -45,7 +48,7 @@ export function closeMountIcebergModal(): void {
 }
 
 function renderModal(opts: {
-  onMount: (input: MountIcebergInput) => Promise<void> | void;
+  onMount: (input: MountIcebergInput, signal: AbortSignal) => Promise<void> | void;
 }): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'schema-graph-overlay mount-iceberg-overlay';
@@ -66,22 +69,21 @@ function renderModal(opts: {
           <input type="url" data-region="metadata-url-input" placeholder="https://my-bucket.s3.amazonaws.com/warehouse/sales/metadata/v3.metadata.json" autocomplete="off" spellcheck="false">
         </label>
         <label class="mount-url-field">
-          <span>Bearer token <em>(optional — leave blank for public tables; applies to all data requests this session)</em></span>
-          <input type="password" data-region="bearer-token-input" autocomplete="off" spellcheck="false">
+          <span>Bearer token <em>(not released for this public-only path)</em></span>
+          <input type="password" data-region="bearer-token-input" autocomplete="off" spellcheck="false" disabled>
         </label>
         <label class="mount-url-field mount-s3-remember">
-          <input type="checkbox" data-region="remember-input">
-          <span>Remember token on this device <em>— stored plaintext in IndexedDB on this origin. Anyone with access to this browser profile can read it.</em></span>
+          <input type="checkbox" data-region="remember-input" disabled>
+          <span>Private bearer access remains verification-gated.</span>
         </label>
         <label class="mount-url-field">
           <span>Label <em>(optional)</em></span>
           <input type="text" data-region="label-input" placeholder="defaults to the table directory name" autocomplete="off" spellcheck="false">
         </label>
         <p class="mount-url-hint">
-          Mounts one Iceberg table from its metadata URL, with an optional
-          Bearer token. For <code>s3://</code> URLs, connect the bucket first so
-          NakliData can use its S3 credentials. OAuth2 sign-in and AWS Glue
-          credentials are not supported in this form.
+          Mounts one public Iceberg table from an HTTPS metadata URL or table
+          directory. The source must permit browser CORS reads. Private bearer,
+          S3, GCS, OAuth2, and AWS Glue profiles remain verification-gated.
         </p>
         <div class="mount-url-error" data-region="error" hidden></div>
         <div class="mount-url-actions">
@@ -107,7 +109,9 @@ function renderModal(opts: {
 
 async function confirmMount(
   overlay: HTMLElement,
-  opts: { onMount: (input: MountIcebergInput) => Promise<void> | void },
+  opts: {
+    onMount: (input: MountIcebergInput, signal: AbortSignal) => Promise<void> | void;
+  },
 ): Promise<void> {
   const get = <T extends HTMLInputElement>(region: string): T | null =>
     overlay.querySelector<T>(`[data-region="${region}"]`);
@@ -128,12 +132,23 @@ async function confirmMount(
     get('metadata-url-input')?.focus();
     return;
   }
+  if (!input.metadataUrl.toLowerCase().startsWith('https://')) {
+    if (errEl) {
+      errEl.textContent = 'The released table path requires a public https:// URL.';
+      errEl.hidden = false;
+    }
+    get('metadata-url-input')?.focus();
+    return;
+  }
   if (errEl) {
     errEl.textContent = '';
     errEl.hidden = true;
   }
   try {
-    await opts.onMount(input);
+    _mountController?.abort('Iceberg mount replaced');
+    const controller = new AbortController();
+    _mountController = controller;
+    await opts.onMount(input, controller.signal);
     closeMountIcebergModal();
   } catch (err) {
     if (errEl) {

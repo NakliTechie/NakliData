@@ -311,6 +311,50 @@ async function stageCandidate(workRoot) {
   const archive = join(workRoot, 'duckdb-wasm.tgz');
   const packageRoot = join(workRoot, 'package');
   const webRoot = join(workRoot, 'web');
+  if (process.env.NAKLIDATA_CHECKED_IN_RUNTIME === '1') {
+    await mkdir(webRoot, { recursive: true });
+    const packageDist = resolve('node_modules/@duckdb/duckdb-wasm/dist');
+    const manifest = JSON.parse(
+      await readFile(resolve('public/duckdb-fallback/integrity.json'), 'utf8'),
+    );
+    assert(
+      manifest.version === CANDIDATE.packageVersion,
+      `checked-in core manifest version is ${manifest.version}, expected ${CANDIDATE.packageVersion}`,
+    );
+    for (const [name, expected] of Object.entries(CANDIDATE.coreFiles)) {
+      const bytes = await readFile(resolve('public/duckdb-fallback', name));
+      verifyDigest(bytes, expected, 'sha384', `checked-in ${name}`);
+      await writeFile(join(webRoot, name), bytes);
+    }
+    await build({
+      entryPoints: [join(packageDist, 'duckdb-browser.mjs')],
+      bundle: true,
+      platform: 'browser',
+      format: 'esm',
+      outfile: join(webRoot, 'duckdb.js'),
+      nodePaths: [resolve('node_modules')],
+      logLevel: 'silent',
+    });
+    for (const [platform, extensions] of Object.entries(EXTENSIONS)) {
+      for (const [name, expected] of Object.entries(extensions)) {
+        const filename = `${name}.duckdb_extension.wasm`;
+        const bytes = await readFile(
+          resolve('public/duckdb-extensions', CANDIDATE.duckdbVersion, platform, filename),
+        );
+        verifyDigest(bytes, expected, 'sha384', `checked-in ${platform}/${name}`);
+        const destination = join(
+          webRoot,
+          'extensions',
+          CANDIDATE.duckdbVersion,
+          platform,
+          filename,
+        );
+        await mkdir(resolve(destination, '..'), { recursive: true });
+        await writeFile(destination, bytes);
+      }
+    }
+    return webRoot;
+  }
   const packageBytes = await download(CANDIDATE.tarballUrl, 40 * 1024 * 1024);
   verifyDigest(packageBytes, CANDIDATE.tarballIntegrity, 'sha512', 'candidate package');
   await writeFile(archive, packageBytes);
@@ -1021,6 +1065,10 @@ async function main() {
           candidate: {
             package: `@duckdb/duckdb-wasm@${CANDIDATE.packageVersion}`,
             engine: CANDIDATE.duckdbVersion,
+            source:
+              process.env.NAKLIDATA_CHECKED_IN_RUNTIME === '1'
+                ? 'checked-in-production-assets'
+                : 'downloaded-candidate-assets',
           },
           credentialCapabilities: {
             ...credentialCapabilities,

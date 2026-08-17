@@ -43,7 +43,7 @@ export const SOURCE_GROUPS = [
   {
     id: 'catalogs',
     label: 'Catalogs',
-    description: 'Unavailable until real endpoints pass the release smoke.',
+    description: 'Public Iceberg tables are available; REST catalogs remain verification-gated.',
   },
   {
     id: 'warehouse-compute',
@@ -67,7 +67,7 @@ export interface SourceOption {
 }
 
 export const ICEBERG_UNAVAILABLE_REASON =
-  'Unavailable in this build: Iceberg URL and REST Catalog paths remain disabled until verified against real endpoints.';
+  'Unavailable in this build: Iceberg REST Catalog remains disabled until real catalog endpoints pass the release matrix.';
 
 export const SOURCE_OPTIONS: readonly SourceOption[] = [
   {
@@ -115,10 +115,10 @@ export const SOURCE_OPTIONS: readonly SourceOption[] = [
     group: 'catalogs',
     action: 'mount-iceberg',
     label: 'Iceberg table',
-    hint: 'Unavailable—verification pending.',
-    title: ICEBERG_UNAVAILABLE_REASON,
-    readiness: 'unavailable',
-    unavailableReason: ICEBERG_UNAVAILABLE_REASON,
+    hint: 'Public HTTPS metadata or table directory.',
+    title: 'Mount a public Apache Iceberg table through the browser',
+    readiness: 'available',
+    unavailableReason: null,
   },
   {
     id: 'iceberg-rest',

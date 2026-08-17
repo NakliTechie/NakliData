@@ -1,6 +1,6 @@
-# Resolved blocker — checked-in Iceberg runtime migration authorized
+# Closed blocker — checked-in Iceberg runtime migration applied
 
-- Status: **authorization granted 2026-07-30; implementation ready**
+- Status: **migration applied and public table path browser-proven 2026-08-18**
 - Recorded: 2026-07-29
 - Resolved: 2026-07-30 (DECISIONS FB-1)
 - Scope: Databricks Unity Catalog and Snowflake Open Catalog/Polaris data plane
@@ -16,6 +16,8 @@ The approved initial browser data plane is AWS-backed Databricks plus
 S3/GCS-backed Snowflake Open Catalog/Polaris. Azure/ADLS stays unavailable.
 The approval does not authorize deployment, vendor credentials, remote writes,
 card enablement, tagging, publishing, or broader connector claims.
+The later goal-mode implementation authorized the public table card after its
+product probe; it did not authorize REST, branded cards, deployment, or publish.
 
 ## Original stop-line rationale
 

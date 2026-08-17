@@ -18,13 +18,18 @@
 // no longer in the live DOM, look up the trigger via its `data-action`
 // attribute and focus the fresh button instead.
 
-export function restoreModalFocus(stored: HTMLElement | null): void {
-  if (!stored) return;
-  if (stored.isConnected) {
-    stored.focus();
+export function restoreModalFocus(stored: HTMLElement | null, fallbackAction?: string): void {
+  if (!stored) {
+    if (fallbackAction) {
+      document.querySelector<HTMLElement>(`[data-action="${fallbackAction}"]`)?.focus();
+    }
     return;
   }
-  const action = stored.dataset?.action;
+  if (stored.isConnected) {
+    stored.focus();
+    if (document.activeElement === stored) return;
+  }
+  const action = stored.dataset?.action ?? fallbackAction;
   if (action) {
     document.querySelector<HTMLElement>(`[data-action="${action}"]`)?.focus();
   }

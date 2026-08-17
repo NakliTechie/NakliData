@@ -25,7 +25,7 @@ no NakliData relay. CORS or signed-URL access still applies.
 | Local data | Add file | Available | CSV, Parquet, Excel, SQLite, and more. |
 | Object storage | HTTPS URL | Available | Public CSV, TSV, JSONL, or Parquet. |
 | Object storage | S3-compatible | Available | AWS, R2, B2, MinIO, or Wasabi. |
-| Catalogs | Iceberg table | Unavailable | Unavailable—verification pending. |
+| Catalogs | Iceberg table | Available | Public HTTPS metadata or table directory. |
 | Catalogs | Iceberg REST | Unavailable | Unavailable—verification pending. |
 | Warehouse compute | Advanced: SQL bridge | Advanced / BYO | BYO compatible endpoint; bounded result. |
 | Warehouse compute | Advanced: bridge catalog | Advanced / BYO | BYO compatible endpoint; pick tables. |
@@ -38,13 +38,15 @@ no NakliData relay. CORS or signed-URL access still applies.
 - **S3-compatible** — AWS S3, Cloudflare R2, MinIO, B2, Wasabi. Anonymous public
   buckets or signed access (access key + secret); region + endpoint configurable.
   DuckDB's `httpfs` extension does the I/O.
+- **Public Iceberg table** — mount an HTTPS metadata file or table directory.
+  Reads stay browser-to-source and require CORS; no remote writes are issued.
 - **Advanced BYO Compute Bridge client** — use only with your own compatible
   endpoint. NakliData ships no bridge server, image, installer, or branded
   warehouse adapter. A bounded Arrow result is registered locally. Protocol:
   [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 
-**Unavailable in this build:** Iceberg table-by-URL and Iceberg REST Catalog
-entry points remain disabled until real endpoint smoke tests pass.
+**Unavailable in this build:** Iceberg REST Catalog remains disabled until the
+real Databricks and Open Catalog/Polaris matrices pass.
 
 ## The notebook
 

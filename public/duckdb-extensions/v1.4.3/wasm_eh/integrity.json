@@ -1,0 +1,15 @@
+{
+  "revision": "v1.4.3",
+  "platform": "wasm_eh",
+  "generated": "2026-08-17T20:08:17.750Z",
+  "files": {
+    "json.duckdb_extension.wasm": "sha384-JIr7n2BuVmluHQNklTHDUPCL1elu5fisGlawZiDYb52c6+EamJ8sDmRDYxB/bdMz",
+    "sqlite_scanner.duckdb_extension.wasm": "sha384-5TizyFaheQIvrQH6nLzPahioLI96Q99lWS5Z6TZZ/Rk3fPYQIhU2wFK+7z2L3/L4",
+    "sqlite.duckdb_extension.wasm": "sha384-5TizyFaheQIvrQH6nLzPahioLI96Q99lWS5Z6TZZ/Rk3fPYQIhU2wFK+7z2L3/L4",
+    "parquet.duckdb_extension.wasm": "sha384-BOQzRRlWIlBsguRiM4lH3NvA+Gl1aCfYJ1IjOjyaUD0566SD7N6Jo4TnT0LmKVvs",
+    "spatial.duckdb_extension.wasm": "sha384-StqfB5OKD7uQjrDPlwkdonGExXOefn8OMpRx97auOQD1UJtc54MRl2BkZ6q7GT89",
+    "httpfs.duckdb_extension.wasm": "sha384-gs9zs8CT8s2hTIQ91FYdB0efYWnxT6ldKtxH3AzdRhFv1ukt0r4AuOJTlRD30mGt",
+    "iceberg.duckdb_extension.wasm": "sha384-4f7mfda7znE/swzGC+DieEt5TcUNFBXOrbCCrRg5Sr24yUCmXAEgIo7nFlvUKE22",
+    "avro.duckdb_extension.wasm": "sha384-nCKJWwqsZ9fq67yxwLIrw7FFwFOrPxyVDq7bj5LloJAqKwnFBD+cLKsJfgdYKdAW"
+  }
+}

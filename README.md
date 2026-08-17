@@ -10,8 +10,9 @@ A single-HTML-shell tool that reads tabular data from your local disk, public
 HTTPS URLs, or S3-compatible storage and runs SQL with DuckDB-wasm in the
 browser tab. An advanced Compute Bridge client is available only when you bring
 your own compatible endpoint; NakliData does not ship a bridge server or branded
-warehouse adapter. Iceberg table and REST Catalog entry points are disabled
-until verified against real endpoints. A versioned **semantic taxonomy** classifies your columns into types
+warehouse adapter. Public Iceberg table URLs are available; REST Catalog entry
+points remain disabled pending live catalog matrices. A versioned **semantic
+taxonomy** classifies your columns into types
 you recognize (GSTIN, HSN code, IFSC, email, vendor name, timestamp, log level, …),
 not just their SQL types. From a query result you can chart, pivot, map, run
 Python/R, resolve messy entities, and export.
@@ -45,7 +46,7 @@ It also **resolves** data locally — the sovereign, file-owned take on a CDP's
 | Local data | Add file | Available | CSV, Parquet, Excel, SQLite, and more. |
 | Object storage | HTTPS URL | Available | Public CSV, TSV, JSONL, or Parquet. |
 | Object storage | S3-compatible | Available | AWS, R2, B2, MinIO, or Wasabi. |
-| Catalogs | Iceberg table | Unavailable | Unavailable—verification pending. |
+| Catalogs | Iceberg table | Available | Public HTTPS metadata or table directory. |
 | Catalogs | Iceberg REST | Unavailable | Unavailable—verification pending. |
 | Warehouse compute | Advanced: SQL bridge | Advanced / BYO | BYO compatible endpoint; bounded result. |
 | Warehouse compute | Advanced: bridge catalog | Advanced / BYO | BYO compatible endpoint; pick tables. |

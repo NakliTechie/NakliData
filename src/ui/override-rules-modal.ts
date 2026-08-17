@@ -97,7 +97,7 @@ export function closeOverrideRulesModal(): void {
     _modalEl.parentElement.removeChild(_modalEl);
   }
   _modalEl = null;
-  restoreModalFocus(_previouslyFocused);
+  restoreModalFocus(_previouslyFocused, 'manage-override-rules');
   _previouslyFocused = null;
 }
 

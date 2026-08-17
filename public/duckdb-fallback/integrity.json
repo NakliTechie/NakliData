@@ -1,10 +1,10 @@
 {
-  "version": "1.29.0",
-  "generated": "2026-05-17T03:38:21.161Z",
+  "version": "1.32.0",
+  "generated": "pinned",
   "files": {
-    "duckdb-mvp.wasm": "sha384-SRMI3LFyELhfS8s/8ue8Y4bZBM0Vc1W9DaYQBrP2JE9jm2rQt9bUCZcp4mbazBdh",
-    "duckdb-eh.wasm": "sha384-ekT25swCnwgfFwq7uAzOb2b6N/al/zIGZvHRY559inETROKvAynBTZNLLIOA9lMQ",
-    "duckdb-browser-mvp.worker.js": "sha384-L2W9raaNudYsNAE2St5PcIXN96okBznXoQxXVNd1AHNNfz6Yg3BJejmmb41KrUQQ",
-    "duckdb-browser-eh.worker.js": "sha384-U96HuXJO7UGKNzXh+gipzT6Qg7laT/KfFEOoDgl0fidBTKmUOY0PJoxqYEpFNWc8"
+    "duckdb-mvp.wasm": "sha384-aPxDmtovNQyMTy8S7zolNUiHoQNvtkLGOWJdPtQpW1T52DQuqeGutmEdb0ycBoNs",
+    "duckdb-eh.wasm": "sha384-hw3GjeJZY5QapQ8mwqMHXBPVmTLO+jKm5dlDwkGsEfjyu/HcXx1d0Rwlr/ZAShjq",
+    "duckdb-browser-mvp.worker.js": "sha384-ABB4QFgUoQqfiMRv4Eme20RCo+rO//OBEOJfiUbiZFBRH/4T4xy8Vcu4hLXgPxQ0",
+    "duckdb-browser-eh.worker.js": "sha384-a2Q5wPfMJHriw96D3xhtkym83ST11xUIm6e27q9d3v4ykPqSzeY7WCXK6CTlJFwb"
   }
 }

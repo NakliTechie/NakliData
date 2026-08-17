@@ -299,6 +299,7 @@ async function main() {
   const REMOTE_MODALS = [
     { trigger: 'mount-url', overlay: '.mount-url-overlay' },
     { trigger: 'mount-s3', overlay: '.mount-s3-overlay' },
+    { trigger: 'mount-iceberg', overlay: '.mount-iceberg-overlay' },
     { trigger: 'mount-compute-bridge', overlay: '.mount-bridge-overlay' },
     { trigger: 'mount-compute-bridge-catalog', overlay: '.mount-bridge-catalog-overlay' },
   ];
@@ -339,11 +340,11 @@ async function main() {
   if (JSON.stringify(sourcePickerTruth.groupLabels) !== JSON.stringify(expectedGroups)) {
     fail(`source picker groups drifted: ${JSON.stringify(sourcePickerTruth.groupLabels)}`);
   }
-  if (!sourcePickerTruth.icebergDisabled || !sourcePickerTruth.catalogDisabled) {
-    fail('source picker exposes an unverified Iceberg action');
+  if (sourcePickerTruth.icebergDisabled || !sourcePickerTruth.catalogDisabled) {
+    fail('source picker Iceberg readiness does not match the public-only release boundary');
   }
-  if (!/Unavailable/i.test(sourcePickerTruth.icebergHint)) {
-    fail(`Iceberg card lacks an explicit unavailable reason: ${sourcePickerTruth.icebergHint}`);
+  if (!/Public HTTPS/i.test(sourcePickerTruth.icebergHint)) {
+    fail(`Iceberg table card lacks the public-only boundary: ${sourcePickerTruth.icebergHint}`);
   }
   if (!/Advanced/i.test(sourcePickerTruth.bridgeCopy)) {
     fail(`Compute Bridge is not labelled advanced/BYO: ${sourcePickerTruth.bridgeCopy}`);
@@ -354,7 +355,7 @@ async function main() {
   if (!/^v\d+\.\d+\.\d+-\d+-g[0-9a-f]+(?:-dirty)?$/.test(sourcePickerTruth.version)) {
     fail(`header does not show a real git-derived build: ${sourcePickerTruth.version}`);
   }
-  log('✓ source picker readiness: grouped, Iceberg disabled, Bridge advanced, real build shown');
+  log('✓ source picker readiness: public Iceberg table enabled, REST gated, Bridge advanced');
 
   // 3b. Real remote-mount attempts (M30/SB2, DECISIONS 2026-07-09) — these
   // exercise the mount *machinery*, not just modal open/close, guarding two

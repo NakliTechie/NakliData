@@ -203,8 +203,9 @@ export class VendedCredentialSession {
   #target: VendedCredentialTarget | null = null;
   readonly #load: () => Promise<LoadTableResult>;
 
-  constructor(load: () => Promise<LoadTableResult>) {
+  constructor(load: () => Promise<LoadTableResult>, initial: LoadTableResult | null = null) {
     this.#load = load;
+    this.#current = initial;
   }
 
   async applyTo(

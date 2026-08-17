@@ -13,6 +13,8 @@
 // Skip when:
 //  - SKIP_DUCKDB_FETCH=1 is set
 //  - The destination already has the expected files AND integrity.json
+//  - Set FORCE_DUCKDB_FETCH=1 during an intentional pin migration to replace
+//    stale bytes after the new manifest has been reviewed and committed.
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -21,7 +23,7 @@ import { resolve } from 'node:path';
 
 const DEST = resolve('public/duckdb-fallback');
 const NPM_SRC = resolve('node_modules/@duckdb/duckdb-wasm/dist');
-const PINNED = '1.29.0';
+const PINNED = '1.32.0';
 const CDN = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${PINNED}/dist`;
 
 const FILES = [
@@ -101,7 +103,7 @@ async function main() {
       `[naklidata] no pinned hashes for DuckDB-wasm ${PINNED} — bootstrapping; commit integrity.json to lock these bytes.`,
     );
   }
-  if (await alreadyVendored()) {
+  if (process.env.FORCE_DUCKDB_FETCH !== '1' && (await alreadyVendored())) {
     // Code-review of v1.2.1..HEAD: even when files are already present,
     // verify their hashes against the pinned table BEFORE shortcutting.
     // Without this, on-disk tampering between installs (e.g., editing a

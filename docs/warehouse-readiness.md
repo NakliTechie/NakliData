@@ -1,6 +1,7 @@
 # Warehouse readiness
 
-Status: the portable Iceberg REST control plane, opaque in-memory
+Status: the checked-in DuckDB-WASM 1.32.0/DuckDB v1.4.3 runtime, public
+Iceberg table data plane, portable Iceberg REST control plane, opaque in-memory
 credential-lease boundary, vendor-shaped catalog and Compute Bridge fixtures,
 browser-proven S3/GCS DuckDB target, dependency-free Databricks/Snowflake
 adapter reference cores, and current semantic-model compatibility accounting
@@ -16,34 +17,31 @@ A checked-in DuckDB target implements serialized, transactional temporary
 secrets for S3 session credentials and GCS OAuth bearer tokens. It rejects
 ADLS because the reviewed WASM candidate has no Azure extension artifact.
 
-The remaining local Iceberg checkpoint is integrating that target with an
-authorized runtime migration. A no-install spike selected stable
-`@duckdb/duckdb-wasm` 1.32.0 (DuckDB v1.4.3) and proved
-same-origin, dependency-complete Iceberg reads over both EH and MVP variants in
-real Chromium. The public-fixture probe returned the same five rows with zero
-console errors. `npm run warehouse:iceberg-candidate` now repeats the proof
+The authorized runtime migration is applied. Both EH and MVP core/worker assets
+and the complete `httpfs`, `iceberg`, `parquet`, and `avro` closure are pinned
+under the same-origin production paths. `npm run warehouse:iceberg-runtime`
+proves those checked-in bytes in Chromium. `npm run warehouse:iceberg-public`
+drives the product mount boundary against DuckDB's public MotherDuck S3 fixture,
+including offline retry, cancellation, persistence, remount, removal, teardown,
+CORS, byte-range capability, and zero remote writes.
+`npm run warehouse:iceberg-candidate` retains the independent upstream proof
 from pinned upstream bytes and requires network-evidenced failure for a missing
 extension, ignored ranges, denied CORS, missing metadata, and missing Parquet
 data. The gate now also proves actual authenticated ranged Parquet reads,
 transactional rotation, rollback, and clear against local S3/GCS endpoints,
 while confirming Azure artifacts are absent for both variants. It exposed
-mandatory `httpfs`, `parquet`, and `avro` dependencies, variant-asymmetric
-current vendoring, and misleading “no version-hint” diagnostics when CORS is
-denied. See
+mandatory `httpfs`, `parquet`, and `avro` dependencies. The production mirror
+now carries the same required closure for both variants. The probe also records
+the misleading “no version-hint” diagnostic seen when CORS is denied. See
 [`duckdb-wasm-iceberg-spike-2026-07-29.md`](duckdb-wasm-iceberg-spike-2026-07-29.md).
 
-The project still pins `@duckdb/duckdb-wasm` 1.29.0 / DuckDB 1.1.1. Applying
-the proven candidate is blocked on separate authorization because it changes
-the shared runtime dependency, workers/WASM, extension mirror and integrity
-hashes. The migration must wire and preserve S3/GCS cleanup, cancellation,
-existing format behavior, CSP, supply-chain integrity, and the 768 KiB shell
-budget. Azure/ADLS remains unavailable pending a separate browser-capable data
-plane. See
-[`BLOCKER.md`](../BLOCKER.md).
+The public table-by-URL card is enabled. The generic REST card remains gated on
+live catalog evidence. Azure/ADLS remains unavailable pending a browser-capable
+data plane. The closed migration record remains in [`BLOCKER.md`](../BLOCKER.md).
 
-Only after that local engine gate passes do the safe live catalog matrices
-begin. Real authentication, authorization, vendor errors, rate limits, token
-refresh behavior, and storage reads still need user-supplied test endpoints and
+The local engine gate has passed. Safe live catalog matrices are next. Real
+authentication, authorization, vendor errors, rate limits, token refresh
+behavior, and storage reads still need user-supplied test endpoints and
 credentials.
 
 The exact fixture names, identity restrictions, ownership record, maximum

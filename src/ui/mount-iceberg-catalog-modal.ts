@@ -9,6 +9,7 @@ import { restoreModalFocus } from './modal-focus.ts';
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
+let _mountController: AbortController | null = null;
 
 export interface MountIcebergCatalogInput {
   label: string;
@@ -20,7 +21,7 @@ export interface MountIcebergCatalogInput {
 }
 
 export function openMountIcebergCatalogModal(opts: {
-  onMount: (input: MountIcebergCatalogInput) => Promise<void> | void;
+  onMount: (input: MountIcebergCatalogInput, signal: AbortSignal) => Promise<void> | void;
 }): void {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
@@ -31,6 +32,8 @@ export function openMountIcebergCatalogModal(opts: {
 }
 
 export function closeMountIcebergCatalogModal(): void {
+  _mountController?.abort('Iceberg catalog mount dialog closed');
+  _mountController = null;
   if (_modalEl?.parentElement) {
     _modalEl.parentElement.removeChild(_modalEl);
   }
@@ -45,7 +48,7 @@ export function closeMountIcebergCatalogModal(): void {
 }
 
 function renderModal(opts: {
-  onMount: (input: MountIcebergCatalogInput) => Promise<void> | void;
+  onMount: (input: MountIcebergCatalogInput, signal: AbortSignal) => Promise<void> | void;
 }): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = 'schema-graph-overlay mount-iceberg-catalog-overlay';
@@ -121,7 +124,9 @@ function renderModal(opts: {
 
 async function confirmMount(
   overlay: HTMLElement,
-  opts: { onMount: (input: MountIcebergCatalogInput) => Promise<void> | void },
+  opts: {
+    onMount: (input: MountIcebergCatalogInput, signal: AbortSignal) => Promise<void> | void;
+  },
 ): Promise<void> {
   const get = <T extends HTMLInputElement>(region: string): T | null =>
     overlay.querySelector<T>(`[data-region="${region}"]`);
@@ -156,7 +161,10 @@ async function confirmMount(
     errEl.hidden = true;
   }
   try {
-    await opts.onMount(input);
+    _mountController?.abort('Iceberg catalog mount replaced');
+    const controller = new AbortController();
+    _mountController = controller;
+    await opts.onMount(input, controller.signal);
     closeMountIcebergCatalogModal();
   } catch (err) {
     if (errEl) {

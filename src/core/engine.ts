@@ -134,7 +134,7 @@ export interface QueryOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
+const DEFAULT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/dist/';
 
 /** L6: monotonic counter for per-mount CSV reject-table names. */
 let rejectSeq = 0;
@@ -188,6 +188,7 @@ export class Engine {
   private status: EngineStatus = 'idle';
   private listeners = new Map<EngineEventName, Set<(payload: unknown) => void>>();
   private loadedExtensions = new Set<string>();
+  private icebergHttpSecretNames = new Set<string>();
   private registeredFileSeq = 0;
   private filesByRelation = new Map<string, Set<string>>();
   private relationsByFile = new Map<string, Set<string>>();
@@ -336,6 +337,7 @@ export class Engine {
     this.db = null;
     this.worker = null;
     this.loadedExtensions.clear();
+    this.icebergHttpSecretNames.clear();
     this.registeredFileSeq = 0;
     this.filesByRelation.clear();
     this.relationsByFile.clear();
@@ -729,10 +731,18 @@ export class Engine {
    */
   async configureIceberg({
     bearerToken,
+    bearerScope,
+    sourceId,
+    signal,
   }: {
     bearerToken: string | null;
+    bearerScope: string | null;
+    sourceId: string;
+    signal?: AbortSignal;
   }): Promise<void> {
-    await this.ensureExtension('iceberg');
+    await this.ensureExtension('iceberg', 'core', signal ? { signal } : {});
+    const secretName = `__naklidata_iceberg_http_${sanitizeIdent(sourceId)}`;
+    const statements = [`DROP SECRET IF EXISTS ${secretName}`];
     if (bearerToken) {
       // Validate the bearer-token charset BEFORE building the SQL
       // literal — escapeLiteral only doubles `'`, so a CR/LF (or other
@@ -741,22 +751,28 @@ export class Engine {
       // header injection if httpfs doesn't validate. (Forward-pass M1,
       // 2026-06-02.)
       assertSafeBearerToken(bearerToken);
-      // DuckDB's httpfs respects `extra_http_headers` — a STRUCT of
-      // header-name → value pairs applied to every outgoing httpfs
-      // request. Bearer auth covers REST endpoints (slice 3b) and any
-      // table-storage host that gates reads behind a token.
-      await this.exec(
-        `SET extra_http_headers = MAP { 'Authorization': 'Bearer ${escapeLiteral(bearerToken)}' }`,
+      if (!bearerScope?.startsWith('https://')) {
+        throw new EngineError('Iceberg bearer tokens require an https:// storage scope');
+      }
+      statements.push(
+        `CREATE SECRET ${secretName} (TYPE http, BEARER_TOKEN '${escapeLiteral(bearerToken)}', SCOPE '${escapeLiteral(bearerScope)}')`,
       );
+      this.icebergHttpSecretNames.add(secretName);
     } else {
-      await this.exec('SET extra_http_headers = MAP {}');
+      this.icebergHttpSecretNames.delete(secretName);
     }
+    await this.exec(`${statements.join(';\n')};`, signal ? { signal } : {});
   }
 
-  /** Clear Iceberg's connection-wide bearer header without loading the extension. */
-  async clearIcebergConfig(): Promise<void> {
+  /** Clear one source's scoped bearer secret, or every Iceberg bearer secret. */
+  async clearIcebergConfig(sourceId?: string): Promise<void> {
     if (!this.loadedExtensions.has('iceberg')) return;
-    await this.exec('SET extra_http_headers = MAP {}');
+    const names = sourceId
+      ? [`__naklidata_iceberg_http_${sanitizeIdent(sourceId)}`]
+      : [...this.icebergHttpSecretNames];
+    if (names.length === 0) return;
+    await this.exec(`${names.map((name) => `DROP SECRET IF EXISTS ${name}`).join(';\n')};`);
+    for (const name of names) this.icebergHttpSecretNames.delete(name);
   }
 
   /**
@@ -768,13 +784,21 @@ export class Engine {
   async registerIcebergTable({
     tableName,
     metadataUrl,
+    signal,
   }: {
     tableName: string;
     metadataUrl: string;
+    signal?: AbortSignal;
   }): Promise<void> {
     const safeTable = sanitizeIdent(tableName);
     const lit = escapeLiteral(metadataUrl);
-    await this.exec(`CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM iceberg_scan('${lit}')`);
+    const directoryOptions = /\.json(?:[?#]|$)/i.test(metadataUrl)
+      ? ''
+      : ', allow_moved_paths = true';
+    await this.exec(
+      `CREATE VIEW ${quoteIdent(safeTable)} AS SELECT * FROM iceberg_scan('${lit}'${directoryOptions})`,
+      signal ? { signal } : {},
+    );
   }
 
   /**
@@ -789,7 +813,11 @@ export class Engine {
    * mount layer wrap this and surface a useful message to the user
    * (e.g. when offline + extension not vendored).
    */
-  async ensureExtension(name: string, source: ExtensionSource = 'core'): Promise<void> {
+  async ensureExtension(
+    name: string,
+    source: ExtensionSource = 'core',
+    opts: QueryOptions = {},
+  ): Promise<void> {
     if (this.loadedExtensions.has(name)) return;
     const safe = sanitizeIdent(name);
     try {
@@ -800,15 +828,15 @@ export class Engine {
         // prior value after LOAD succeeds so any subsequent core
         // INSTALL/LOAD in the same session runs with full signature
         // checks. The flag only needs to be true during INSTALL.
-        await this.exec('SET allow_unsigned_extensions = true');
+        await this.exec('SET allow_unsigned_extensions = true', opts);
         try {
-          await this.exec(`INSTALL ${safe} FROM community`);
-          await this.exec(`LOAD ${safe}`);
+          await this.exec(`INSTALL ${safe} FROM community`, opts);
+          await this.exec(`LOAD ${safe}`, opts);
         } finally {
           // Restore. Use a no-op-on-error catch since we don't want
           // a settings-restore failure to mask the original error.
           try {
-            await this.exec('SET allow_unsigned_extensions = false');
+            await this.exec('SET allow_unsigned_extensions = false', opts);
           } catch {
             /* ignore */
           }
@@ -817,12 +845,12 @@ export class Engine {
       } else {
         // INSTALL is idempotent in DuckDB; safe to call repeatedly.
         try {
-          await this.exec(`INSTALL ${safe}`);
+          await this.exec(`INSTALL ${safe}`, opts);
         } catch {
           // Some core extensions are statically linked into the wasm
           // bundle and INSTALL is a no-op / errors. LOAD will still work.
         }
-        await this.exec(`LOAD ${safe}`);
+        await this.exec(`LOAD ${safe}`, opts);
         this.loadedExtensions.add(name);
       }
     } catch (err) {

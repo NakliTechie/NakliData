@@ -33,8 +33,6 @@ import {
   mountExampleBundle,
   mountFile,
   mountFolder,
-  mountIcebergCatalog,
-  mountIcebergTable,
   mountS3Endpoint,
   mountUrl,
   reconcileRemountedFolder,
@@ -125,8 +123,6 @@ import { openMeasuresPanel } from './ui/measures-panel.ts';
 import { restoreModalFocus } from './ui/modal-focus.ts';
 import { openMountComputeBridgeCatalogModal } from './ui/mount-compute-bridge-catalog-modal.ts';
 import { openMountComputeBridgeModal } from './ui/mount-compute-bridge-modal.ts';
-import { openMountIcebergCatalogModal } from './ui/mount-iceberg-catalog-modal.ts';
-import { openMountIcebergModal } from './ui/mount-iceberg-modal.ts';
 import { openMountS3Modal } from './ui/mount-s3-modal.ts';
 import { openMountUrlModal } from './ui/mount-url-modal.ts';
 import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
@@ -2109,6 +2105,18 @@ async function dropCurrentWorkspaceArtifacts(engine: Engine): Promise<void> {
   } catch (err) {
     console.warn('[naklidata] clearing Iceberg connection headers failed', err);
   }
+  if (
+    getWorkbook()
+      .get()
+      .sources.some(
+        (source) => source.kind === 'iceberg-table' || source.kind === 'iceberg-catalog',
+      )
+  ) {
+    const { clearMountedTableNames: clearIcebergNames, revokeAllIcebergSourceAccess } =
+      await loadChunk('iceberg-catalog-mount');
+    await revokeAllIcebergSourceAccess();
+    clearIcebergNames(engine);
+  }
   clearFixes();
   getLineageStore().loadFromJson({ version: 1, nodes: [], edges: [] });
   getMeasuresStore().loadFromFile(undefined);
@@ -2343,26 +2351,29 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
           }
         }
         if (src.kind === 'iceberg-table' || src.kind === 'iceberg-catalog') {
+          const { releaseMountedTableNames: releaseIcebergNames } =
+            await loadChunk('iceberg-catalog-mount');
+          releaseIcebergNames(
+            engine,
+            src.tables.map((table) => table.name),
+          );
+          if (src.kind === 'iceberg-catalog') {
+            try {
+              const { revokeIcebergSourceAccess } = await loadChunk('iceberg-catalog-mount');
+              await revokeIcebergSourceAccess(id);
+            } catch (err) {
+              console.warn('[naklidata] clearing vended Iceberg credentials failed', err);
+            }
+          }
           try {
             await forgetSource(id, [...ICEBERG_SECRET_NAMES]);
           } catch (err) {
             console.warn(`[naklidata] iceberg secret cleanup failed for ${id}`, err);
           }
-          // H4: the iceberg bearer token is set as DuckDB's session-global
-          // `extra_http_headers`, which attaches to EVERY httpfs request. When
-          // the last iceberg source goes away, clear it so the token can't ride
-          // along on a later plain-URL/S3 mount to a third-party host.
-          const otherIceberg = workbook
-            .get()
-            .sources.some(
-              (s) => s.id !== id && (s.kind === 'iceberg-table' || s.kind === 'iceberg-catalog'),
-            );
-          if (!otherIceberg) {
-            try {
-              await engine.clearIcebergConfig();
-            } catch (err) {
-              console.warn('[naklidata] clearing iceberg http headers failed', err);
-            }
+          try {
+            await engine.clearIcebergConfig(id);
+          } catch (err) {
+            console.warn('[naklidata] clearing scoped Iceberg bearer secret failed', err);
           }
         }
         if (src.kind === 'compute-bridge' || src.kind === 'compute-bridge-catalog') {
@@ -2883,12 +2894,15 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         toast('Engine still booting — try again in a moment.');
         return;
       }
+      const { openMountIcebergModal } = await loadChunk('iceberg-modals');
       openMountIcebergModal({
-        onMount: async (input) => {
+        onMount: async (input, signal) => {
+          const { mountIcebergTable } = await loadChunk('iceberg-catalog-mount');
           const source = await mountIcebergTable(engine, {
             label: input.label,
             metadataUrl: input.metadataUrl,
             bearerToken: input.bearerToken.trim() || null,
+            signal,
           });
           // Save the Bearer token if one was provided. Empty token =
           // public table; nothing to persist.
@@ -2907,14 +2921,17 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
         toast('Engine still booting — try again in a moment.');
         return;
       }
+      const { openMountIcebergCatalogModal } = await loadChunk('iceberg-modals');
       openMountIcebergCatalogModal({
-        onMount: async (input) => {
+        onMount: async (input, signal) => {
+          const { mountIcebergCatalog } = await loadChunk('iceberg-catalog-mount');
           const source = await mountIcebergCatalog(engine, {
             label: input.label,
             catalogUrl: input.catalogUrl,
             namespace: input.namespace,
             table: input.table,
             bearerToken: input.bearerToken.trim() || null,
+            signal,
           });
           if (input.bearerToken.trim()) {
             await saveSecret(source.id, 'bearer_token', input.bearerToken, input.remember);
@@ -3189,12 +3206,14 @@ async function doApplyLoadedFile(
         if (ps.iceberg_catalog.requires_bearer && !bearerToken) {
           reconnectNeeded.push({ id: ps.id, label: ps.label });
         } else {
+          const { mountIcebergCatalog } = await loadChunk('iceberg-catalog-mount');
           const remounted = await mountIcebergCatalog(engine, {
             label: ps.label,
             catalogUrl: ps.iceberg_catalog.catalog_url,
             namespace: ps.iceberg_catalog.namespace,
             table: ps.iceberg_catalog.table,
             bearerToken,
+            sourceId: ps.id,
           });
           remounted.id = ps.id;
           for (let i = 0; i < remounted.tables.length; i++) {
@@ -3294,10 +3313,12 @@ async function doApplyLoadedFile(
         if (ps.iceberg.requires_bearer && !bearerToken) {
           reconnectNeeded.push({ id: ps.id, label: ps.label });
         } else {
+          const { mountIcebergTable } = await loadChunk('iceberg-catalog-mount');
           const remounted = await mountIcebergTable(engine, {
             label: ps.label,
             metadataUrl: ps.iceberg.metadata_url,
             bearerToken,
+            sourceId: ps.id,
           });
           remounted.id = ps.id;
           for (let i = 0; i < remounted.tables.length; i++) {

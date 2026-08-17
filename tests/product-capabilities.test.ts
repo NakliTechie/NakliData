@@ -27,13 +27,15 @@ describe('product capability registry', () => {
     ).toBe(true);
   });
 
-  it('fails closed for both unverified Iceberg entry points', () => {
-    for (const action of ['mount-iceberg', 'mount-iceberg-catalog']) {
-      const option = sourceOptionForAction(action);
-      expect(option?.readiness).toBe('unavailable');
-      expect(option?.unavailableReason).toBe(ICEBERG_UNAVAILABLE_REASON);
-      expect(option?.hint).toMatch(/unavailable/i);
-    }
+  it('enables only the public Iceberg table path', () => {
+    expect(sourceOptionForAction('mount-iceberg')).toMatchObject({
+      readiness: 'available',
+      unavailableReason: null,
+    });
+    expect(sourceOptionForAction('mount-iceberg-catalog')).toMatchObject({
+      readiness: 'unavailable',
+      unavailableReason: ICEBERG_UNAVAILABLE_REASON,
+    });
   });
 
   it('labels bridge entry points as advanced bring-your-own paths', () => {

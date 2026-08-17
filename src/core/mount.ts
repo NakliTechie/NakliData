@@ -248,7 +248,16 @@ function uniquifyName(base: string, used: ReadonlySet<string>): string {
  * ending in `data.csv`, and a folder entry with the same sanitized name cannot
  * silently replace one another.
  */
-const mountedRelationNames = new WeakMap<Engine, Set<string>>();
+// Iceberg mount orchestration ships as a lazy browser chunk. esbuild gives
+// that chunk its own copy of this module, so a module-local WeakMap would let
+// eager and lazy mounts reserve the same DuckDB relation name. Keep the
+// registry on the shared browser global so every bundle instance sees it.
+const mountRegistryHost = globalThis as typeof globalThis & {
+  __naklidataMountedRelationNames?: WeakMap<Engine, Set<string>>;
+};
+const mountedRelationNames =
+  mountRegistryHost.__naklidataMountedRelationNames ?? new WeakMap<Engine, Set<string>>();
+mountRegistryHost.__naklidataMountedRelationNames = mountedRelationNames;
 
 function reserveMountedTableName(
   engine: Engine,
@@ -329,38 +338,38 @@ export class MountError extends Error {
   }
 }
 
-/**
- * M30/SB2 (DECISIONS 2026-07-09): the DuckDB `iceberg` extension has NO
- * wasm_eh build until DuckDB core v1.3.1; our pin is v1.1.1 (duckdb-wasm
- * 1.29.0). `INSTALL iceberg` / `LOAD iceberg` therefore 404 against the
- * extension repo — and the default offline boot pins that repo to the
- * local vendored dir where iceberg is (and cannot be) present. Rather
- * than let `configureIceberg → ensureExtension('iceberg')` throw a raw
- * ExtensionLoadError deep in the mount, both iceberg mount kinds fail
- * fast here with an honest, actionable message — the same F3 posture the
- * stat-format readers took when `read_stat` proved unpublished for wasm
- * (DECISIONS CA). Shipping iceberg needs a DuckDB-wasm bump to a core
- * that publishes iceberg/wasm_eh (≥ v1.3.1) — a separate, larger effort
- * (new bundle + fallback mirror + re-vendored/re-hashed extensions).
- */
-export const ICEBERG_UNAVAILABLE_MESSAGE =
-  'Iceberg mounts are not available in this build. The DuckDB iceberg ' +
-  'extension has no browser (wasm) build for the engine version NakliData ' +
-  'currently ships (DuckDB 1.1.1); a wasm build first appears in DuckDB ' +
-  '1.3.1. This is tracked and will land with a DuckDB-wasm upgrade. For ' +
-  'now, export the Iceberg table to Parquet and mount that via Add file ' +
-  'or an S3 bucket.';
+const icebergCredentialSessions = new Map<
+  string,
+  { refresh: () => Promise<void>; revoke: () => Promise<void> }
+>();
 
-/**
- * Fail-fast guard for the iceberg mount kinds. Declared `: void` (not the
- * inferred `never`) on purpose: it always throws, but typing it `void`
- * keeps the mount functions' bodies statically reachable so the parsing +
- * catalog-navigation logic stays wired and lint-clean, ready to re-enable
- * the moment the DuckDB-wasm pin gains an iceberg/wasm_eh build. This is
- * a feature-flag-off, not dead code — see ICEBERG_UNAVAILABLE_MESSAGE.
- */
-function assertIcebergMountSupported(): void {
-  throw new MountError(ICEBERG_UNAVAILABLE_MESSAGE);
+export async function refreshIcebergSourceAccess(sourceId: string): Promise<void> {
+  const session = icebergCredentialSessions.get(sourceId);
+  if (!session) return;
+  await session.refresh();
+}
+
+export async function revokeIcebergSourceAccess(sourceId: string): Promise<void> {
+  const session = icebergCredentialSessions.get(sourceId);
+  icebergCredentialSessions.delete(sourceId);
+  await session?.revoke();
+}
+
+export async function revokeAllIcebergSourceAccess(): Promise<void> {
+  const sessions = [...icebergCredentialSessions.values()];
+  icebergCredentialSessions.clear();
+  await Promise.allSettled(sessions.map((session) => session.revoke()));
+}
+
+function icebergBearerScope(metadataUrl: string): string | null {
+  if (!metadataUrl.toLowerCase().startsWith('https://')) return null;
+  const url = new URL(metadataUrl);
+  const metadataSegment = url.pathname.toLowerCase().lastIndexOf('/metadata/');
+  if (metadataSegment >= 0) url.pathname = url.pathname.slice(0, metadataSegment + 1);
+  else if (!url.pathname.endsWith('/')) url.pathname = `${url.pathname}/`;
+  url.search = '';
+  url.hash = '';
+  return url.href;
 }
 
 /**
@@ -461,11 +470,16 @@ export async function mountExampleBundle(
   return out;
 }
 
-async function getRowCount(engine: Engine, tableName: string): Promise<number> {
+async function getRowCount(
+  engine: Engine,
+  tableName: string,
+  signal?: AbortSignal,
+): Promise<number> {
   const safe = tableName.replace(/"/g, '""');
   try {
     const rows = await engine.query<{ n: bigint | number }>(
       `SELECT COUNT(*)::BIGINT AS n FROM "${safe}"`,
+      signal ? { signal } : {},
     );
     const v = rows[0]?.n;
     return typeof v === 'bigint' ? Number(v) : (v ?? 0);
@@ -934,26 +948,56 @@ export async function mountIcebergCatalog(
     table: string;
     bearerToken: string | null;
     fetchImpl?: typeof fetch;
+    signal?: AbortSignal;
+    sourceId?: string;
+    catalogModule?: Pick<
+      typeof import('../lazy/iceberg-rest-client.ts'),
+      'DuckDbVendedCredentialTarget' | 'IcebergCatalogClient' | 'VendedCredentialSession'
+    >;
   },
 ): Promise<MountedSource> {
-  // Fail fast before any catalog network round-trip — the engine can't
-  // scan an Iceberg table without the (unavailable) iceberg extension.
-  assertIcebergMountSupported();
   if (!opts.catalogUrl.trim()) throw new MountError('Catalog URL is required.');
   if (!opts.namespace.trim()) throw new MountError('Namespace is required.');
   if (!opts.table.trim()) throw new MountError('Table is required.');
   const bearerToken = opts.bearerToken?.trim() || null;
   // Resolve the metadata-location via the REST catalog.
-  const { IcebergCatalogClient } = await loadChunk('iceberg-rest-client');
+  const { DuckDbVendedCredentialTarget, IcebergCatalogClient, VendedCredentialSession } =
+    opts.catalogModule ?? (await loadChunk('iceberg-rest-client'));
   const client = new IcebergCatalogClient({
     catalogUrl: opts.catalogUrl.trim(),
     bearerToken,
+    accessDelegation: 'vended-credentials',
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
+  const sourceId = opts.sourceId ?? genId('src');
+  await revokeIcebergSourceAccess(sourceId);
   let metadataLocation: string;
+  let credentialCleanup: { refresh: () => Promise<void>; revoke: () => Promise<void> } | null =
+    null;
   try {
-    const result = await client.loadTable(opts.namespace.trim(), opts.table.trim());
+    const result = await client.loadTable(
+      opts.namespace.trim(),
+      opts.table.trim(),
+      opts.signal ? { signal: opts.signal } : {},
+    );
+    if (result.credentialVending.providers.includes('azure')) {
+      throw new MountError('Azure/ADLS Iceberg storage is unavailable in the browser runtime.');
+    }
     metadataLocation = result.metadataLocation;
+    if (result.credentialLease) {
+      const target = new DuckDbVendedCredentialTarget(engine);
+      const session = new VendedCredentialSession(
+        () => client.loadTable(opts.namespace.trim(), opts.table.trim()),
+        result,
+      );
+      await session.applyTo(target);
+      credentialCleanup = {
+        refresh: async () => {
+          await session.applyTo(target);
+        },
+        revoke: async () => await session.revoke(),
+      };
+    }
   } catch (err) {
     if (err instanceof Error) {
       throw new MountError(`Iceberg catalog: ${err.message}`);
@@ -970,22 +1014,41 @@ export async function mountIcebergCatalog(
   // user-typed input; that path was the intentional "I'm using this
   // for local testing" allowance. Catalog-returned URLs must be
   // strictly https — the user didn't see them.)
-  if (!/^https:\/\/|^s3:\/\//i.test(metadataLocation)) {
+  if (!/^(?:https|s3|gs|gcs):\/\//i.test(metadataLocation)) {
+    await credentialCleanup?.revoke();
     throw new MountError(
-      `Iceberg catalog returned an unsupported metadata location (must be https:// or s3://): ${metadataLocation}`,
+      `Iceberg catalog returned an unsupported metadata location (must be https://, s3://, or gs://): ${metadataLocation}`,
     );
   }
   // Use the same engine path as slice 3a. Bearer is set for any
   // subsequent storage-host requests (some catalogs require the same
   // token for the data tier; harmless for catalogs that don't).
-  await engine.configureIceberg({ bearerToken });
-  const sourceId = genId('src');
+  try {
+    await engine.configureIceberg({
+      bearerToken: credentialCleanup ? null : bearerToken,
+      bearerScope: credentialCleanup ? null : icebergBearerScope(metadataLocation),
+      sourceId,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+  } catch (error) {
+    await credentialCleanup?.revoke();
+    throw error;
+  }
   const tableLabel = reserveMountedTableName(engine, sanitizeTableName(opts.table.trim()));
-  await engine.registerIcebergTable({
-    tableName: tableLabel,
-    metadataUrl: metadataLocation,
-  });
-  const rowCount = await getRowCount(engine, tableLabel);
+  let rowCount: number;
+  try {
+    await engine.registerIcebergTable({
+      tableName: tableLabel,
+      metadataUrl: metadataLocation,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    rowCount = await getRowCount(engine, tableLabel, opts.signal);
+  } catch (error) {
+    await credentialCleanup?.revoke();
+    releaseMountedTableNames(engine, [tableLabel]);
+    throw error;
+  }
+  if (credentialCleanup) icebergCredentialSessions.set(sourceId, credentialCleanup);
   return {
     id: sourceId,
     kind: 'iceberg-catalog',
@@ -1016,7 +1079,7 @@ export async function mountIcebergCatalog(
  * supplies the metadata.json URL (or a directory whose latest snapshot
  * DuckDB resolves) and optionally a Bearer token. DuckDB's iceberg
  * extension reads the table's metadata + manifest list and resolves
- * the data-file URLs; httpfs's `extra_http_headers` carries the Bearer.
+ * the data-file URLs; a source-owned scoped HTTP secret carries the Bearer.
  *
  * Slice 3b (queued) will add REST catalog navigation + OAuth2 device
  * flow + AWS SigV4 (for Glue). For now the user must already know the
@@ -1029,20 +1092,25 @@ export async function mountIcebergTable(
     metadataUrl: string;
     bearerToken: string | null;
     tableName?: string;
+    signal?: AbortSignal;
+    sourceId?: string;
   },
 ): Promise<MountedSource> {
-  // Fail fast — see assertIcebergMountSupported / ICEBERG_UNAVAILABLE_MESSAGE.
-  assertIcebergMountSupported();
   const metadataUrl = opts.metadataUrl.trim();
   if (!metadataUrl) throw new MountError('Iceberg metadata URL is required.');
-  if (!/^https?:\/\/|^s3:\/\//i.test(metadataUrl)) {
+  if (!/^(?:https?|s3|gs|gcs):\/\//i.test(metadataUrl)) {
     throw new MountError(
-      'Iceberg metadata URL must start with https:// or s3://. (For s3:// URLs, configure your S3 credentials via the Mount bucket flow first — they share the same connection-wide config.)',
+      'Iceberg metadata URL must start with https://, s3://, or gs://. Configure matching storage access before mounting private objects.',
     );
   }
   const bearerToken = opts.bearerToken?.trim() || null;
-  await engine.configureIceberg({ bearerToken });
-  const sourceId = genId('src');
+  const sourceId = opts.sourceId ?? genId('src');
+  await engine.configureIceberg({
+    bearerToken,
+    bearerScope: icebergBearerScope(metadataUrl),
+    sourceId,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  });
   // Derive a default table name from the URL. Iceberg's typical layout
   // is `.../<table>/metadata/v<N>.metadata.json`, so when the parent
   // of the json file is literally "metadata" we walk up another level.
@@ -1065,8 +1133,18 @@ export async function mountIcebergTable(
     engine,
     opts.tableName ?? sanitizeTableName(fallbackName),
   );
-  await engine.registerIcebergTable({ tableName: tableLabel, metadataUrl });
-  const rowCount = await getRowCount(engine, tableLabel);
+  let rowCount: number;
+  try {
+    await engine.registerIcebergTable({
+      tableName: tableLabel,
+      metadataUrl,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    rowCount = await getRowCount(engine, tableLabel, opts.signal);
+  } catch (error) {
+    releaseMountedTableNames(engine, [tableLabel]);
+    throw error;
+  }
   return {
     id: sourceId,
     kind: 'iceberg-table',
