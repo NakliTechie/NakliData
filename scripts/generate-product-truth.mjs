@@ -7,6 +7,8 @@ const ROOT = new URL('../', import.meta.url);
 const DOCS = ['README.md', 'docs/features.md'];
 const START = '<!-- product-truth:start -->';
 const END = '<!-- product-truth:end -->';
+const TAXONOMY_TYPES_START = '<!-- taxonomy-types:start -->';
+const TAXONOMY_TYPES_END = '<!-- taxonomy-types:end -->';
 const FORMAT_LABELS = {
   csv: 'CSV',
   tsv: 'TSV',
@@ -114,6 +116,25 @@ function replaceBlock(source, block, path) {
   return `${source.slice(0, start)}${block}${source.slice(end + END.length)}`;
 }
 
+function replaceInlineTaxonomyTypes(source, taxonomy, path) {
+  const starts = source.split(TAXONOMY_TYPES_START).length - 1;
+  const ends = source.split(TAXONOMY_TYPES_END).length - 1;
+  if (starts !== 1 || ends !== 1) {
+    throw new Error(`${path} is missing exactly one inline taxonomy-types marker pair.`);
+  }
+  const start = source.indexOf(TAXONOMY_TYPES_START);
+  const end = source.indexOf(
+    TAXONOMY_TYPES_END,
+    start + TAXONOMY_TYPES_START.length,
+  );
+  if (end < start) {
+    throw new Error(`${path} has an invalid inline taxonomy-types marker pair.`);
+  }
+  return `${source.slice(0, start)}${TAXONOMY_TYPES_START}${taxonomy.types}${TAXONOMY_TYPES_END}${source.slice(
+    end + TAXONOMY_TYPES_END.length,
+  )}`;
+}
+
 const check = process.argv.includes('--check');
 const registry = await loadRuntimeRegistries();
 const taxonomy = await taxonomyFacts();
@@ -123,7 +144,11 @@ let drifted = false;
 for (const path of DOCS) {
   const url = new URL(path, ROOT);
   const before = await readFile(url, 'utf8');
-  const after = replaceBlock(before, block, path);
+  const after = replaceInlineTaxonomyTypes(
+    replaceBlock(before, block, path),
+    taxonomy,
+    path,
+  );
   if (before === after) continue;
   drifted = true;
   if (!check) {

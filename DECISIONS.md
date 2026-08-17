@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Iceberg live-fixture and credential envelope (FJ)
+
+### Decision FJ-1 — freeze fixture identities without inventing vendor access
+
+- **Context.** The runtime candidate already proves the pinned DuckDB Iceberg
+  fixture and synthetic S3/GCS credential mechanics. The infrastructure index
+  and connected Chrome state expose no Databricks, Snowflake, Open Catalog, or
+  Polaris account endpoint. A live compatibility claim therefore has no
+  account evidence.
+- **Decision.** Use the SHA-384-pinned DuckDB `lineitem_iceberg` fixture for the
+  public path. Reserve `naklidata_verify.iceberg.lineitem_iceberg` for an
+  AWS-backed Unity Catalog matrix and `naklidata_verify/iceberg/lineitem_iceberg`
+  for an S3/GCS Open Catalog/Polaris matrix. Require a named account
+  administrator, one-object read scope, an absolute revocation timestamp, and
+  revocation within 24 hours of issuance. Accept only browser access tokens;
+  retain session-only source-secret handling and opaque vended credentials.
+- **Consequence.** Batches 1–3 can advance against the pinned public fixture.
+  Batches 4, 7, and 8 remain live-access gated. No endpoint, credential, or
+  compatibility result was invented, and no secret was read or transmitted.
+
+### Decision FJ-2 — generate inline taxonomy counts from the canonical bundle
+
+- **Context.** Generated product-truth blocks reported 232 semantic types while
+  hand-written README and feature copy still reported 204. The existing drift
+  gate validated only the generated blocks, so both claims passed CI.
+- **Decision.** Add one inline taxonomy-count marker pair to each public product
+  document and make `generate-product-truth.mjs` replace and validate those
+  values from `taxonomy/v0.1/types.jsonl`. Remove the numeric count from the
+  internal lazy-loader comment rather than creating another synchronized copy.
+- **Consequence.** Build and static checks now reject stale public inline counts
+  as well as stale inventory blocks. The canonical registry currently yields
+  232 types across 29 domains.
+
 ## 2026-08-09 — Standards and ontology interoperability commitment (FI)
 
 ### Decision FI-1 — queue standards profiles behind a canonical foundation

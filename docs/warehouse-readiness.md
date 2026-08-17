@@ -46,6 +46,10 @@ begin. Real authentication, authorization, vendor errors, rate limits, token
 refresh behavior, and storage reads still need user-supplied test endpoints and
 credentials.
 
+The exact fixture names, identity restrictions, ownership record, maximum
+credential lifetime, session-only handling, and current access gap are frozen
+in [`iceberg-live-fixture-envelope.md`](iceberg-live-fixture-envelope.md).
+
 Direct Databricks SQL Warehouse and Snowflake Virtual Warehouse access is a
 separate packaged Compute Bridge concern. The browser contract is now hardened
 and exercised with credential-free vendor-shaped fixtures. Executable,

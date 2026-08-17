@@ -88,7 +88,7 @@ with `npm run gen-examples`.
 - **Notebook** — SQL, chart, pivot, map, stats, report, markdown, cohort,
   assertion, input, dashboard, Facet (graph/distribution), and Python/R cells.
   Reference cells by `@name`; associative cross-filtering across results.
-- **Schema panel** — Web-Worker auto-classification into 204 semantic types with
+- **Schema panel** — Web-Worker auto-classification into <!-- taxonomy-types:start -->232<!-- taxonomy-types:end --> semantic types with
   confidence + evidence, sensitivity badges, per-column profiles, overrides, and
   user-defined types.
 - **Resolve** — cluster variant spellings, define `SEGMENT(name)` audiences, and

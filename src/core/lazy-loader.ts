@@ -133,7 +133,7 @@ export interface LazyChunkRegistry {
    * of the size-constrained inlined shell.
    */
   'demo-workbook': typeof import('../lazy/demo-workbook.ts');
-  /** Searchable, grouped 204-type override picker; paid only when opened. */
+  /** Searchable, grouped taxonomy override picker; paid only when opened. */
   'schema-override': typeof import('../lazy/schema-override.ts');
   /** Versioned, bounded, cancellable HTTP + Arrow Compute Bridge client. */
   'bridge-client': typeof import('../lazy/bridge-client.ts');

@@ -247,7 +247,7 @@ version `1.0`, additive — new fields round-trip through older readers.
 
 ## Taxonomy contribution flow
 
-The v0.1 bundle (`taxonomy/v0.1/`) ships 204 semantic types across 29 domains.
+The v0.1 bundle (`taxonomy/v0.1/`) ships <!-- taxonomy-types:start -->232<!-- taxonomy-types:end --> semantic types across 29 domains.
 Each type
 has a header-match list, optional regex / checksum / value-set, an SQL-type
 compatibility set, and a `sensitivity` field.
