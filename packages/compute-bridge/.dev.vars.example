@@ -1,3 +1,5 @@
 # Non-secret placeholder used only so `wrangler types` generates the binding.
 # Copy to `.dev.vars` and replace locally; never commit the real value.
 BRIDGE_AUTH_TOKEN=replace-with-a-long-random-local-token
+DATABRICKS_TOKEN=replace-with-a-databricks-token
+SNOWFLAKE_TOKEN=replace-with-a-snowflake-token

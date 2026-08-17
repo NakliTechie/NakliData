@@ -2,6 +2,38 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Disabled vendor factories for the Compute Bridge (FM)
+
+### Decision FM-1 — package both vendor factories without enabling either profile
+
+- **Context.** The Databricks and Snowflake state-machine cores already passed
+  credential-free tests, but they lacked Worker configuration, concrete Arrow,
+  inventory resolution, and factory wiring. Importing the parser package root
+  produced a 4,722.13 KiB Worker bundle.
+- **Decision.** Add strict environment factories for
+  `databricks-sql-warehouse` and `snowflake-virtual-warehouse`. Keep every
+  checked-in adapter value `unconfigured`. Bind server-only object SQL names to
+  separate opaque browser IDs. Require an explicit read-only identity
+  assertion. Use concrete Apache Arrow assembly for Databricks and deterministic
+  UTF-8 Arrow encoding for Snowflake JSONv2. Import only the Snowflake and
+  FlinkSQL parser builds.
+- **Consequence.** Credential-free fixtures exercise both complete factory
+  paths. The dry-run bundle drops to 1,344.06 KiB. Live authentication,
+  read-only privilege negatives, terminal cancellation, throttling, expiry,
+  and vendor completeness remain mandatory before either adapter becomes
+  available.
+
+### Decision FM-2 — preserve signed-link isolation across browser and Worker types
+
+- **Context.** The Databricks core explicitly sets `credentials: omit` for
+  external Arrow links. Cloudflare's generated `RequestInit` omits the browser
+  credentials member because Workers have no ambient browser cookie jar.
+- **Decision.** Keep the explicit browser directive on a structurally typed
+  request variable. Send no authorization header to external result origins.
+- **Consequence.** Root browser tests retain the credential-omission assertion.
+  The same core now compiles under generated Worker types without weakening the
+  external-link boundary.
+
 ## 2026-08-18 — Packaged Compute Bridge foundation (FL)
 
 ### Decision FL-1 — package the bridge as an independent Cloudflare Worker

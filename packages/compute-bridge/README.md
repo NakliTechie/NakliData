@@ -6,7 +6,9 @@ Customer-deployed Cloudflare Worker package for the
 Current release boundary: Batch 6 packages and tests the transport, auth,
 origin, request/result bounds, readiness, disconnect cancellation, Arrow, and
 parsed SQL-allowlist foundations. It deliberately configures no warehouse
-adapter. Databricks and Snowflake remain separate live-gated batches.
+adapter. Packaged Databricks Statement Execution and Snowflake SQL API factories
+are present, but their live evidence and branded availability remain separate
+gates.
 
 ## Security posture
 
@@ -26,6 +28,25 @@ adapter. Databricks and Snowflake remain separate live-gated batches.
 - The default adapter is `unconfigured`; health advertises no query capability
   and readiness returns HTTP 503.
 
+## Vendor factories
+
+`BRIDGE_ADAPTER` accepts `databricks-sql-warehouse` or
+`snowflake-virtual-warehouse` only in a deployment-specific configuration.
+The checked-in development, staging, and production values remain
+`unconfigured`.
+
+Both factories consume strict non-secret configuration through
+`BRIDGE_VENDOR_CONFIG_JSON`. Sanitized templates live in `config/`. Each
+allowlisted object has an opaque browser ID and a separate server-only two- or
+three-part SQL name. Quoted or computed identifiers remain unavailable until a
+live dialect matrix proves their treatment.
+
+Databricks uses the `DATABRICKS_TOKEN` Worker secret. Snowflake uses the
+`SNOWFLAKE_TOKEN` Worker secret. Placeholder values fail closed. A factory may
+advertise data readiness only when `read_only_identity_verified` is true;
+setting that assertion without privilege evidence violates the deployment
+contract.
+
 ## Local checks
 
 ```bash
@@ -41,7 +62,8 @@ npm run sbom > sbom.cdx.json
 Copy `.dev.vars.example` to the ignored `.dev.vars`, then replace the
 placeholder through a local secret-management workflow. Production secrets
 must be set interactively with `wrangler secret put BRIDGE_AUTH_TOKEN --env
-production`; never pass the value as a command argument.
+production` and the applicable vendor secret command; never pass a value as a
+command argument.
 
 `npm run build` performs a Wrangler dry run only. Deployment, custom-domain
 configuration, Worker secret creation, and any billable resource require

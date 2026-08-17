@@ -1,0 +1,18 @@
+{
+  "workspace_url": "https://dbc-example.cloud.databricks.com",
+  "warehouse_id": "replace-with-warehouse-id",
+  "catalog": "main",
+  "schema": "analytics",
+  "read_only_identity_verified": false,
+  "allowed_objects": [
+    {
+      "id": "orders-v1",
+      "sql_name": "main.analytics.orders",
+      "name": "orders",
+      "catalog": "main",
+      "namespace": ["analytics"],
+      "kind": "table",
+      "schema": [{ "name": "order_id", "type": "BIGINT" }]
+    }
+  ]
+}

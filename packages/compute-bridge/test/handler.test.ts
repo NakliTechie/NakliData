@@ -126,6 +126,18 @@ describe('Compute Bridge Worker handler', () => {
     expect(query.status).toBe(503);
   });
 
+  it('blocks routes whose capabilities are not advertised', async () => {
+    const handler = createBridgeHandler({
+      config: config(),
+      backend: backend({ capabilities: [BRIDGE_CAPABILITIES.query] }),
+    });
+    expect((await handler.fetch(request('/v1/tables'))).status).toBe(501);
+    const query = await handler.fetch(
+      request('/v1/query', { method: 'POST', body: JSON.stringify({ sql: SQL }) }),
+    );
+    expect(query.status).toBe(501);
+  });
+
   it('serves wire-format inventory and bounded Arrow for both query paths', async () => {
     const querySpy = vi.fn(async (_request: BridgeDirectQueryRequest) => ({
       arrow: ARROW,

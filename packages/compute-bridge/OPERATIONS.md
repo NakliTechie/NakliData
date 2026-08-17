@@ -14,8 +14,8 @@ does not deploy or upgrade a bridge.
 The runtime is a Cloudflare Worker in this monorepo. It uses Wrangler's Worker
 bundle rather than a container image, process manager, or sibling repository.
 
-Batch 6 ships an unconfigured Worker foundation. It is intentionally unready.
-Databricks and Snowflake factories remain gated on their separate live
+The checked-in Worker profile is intentionally unready. Databricks and
+Snowflake factories are packaged, but they remain gated on separate live
 matrices. Do not change `BRIDGE_ADAPTER` or advertise a vendor capability until
 the corresponding adapter gate passes.
 
@@ -30,6 +30,21 @@ the corresponding adapter gate passes.
    stage, file, extension, or external-access privilege.
 5. Restrict that identity and the bridge inventory to the same approved object
    allowlist.
+
+Create a deployment-specific Wrangler configuration from the checked-in file.
+Set `BRIDGE_VENDOR_CONFIG_JSON` from the matching sanitized
+`config/*.example.json` shape. Keep credentials out of that JSON.
+
+- Databricks: use `BRIDGE_ADAPTER=databricks-sql-warehouse` and set the
+  `DATABRICKS_TOKEN` Worker secret.
+- Snowflake: use `BRIDGE_ADAPTER=snowflake-virtual-warehouse` and set the
+  `SNOWFLAKE_TOKEN` Worker secret.
+
+The opaque `id` is returned to browsers. The `sql_name` remains server-side and
+must use a two- or three-part unquoted identifier accepted by the packaged
+parser subset. Start `read_only_identity_verified` as false. Change it only
+after the live privilege-negative matrix proves the dedicated identity cannot
+write.
 
 Production and staging have empty origin allowlists and the `unconfigured`
 adapter in source control. This prevents an accidental default deployment from

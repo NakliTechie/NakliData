@@ -6,6 +6,12 @@ the HTTP route layer, concrete Arrow conversion, parsed SQL boundary, security
 prerequisites, limits, and credential-free conformance tests. No configured
 vendor adapter, deployed endpoint, installer, or live connector ships.
 
+Disabled Worker factories now bind the Databricks Statement Execution and
+Snowflake SQL API reference cores to concrete Arrow, strict non-secret
+configuration, Worker secret names, server-owned inventory, and parsed
+allowlists. Checked-in environments remain `unconfigured`; factory conformance
+does not establish live vendor compatibility or a non-writing warehouse role.
+
 The Worker package lives at [`../packages/compute-bridge`](../packages/compute-bridge/README.md).
 Its operational and security boundaries are documented beside the package.
 

@@ -60,12 +60,15 @@ no vendor adapter or warehouse credential. Success on the package, browser
 fixtures, or Iceberg REST path must not enable or imply a live bridge. See
 [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 
-The next direct-warehouse checkpoint is wiring one reference core into the
-Worker through an exact vendor factory and secret-binding contract. Databricks
-remains the preferred first live target
-because its Statement Execution API can return Arrow Stream chunks directly.
-Snowflake follows with a concrete JSONv2-to-Arrow encoder. Each package then
-needs a safe non-production workspace/account to prove authentication,
+Both reference cores are now wired behind disabled exact vendor factories and
+secret-binding contracts. Credential-free Worker tests cover Databricks Arrow
+assembly and signed-link isolation, Snowflake deterministic JSONv2-to-Arrow
+encoding, opaque object lookup, parser allowlists, configuration rejection,
+route capabilities, and security-readiness gating. The next direct-warehouse
+checkpoint is the live matrix. Databricks remains the preferred first live
+target because its Statement Execution API can return Arrow Stream chunks
+directly. Each factory now needs a safe non-production workspace/account to
+prove authentication,
 read-only authorization, invalid/expired token handling, vendor error
 translation, disconnect cancellation, complete bounded results, and zero
 remote writes before any branded source card is enabled.

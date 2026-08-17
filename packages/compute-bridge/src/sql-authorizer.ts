@@ -1,7 +1,6 @@
-import sqlParser from 'node-sql-parser';
+import flinkSqlParser from 'node-sql-parser/build/flinksql.js';
+import snowflakeSqlParser from 'node-sql-parser/build/snowflake.js';
 import type { WarehouseReadAuthorizer } from '../../../src/core/bridge/warehouse-adapter-core.ts';
-
-const { Parser } = sqlParser;
 
 export type WarehouseDialect = 'databricks' | 'snowflake';
 
@@ -44,7 +43,8 @@ const UNSAFE_READ_TOKENS =
 export function createParsedReadAuthorizer(
   options: ParsedAuthorizerOptions,
 ): WarehouseReadAuthorizer {
-  const database = options.dialect === 'snowflake' ? 'Snowflake' : 'FlinkSQL';
+  const Parser =
+    options.dialect === 'snowflake' ? snowflakeSqlParser.Parser : flinkSqlParser.Parser;
   const allowedTables = new Set(options.allowedTables.map(normalizeTableName));
   const parser = new Parser();
   return {
@@ -56,7 +56,7 @@ export function createParsedReadAuthorizer(
         };
       }
       try {
-        const parsed = parser.parse(sql, { database });
+        const parsed = parser.parse(sql);
         const statements = Array.isArray(parsed.ast) ? parsed.ast : [parsed.ast];
         if (statements.length !== 1 || statements[0]?.type !== 'select') {
           return { allowed: false, reason: 'Exactly one SELECT or WITH query is required.' };

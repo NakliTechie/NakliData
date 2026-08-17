@@ -136,6 +136,7 @@ async function routeRequest(
     options.config.maxQueryMilliseconds,
   );
   if (url.pathname === '/v1/tables' && request.method === 'GET') {
+    requireCapabilities(backend, [BRIDGE_CAPABILITIES.tables]);
     const tables = await withDeadline(
       request.signal,
       options.config.maxQueryMilliseconds,
@@ -145,6 +146,7 @@ async function routeRequest(
   }
 
   if (url.pathname === '/v1/query' && request.method === 'POST') {
+    requireCapabilities(backend, REQUIRED_QUERY_CAPABILITIES);
     const body = objectBody(await readBoundedJson(request, options.config.maxRequestBytes));
     assertExactKeys(body, ['sql', 'row_limit']);
     const sql = requiredString(body.sql, 'sql');
@@ -158,6 +160,7 @@ async function routeRequest(
   }
 
   if (url.pathname === '/v1/table-query' && request.method === 'POST') {
+    requireCapabilities(backend, REQUIRED_TABLE_QUERY_CAPABILITIES);
     const body = objectBody(await readBoundedJson(request, options.config.maxRequestBytes));
     assertExactKeys(body, ['qualified_name', 'row_limit']);
     const qualifiedName = requiredString(body.qualified_name, 'qualified_name');
@@ -171,6 +174,17 @@ async function routeRequest(
   }
 
   throw new BridgeServerError('Bridge route not found.', 'not_found', 404);
+}
+
+function requireCapabilities(backend: BridgeBackend, required: readonly string[]): void {
+  const advertised = new Set(backend.capabilities);
+  if (required.some((capability) => !advertised.has(capability))) {
+    throw new BridgeServerError(
+      'Warehouse adapter does not support this route.',
+      'capability_unavailable',
+      501,
+    );
+  }
 }
 
 async function backendReadiness(
@@ -428,5 +442,10 @@ function json(value: unknown, status = 200): Response {
 
 export const REQUIRED_QUERY_CAPABILITIES = [
   BRIDGE_CAPABILITIES.query,
+  BRIDGE_CAPABILITIES.arrowIpc,
+];
+
+export const REQUIRED_TABLE_QUERY_CAPABILITIES = [
+  BRIDGE_CAPABILITIES.tableQuery,
   BRIDGE_CAPABILITIES.arrowIpc,
 ];

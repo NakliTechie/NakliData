@@ -38,8 +38,9 @@ are deployer assertions until a vendor live matrix independently proves them.
 
 The package uses `node-sql-parser` ASTs rather than keyword-only acceptance.
 Snowflake uses the parser's native dialect. Databricks uses a conservative
-Flink/Spark-family subset until Batch 7 expands it against live Statement
-Execution fixtures. Unsupported syntax fails closed.
+Flink/Spark-family subset until its live Statement Execution matrix expands it.
+The Worker imports only these two dialect builds. Unsupported syntax fails
+closed.
 
 The parser boundary supplements warehouse grants. Parser acceptance never
 authorizes an object absent from the configured table allowlist.
@@ -61,6 +62,7 @@ runtime conformance suite, and creates a dry-run bundle.
 
 ## Out of scope in Batch 6
 
-This package contains no configured warehouse adapter, live vendor credential,
-deployed endpoint, custom domain, customer account integration, or branded
-availability claim. Batches 7 and 8 own those adapter and live-evidence gates.
+This package contains concrete but disabled Databricks and Snowflake adapter
+factories. It contains no configured adapter, live vendor credential, deployed
+endpoint, custom domain, customer account integration, or branded availability
+claim. Batches 7 and 8 retain their live-evidence gates.

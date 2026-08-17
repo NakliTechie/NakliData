@@ -1,4 +1,5 @@
 import type { BridgeBackend } from './backend.ts';
+import { backendFromEnvironment } from './vendor-config.ts';
 
 /**
  * Batch 6 packages the protocol/security foundation without claiming a live
@@ -7,5 +8,5 @@ import type { BridgeBackend } from './backend.ts';
  * deliberately unready and exposes no query capability.
  */
 export function configuredBackend(_env: Env): BridgeBackend | null {
-  return null;
+  return backendFromEnvironment(_env);
 }

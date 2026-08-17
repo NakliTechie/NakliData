@@ -19,6 +19,15 @@ if (config.observability?.enabled !== false) {
 if (config.vars?.BRIDGE_ADAPTER !== 'unconfigured') {
   throw new Error('The default environment must not claim a live warehouse adapter.');
 }
+if (config.vars?.BRIDGE_VENDOR_CONFIG_JSON !== '{}') {
+  throw new Error('The default environment must not contain vendor configuration.');
+}
+const serialized = JSON.stringify(config);
+for (const secretName of ['BRIDGE_AUTH_TOKEN', 'DATABRICKS_TOKEN', 'SNOWFLAKE_TOKEN']) {
+  if (serialized.includes(secretName)) {
+    throw new Error(`wrangler.jsonc must not define the ${secretName} secret binding.`);
+  }
+}
 for (const name of ['staging', 'production']) {
   const environment = config.env?.[name];
   if (!environment || environment.observability?.enabled !== false) {
@@ -26,6 +35,9 @@ for (const name of ['staging', 'production']) {
   }
   if (environment.vars?.BRIDGE_ADAPTER !== 'unconfigured') {
     throw new Error(`${name} must remain unconfigured until its live matrix passes.`);
+  }
+  if (environment.vars?.BRIDGE_VENDOR_CONFIG_JSON !== '{}') {
+    throw new Error(`${name} must not contain vendor configuration before its live matrix.`);
   }
 }
 
