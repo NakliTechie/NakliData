@@ -56,8 +56,9 @@ It also **resolves** data locally — the sovereign, file-owned take on a CDP's
 ## Browser support
 
 - **Supported:** Chrome / Edge / Opera 122+ (File System Access + OPFS).
-- **Partial:** Firefox — single-file mounts work; folder mount awaits FSA.
-- **Not supported:** Safari (yet) — the app detects it and shows a graceful notice.
+- **Fallback path:** Firefox and Safari/WebKit — single-file mounts and download
+  fallbacks work; folder mount awaits FSA. Playwright covers Firefox and WebKit;
+  native Safari release evidence remains pending.
 
 ## Quick start
 

@@ -2,6 +2,38 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Capability-based browser floor and cancellable DuckDB streams (FP)
+
+### Decision FP-1 — admit WebKit through the existing file and download fallbacks
+
+- **Context.** The browser gate rejected every Safari user agent before checking
+  capabilities. Playwright WebKit reached a ready DuckDB engine when only its
+  user agent changed. The existing file-input and download fallbacks do not
+  require File System Access or OPFS.
+- **Decision.** Gate the application on WebAssembly instead of browser identity.
+  Keep folder access and OPFS-backed local models capability-gated at their own
+  entry points. Treat Playwright WebKit as engine evidence, not physical Safari
+  release evidence.
+- **Consequence.** Firefox and WebKit can mount single files and use download
+  fallbacks. Native Safari, folder pickers, save dialogs, and local WebGPU still
+  require device evidence before broader support claims.
+
+### Decision FP-2 — use cancellable streams and rotate interrupted connections
+
+- **Context.** Notebook Escape cancellation was documented but not wired. The
+  query path used `connection.query`, while DuckDB-WASM exposes interruption for
+  statements sent as streams. A cancelled connection also required replacement
+  before deterministic follow-up work.
+- **Decision.** Route signal-bearing result queries through
+  `connection.send`, drain Arrow batches, await interruption, and replace only
+  the interrupted connection. Keep non-result statements on the materialized
+  query path and check their signal before and after execution. Preserve the
+  database, mounted relations, and workbook state. Reserve `cancelAll` for
+  workspace invalidation and use a new `cancelRunning` path for user Escape.
+- **Consequence.** Escape cancels visible notebook work without treating it as a
+  superseding workspace generation. A later cell can query the retained
+  workspace through a fresh connection.
+
 ## 2026-08-18 — Accessibility target and motion floors (FO)
 
 ### Decision FO-1 — make compact controls meet measurable AA-adjacent floors

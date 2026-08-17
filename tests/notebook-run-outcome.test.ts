@@ -70,6 +70,30 @@ describe('Notebook.runCell outcomes', () => {
     });
   });
 
+  it('aborts an in-flight run and permits a later recovery run', async () => {
+    const exec = vi.fn(
+      (_sql: string, opts?: { signal?: AbortSignal }) =>
+        new Promise<void>((resolve, reject) => {
+          if (!opts?.signal) return resolve();
+          opts.signal.addEventListener('abort', () => reject(new Error('interrupted')), {
+            once: true,
+          });
+        }),
+    );
+    const engine = fakeEngine({ exec } as Partial<Engine>);
+    const notebook = new Notebook(engine);
+    const cell = notebook.addCell('sql');
+    notebook.patchCell(cell.id, { code: 'SELECT expensive_work()' });
+
+    const pending = notebook.runCell(cell.id);
+    notebook.cancelRunning();
+
+    await expect(pending).resolves.toEqual({ status: 'cancelled', id: cell.id, reason: 'aborted' });
+    exec.mockResolvedValueOnce(undefined);
+    notebook.patchCell(cell.id, { code: 'SELECT 1' });
+    await expect(notebook.runCell(cell.id)).resolves.toEqual({ status: 'success', id: cell.id });
+  });
+
   it('marks direct introspection results non-referenceable and stops run all at the named cell', async () => {
     const engine = fakeEngine();
     const notebook = new Notebook(engine);

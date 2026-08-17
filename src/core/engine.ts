@@ -184,6 +184,7 @@ export class ExtensionLoadError extends Error {
 export class Engine {
   private db: duckdb.AsyncDuckDB | null = null;
   private conn: duckdb.AsyncDuckDBConnection | null = null;
+  private cancellationRecovery: Promise<void> | null = null;
   private worker: Worker | null = null;
   private status: EngineStatus = 'idle';
   private listeners = new Map<EngineEventName, Set<(payload: unknown) => void>>();
@@ -334,6 +335,7 @@ export class Engine {
 
   private resetRuntimeState(): void {
     this.conn = null;
+    this.cancellationRecovery = null;
     this.db = null;
     this.worker = null;
     this.loadedExtensions.clear();
@@ -348,21 +350,73 @@ export class Engine {
     return this.conn;
   }
 
+  /** Replace an interrupted connection while retaining database-owned relations. */
+  private async recoverCancelledConnection(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
+    if (this.conn !== conn) {
+      if (this.cancellationRecovery) await this.cancellationRecovery;
+      return;
+    }
+    if (this.cancellationRecovery) {
+      await this.cancellationRecovery;
+      return;
+    }
+    const recovery = (async () => {
+      const db = this.db;
+      if (!db || this.conn !== conn) return;
+      await conn.close().catch(() => undefined);
+      const replacement = await db.connect();
+      if (this.conn === conn) {
+        this.conn = replacement;
+      } else {
+        await replacement.close();
+      }
+    })();
+    this.cancellationRecovery = recovery;
+    try {
+      await recovery;
+    } finally {
+      if (this.cancellationRecovery === recovery) this.cancellationRecovery = null;
+    }
+  }
+
   /** Execute a query and return all rows. */
   async query<Row = Record<string, unknown>>(sql: string, opts: QueryOptions = {}): Promise<Row[]> {
     const conn = this.requireConn();
     const { signal } = opts;
     if (signal?.aborted) throw new EngineError('Query aborted before start');
 
+    let cancellation = Promise.resolve(false);
     const onAbort = () => {
       // DuckDB cancels the in-flight statement on this connection.
-      void conn.cancelSent();
+      cancellation = conn.cancelSent();
     };
     signal?.addEventListener('abort', onAbort);
     try {
-      const result = await conn.query(sql);
-      return result.toArray().map((r) => r.toJSON()) as Row[];
+      if (!signal) {
+        const result = await conn.query(sql);
+        return result.toArray().map((r) => r.toJSON()) as Row[];
+      }
+      const reader = await conn.send(sql, true);
+      const rows: Row[] = [];
+      for await (const batch of reader) {
+        rows.push(...(batch.toArray().map((row) => row.toJSON()) as Row[]));
+      }
+      if (signal.aborted) throw new EngineError('Query aborted');
+      // DuckDB-WASM can finish a non-streamable plan (notably grouped and
+      // ordered aggregates) with only Arrow's empty stream placeholder. Run
+      // that zero-row shape through the materialized API to distinguish an
+      // actual empty result from an unavailable streamed result.
+      if (rows.length === 0) {
+        const result = await conn.query(sql);
+        if (signal.aborted) throw new EngineError('Query aborted');
+        return result.toArray().map((row) => row.toJSON()) as Row[];
+      }
+      return rows;
     } finally {
+      if (signal?.aborted) {
+        await cancellation.catch(() => false);
+        await this.recoverCancelledConnection(conn);
+      }
       signal?.removeEventListener('abort', onAbort);
     }
   }
@@ -1649,15 +1703,8 @@ export class Engine {
     const conn = this.requireConn();
     const { signal } = opts;
     if (signal?.aborted) throw new EngineError('Statement aborted before start');
-    const onAbort = () => {
-      void conn.cancelSent();
-    };
-    signal?.addEventListener('abort', onAbort);
-    try {
-      await conn.query(sql);
-    } finally {
-      signal?.removeEventListener('abort', onAbort);
-    }
+    await conn.query(sql);
+    if (signal?.aborted) throw new EngineError('Statement aborted');
   }
 
   /**

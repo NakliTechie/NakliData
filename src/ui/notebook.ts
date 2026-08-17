@@ -402,6 +402,11 @@ LIMIT 100`,
     this.aborts.clear();
   }
 
+  /** Abort visible in-flight runs while preserving their generation for status publication. */
+  cancelRunning(): void {
+    for (const controller of this.aborts.values()) controller.abort();
+  }
+
   patchCell(id: string, patch: Record<string, unknown>): void {
     const next = this.state.cells.map((c) => {
       if (c.id !== id) return c;

@@ -1,0 +1,77 @@
+# Browser, performance, and resilience evidence — 2026-08-18
+
+Scope: the checked-in production build on this macOS host. This is dated lab
+evidence, not a field-performance or universal browser-support claim.
+
+## Browser matrix
+
+| Engine | Evidence | Result |
+|---|---|---|
+| Chromium | Production smoke plus focused resilience matrix | Full checked-in smoke path exercised |
+| Firefox 150.0.2 | FSA-absent file import plus accessibility matrix | 4/4 cases passed |
+| Playwright WebKit 26.4 | FSA-absent file import plus accessibility matrix | 4/4 cases passed after removing the Safari UA block |
+
+The WebKit result covers engine behavior. Physical Safari remains untested.
+Native file, folder, and save dialogs remain untested. The deterministic tests
+cover classic file-input fallback, mocked FSA open/save, and download paths.
+
+## Performance trace
+
+Chrome DevTools recorded an unthrottled cold local navigation to
+`index.html?offline=1`:
+
+| Metric | Observed |
+|---|---:|
+| TTFB | 35 ms |
+| First contentful paint | 324 ms |
+| Largest contentful paint | 506 ms |
+| LCP render delay | 471 ms |
+| Cumulative layout shift | 0.0002 |
+| DOM content loaded | 66 ms |
+| Load event | 69 ms |
+
+The LCP element was text. DevTools reported no estimated LCP or CLS savings.
+The local static server exposed a zero-TTL lazy chunk with zero wasted bytes, so
+the cache insight does not justify a product change. INP, TBT, Speed Index, and
+field data were unavailable in this trace and remain unclaimed.
+
+## Workflow timings
+
+All timings are unthrottled single-run observations from the same local host.
+
+| Workflow | Input | Observed |
+|---|---|---:|
+| Example readiness | 20 schema columns and first result table | 493 ms |
+| First report scaffold | Report cell plus existing charts | 34 ms |
+| Large-schema readiness | 2,401,890-byte CSV; 5,000 rows × 200 columns | 51,526 ms |
+| Large-source removal | Remove the preceding source and restore 42 prior schema rows | 86 ms |
+
+The automated resilience case uses 2,000 rows × 120 columns. It removes that
+source, observes zero remaining schema rows, then mounts and classifies the
+example workspace again.
+
+## Cancellation and recovery
+
+The browser regression starts a billion-row trigonometric aggregate, presses
+Escape while the cell is running, requires cancellation within ten seconds,
+then runs `SELECT 42` in a later cell. Signal-bearing result queries use the
+cancellable stream API. The engine replaces only the interrupted connection,
+retaining database-owned relations. Non-result statements remain materialized
+and check cancellation before and after execution.
+
+## Evidence still required
+
+- Physical Safari on macOS with real file and save dialogs.
+- Native Chromium folder and save pickers on a user-selected fixture.
+- A capable WebGPU machine with the opt-in local-model path.
+- Deliberate browser memory-pressure and quota-failure runs.
+- Throttled Lighthouse or equivalent Speed Index, TBT, and interaction runs on
+  the deployed origin.
+
+Commands:
+
+```text
+npx playwright test --config tests/e2e/playwright.config.ts --browser=firefox tests/e2e/file-input-fallback.spec.ts tests/e2e/accessibility-matrix.spec.ts --workers=1
+npx playwright test --config tests/e2e/playwright.config.ts --browser=webkit tests/e2e/file-input-fallback.spec.ts tests/e2e/accessibility-matrix.spec.ts --workers=1
+npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/resilience-matrix.spec.ts --workers=1
+```

@@ -169,34 +169,26 @@ configureCloudActionConfirmation(({ provider, model, payloadCategories }) =>
   ),
 );
 
-function detectSupport(): { supported: boolean; reason?: string } {
-  // Browser floor per spec §1.3: Chrome/Edge/Opera 122+, Firefox partial, Safari unsupported.
-  const ua = navigator.userAgent;
-  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-  if (isSafari) {
-    return { supported: false, reason: 'safari' };
-  }
-  // WebAssembly is the load-bearing runtime. Native File System Access is a
-  // separate enhancement: Firefox and capability-stripped Chromium can boot,
-  // mount single files through <input type=file>, and use download fallbacks.
+function detectSupport(): boolean {
+  // WebAssembly is the load-bearing runtime. Native File System Access and
+  // OPFS are separate enhancements: Firefox, Safari/WebKit, and
+  // capability-stripped Chromium can boot, mount single files through
+  // <input type=file>, and use download fallbacks. Individual OPFS-backed
+  // features retain their own capability guards.
   if (typeof WebAssembly === 'undefined') {
-    return { supported: false, reason: 'capabilities' };
+    return false;
   }
-  return { supported: true };
+  return true;
 }
 
-function bootUnsupported(reason: string): void {
+function bootUnsupported(): void {
   const root = document.getElementById('app');
   if (!root) return;
   root.innerHTML = `
     <div style="max-width: 520px; margin: 80px auto; padding: 32px; text-align: center; font-family: system-ui, sans-serif;">
       <h1 style="font-size: 22px;">NakliData isn't supported here yet</h1>
       <p style="color: ${Neutral.textMuted};">
-        ${
-          reason === 'safari'
-            ? 'NakliData uses File System Access and OPFS APIs that Safari does not yet implement. Try Chrome, Edge, or Opera 122+.'
-            : 'Your browser is missing required capabilities. Try a recent Chrome, Edge, or Opera build.'
-        }
+        Your browser is missing the WebAssembly capability required by the local data engine.
       </p>
       <p style="color: ${Neutral.textMuted}; font-size: 13px;">No data is sent anywhere by this page.</p>
     </div>
@@ -278,9 +270,8 @@ async function boot(): Promise<void> {
   const root = document.getElementById('app');
   if (!root) throw new Error('Root #app missing');
 
-  const sup = detectSupport();
-  if (!sup.supported) {
-    bootUnsupported(sup.reason ?? 'unknown');
+  if (!detectSupport()) {
+    bootUnsupported();
     return;
   }
 
@@ -395,11 +386,21 @@ async function boot(): Promise<void> {
     getCleaningSuggestions: availableTableFixes,
   });
 
-  // Cmd/Ctrl+Shift+Enter → run all cells.
+  // Cmd/Ctrl+Shift+Enter → run all cells. Escape cancels in-flight work when
+  // no dialog owns the key; modal Escape handlers retain priority for close.
   document.addEventListener('keydown', (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && ev.key === 'Enter') {
       ev.preventDefault();
       document.querySelector<HTMLElement>('[data-nb-action="run-all"]')?.click();
+      return;
+    }
+    if (
+      ev.key === 'Escape' &&
+      document.querySelector('.cell.running') &&
+      !document.querySelector('[role="dialog"]')
+    ) {
+      ev.preventDefault();
+      nb.cancelRunning();
     }
   });
 
