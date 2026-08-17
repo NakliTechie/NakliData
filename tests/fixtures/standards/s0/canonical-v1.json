@@ -1,0 +1,192 @@
+{
+  "format": "naklidata-canonical-interchange",
+  "version": 1,
+  "namespace": {
+    "baseIri": "https://example.test/naklidata/demo/",
+    "prefixes": {
+      "nd": "https://naklidata.dev/ns/interchange/v1#",
+      "xsd": "http://www.w3.org/2001/XMLSchema#",
+      "ext": "https://example.test/vocabulary/"
+    }
+  },
+  "workbook": {
+    "id": "nd:workbook:demo",
+    "label": "Finance demo"
+  },
+  "sources": [
+    {
+      "id": "nd:source:finance-source",
+      "workbookId": "nd:workbook:demo",
+      "label": "Finance source",
+      "sourceKind": "csv",
+      "fingerprint": "sha256-abc123"
+    }
+  ],
+  "tables": [
+    {
+      "id": "nd:table:invoices",
+      "sourceId": "nd:source:finance-source",
+      "name": "invoices",
+      "label": "Invoices"
+    },
+    {
+      "id": "nd:table:vendors",
+      "sourceId": "nd:source:finance-source",
+      "name": "vendors",
+      "label": "Vendors"
+    }
+  ],
+  "fields": [
+    {
+      "id": "nd:field:invoices-vendor-id",
+      "tableId": "nd:table:invoices",
+      "name": "vendor_id",
+      "dataType": "VARCHAR",
+      "conceptIds": ["nd:concept:vendor"]
+    },
+    {
+      "id": "nd:field:invoices-status",
+      "tableId": "nd:table:invoices",
+      "name": "status",
+      "dataType": "VARCHAR",
+      "conceptIds": []
+    },
+    {
+      "id": "nd:field:vendors-vendor-id",
+      "tableId": "nd:table:vendors",
+      "name": "vendor_id",
+      "dataType": "VARCHAR",
+      "conceptIds": ["nd:concept:vendor"]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "nd:concept:finance",
+      "kind": "scheme",
+      "schemeId": null,
+      "preferredLabels": [{ "value": "Finance vocabulary", "language": "en" }],
+      "alternateLabels": [],
+      "broaderIds": [],
+      "relatedIds": [],
+      "mappings": []
+    },
+    {
+      "id": "nd:concept:vendor",
+      "kind": "concept",
+      "schemeId": "nd:concept:finance",
+      "preferredLabels": [{ "value": "Vendor", "language": "en" }],
+      "alternateLabels": [
+        { "value": "Supplier", "language": "en" },
+        { "value": "Proveedor", "language": "es" }
+      ],
+      "broaderIds": [],
+      "relatedIds": [],
+      "mappings": [{ "kind": "close", "targetIri": "https://example.test/vocabulary/Supplier" }]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "nd:relationship:invoice-vendor",
+      "fromTableId": "nd:table:invoices",
+      "toTableId": "nd:table:vendors",
+      "columnPairs": [
+        {
+          "fromFieldId": "nd:field:invoices-vendor-id",
+          "toFieldId": "nd:field:vendors-vendor-id"
+        }
+      ],
+      "cardinality": "many_to_one"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "nd:assertion:vendor-id-required",
+      "targetId": "nd:field:invoices-vendor-id",
+      "kind": "min_count",
+      "value": 1,
+      "execution": "explicit"
+    },
+    {
+      "id": "nd:assertion:vendor-id-type",
+      "targetId": "nd:field:invoices-vendor-id",
+      "kind": "datatype",
+      "value": "http://www.w3.org/2001/XMLSchema#string",
+      "execution": "explicit"
+    },
+    {
+      "id": "nd:assertion:invoice-status-values",
+      "targetId": "nd:field:invoices-status",
+      "kind": "enumeration",
+      "value": ["open", "paid", "void"],
+      "execution": "explicit"
+    }
+  ],
+  "provenance": {
+    "entities": [
+      {
+        "id": "nd:entity:invoice-source",
+        "kind": "table",
+        "label": "Invoices table",
+        "resourceId": "nd:table:invoices",
+        "redacted": false
+      },
+      {
+        "id": "nd:entity:vendor-summary",
+        "kind": "result",
+        "label": "Vendor summary",
+        "resourceId": null,
+        "redacted": true
+      }
+    ],
+    "activities": [
+      {
+        "id": "nd:activity:vendor-summary-query",
+        "kind": "query",
+        "startedAt": "2026-08-18T00:00:00Z",
+        "endedAt": "2026-08-18T00:00:01Z"
+      }
+    ],
+    "agents": [
+      {
+        "id": "nd:agent:naklidata",
+        "kind": "software",
+        "label": "NakliData"
+      }
+    ],
+    "relations": [
+      {
+        "kind": "used",
+        "fromId": "nd:activity:vendor-summary-query",
+        "toId": "nd:entity:invoice-source",
+        "observed": true
+      },
+      {
+        "kind": "was_generated_by",
+        "fromId": "nd:entity:vendor-summary",
+        "toId": "nd:activity:vendor-summary-query",
+        "observed": true
+      },
+      {
+        "kind": "was_derived_from",
+        "fromId": "nd:entity:vendor-summary",
+        "toId": "nd:entity:invoice-source",
+        "observed": true
+      },
+      {
+        "kind": "was_associated_with",
+        "fromId": "nd:activity:vendor-summary-query",
+        "toId": "nd:agent:naklidata",
+        "observed": true
+      }
+    ]
+  },
+  "losses": [
+    {
+      "severity": "warning",
+      "code": "fixture.unsupported.logical_or",
+      "path": "externalShapes[0]",
+      "construct": "sh:or",
+      "message": "The canonical constraint contract has no logical-or construct."
+    }
+  ]
+}

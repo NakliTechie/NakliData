@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Canonical standards interchange foundation (FQ)
+
+### Decision FQ-1 — freeze typed IDs and a loss-aware versioned contract
+
+- **Context.** Later SKOS, SHACL, PROV-O, and OWL adapters need one stable
+  product-owned representation. Existing semantic, quality, and lineage
+  records use separate identifiers and versions.
+- **Decision.** Use `naklidata-canonical-interchange` version 1 with
+  `nd:<kind>:<encoded-key>` identifiers, document-owned absolute namespaces,
+  immutable `nd` vocabulary binding, explicit references, and structured loss
+  records. Accept only version 1 and the recorded pre-release version 0
+  namespace shape at the migration boundary.
+- **Consequence.** Adapters can share identifiers, fixtures, validation,
+  migration, and loss reporting. Raw URLs, paths, credentials, and source
+  values remain prohibited as identifier keys.
+
+### Decision FQ-2 — isolate every standards adapter from the eager shell
+
+- **Context.** The browser shell has 1,238 bytes of measured headroom. RDF and
+  conformance dependencies can exceed that budget without serving ordinary
+  workbook flows.
+- **Decision.** Keep the interchange core behind a lazy module and a bounded
+  artifact-only worker. The worker accepts at most 2,000,000 serialized bytes
+  and exposes validate, migrate, and serialize operations. Keep every standard
+  disabled until its independent import, export, negative, and round-trip gate
+  passes.
+- **Consequence.** The standalone foundation adds no reachable eager module.
+  Product copy still cannot claim SKOS, SHACL, PROV-O, OWL, RDF, or reasoning
+  interoperability.
+
 ## 2026-08-18 — Capability-based browser floor and cancellable DuckDB streams (FP)
 
 ### Decision FP-1 — admit WebKit through the existing file and download fallbacks

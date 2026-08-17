@@ -1,0 +1,24 @@
+{
+  "format": "naklidata-canonical-interchange",
+  "version": 1,
+  "namespace": {
+    "baseIri": "https://example.test/naklidata/invalid/",
+    "prefixes": { "nd": "https://naklidata.dev/ns/interchange/v1#" }
+  },
+  "workbook": { "id": "nd:workbook:invalid", "label": "Invalid fixture" },
+  "sources": [],
+  "tables": [
+    {
+      "id": "nd:table:orphan",
+      "sourceId": "nd:source:missing",
+      "name": "orphan",
+      "label": "Orphan"
+    }
+  ],
+  "fields": [],
+  "concepts": [],
+  "relationships": [],
+  "constraints": [],
+  "provenance": { "entities": [], "activities": [], "agents": [], "relations": [] },
+  "losses": []
+}
