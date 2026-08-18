@@ -2,6 +2,33 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Bounded PROV-O provenance adapter (FT)
+
+### Decision FT-1 — pair direct PROV relations with metadata statements
+
+- **Context.** PROV-O binary relations represent lineage, but the canonical
+  contract must also preserve observed-versus-annotated state and confidence.
+  Qualified PROV influence patterns exceed the initial profile.
+- **Decision.** Emit direct `used`, `wasGeneratedBy`, `wasDerivedFrom`, and
+  `wasAssociatedWith` relations. Attach NakliData evidence through companion
+  `rdf:Statement` records carrying observed state and high/low confidence.
+- **Consequence.** Generic PROV processors retain the standard graph. A
+  NakliData round trip retains evidence state. External relations without a
+  companion statement import as low-confidence annotations, never observations.
+
+### Decision FT-2 — project lineage nodes without exposing node identifiers
+
+- **Context.** Persisted lineage nodes cover mounted sources, cells, and sinks.
+  Their identifiers can contain physical names or source references.
+- **Decision.** Hash lineage node identifiers into canonical entity and
+  activity IDs. Map sources, cell activities/results, and export sinks into
+  the bounded profile. Preserve non-redacted source references separately.
+  Mark `cellKind` visual insertions and adjacent relations as annotations.
+- **Consequence.** The standards artifact preserves traceability, timestamps,
+  build/taxonomy identity, redaction, and confidence without embedding source
+  or result bytes. Cycles, dangling endpoints, duplicate ownership, multiple
+  generating activities, and ambiguous PROV core types fail closed.
+
 ## 2026-08-18 — Bounded SHACL constraint adapter (FS)
 
 ### Decision FS-1 — map only direct-path SHACL Core constraints
