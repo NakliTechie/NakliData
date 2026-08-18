@@ -104,4 +104,39 @@ describe('vendor environment factory', () => {
       ),
     ).toThrow('two- or three-part unquoted identifiers');
   });
+
+  it('rejects credentials and undeclared fields in non-secret vendor configuration', () => {
+    expect(() =>
+      backendFromEnvironment(
+        environment({
+          BRIDGE_ADAPTER: 'databricks-sql-warehouse',
+          DATABRICKS_TOKEN: 'fixture.databricks.token',
+          BRIDGE_VENDOR_CONFIG_JSON: JSON.stringify({
+            workspace_url: 'https://dbc.example.test',
+            warehouse_id: 'warehouse-1',
+            read_only_identity_verified: false,
+            allowed_objects: allowedObjects,
+            bearer_token: 'must-not-live-here',
+          }),
+        }),
+        runtimeBounds,
+      ),
+    ).toThrow('bridge vendor config.bearer_token is unsupported');
+
+    expect(() =>
+      backendFromEnvironment(
+        environment({
+          BRIDGE_ADAPTER: 'snowflake-virtual-warehouse',
+          SNOWFLAKE_TOKEN: 'fixture.snowflake.token',
+          BRIDGE_VENDOR_CONFIG_JSON: JSON.stringify({
+            account_url: 'https://acme.snowflakecomputing.com',
+            token_type: 'OAUTH',
+            read_only_identity_verified: true,
+            allowed_objects: [{ ...allowedObject, password: 'must-not-live-here' }],
+          }),
+        }),
+        runtimeBounds,
+      ),
+    ).toThrow('allowed_objects[0].password is unsupported');
+  });
 });

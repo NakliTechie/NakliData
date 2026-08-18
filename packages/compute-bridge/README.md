@@ -39,13 +39,15 @@ Both factories consume strict non-secret configuration through
 `BRIDGE_VENDOR_CONFIG_JSON`. Sanitized templates live in `config/`. Each
 allowlisted object has an opaque browser ID and a separate server-only two- or
 three-part SQL name. Quoted or computed identifiers remain unavailable until a
-live dialect matrix proves their treatment.
+live dialect matrix proves their treatment. Every configuration object rejects
+undeclared keys, so credentials cannot be smuggled into the non-secret JSON.
 
 Databricks uses the `DATABRICKS_TOKEN` Worker secret. Snowflake uses the
 `SNOWFLAKE_TOKEN` Worker secret. Placeholder values fail closed. A factory may
 advertise data readiness only when `read_only_identity_verified` is true;
 setting that assertion without privilege evidence violates the deployment
-contract.
+contract. These warehouse credentials never cross the Worker boundary. The
+browser supplies only the separate `BRIDGE_AUTH_TOKEN` required by the bridge.
 
 ## Local checks
 

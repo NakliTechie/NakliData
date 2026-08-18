@@ -18,6 +18,29 @@ export function backendFromEnvironment(env: Env, bounds: VendorRuntimeBounds) {
     throw invalidConfig('BRIDGE_ADAPTER is unsupported.');
   }
   const config = objectValue(parseJson(env.BRIDGE_VENDOR_CONFIG_JSON), 'bridge vendor config');
+  assertAllowedKeys(
+    config,
+    adapterId === 'databricks-sql-warehouse'
+      ? [
+          'workspace_url',
+          'warehouse_id',
+          'catalog',
+          'schema',
+          'read_only_identity_verified',
+          'allowed_objects',
+        ]
+      : [
+          'account_url',
+          'token_type',
+          'warehouse',
+          'database',
+          'schema',
+          'role',
+          'read_only_identity_verified',
+          'allowed_objects',
+        ],
+    'bridge vendor config',
+  );
   const allowedObjects = allowedObjectValues(config.allowed_objects);
   const readOnlyIdentityVerified = config.read_only_identity_verified === true;
   if (adapterId === 'databricks-sql-warehouse') {
@@ -67,12 +90,22 @@ function allowedObjectValues(value: unknown): BridgeAllowedObject[] {
   if (!Array.isArray(value)) throw invalidConfig('allowed_objects must be an array.');
   return value.map((item, index) => {
     const object = objectValue(item, `allowed_objects[${index}]`);
+    assertAllowedKeys(
+      object,
+      ['id', 'sql_name', 'name', 'catalog', 'namespace', 'kind', 'schema'],
+      `allowed_objects[${index}]`,
+    );
     const namespace = arrayValue(object.namespace, `allowed_objects[${index}].namespace`).map(
       (entry) => stringValue(entry, `allowed_objects[${index}].namespace value`),
     );
     const columns = arrayValue(object.schema, `allowed_objects[${index}].schema`).map(
       (entry, columnIndex) => {
         const column = objectValue(entry, `allowed_objects[${index}].schema[${columnIndex}]`);
+        assertAllowedKeys(
+          column,
+          ['name', 'type'],
+          `allowed_objects[${index}].schema[${columnIndex}]`,
+        );
         return {
           name: stringValue(column.name, 'column name'),
           type: stringValue(column.type, 'column type'),
@@ -97,6 +130,16 @@ function allowedObjectValues(value: unknown): BridgeAllowedObject[] {
       sqlName: stringValue(object.sql_name, `allowed_objects[${index}].sql_name`),
     };
   });
+}
+
+function assertAllowedKeys(
+  object: Record<string, unknown>,
+  allowedKeys: ReadonlyArray<string>,
+  path: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  const unknownKey = Object.keys(object).find((key) => !allowed.has(key));
+  if (unknownKey) throw invalidConfig(`${path}.${unknownKey} is unsupported.`);
 }
 
 function optionalStringProperty(

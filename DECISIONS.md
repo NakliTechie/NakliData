@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Trial-only Databricks and bridge credential boundary (GG)
+
+### Decision GG-1 — keep Databricks setup-only and trial-funded
+
+- **Context.** The reusable SQL Warehouse and service-principal shells remain
+  in the Databricks trial account. The remaining expiry, throttling, and
+  post-wiring probes require temporary reactivation.
+- **Decision.** Use Databricks only for bounded setup and verification. Consume
+  existing trial credits only. Do not add a payment method, upgrade the account,
+  or provision paid capacity. Keep compute stopped and the principal inactive
+  outside an explicitly approved probe.
+- **Consequence.** Databricks work can resume only within the remaining trial
+  balance and the existing action-time credential approval boundary. The
+  branded card remains unavailable while its live gaps remain open.
+
+### Decision GG-2 — separate browser bridge auth from warehouse credentials
+
+- **Context.** Batch 9 called every credential a connector secret, although the
+  browser must send `BRIDGE_AUTH_TOKEN` to its customer-owned bridge. The
+  warehouse tokens have a narrower Worker-only boundary.
+- **Decision.** Treat `BRIDGE_AUTH_TOKEN` as a browser-to-bridge source secret
+  under the existing session-default and opt-in IndexedDB policy. Persist only
+  `requires_bearer` in workbooks. Keep `DATABRICKS_TOKEN` and
+  `SNOWFLAKE_TOKEN` exclusively in Worker secret bindings and request-local
+  adapter state. Reject every undeclared `BRIDGE_VENDOR_CONFIG_JSON` field.
+- **Consequence.** Product persistence can retain a deliberately remembered
+  bridge bearer without implying that warehouse credentials entered the
+  browser. Tests separately cover workbook omission, redacted diagnostics,
+  metadata-only audit events, and credential-free signed-result requests.
+
+### Decision GG-3 — treat the cancelled Playwright install as supersession
+
+- **Context.** Verify run `32162242805` ended after 2h28m while installing
+  Playwright Chromium. GitHub recorded higher-priority `main` work as the
+  cancellation reason. Run `32176753202` later completed in 10m39s.
+- **Decision.** Do not weaken or alter the browser gate from this historical
+  cancellation. Record the terminal evidence and require a reproducible
+  terminal failure before changing the Ubuntu installer path.
+- **Consequence.** The historical notification no longer represents an open
+  code defect. Current runs retain the complete Playwright matrix.
+
 ## 2026-08-19 — Snowflake live-matrix completion boundary (GF)
 
 ### Decision GF-1 — close the bounded Snowflake protocol matrix except throttling

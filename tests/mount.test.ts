@@ -744,7 +744,7 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
       bridgeUrl: 'https://bridge.example.com:8088',
       sql: 'SELECT * FROM lakehouse.sales LIMIT 100',
       tableName: 'sales',
-      bearerToken: 'tok',
+      bearerToken: 'bridge-workbook-secret-fixture',
       fetchImpl,
     });
     expect(calls[0]).toBe('GET https://bridge.example.com:8088/v1/health');
@@ -760,6 +760,15 @@ describe('mountComputeBridge (Wave 3 W3.4a)', () => {
     expect(src.tables[0]?.format).toBe('arrow');
     expect(src.tables[0]?.origin).toContain(`≤${BRIDGE_QUERY_ROW_CAP_DEFAULT.toLocaleString()}`);
     expect(src.label).toBe('sales (bridge)');
+    const saved = serialize({
+      notebookName: 'bridge-secret-boundary',
+      sources: [src],
+      assignments: {},
+      cells: [],
+      autoAcceptThreshold: 0.8,
+    });
+    expect(saved.sources[0]?.bridge?.requires_bearer).toBe(true);
+    expect(JSON.stringify(saved)).not.toContain('bridge-workbook-secret-fixture');
   });
 
   it('omits Bearer when no token is supplied', async () => {
@@ -1034,7 +1043,7 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
     const source = await mountComputeBridgeCatalog(bridgeCatalogMockEngine() as never, {
       label: 'warehouse',
       bridgeUrl: 'https://bridge.example.com',
-      bearerToken: null,
+      bearerToken: 'catalog-workbook-secret-fixture',
       tables: [{ name: qualifiedName, localName: 'orders', rowCap: 500 }],
       fetchImpl,
     });
@@ -1047,6 +1056,8 @@ describe('mountComputeBridgeCatalog (Wave 3 W3.4b)', () => {
     });
     const persisted = parse(JSON.stringify(saved)).sources[0]?.bridge_catalog;
     expect(persisted?.tables[0]?.name).toBe(qualifiedName);
+    expect(persisted?.requires_bearer).toBe(true);
+    expect(JSON.stringify(saved)).not.toContain('catalog-workbook-secret-fixture');
 
     await mountComputeBridgeCatalog(bridgeCatalogMockEngine() as never, {
       label: 'warehouse',

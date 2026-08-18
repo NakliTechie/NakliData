@@ -53,6 +53,13 @@ or vendor error bodies. Checked-in Cloudflare observability remains disabled.
 Customers who enable external logging assume responsibility for maintaining
 the same metadata-only boundary.
 
+The browser-facing `BRIDGE_AUTH_TOKEN` and warehouse credentials have separate
+trust boundaries. A browser may retain its bridge bearer through NakliData's
+documented source-secret posture. It never receives `DATABRICKS_TOKEN` or
+`SNOWFLAKE_TOKEN`. Those values exist only as Worker secret bindings and
+request-local adapter state. `BRIDGE_VENDOR_CONFIG_JSON` accepts only declared
+non-secret keys at every parsed level; unknown fields fail closed.
+
 ## Supply chain
 
 Production dependencies are pinned in `package-lock.json`. CI runs the high
