@@ -1382,12 +1382,20 @@ async function handleRunLanguage(engine: Engine, cellId: string): Promise<void> 
     nb.patchCell(cellId, { status: 'error', lastError: 'Pick an input cell first.' });
     return;
   }
+  const run = nb.beginExternalRun(cellId);
+  const publish = (patch: Record<string, unknown>) => {
+    if (run.isLatest() && !run.signal.aborted) nb.patchCell(cellId, patch);
+  };
+  const onAbort = () => {
+    if (run.isLatest()) nb.patchCell(cellId, { status: 'idle', loadPhase: null, lastError: null });
+  };
+  run.signal.addEventListener('abort', onAbort, { once: true });
   const ready = langRuntimeReady[cell.kind];
-  nb.patchCell(cellId, {
+  publish({
     status: ready ? 'running' : 'loading',
     loadPhase: ready
       ? null
-      : `Downloading ${cell.kind === 'r' ? 'R (~66 MB)' : 'Python (~33 MB)'}…`,
+      : `Downloading ${cell.kind === 'r' ? 'R (~47 MB)' : 'Python (~33 MB)'}…`,
     lastError: null,
   });
   try {
@@ -1395,17 +1403,24 @@ async function handleRunLanguage(engine: Engine, cellId: string): Promise<void> 
       cellId,
       inputTable: cell.inputCell,
       code: cell.code || '',
-      onProgress: (phase: string) => nb.patchCell(cellId, { status: 'loading', loadPhase: phase }),
+      signal: run.signal,
+      onProgress: (phase: string) =>
+        publish({ status: 'loading', loadPhase: phase, lastError: null }),
     };
     const preview =
       cell.kind === 'python'
         ? await (await loadChunk('pyodide-runtime')).runPythonCell(engine, args)
         : await (await loadChunk('webr-runtime')).runRCell(engine, args);
+    if (run.signal.aborted || !run.isLatest()) return;
     langRuntimeReady[cell.kind] = true;
-    nb.patchCell(cellId, { status: 'success', preview, loadPhase: null, lastError: null });
+    publish({ status: 'success', preview, loadPhase: null, lastError: null });
   } catch (err) {
+    if (run.signal.aborted || !run.isLatest()) return;
     const msg = err instanceof Error ? err.message : String(err);
-    nb.patchCell(cellId, { status: 'error', loadPhase: null, lastError: msg });
+    publish({ status: 'error', loadPhase: null, lastError: msg });
+  } finally {
+    run.signal.removeEventListener('abort', onAbort);
+    run.finish();
   }
 }
 

@@ -5,7 +5,7 @@
 //     Stale-while-revalidate; rotated every deploy (esbuild rewrites
 //     CACHE_VERSION to the inline-script hash, M12), so a new bundle self-heals.
 //   * RUNTIME (naklidata-runtime-<RUNTIME_VERSION>) — the large, IMMUTABLE
-//     vendored language/engine runtimes (Pyodide ~33 MB, WebR ~66 MB, ReadStat,
+//     vendored language/engine runtimes (Pyodide ~33 MB, WebR ~47 MB, ReadStat,
 //     DuckDB extensions). Cache-FIRST with NO background revalidation, and keyed
 //     by its OWN version so it SURVIVES shell redeploys. Previously these lived
 //     in the shell cache, so every deploy's `activate` evicted ~100 MB that

@@ -56,7 +56,6 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.60.0",
-    "@r-wasm/webr": "^0.2.0",
     "@types/cytoscape": "^3.21.9",
     "@types/n3": "1.26.0",
     "@types/node": "^22.5.0",
@@ -66,14 +65,12 @@
     "rdf-validate-shacl": "0.6.5",
     "typescript": "^5.6.0",
     "vitest": "^4.1.10",
+    "webr": "0.6.0",
     "wrangler": "^4.123.0"
   },
   "overrides": {
     "adm-zip": "0.6.0",
-    "nanoid": "3.3.18",
-    "protobufjs": "7.6.5",
-    "sharp": "0.35.3",
-    "tsx": "4.23.1"
+    "sharp": "0.35.3"
   },
   "engines": {
     "node": ">=22"

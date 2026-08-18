@@ -160,15 +160,23 @@ export async function runPythonParquet(
  */
 export async function runPythonCell(
   engine: Engine,
-  opts: { cellId: string; inputTable: string; code: string; onProgress?: (phase: string) => void },
+  opts: {
+    cellId: string;
+    inputTable: string;
+    code: string;
+    signal?: AbortSignal;
+    onProgress?: (phase: string) => void;
+  },
 ): Promise<PythonPreview> {
   const inputView = `cell_${sanitizeId(opts.inputTable)}`;
   const outView = `cell_${sanitizeId(opts.cellId)}`;
 
   // Row cap — refuse rather than OOM the tab.
+  throwIfAborted(opts.signal, 'Python');
   const countRows = await engine.query<{ n: number | bigint }>(
     `SELECT count(*) AS n FROM ${quoteIdent(inputView)}`,
   );
+  throwIfAborted(opts.signal, 'Python');
   const n = Number(countRows[0]?.n ?? 0);
   if (n > PYTHON_MAX_ROWS) {
     throw new Error(
@@ -178,14 +186,26 @@ export async function runPythonCell(
 
   // Export input → Parquet, run Python, re-register the result Parquet.
   const parquetIn = await engine.queryToParquetBuffer(`SELECT * FROM ${quoteIdent(inputView)}`);
+  throwIfAborted(opts.signal, 'Python');
   await loadPythonRuntime(opts.onProgress);
+  throwIfAborted(opts.signal, 'Python');
   const parquetOut = await runPythonParquet(parquetIn, opts.code);
-  await engine.registerParquetBuffer(outView, parquetOut);
+  throwIfAborted(opts.signal, 'Python');
+  let registered = false;
+  try {
+    await engine.registerParquetBuffer(outView, parquetOut);
+    registered = true;
+    throwIfAborted(opts.signal, 'Python');
+  } catch (err) {
+    if (registered && opts.signal?.aborted) await engine.drop(outView).catch(() => {});
+    throw err;
+  }
 
   // Head snapshot for the preview.
   const rows = await engine.query<Record<string, unknown>>(
     `SELECT * FROM ${quoteIdent(outView)} LIMIT 50`,
   );
+  throwIfAborted(opts.signal, 'Python');
   const total = await engine.query<{ n: number | bigint }>(
     `SELECT count(*) AS n FROM ${quoteIdent(outView)}`,
   );
@@ -199,6 +219,10 @@ function sanitizeId(s: string): string {
 }
 function quoteIdent(s: string): string {
   return `"${s.replace(/"/g, '""')}"`;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined, runtime: string): void {
+  if (signal?.aborted) throw new DOMException(`${runtime} run cancelled.`, 'AbortError');
 }
 
 /** Extract a readable message (last traceback line first) from a Pyodide error. */

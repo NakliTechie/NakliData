@@ -12,6 +12,23 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
 }
 
 describe('Notebook.runCell outcomes', () => {
+  it('extends cancellation and latest-run ownership to external runtimes', () => {
+    const notebook = new Notebook(fakeEngine());
+    const cell = notebook.addCell('r');
+    const first = notebook.beginExternalRun(cell.id);
+
+    notebook.cancelRunning();
+    expect(first.signal.aborted).toBe(true);
+    expect(first.isLatest()).toBe(true);
+
+    const second = notebook.beginExternalRun(cell.id);
+    expect(first.isLatest()).toBe(false);
+    expect(second.signal.aborted).toBe(false);
+    first.finish();
+    notebook.cancelAll();
+    expect(second.signal.aborted).toBe(true);
+  });
+
   it('returns not-runnable for a missing or visual cell', async () => {
     const notebook = new Notebook(fakeEngine());
     expect(await notebook.runCell('missing')).toEqual({

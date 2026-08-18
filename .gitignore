@@ -57,8 +57,8 @@ public/sqlite-wasm/sql-wasm.wasm
 public/pyodide/*
 !public/pyodide/integrity.json
 
-# WebR runtime — copied from the @r-wasm/webr devDependency by
-# scripts/fetch-webr.mjs (postinstall, ~66 MB incl. the R VFS). Not committed;
+# WebR runtime — copied from the pinned webr devDependency by
+# scripts/fetch-webr.mjs (postinstall, ~47 MB incl. the R VFS). Not committed;
 # the pin is the devDependency version + package-lock.
 public/webr/
 

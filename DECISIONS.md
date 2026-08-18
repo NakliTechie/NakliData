@@ -2,6 +2,51 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — WebR package and generated-runtime migration (GD)
+
+### Decision GD-1 — pin `webr@0.6.0` and vendor its browser distribution
+
+- **Context.** `@r-wasm/webr@0.2.0` is renamed and retains deprecated
+  `xterm` packages. WebR 0.6 separates its Node import from the browser export
+  and changes the R binary/VFS layout.
+- **Decision.** Pin `webr@0.6.0` exactly. Copy `webr.js`, its worker, R wasm,
+  shared libraries, VFS, and upstream license from the lockfile-verified package.
+  Record the exact package version in the generated runtime directory.
+- **Consequence.** The browser performs no runtime CDN or R-package install.
+  Postinstall replaces a mismatched or incomplete runtime instead of accepting
+  stale bytes. Deprecated `xterm` and `xterm-addon-fit` leave the graph.
+
+### Decision GD-2 — reset WebR after cancellation
+
+- **Context.** WebR 0.6 accepted an interrupt but left the active evaluation
+  promise pending in the browser gate. The serialized R queue then stranded the
+  next run.
+- **Decision.** Register R runs with the notebook abort lifecycle. On abort,
+  send the WebR interrupt, close its worker, reject the active run, and clear
+  the runtime singleton. The next run creates a fresh worker from cached bytes.
+- **Consequence.** Escape, deletion, superseding runs, and workspace teardown
+  cannot publish a cancelled R result. Ordinary runs remove VFS interchange
+  files and the global `df`; abort closes the owning worker and its state.
+
+### Decision GD-3 — make production builds replace generated output
+
+- **Context.** Recursive copying merged `public/` into an existing `dist/`.
+  After the package migration, 1,767 removed WebR 0.2 files remained deployable.
+- **Decision.** Remove `dist/` before every shell build, then regenerate and
+  copy current assets.
+- **Consequence.** Build output mirrors the current generated-runtime layout.
+  The staged WebR footprint is 117 files and 47,758,203 bytes.
+
+### Decision GD-4 — retire only overrides admitted by current parent ranges
+
+- **Context.** `nanoid@3.3.18`, `protobufjs@7.6.5`, and `tsx@4.23.1` now satisfy
+  their direct parent ranges. `adm-zip@0.6.0` and `sharp@0.35.3` remain outside
+  at least one direct parent range.
+- **Decision.** Remove the `nanoid`, `protobufjs`, and `tsx` overrides. Retain
+  the narrow `adm-zip` and `sharp` overrides.
+- **Consequence.** The clean graph remains advisory-free without a blanket
+  allowlist. Later parent releases can retire the final two overrides separately.
+
 ## 2026-08-18 — Iceberg REST release claim boundary (GC)
 
 ### Decision GC-1 — treat each exact live profile as an independent claim unit

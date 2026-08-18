@@ -9,8 +9,8 @@
 // vendoring same-origin fixes it). Verified: vendored WebR inits on the SAB
 // channel, runs R, and round-trips a data.frame back to JS.
 //
-// We COPY from the pinned `@r-wasm/webr` dev-dependency (like vendor-sql-wasm.mjs)
-// rather than fetch: the runtime is ~66 MB across ~1,800 files (the R base
+// We COPY from the pinned `webr` dev-dependency (like vendor-sql-wasm.mjs)
+// rather than fetch: the runtime is ~49 MB across ~170 files (the R base
 // library VFS is lazy-fetched by R at runtime, so all of it must be present),
 // and npm already downloaded + integrity-checked the package via the lockfile.
 // Bytes are gitignored; the pin is the dev-dependency version + package-lock.
@@ -18,31 +18,47 @@
 // Skip when SKIP_WEBR_FETCH=1, or when the copy is already present.
 
 import { existsSync } from 'node:fs';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const DEST = resolve('public/webr');
+const VERSION_FILE = resolve(DEST, 'naklidata-runtime.json');
 
 // The runtime subset WebR loads: glue + worker + R wasm/VFS image + BLAS/LAPACK
 // + the lazy-fetched `vfs/` base-library tree. We skip source maps, the CLI
 // `repl`/`tests` dirs, and the `.cjs`/type shims — none are used at runtime.
 const FILES = [
-  'webr.mjs',
+  // The package's `import` entry is Node-oriented. Self-host the browser
+  // export so a direct dynamic import never resolves Node built-ins.
+  'webr.js',
   'webr-worker.js',
-  'R.bin.wasm',
-  'R.bin.js',
-  'R.bin.data',
+  'R.wasm',
+  'R.js',
   'libRblas.so',
   'libRlapack.so',
 ];
+const ROOT_FILES = ['LICENSE.md'];
 const DIRS = ['vfs'];
 
-function distDir() {
-  // Direct top-level path — @r-wasm/webr is a direct devDependency, and its
-  // `exports` field blocks `require.resolve('@r-wasm/webr/package.json')`.
-  const dir = resolve('node_modules/@r-wasm/webr/dist');
-  if (!existsSync(resolve(dir, 'webr.mjs'))) throw new Error('dist not found');
-  return dir;
+async function packageDetails() {
+  // Read the direct package path because its exports field does not expose
+  // package.json. The lockfile supplies the package integrity boundary.
+  const packageRoot = resolve('node_modules/webr');
+  const manifest = JSON.parse(await readFile(resolve(packageRoot, 'package.json'), 'utf8'));
+  const dir = resolve(packageRoot, 'dist');
+  if (!existsSync(resolve(dir, 'webr.js'))) throw new Error('dist not found');
+  return { dir, packageRoot, version: manifest.version };
+}
+
+async function vendoredVersion() {
+  try {
+    const marker = JSON.parse(await readFile(VERSION_FILE, 'utf8'));
+    return marker.package === 'webr' && typeof marker.version === 'string'
+      ? marker.version
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -50,35 +66,45 @@ async function main() {
     console.log('[naklidata] SKIP_WEBR_FETCH=1 — skipping vendored WebR');
     return;
   }
-  let SRC;
+  let details;
   try {
-    SRC = distDir();
+    details = await packageDetails();
   } catch {
-    console.error(
-      '[naklidata] @r-wasm/webr is not installed — run `npm install` (it is a devDependency).',
-    );
+    console.error('[naklidata] webr is not installed — run `npm install` (it is a devDependency).');
     process.exit(1);
   }
 
-  // Idempotent: if the copy looks complete, bail.
-  if (existsSync(resolve(DEST, 'webr.mjs')) && existsSync(resolve(DEST, 'vfs'))) {
-    console.log('[naklidata] vendored WebR already present');
+  // Idempotent only for the exact package version and required runtime layout.
+  const complete = [...FILES, ...ROOT_FILES, ...DIRS].every((entry) =>
+    existsSync(resolve(DEST, entry)),
+  );
+  if (complete && (await vendoredVersion()) === details.version) {
+    console.log(`[naklidata] vendored WebR ${details.version} already present`);
     return;
   }
 
-  console.log('[naklidata] vendoring WebR from @r-wasm/webr (~66 MB, incl. the R VFS)');
+  console.log(`[naklidata] vendoring WebR ${details.version} from webr (incl. the R VFS)`);
   await rm(DEST, { recursive: true, force: true });
   await mkdir(DEST, { recursive: true });
   for (const f of FILES) {
-    await cp(resolve(SRC, f), resolve(DEST, f));
+    await cp(resolve(details.dir, f), resolve(DEST, f));
+  }
+  for (const f of ROOT_FILES) {
+    await cp(resolve(details.packageRoot, f), resolve(DEST, f));
   }
   for (const d of DIRS) {
-    await cp(resolve(SRC, d), resolve(DEST, d), { recursive: true });
+    await cp(resolve(details.dir, d), resolve(DEST, d), { recursive: true });
   }
+  await writeFile(
+    VERSION_FILE,
+    `${JSON.stringify({ package: 'webr', version: details.version }, null, 2)}\n`,
+  );
   const vfsCount = existsSync(resolve(DEST, 'vfs'))
     ? (await readdir(resolve(DEST, 'vfs'), { recursive: true })).length
     : 0;
-  console.log(`  ✓ ${FILES.length} core files + vfs/ (${vfsCount} entries)`);
+  console.log(
+    `  ✓ ${FILES.length} core files + ${ROOT_FILES.length} license file + vfs/ (${vfsCount} entries)`,
+  );
 }
 
 main().catch((err) => {

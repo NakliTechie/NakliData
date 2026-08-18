@@ -26,6 +26,7 @@ import type {
   MapCellState,
   MarkdownCellState,
   PivotCellState,
+  RCellState,
   ReportCellState,
   SqlCellState,
   StatsCellState,
@@ -309,6 +310,33 @@ describe('persistence round-trip — stats cell (v1.3 M4, forward-pass H9)', () 
       descriptives: null,
       correlations: null,
       status: 'idle',
+      lastError: null,
+    });
+  });
+});
+
+describe('persistence round-trip — R cell (WebR package migration)', () => {
+  it('loads the package-independent workbook shape and clears runtime state', () => {
+    const cell: RCellState = {
+      id: 'c_r_legacy',
+      kind: 'r',
+      order: 6,
+      name: 'legacy_r_transform',
+      inputCell: 'c_sql_1',
+      code: 'df$total <- df$amount * 2',
+      preview: { columns: ['total'], rows: [{ total: 20 }], rowCount: 1 },
+      status: 'success',
+      loadPhase: 'Ready',
+      lastError: 'stale error',
+    };
+
+    const [out] = roundTripCells([cell]);
+
+    expect(out).toEqual({
+      ...cell,
+      preview: null,
+      status: 'idle',
+      loadPhase: null,
       lastError: null,
     });
   });

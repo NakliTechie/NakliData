@@ -22,7 +22,7 @@ const LANG = {
   r: {
     label: 'r',
     action: 'run-r',
-    size: '66 MB',
+    size: '47 MB',
     starter:
       '# df: the input table (data.frame). The final df becomes this cell.\ndf <- head(df, 100)',
   },
@@ -34,8 +34,9 @@ export function renderLanguageCell(
   handlers: CellHandlers,
 ): HTMLElement {
   const lang = LANG[cell.kind];
+  const busy = cell.status === 'running' || cell.status === 'loading';
   const wrap = document.createElement('div');
-  wrap.className = `cell cell-${cell.kind}`;
+  wrap.className = `cell cell-${cell.kind}${busy ? ' running' : ''}`;
   wrap.dataset.cellId = cell.id;
   wrap.dataset.cellKind = cell.kind;
 
@@ -45,8 +46,6 @@ export function renderLanguageCell(
         `<option value="${esc(c.id)}" ${c.id === cell.inputCell ? 'selected' : ''}>${esc(c.name ?? c.id)}</option>`,
     )
     .join('');
-  const busy = cell.status === 'running' || cell.status === 'loading';
-
   wrap.innerHTML = `
     <div class="cell-head">
       <span class="cell-kind">${iconSvg('file', 12)} ${lang.label}</span>

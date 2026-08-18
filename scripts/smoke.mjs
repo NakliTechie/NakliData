@@ -2980,7 +2980,7 @@ async function main() {
   // 12l. R cell (Polyglot-Workbench Fork 2, WebR). Same shared language-cell
   //      path as Python, but CSV interchange over WebR's VFS + base R. Reuse the
   //      same SQL input; R doubles column b into c. First run downloads the
-  //      ~66 MB WebR runtime (SharedArrayBuffer — needs cross-origin isolation,
+  //      ~47 MB WebR runtime (SharedArrayBuffer — needs cross-origin isolation,
   //      which the smoke server sets), so this leg gets a generous timeout.
   await page.click('[data-nb-action="add-r"]');
   const rCell = page.locator('.cell[data-cell-kind="r"]').last();
@@ -3007,6 +3007,56 @@ async function main() {
   if (!/3 rows × 2 cols/.test(rOut)) {
     fail(`R cell output wrong: ${rOut.slice(0, 200)} (expected "3 rows × 2 cols")`);
   }
+
+  // A long R computation participates in the notebook's ordinary Escape
+  // cancellation path. The same runtime must accept a recovery run afterward.
+  await rEditor.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText('Sys.sleep(60)');
+  await rCell.locator('[data-action="run-r"]').click();
+  await page.waitForFunction(
+    () =>
+      /Running R/.test(
+        document.querySelector('.cell[data-cell-kind="r"] .cell-output')?.textContent ?? '',
+      ),
+    null,
+    { timeout: 10000 },
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="r"].running') === null,
+    null,
+    { timeout: 10000 },
+  );
+  const recoveryEditor = rCell.locator('.cm-content, textarea').first();
+  await recoveryEditor.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText("df$c <- df$b * 2\ndf <- df[, c('a', 'c')]");
+  await rCell.locator('[data-action="run-r"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('.cell[data-cell-kind="r"].running') !== null,
+    null,
+    { timeout: 10000 },
+  );
+  try {
+    await page.waitForFunction(
+      () => {
+        const cell = document.querySelector('.cell[data-cell-kind="r"]');
+        return !cell?.classList.contains('running');
+      },
+      null,
+      { timeout: 180000 },
+    );
+  } catch (err) {
+    const state = await rCell.locator('.cell-output').innerText();
+    fail(`R recovery remained busy: ${state.slice(0, 300)} (${String(err)})`);
+  }
+  const recoveredROut = await rCell.locator('.cell-output').innerText();
+  if (!/3 rows × 2 cols/.test(recoveredROut)) {
+    fail(`R cell did not recover after cancellation: ${recoveredROut.slice(0, 300)}`);
+  }
+  log('✓ R cell cancellation: Escape interrupts a long run and the shared runtime recovers');
+
   const rId = await rCell.getAttribute('data-cell-id');
   await page.click('[data-nb-action="add-sql"]');
   const rdsCell = page.locator('.cell[data-cell-kind="sql"]').last();
@@ -3042,23 +3092,36 @@ async function main() {
       await wait(250);
     }
     if (!controlled) return { skipped: true };
-    const asset = '/readstat-wasm/readstat.wasm';
-    await fetch(asset);
+    const assets = [
+      '/readstat-wasm/readstat.wasm',
+      '/webr/webr.js',
+      '/webr/R.wasm',
+    ];
+    await Promise.all(assets.map((asset) => fetch(asset)));
     await wait(400); // let the fire-and-forget cache.put settle
     const keys = await caches.keys();
     const runtimeKey = keys.find((k) => k.startsWith('naklidata-runtime-')) ?? null;
     const shellKey = keys.find((k) => k.startsWith('naklidata-shell-')) ?? null;
-    const inRuntime = runtimeKey ? !!(await (await caches.open(runtimeKey)).match(asset)) : false;
-    const inShell = shellKey ? !!(await (await caches.open(shellKey)).match(asset)) : false;
-    return { skipped: false, runtimeKey, inRuntime, inShell };
+    const runtime = runtimeKey ? await caches.open(runtimeKey) : null;
+    const shell = shellKey ? await caches.open(shellKey) : null;
+    const missingRuntime = [];
+    const leakedShell = [];
+    for (const asset of assets) {
+      if (!runtime || !(await runtime.match(asset))) missingRuntime.push(asset);
+      if (shell && (await shell.match(asset))) leakedShell.push(asset);
+    }
+    return { skipped: false, runtimeKey, missingRuntime, leakedShell };
   });
   if (rtCache.skipped) {
     log('~ SW runtime-cache guard skipped (service worker not controlling in harness)');
   } else {
-    if (!rtCache.inRuntime) fail('SW: runtime asset was not cached in the runtime cache');
-    if (rtCache.inShell)
-      fail('SW: runtime asset leaked into the shell cache (should be runtime-only)');
-    log(`✓ SW runtime cache: readstat wasm cached in ${rtCache.runtimeKey}, not the shell cache`);
+    if (rtCache.missingRuntime.length > 0) {
+      fail(`SW: runtime assets missing from runtime cache: ${rtCache.missingRuntime.join(', ')}`);
+    }
+    if (rtCache.leakedShell.length > 0) {
+      fail(`SW: runtime assets leaked into the shell cache: ${rtCache.leakedShell.join(', ')}`);
+    }
+    log(`✓ SW runtime cache: ReadStat and WebR core assets cached in ${rtCache.runtimeKey}`);
   }
 
   // 12c. Generic same-origin caching is a data-leak footgun. Only explicit
@@ -3256,6 +3319,28 @@ async function main() {
     fail(`${realErrors.length} unexpected console error(s) during smoke run`);
   }
   log('✓ no unexpected console errors');
+
+  // A controlled offline reload must still retrieve the migrated WebR browser
+  // entry and wasm from the version-independent runtime cache.
+  if (!rtCache.skipped) {
+    await context.setOffline(true);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      const offlineWebR = await page.evaluate(async () => {
+        const responses = await Promise.all([
+          fetch('/webr/webr.js'),
+          fetch('/webr/R.wasm'),
+        ]);
+        return responses.map((response) => ({ ok: response.ok, status: response.status }));
+      });
+      if (offlineWebR.some((response) => !response.ok)) {
+        fail(`WebR offline reload failed: ${JSON.stringify(offlineWebR)}`);
+      }
+      log('✓ WebR offline reload: browser entry and wasm served from runtime cache');
+    } finally {
+      await context.setOffline(false);
+    }
+  }
 
   await browser.close();
   server.close();

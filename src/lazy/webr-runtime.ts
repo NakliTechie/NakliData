@@ -32,10 +32,12 @@ interface WebRProxy {
 interface WebRFS {
   writeFile(path: string, data: Uint8Array): Promise<void>;
   readFile(path: string): Promise<Uint8Array>;
-  unlink?(path: string): Promise<void>;
+  unlink(path: string): Promise<void>;
 }
 interface WebRAPI {
   init(): Promise<void>;
+  interrupt(): void;
+  close(): void;
   evalRVoid(code: string): Promise<void>;
   evalR(code: string): Promise<WebRProxy>;
   FS: WebRFS;
@@ -52,7 +54,7 @@ export function loadRRuntime(onProgress?: (phase: string) => void): Promise<WebR
     _rPromise = (async () => {
       const base = new URL('./webr/', document.baseURI).href;
       onProgress?.('Loading R runtime…');
-      const mod = (await import(`${base}webr.mjs`)) as {
+      const mod = (await import(`${base}webr.js`)) as {
         WebR: new (opts: { baseUrl: string }) => WebRAPI;
       };
       const webR = new mod.WebR({ baseUrl: base });
@@ -95,7 +97,13 @@ let _rLock: Promise<unknown> = Promise.resolve();
 
 export function runRCell(
   engine: Engine,
-  opts: { cellId: string; inputTable: string; code: string; onProgress?: (phase: string) => void },
+  opts: {
+    cellId: string;
+    inputTable: string;
+    code: string;
+    signal?: AbortSignal;
+    onProgress?: (phase: string) => void;
+  },
 ): Promise<RPreview> {
   const run = _rLock.then(() => runRCellImpl(engine, opts));
   // Keep the chain alive across failures without leaking the rejection to the
@@ -106,14 +114,23 @@ export function runRCell(
 
 async function runRCellImpl(
   engine: Engine,
-  opts: { cellId: string; inputTable: string; code: string; onProgress?: (phase: string) => void },
+  opts: {
+    cellId: string;
+    inputTable: string;
+    code: string;
+    signal?: AbortSignal;
+    onProgress?: (phase: string) => void;
+  },
 ): Promise<RPreview> {
   const inputView = `cell_${sanitizeId(opts.inputTable)}`;
   const outView = `cell_${sanitizeId(opts.cellId)}`;
 
+  opts.onProgress?.('Preparing R input…');
+  throwIfAborted(opts.signal);
   const countRows = await engine.query<{ n: number | bigint }>(
     `SELECT count(*) AS n FROM ${quoteIdent(inputView)}`,
   );
+  throwIfAborted(opts.signal);
   const n = Number(countRows[0]?.n ?? 0);
   if (n > R_MAX_ROWS) {
     throw new Error(
@@ -122,31 +139,81 @@ async function runRCellImpl(
   }
 
   const csvIn = await engine.queryToCsvBuffer(`SELECT * FROM ${quoteIdent(inputView)}`);
+  throwIfAborted(opts.signal);
   const webR = await loadRRuntime(opts.onProgress);
+  throwIfAborted(opts.signal);
+  let rejectAbort: ((reason: DOMException) => void) | null = null;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const waitForR = <T>(operation: Promise<T>): Promise<T> =>
+    opts.signal ? Promise.race([operation, aborted]) : operation;
+  const interrupt = () => {
+    try {
+      webR.interrupt();
+    } finally {
+      // WebR 0.6 can leave an eval promise pending after an interrupt. Closing
+      // the worker releases its VFS/global state and lets the next run create a
+      // fresh runtime instead of remaining behind a stranded queue entry.
+      webR.close();
+      _rPromise = null;
+      rejectAbort?.(abortError());
+    }
+  };
+  opts.signal?.addEventListener('abort', interrupt, { once: true });
+  let registered = false;
+  try {
+    await waitForR(webR.FS.writeFile('/nd_r_in.csv', csvIn));
+    throwIfAborted(opts.signal);
+    try {
+      await waitForR(
+        webR.evalRVoid("df <- read.csv('/nd_r_in.csv', stringsAsFactors=FALSE, check.names=FALSE)"),
+      );
+    } catch (err) {
+      if (opts.signal?.aborted) throw abortError();
+      throw new RRunError(`Failed to load the input table into R: ${rErr(err)}`);
+    }
+    throwIfAborted(opts.signal);
+    opts.onProgress?.('Running R…');
+    try {
+      await waitForR(webR.evalRVoid(opts.code));
+    } catch (err) {
+      if (opts.signal?.aborted) throw abortError();
+      throw new RRunError(rErr(err));
+    }
+    throwIfAborted(opts.signal);
+    opts.onProgress?.('Importing R result…');
+    try {
+      await waitForR(
+        webR.evalRVoid(
+          "if (!is.data.frame(df)) stop('the cell must leave a data.frame in `df`'); write.csv(df, '/nd_r_out.csv', row.names=FALSE)",
+        ),
+      );
+    } catch (err) {
+      if (opts.signal?.aborted) throw abortError();
+      throw new RRunError(`Could not read the result back: ${rErr(err)}`);
+    }
+    throwIfAborted(opts.signal);
+    const csvOut = await waitForR(webR.FS.readFile('/nd_r_out.csv'));
+    throwIfAborted(opts.signal);
+    await engine.registerCsvBuffer(outView, csvOut);
+    registered = true;
+    throwIfAborted(opts.signal);
+  } catch (err) {
+    if (registered && opts.signal?.aborted) await engine.drop(outView).catch(() => {});
+    throw err;
+  } finally {
+    opts.signal?.removeEventListener('abort', interrupt);
+    if (!opts.signal?.aborted) {
+      await settle(() => webR.FS.unlink('/nd_r_in.csv'));
+      await settle(() => webR.FS.unlink('/nd_r_out.csv'));
+      await settle(() =>
+        webR.evalRVoid("if (exists('df', envir=.GlobalEnv)) rm(df, envir=.GlobalEnv)"),
+      );
+    }
+  }
 
-  await webR.FS.writeFile('/nd_r_in.csv', csvIn);
-  try {
-    await webR.evalRVoid(
-      "df <- read.csv('/nd_r_in.csv', stringsAsFactors=FALSE, check.names=FALSE)",
-    );
-  } catch (err) {
-    throw new RRunError(`Failed to load the input table into R: ${rErr(err)}`);
-  }
-  try {
-    await webR.evalRVoid(opts.code);
-  } catch (err) {
-    throw new RRunError(rErr(err));
-  }
-  try {
-    await webR.evalRVoid(
-      "if (!is.data.frame(df)) stop('the cell must leave a data.frame in `df`'); write.csv(df, '/nd_r_out.csv', row.names=FALSE)",
-    );
-  } catch (err) {
-    throw new RRunError(`Could not read the result back: ${rErr(err)}`);
-  }
-  const csvOut = await webR.FS.readFile('/nd_r_out.csv');
-  await engine.registerCsvBuffer(outView, csvOut);
-
+  opts.onProgress?.('Building R preview…');
   const rows = await engine.query<Record<string, unknown>>(
     `SELECT * FROM ${quoteIdent(outView)} LIMIT 50`,
   );
@@ -155,6 +222,22 @@ async function runRCellImpl(
   );
   const columns = rows.length > 0 ? Object.keys(rows[0] as object) : [];
   return { columns, rows, rowCount: Number(total[0]?.n ?? rows.length) };
+}
+
+function abortError(): DOMException {
+  return new DOMException('R run cancelled.', 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+async function settle(action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch {
+    // Cleanup is best-effort and must not mask the run result.
+  }
 }
 
 function sanitizeId(s: string): string {

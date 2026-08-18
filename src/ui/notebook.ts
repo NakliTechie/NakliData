@@ -97,6 +97,12 @@ export type CellBatchRunOutcome =
   | { status: 'success'; ran: number }
   | { status: 'stopped'; cellId: string; cellName: string; outcome: CellRunOutcome };
 
+export interface ExternalRunLease {
+  signal: AbortSignal;
+  isLatest: () => boolean;
+  finish: () => void;
+}
+
 export class Notebook {
   private state: NotebookState = { cells: [] };
   private engine: Engine;
@@ -405,6 +411,26 @@ LIMIT 100`,
   /** Abort visible in-flight runs while preserving their generation for status publication. */
   cancelRunning(): void {
     for (const controller of this.aborts.values()) controller.abort();
+  }
+
+  /**
+   * Register a run orchestrated outside `runCell` with the notebook lifecycle.
+   * Language runtimes use this so Escape, deletion, superseding runs, and
+   * workspace teardown share the same abort and latest-result guarantees as SQL.
+   */
+  beginExternalRun(id: string): ExternalRunLease {
+    this.aborts.get(id)?.abort();
+    const generation = (this.runGen.get(id) ?? 0) + 1;
+    this.runGen.set(id, generation);
+    const controller = new AbortController();
+    this.aborts.set(id, controller);
+    return {
+      signal: controller.signal,
+      isLatest: () => this.runGen.get(id) === generation,
+      finish: () => {
+        if (this.aborts.get(id) === controller) this.aborts.delete(id);
+      },
+    };
   }
 
   patchCell(id: string, patch: Record<string, unknown>): void {

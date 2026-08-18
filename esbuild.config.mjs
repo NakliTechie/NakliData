@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve as absResolve, extname, join } from 'node:path';
 import { build, context } from 'esbuild';
@@ -96,6 +96,10 @@ async function buildLazyChunks() {
 }
 
 async function buildShell() {
+  // `cp(..., { recursive: true })` merges directories. Clear the prior build
+  // first so removed generated-runtime files cannot survive into a later
+  // deployment (for example, after a WebR package layout migration).
+  await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(OUT_DIR, { recursive: true });
 
   const main = await build({
