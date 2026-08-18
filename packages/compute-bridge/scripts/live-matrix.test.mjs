@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { tableFromArrays, tableToIPC } from 'apache-arrow';
 import { LiveMatrixError, configFromEnvironment, runLiveMatrix } from './live-matrix.mjs';
+import { releaseConfigFromEnvironment, runReleaseSmoke } from './release-smoke.mjs';
 
 const TOKEN = 'fixture-bridge-token-long-enough';
 const ADAPTER = 'databricks-sql-warehouse';
@@ -14,6 +15,7 @@ function baselineConfig(overrides = {}) {
     baseUrl: new URL('http://127.0.0.1:8787/'),
     origin: ORIGIN,
     adapter: ADAPTER,
+    expectedVersion: null,
     token: TOKEN,
     rowLimit: 5,
     maxArrowBytes: 1024 * 1024,
@@ -58,6 +60,7 @@ function fixtureFetch(options = {}) {
       return json({
         protocol: 'naklidata-compute-bridge',
         protocol_version: 2,
+        version: '0.1.0',
         auth: 'bearer',
         single_tenant: true,
         capabilities: ['arrow-ipc', 'query', 'table-query', 'tables'],
@@ -110,6 +113,7 @@ test('runs the bounded baseline without emitting SQL, secrets, or row values', a
     { fetchImpl: fixture.fetchImpl },
   );
   assert.equal(result.checks.inventory.count, 1);
+  assert.equal(result.checks.health.bridgeVersion, '0.1.0');
   assert.equal(result.checks.tableQuery.arrowRows, 3);
   assert.deepEqual(result.checks.resultLimit, { status: 502, code: 'result_limit' });
   assert.equal(result.privacy.rowValuesEmitted, false);
@@ -117,6 +121,21 @@ test('runs the bounded baseline without emitting SQL, secrets, or row values', a
   assert.equal(serialized.includes(TOKEN), false);
   assert.equal(serialized.includes('SELECT'), false);
   assert.equal(serialized.includes('101'), false);
+});
+
+test('release smoke pins the bridge version and runs the baseline matrix', async () => {
+  const config = baselineConfig({ expectedVersion: '0.1.0' });
+  const result = await runReleaseSmoke(config, { fetchImpl: fixtureFetch().fetchImpl });
+  assert.equal(result.expectedBridgeVersion, '0.1.0');
+  assert.equal(result.matrix.checks.health.bridgeVersion, '0.1.0');
+  assert.equal(JSON.stringify(result).includes(TOKEN), false);
+
+  await assert.rejects(
+    runReleaseSmoke(baselineConfig({ expectedVersion: '0.2.0' }), {
+      fetchImpl: fixtureFetch().fetchImpl,
+    }),
+    (error) => error instanceof LiveMatrixError && error.code === 'version_mismatch',
+  );
 });
 
 test('proves client abort and a bounded recovery while retaining the vendor-state caveat', async () => {
@@ -168,6 +187,18 @@ test('rejects non-loopback HTTP and incomplete configuration before a request', 
     () =>
       configFromEnvironment({
         BRIDGE_LIVE_URL: 'http://bridge.example.test',
+        BRIDGE_LIVE_ORIGIN: ORIGIN,
+        BRIDGE_LIVE_ADAPTER: ADAPTER,
+        BRIDGE_LIVE_AUTH_TOKEN: TOKEN,
+        BRIDGE_LIVE_TABLE_ID: 'orders-v1',
+        BRIDGE_LIVE_DIRECT_SQL: 'SELECT order_id FROM main.analytics.orders',
+      }),
+    (error) => error instanceof LiveMatrixError && error.code === 'invalid_config',
+  );
+  assert.throws(
+    () =>
+      releaseConfigFromEnvironment({
+        BRIDGE_LIVE_URL: 'https://bridge.example.test',
         BRIDGE_LIVE_ORIGIN: ORIGIN,
         BRIDGE_LIVE_ADAPTER: ADAPTER,
         BRIDGE_LIVE_AUTH_TOKEN: TOKEN,

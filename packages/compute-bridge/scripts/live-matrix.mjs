@@ -28,6 +28,7 @@ export function configFromEnvironment(env = process.env) {
     baseUrl,
     origin,
     adapter,
+    expectedVersion: optionalText(env.BRIDGE_LIVE_EXPECTED_VERSION),
     token: secretText(env.BRIDGE_LIVE_AUTH_TOKEN, 'BRIDGE_LIVE_AUTH_TOKEN'),
     rowLimit: optionalPositiveInteger(env.BRIDGE_LIVE_ROW_LIMIT, 'BRIDGE_LIVE_ROW_LIMIT') ?? 5,
     maxArrowBytes:
@@ -77,7 +78,7 @@ export function configFromEnvironment(env = process.env) {
 export async function runLiveMatrix(config, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const health = await requestJson(config, fetchImpl, '/v1/health');
-  assertHealth(health, config.adapter);
+  const bridgeVersion = assertHealth(health, config.adapter, config.expectedVersion);
 
   if (config.mode === 'expect-error') {
     const failure = await expectQueryError(config, fetchImpl, {
@@ -86,7 +87,11 @@ export async function runLiveMatrix(config, options = {}) {
       status: config.expectedErrorStatus,
     });
     return summary(config.adapter, {
-      health: { protocolVersion: health.protocol_version, ready: health.ready },
+      health: {
+        protocolVersion: health.protocol_version,
+        bridgeVersion,
+        ready: health.ready,
+      },
       expectedError: failure,
     });
   }
@@ -112,7 +117,7 @@ export async function runLiveMatrix(config, options = {}) {
   );
 
   const checks = {
-    health: { protocolVersion: health.protocol_version, ready: health.ready },
+    health: { protocolVersion: health.protocol_version, bridgeVersion, ready: health.ready },
     ready: {
       maxRequestBytes: limits.maxRequestBytes,
       maxResultBytes: limits.maxResultBytes,
@@ -300,7 +305,8 @@ async function readBounded(response, maximumBytes) {
   return output;
 }
 
-function assertHealth(value, expectedAdapter) {
+function assertHealth(value, expectedAdapter, expectedVersion) {
+  const actualVersion = isObject(value) ? optionalText(value.version) : null;
   if (
     !isObject(value) ||
     value.protocol !== 'naklidata-compute-bridge' ||
@@ -309,10 +315,18 @@ function assertHealth(value, expectedAdapter) {
     value.single_tenant !== true ||
     value.ready !== true ||
     value.adapter !== expectedAdapter ||
+    !actualVersion ||
     !Array.isArray(value.capabilities)
   ) {
     throw new LiveMatrixError('Bridge health contract is not ready for this adapter.', 'not_ready');
   }
+  if (expectedVersion && actualVersion !== expectedVersion) {
+    throw new LiveMatrixError(
+      'Bridge version does not match the release candidate.',
+      'version_mismatch',
+    );
+  }
+  return actualVersion;
 }
 
 function assertReady(value, requestedRows) {

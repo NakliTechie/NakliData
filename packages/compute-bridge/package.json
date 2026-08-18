@@ -12,6 +12,7 @@
     "check": "npm run types:check && tsc --noEmit && biome check src test scripts && node scripts/check-config.mjs",
     "test": "vitest run && node --test scripts/live-matrix.test.mjs",
     "live:matrix": "node scripts/live-matrix.mjs",
+    "release:smoke": "node scripts/release-smoke.mjs",
     "audit": "npm audit --audit-level=high",
     "sbom": "npm sbom --sbom-format cyclonedx",
     "sbom:check": "node scripts/check-sbom.mjs",

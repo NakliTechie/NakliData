@@ -43,6 +43,18 @@ Append-only. Format per AGENTHANDOFF §5.
 - **Consequence.** The historical notification no longer represents an open
   code defect. Current runs retain the complete Playwright matrix.
 
+### Decision GG-4 — pin release smoke to the deployed bridge version
+
+- **Context.** The live matrix verified protocol and adapter identity but did
+  not compare the health response with the intended package version. A stale
+  Worker could therefore pass a post-deployment read probe.
+- **Decision.** Add `npm run release:smoke` as a baseline-only wrapper. Require
+  `BRIDGE_LIVE_EXPECTED_VERSION` and reject any different health version before
+  accepting the candidate. Retain the existing secret-free matrix output.
+- **Consequence.** Install, configuration, upgrade, and rollback guidance now
+  shares one version-pinned smoke command. Running that command against staging
+  or production still requires separate deployment and credential authority.
+
 ## 2026-08-19 — Snowflake live-matrix completion boundary (GF)
 
 ### Decision GF-1 — close the bounded Snowflake protocol matrix except throttling

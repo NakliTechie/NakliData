@@ -19,6 +19,24 @@ Snowflake factories are packaged, but they remain gated on separate live
 matrices. Do not change `BRIDGE_ADAPTER` or advertise a vendor capability until
 the corresponding adapter gate passes.
 
+## Install a release candidate
+
+1. Select the exact approved repository commit or release tag. Record that ref
+   beside the deployment change.
+2. Enter `packages/compute-bridge` and run `npm ci`. Do not regenerate the
+   lockfile during installation.
+3. Run every command under [Validate without deploying](#validate-without-deploying).
+4. Create a deployment-specific Wrangler configuration in an ignored location
+   or the customer's deployment pipeline. Do not edit the fail-closed checked-in
+   environments into live profiles.
+5. Set `BRIDGE_VERSION` to the exact package release version. Set the adapter,
+   origin, limits, and sanitized vendor JSON as non-secret variables.
+6. Add `BRIDGE_AUTH_TOKEN` and the selected warehouse token through interactive
+   secret input or the customer's secret manager.
+
+Installation prepares a candidate only. Worker creation, staging deployment,
+production deployment, and billable infrastructure retain separate approval.
+
 ## Configuration and secrets
 
 1. Set an exact HTTPS browser origin in `ALLOWED_ORIGINS`.
@@ -49,6 +67,11 @@ write.
 Production and staging have empty origin allowlists and the `unconfigured`
 adapter in source control. This prevents an accidental default deployment from
 accepting data requests.
+
+Before configuration review, compare every vendor JSON key with the matching
+checked-in example. Runtime parsing rejects undeclared top-level, inventory,
+and column keys. Keep a redacted configuration hash with the release evidence;
+do not retain an unredacted secret-binding export.
 
 ## Validate without deploying
 
@@ -98,6 +121,46 @@ The runtime `MAX_RESULT_BYTES` and `MAX_QUERY_MILLISECONDS` values also bound
 vendor adapter fetches. A smaller server ceiling must not wait for a larger
 adapter default before rejecting a response.
 
+## Release smoke
+
+After an authorized staging or production deployment, inject these values from
+a mode-600 environment file or secret manager:
+
+- `BRIDGE_LIVE_URL`, `BRIDGE_LIVE_ORIGIN`, and `BRIDGE_LIVE_AUTH_TOKEN`;
+- `BRIDGE_LIVE_ADAPTER` and the exact `BRIDGE_LIVE_EXPECTED_VERSION`;
+- `BRIDGE_LIVE_TABLE_ID` and one allowlisted `BRIDGE_LIVE_DIRECT_SQL` read;
+- an optional bounded `BRIDGE_LIVE_ROW_LIMIT`.
+
+Run:
+
+```bash
+npm run release:smoke
+```
+
+The command requires baseline mode. It rejects a version mismatch before
+accepting the candidate. It verifies authenticated health, readiness, limits,
+opaque inventory, one structured table read, one parsed direct read, Arrow
+media type, byte bounds, and row/header agreement. Its JSON output contains
+counts and classifications only. It does not test or perform writes.
+
+Release evidence must also record the vendor privilege-negative result,
+credential teardown result, and Cloudflare observability state. The release
+smoke does not infer those controls from a successful read.
+
+## Upgrade
+
+1. Record the currently deployed Worker version, repository ref, non-secret
+   configuration hash, adapter, allowlist, origin, and limits.
+2. Prepare the next exact ref through the installation and credential-free
+   validation sequence above.
+3. Review configuration differences. A browser-app release does not authorize
+   a bridge upgrade or a vendor-profile change.
+4. Deploy staging after authorization. Run the release smoke against staging.
+5. Promote the same source ref and reviewed configuration shape after separate
+   production authorization. Run the release smoke again.
+6. Keep the prior source ref and redacted configuration available until the
+   observation window closes.
+
 ## Deployment and rollback
 
 No deployment is authorized by this package. After separate authorization,
@@ -109,6 +172,13 @@ Rollback means deploying the prior pinned Worker version, restoring its
 non-secret variables, and rotating both bridge and warehouse credentials.
 Disabling the Worker route or restoring `BRIDGE_ADAPTER=unconfigured` provides
 the fail-closed emergency path.
+
+Trigger rollback on a version mismatch, readiness failure, unexpected adapter,
+authorization regression, result corruption, limit bypass, secret exposure, or
+unbounded provider statement. After rollback, run health and readiness first.
+Run the full release smoke only after the prior profile is ready. If the prior
+profile cannot be restored without weakening a control, keep the adapter
+`unconfigured` and leave the branded card unavailable.
 
 ## Runtime lifecycle
 

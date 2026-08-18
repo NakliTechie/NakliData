@@ -88,6 +88,11 @@ The runner proves the bridge-visible client abort. Record the vendor statement
 identifier and terminal state separately through the provider's query history.
 Do not infer vendor cancellation from the client abort alone.
 
+After an authorized deployment, `npm run release:smoke` runs the baseline
+matrix and additionally requires `BRIDGE_LIVE_EXPECTED_VERSION` to match the
+deployed health response. Installation, configuration, upgrade, release-smoke,
+and rollback procedures live in [`OPERATIONS.md`](./OPERATIONS.md).
+
 ## Routes
 
 - `GET /v1/health` — protocol negotiation and capability disclosure.
