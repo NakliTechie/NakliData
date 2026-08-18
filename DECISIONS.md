@@ -2,6 +2,42 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Snowflake live-matrix completion boundary (GF)
+
+### Decision GF-1 — close the bounded Snowflake protocol matrix except throttling
+
+- **Context.** The first Snowflake slice covered one-partition reads but left
+  async polling, pagination, cancellation, expiry, timeout, direct denial, and
+  cumulative limits open.
+- **Decision.** Accept the 2026-08-19 service-identity run as live evidence for
+  those cases. Keep HTTP 429 open because inducing it requires concurrent
+  request pressure against trial infrastructure.
+- **Consequence.** The branded Snowflake card remains unavailable. Its required
+  live-evidence gap is now the throttle path; a provider-cancelled client
+  disconnect remains a stronger optional outcome.
+
+### Decision GF-2 — combine client-abort recovery with explicit vendor cancellation
+
+- **Context.** Two bridge client aborts recovered, but Snowflake completed each
+  bounded sort before cancellation took effect.
+- **Decision.** Record client-abort recovery separately from an explicit
+  SQL API cancel. Require terminal vendor state for the explicit cancel path,
+  not a specific cancelled outcome when a bounded disconnect query wins the
+  race.
+- **Consequence.** Evidence distinguishes cancellation intent, recovery, and
+  terminal state. It does not claim that every client abort produces a
+  provider-cancelled query.
+
+### Decision GF-3 — retain trial-only, ephemeral Snowflake verification
+
+- **Context.** Live verification needed a service-user public key and an
+  X-Small warehouse. The account remained on its trial balance.
+- **Decision.** Use only the existing trial warehouse. Remove the RSA key,
+  disable the service user, suspend compute, delete local secret files, and
+  reset the browser-control kernel after every run.
+- **Consequence.** No persistent credential or active compute remains after
+  the matrix. Future live work must issue a fresh temporary credential.
+
 ## 2026-08-19 — Databricks live-matrix follow-up and unified budgets (GE)
 
 ### Decision GE-1 — track a privacy-redacted live runner and retain provider evidence separately

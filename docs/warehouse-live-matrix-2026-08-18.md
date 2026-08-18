@@ -135,24 +135,50 @@ Local follow-up — 2026-08-19:
 - Snowflake HTTP 401 and 403 responses now retain redacted
   `credential_rejected` and `authorization_denied` classifications through the
   bridge. Existing HTTP 408 `timeout` and handle-free HTTP 429 `rate_limited`
-  paths remain distinct. Provider-side expiry and throttle evidence remains
-  absent.
+  paths remain distinct.
+- A fresh temporary RSA key authenticated the disabled service user without a
+  password. The first SQL API request returned HTTP 202, and status polling
+  returned its one-row JSONv2 result through handle
+  `01c67a77-0002-7e04-0000-000e961ec9dd`.
+- A 300,000-row read advertised eight JSONv2 partitions and 43,524,338
+  uncompressed bytes. The packaged Worker retrieved every partition twice,
+  returning 300,000 Arrow rows and 47,852,520 Arrow bytes for both table and
+  direct-query routes.
+- A 500,000-row request crossed the configured 64 MiB cumulative result
+  boundary and returned bridge HTTP 502 `result_limit`.
+- A 250-millisecond bridge deadline interrupted a full-table random sort,
+  cancelled downstream work, and returned HTTP 504 `timeout`.
+- A JWT expired by one hour reached Snowflake and returned bridge HTTP 401
+  `credential_rejected`.
+- A direct zero-row `DELETE ... WHERE 1 = 0` failed under the service identity
+  with HTTP 422, vendor code `003001`, and SQLSTATE `42501`. No row changed.
+- A bounded 20-second generator statement was cancelled immediately through
+  Snowflake's cancel endpoint. Handle
+  `01c67a7c-0002-7e6c-0000-000e961eb991` returned HTTP 200 code `000604`, then
+  terminal HTTP 422 with SQLSTATE `57014`.
+- Two real bridge client aborts recovered with five-row reads. Their provider
+  queries reached terminal `SUCCESS` before cancellation took effect, so they
+  prove recovery but not a vendor-cancelled client-disconnect outcome.
+- The temporary RSA key was removed, the service user was disabled, and the
+  former JWT returned HTTP 401 code `390101`. The X-Small warehouse displayed
+  `Suspended`, and Snowsight still displayed `$400 of $400 left`.
+- Forty-five temporary request, response, configuration, and key files were
+  deleted. The local Worker stopped, and the browser-control kernel was reset.
 
 Remaining live gates:
 
-- an asynchronous statement that requires status polling;
-- a complete multi-partition JSONv2 result;
-- terminal cancellation through the Snowflake cancel endpoint;
-- expired-token, timeout, and 429 throttle distinctions;
-- a direct vendor write-denial attempt in addition to the proven bridge parser
-  rejection and least-privilege grant layout;
-- cumulative result-byte and partition bounds against a larger safe fixture.
+- an induced HTTP 429 throttle path without unsafe request pressure;
+- optionally, a real bridge client disconnect whose provider query reaches a
+  cancelled terminal state instead of winning the cancellation race.
 
 ## Release consequence
 
 Both live reads now cross the packaged Worker and return valid Arrow. The
-matrices are not exhaustive enough to enable either branded card. The checked-
-in environments remain `BRIDGE_ADAPTER=unconfigured`, and both product cards
+Snowflake matrix covers async polling, eight partitions, cumulative limits,
+timeout, expiry, direct denial, cancel-terminal behavior, abort recovery, and
+credential revocation. The matrices are not exhaustive enough to enable either
+branded card because live throttling remains absent. The checked-in
+environments remain `BRIDGE_ADAPTER=unconfigured`, and both product cards
 remain unavailable until their remaining profile-specific gates pass.
 
 The generic Iceberg REST card remains independently blocked on the Databricks
