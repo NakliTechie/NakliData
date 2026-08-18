@@ -2,6 +2,54 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Databricks Unity Catalog partial live matrix (GN)
+
+### Decision GN-1 — retain the exact profile gate after live control-plane proof
+
+- **Context.** The production Iceberg REST client negotiated the AWS workspace
+  configuration, accepted prefix `catalogs/samples`, and listed live namespaces
+  and tables. A bounded scan of 100 existing sample tables returned HTTP 400
+  for every load-table request. Databricks identified the reviewed Bakehouse
+  object as not Iceberg-compatible.
+- **Decision.** Record configuration, routing, browse, auth, failure-redaction,
+  and cleanup as partial live evidence. Keep
+  `databricks-unity-catalog-aws` at `verification-pending` until an independently
+  owned read-only Iceberg-compatible fixture proves load-table, credential
+  vending, storage reads, refresh, cancellation, and engine cleanup.
+- **Consequence.** NakliData does not create a remote fixture or treat the
+  sample Delta tables as protocol substitutes. The generic Iceberg REST card
+  remains unavailable.
+
+## 2026-08-19 — Databricks byte-bound truncation and throttle ceiling (GM)
+
+### Decision GM-1 — reject byte-bound vendor truncation as a result limit
+
+- **Context.** The post-budget-wiring 1 MiB live rerun returned HTTP 200. The
+  Databricks manifest reported 63,327 of 100,000 requested rows, 1,033,232
+  result bytes, and `truncated: true`. The adapter accepted that partial Arrow
+  result because neither the returned row count nor manifest byte count
+  exceeded its configured ceilings.
+- **Decision.** Treat a truncated manifest with fewer rows than the requested
+  `row_limit` as byte-bound truncation. Return `result_limit` before downloading
+  any signed result chunk. Continue accepting row-bound truncation only when
+  the manifest reaches the requested row count.
+- **Consequence.** The patched live matrix returned HTTP 502 `result_limit`
+  while its one-object inventory, 3,333-row table read, and five-row direct read
+  remained valid Arrow. Callers no longer receive a silently partial table when
+  Databricks enforces `byte_limit` below the bridge result ceiling.
+
+### Decision GM-2 — do not escalate request pressure to manufacture HTTP 429
+
+- **Context.** Databricks documents endpoint-specific workspace rate limits
+  but does not publish the Statement Execution threshold. One bounded burst of
+  40 completed-statement status reads plus one five-row bridge query returned
+  HTTP 200 throughout.
+- **Decision.** Record the bounded negative result. Do not raise concurrency or
+  submit extra warehouse queries solely to manufacture a live 429 on trial
+  infrastructure.
+- **Consequence.** Fixture coverage retains the redacted `rate_limited`
+  contract. Live throttling remains an independent branded-card gate.
+
 ## 2026-08-19 — Bounded local report scoring (GL)
 
 ### Decision GL-1 — score report candidates independently on small local models

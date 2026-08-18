@@ -101,4 +101,9 @@ support Azure/ADLS in the reviewed browser runtime.
 
 Credential-free Databricks- and Snowflake-shaped fixtures cover protocol and
 failure semantics. The public DuckDB Iceberg fixture covers browser data-plane
-reads. Neither substitutes for a live vendor catalog matrix.
+reads. A 2026-08-19 Databricks partial slice now covers live configuration,
+prefix routing, namespace/table browse, bearer auth, rejected load-table, and
+cleanup through the production client. It found no Iceberg-compatible object
+among 100 bounded sample-table probes. This does not substitute for the exact
+fixture's load-table, vended-storage, and browser data-plane matrix. See
+`iceberg-live-catalog-matrix-2026-08-19.md`.

@@ -127,7 +127,7 @@ describe('DatabricksStatementAdapter', () => {
 
     const result = await adapter(fetchImpl).execute({
       sql: ' SELECT id FROM catalog.schema.events; ',
-      rowLimit: 10,
+      rowLimit: 3,
     });
 
     expect(result).toEqual({
@@ -143,7 +143,7 @@ describe('DatabricksStatementAdapter', () => {
       disposition: 'EXTERNAL_LINKS',
       wait_timeout: '0s',
       on_wait_timeout: 'CONTINUE',
-      row_limit: 10,
+      row_limit: 3,
       byte_limit: 1_024,
     });
     const signedCalls = calls.filter((call) => call.url.startsWith('https://signed.'));
@@ -255,6 +255,17 @@ describe('DatabricksStatementAdapter', () => {
     await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
       code: 'protocol_mismatch',
     });
+  });
+
+  it('rejects byte-bound truncation before downloading a partial result', async () => {
+    const body = success();
+    body.manifest.truncated = true;
+    const fetchImpl = vi.fn(async () => json(body)) as typeof fetch;
+
+    await expect(
+      adapter(fetchImpl).execute({ sql: 'SELECT * FROM catalog.schema.events', rowLimit: 10 }),
+    ).rejects.toMatchObject({ code: 'result_limit' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('cancels and polls to terminal when work is interrupted', async () => {

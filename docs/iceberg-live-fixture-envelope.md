@@ -2,9 +2,10 @@
 
 Date: 2026-08-18
 Decision: FJ
-Status: public fixture and live-profile contract named; vendor endpoints,
-identity owners, issuance timestamps, and absolute revocation timestamps await
-account access.
+Status: public fixture and live-profile contract named. The Databricks AWS
+control plane received a partial live matrix on 2026-08-19; its compatible
+table/storage fixture remains unavailable. Snowflake Open Catalog/Polaris
+access still awaits its exact live catalog profile.
 
 This document defines the only fixtures and identities that may support the
 first Iceberg availability claims. It authorizes no provider provisioning,
@@ -92,3 +93,17 @@ The matrix does not establish Snowflake Virtual Warehouse support.
 - No credential was read, created, entered, persisted, or transmitted.
 - The public fixture can support Batches 1–3 without vendor access.
 - Batches 4, 7, and 8 retain their live-account gates.
+
+## Databricks access follow-up on 2026-08-19
+
+- The existing AWS trial workspace negotiated the Iceberg REST configuration
+  for catalog `samples` and selected prefix `catalogs/samples`.
+- The production client listed live namespaces and tables.
+- A bounded scan of 100 existing sample tables found zero Iceberg-compatible
+  load-table targets.
+- The one-day OAuth secret was deleted before 2026-08-19 05:12 IST.
+- The principal was deactivated. The SQL warehouse remained stopped.
+- No remote object, privilege, storage configuration, or metastore setting was
+  created or changed.
+- The named `naklidata_verify.iceberg.lineitem_iceberg` fixture still requires
+  an independent owner. See `iceberg-live-catalog-matrix-2026-08-19.md`.

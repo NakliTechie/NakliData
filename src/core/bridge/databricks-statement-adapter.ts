@@ -252,6 +252,16 @@ export class DatabricksStatementAdapter {
       );
     }
     const truncated = manifest.truncated;
+    // Databricks applies row_limit and byte_limit independently. A row-bound
+    // response reports exactly rowLimit rows, while a byte-bound response can
+    // report fewer rows with `truncated: true`. Treat the latter as a hard
+    // result boundary instead of returning a silently partial Arrow table.
+    if (truncated && totalRows < rowLimit) {
+      throw new WarehouseAdapterError(
+        'Databricks result was truncated by the requested byte boundary.',
+        'result_limit',
+      );
+    }
     if (totalRows > rowLimit || totalBytes > this.maxResultBytes) {
       throw new WarehouseAdapterError(
         'Databricks result exceeds the requested row or byte boundary.',

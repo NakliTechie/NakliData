@@ -78,10 +78,11 @@ publication.
    not prove peak heap usage. Measure a deployed staging Worker at the intended
    `MAX_RESULT_BYTES` before enabling a branded card. Keep the checked-in 32 MiB
    default until that evidence exists.
-2. **Databricks live gaps.** Record live expiry, live HTTP 429, and the
-   post-budget-wiring result-limit rerun. Databricks remains setup-only and may
-   consume existing trial credits only. Principal activation and credential
-   creation require action-time approval.
+2. **Databricks live gaps.** Record live expiry and live HTTP 429. The
+   post-budget-wiring 1 MiB result-limit rerun passed after a live-discovered
+   byte-truncation repair. Databricks remains setup-only and may consume
+   existing trial credits only. Principal activation and credential creation
+   require action-time approval.
 3. **Snowflake live gap.** Record a real HTTP 429 without unsafe request
    pressure. A provider-cancelled disconnect remains optional unless release
    copy promises it.

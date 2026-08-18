@@ -85,13 +85,40 @@ Follow-up evidence — 2026-08-19:
 - Databricks still displayed `$38 remaining out of $40`; its balance timestamp
   predated the follow-up by about three hours. No payment method was added.
 
+Post-budget-wiring follow-up — 2026-08-19:
+
+- The existing Small serverless warehouse and named service principal were
+  reactivated for one bounded trial-credit probe. The pre-run trial dialog
+  displayed `$36 remaining out of $40`. No payment, upgrade, or new compute
+  resource was used.
+- A fresh one-day OAuth secret issued a one-hour bearer. The first 1 MiB local
+  bridge run returned HTTP 200 for the intended limit case.
+- Direct manifest inspection showed that Databricks applied `byte_limit` by
+  returning 63,327 of 100,000 requested rows, 1,033,232 bytes, and
+  `truncated: true`. The adapter had accepted this silently partial result
+  because its manifest counts remained under the configured ceilings.
+- The adapter now returns `result_limit` before any signed-result download when
+  a truncated manifest contains fewer rows than the requested row cap. It
+  continues to accept row-bound truncation when the requested row count is
+  reached.
+- The patched live matrix returned one opaque inventory object, 3,333 table
+  rows in 312,552 Arrow bytes, five direct-query rows in 488 Arrow bytes, and
+  HTTP 502 `result_limit` for the byte-bound case. It emitted no SQL, secret,
+  row value, or signed URL.
+- One bounded throttle attempt issued 40 read-only status requests for a
+  completed statement alongside one five-row bridge query. Every request
+  returned HTTP 200. No higher request pressure or extra concurrent warehouse
+  work was attempted.
+- The warehouse returned to `Stopped` with zero active clusters. The OAuth
+  secret was deleted. The service principal returned to inactive. A protected
+  local copy of the issued bearer remains only for its one-hour expiry probe.
+
 Remaining live gates:
 
 - expired-token classification after expiry;
 - an induced 429 throttle path;
 - a client-disconnect run whose provider terminal state is `CANCELED`, if that
   stronger outcome remains a release requirement;
-- a second live result-limit probe after the runtime-to-adapter budget wiring.
 
 ## Snowflake Virtual Warehouse
 
