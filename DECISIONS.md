@@ -2,6 +2,35 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Browser storage and memory pressure boundary (FY)
+
+### Decision FY-1 — make local auto-save failure persistent and actionable
+
+- **Context.** Snapshot persistence caught IndexedDB failures and wrote only a
+  console warning. A quota-exhausted user could continue editing without a
+  visible indication that reload would discard recent state.
+- **Decision.** Show a persistent footer warning whenever workbook or result
+  snapshot persistence fails. Keep current state in memory. Route the warning
+  to the existing explicit workspace export action. Hide it only after a later
+  snapshot and result-snapshot write both succeed.
+- **Consequence.** Storage failure does not interrupt the active tab or execute
+  another action. Users receive a durable recovery path instead of relying on
+  a transient console message.
+
+### Decision FY-2 — keep pressure evidence bounded and reproducible
+
+- **Context.** Batch 13 had large-schema and cancellation evidence but no
+  deliberate quota or memory-pressure run.
+- **Decision.** Add a Chromium quota case that types a 16 KiB un-run query with
+  only 4 KiB of remaining origin quota. Restore 64 MiB of quota, require the
+  warning to clear, then reload the recovered snapshot. Add a separate 128 MiB
+  touched-array pressure case that runs the demo, releases pressure, requests
+  collection, and proves a later `SELECT 42` result.
+- **Consequence.** The deterministic browser matrix covers failure visibility,
+  in-tab continuity, persistence recovery, reload recovery, and bounded memory
+  pressure. It does not replace physical-device or operating-system pressure
+  evidence.
+
 ## 2026-08-18 — Live warehouse Worker compatibility boundary (FX)
 
 ### Decision FX-1 — accept only observed bounded Arrow wire variants

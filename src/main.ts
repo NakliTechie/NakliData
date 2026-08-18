@@ -147,6 +147,7 @@ import {
   renderSourcesList,
   setHasMounts,
   updateEngineStatus,
+  updateStorageWarning,
 } from './ui/shell.ts';
 import { SINKS } from './ui/sinks/catalog.ts';
 import { renderTemplatePanel } from './ui/templates/templates-panel.ts';
@@ -1078,6 +1079,7 @@ async function hydrateResultSnapshots(engine: Engine, sessionId: string): Promis
 
 let _autoSaveTimer: number | null = null;
 let _autoSaveSuspendDepth = 0;
+let _autoSaveWarningActive = false;
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
 /**
@@ -2258,8 +2260,28 @@ async function persistSnapshot(engine: Engine): Promise<void> {
       };
     }
     await saveResultSnapshots(getActiveSessionId(), snaps);
+    if (_autoSaveWarningActive) {
+      _autoSaveWarningActive = false;
+      const root = document.getElementById('app');
+      if (root) updateStorageWarning(root, false);
+      toast('Local auto-save resumed.');
+    }
   } catch (err) {
     console.warn('[naklidata] snapshot save failed', err);
+    if (!_autoSaveWarningActive) {
+      _autoSaveWarningActive = true;
+      const root = document.getElementById('app');
+      if (root) updateStorageWarning(root, true);
+      const quota =
+        err instanceof DOMException &&
+        (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014);
+      toast(
+        quota
+          ? 'Browser storage is full. Recent changes remain in this tab; export now before reloading.'
+          : 'Local auto-save failed. Recent changes remain in this tab; export now before reloading.',
+        'error',
+      );
+    }
   }
   // Persist settings on the same beat — autoAcceptThreshold is the
   // cross-session default (each session also persists its own value via

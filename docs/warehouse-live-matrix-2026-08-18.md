@@ -83,6 +83,10 @@ Live evidence:
 - The RSA public key was removed and the service user was disabled.
 - The former key-pair credential returned HTTP 401 with Snowflake code
   `390101` after revocation.
+- A follow-up attempt to reuse the human administrator session for the direct
+  write-denial probe stopped at `USE ROLE NAKLIDATA_READER`: Snowflake reported
+  that the role is not assigned to the human user. This is not service-identity
+  evidence; the probe still requires a fresh, short-lived service credential.
 - Snowsight still displayed `$400 of $400 left` after the bounded trial reads.
 
 Live defect found and repaired:

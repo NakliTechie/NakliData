@@ -376,6 +376,8 @@ summary { min-height: 24px; }
   text-decoration: underline; padding: 0; font: inherit;
 }
 .shell-footer .privacy-summary { margin-left: auto; }
+.shell-footer .storage-warning { color: var(--danger); }
+.shell-footer .storage-warning[hidden] { display: none; }
 
 @media (max-width: 980px) {
   .empty-state .source-option-groups { grid-template-columns: 1fr; }

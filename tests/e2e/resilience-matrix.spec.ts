@@ -20,6 +20,108 @@ async function replaceEditorText(page: Page, cell: Locator, sql: string): Promis
 }
 
 test.describe('browser resilience matrix', () => {
+  test('quota exhaustion stays visible and recovers after storage returns', async ({
+    browserName,
+    context,
+    page,
+  }) => {
+    test.skip(browserName !== 'chromium', 'Chromium CDP provides deterministic quota control.');
+    const server = await startStaticServer();
+    try {
+      await page.goto(`${server.url}/index.html?offline=1`);
+      await waitForEngine(page);
+      await mountExamples(page);
+      await expect(
+        page.locator('.cell[data-cell-id="demo_vendor_spend"] .result-table tbody tr').first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.waitForTimeout(1_000);
+
+      const origin = new URL(server.url).origin;
+      const cdp = await context.newCDPSession(page);
+      const usage = await page.evaluate(
+        async () => (await navigator.storage.estimate()).usage ?? 0,
+      );
+      await cdp.send('Storage.overrideQuotaForOrigin', {
+        origin,
+        quotaSize: Math.ceil(usage) + 4_096,
+      });
+
+      await page.click('[data-nb-action="add-sql"]');
+      const pressureCell = page.locator('.cell[data-cell-kind="sql"]').last();
+      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(16 * 1024)}*/`);
+      await expect(page.locator('[data-region="storage-warning"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.locator('[data-region="storage-warning"]')).toContainText(
+        'Local changes not saved',
+      );
+      await expect(pressureCell).toBeVisible();
+
+      await cdp.send('Storage.overrideQuotaForOrigin', {
+        origin,
+        quotaSize: Math.ceil(usage) + 64 * 1024 * 1024,
+      });
+      await page.click('[data-nb-action="add-sql"]');
+      await expect(page.locator('[data-region="storage-warning"]')).toBeHidden({
+        timeout: 30_000,
+      });
+
+      await page.reload();
+      await waitForEngine(page);
+      await expect(page.locator('.cell[data-cell-id="demo_vendor_spend"]')).toBeVisible({
+        timeout: 30_000,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('remains queryable during bounded JavaScript memory pressure', async ({
+    browserName,
+    context,
+    page,
+  }) => {
+    test.skip(browserName !== 'chromium', 'Chromium CDP provides deterministic heap cleanup.');
+    const server = await startStaticServer();
+    try {
+      await page.goto(`${server.url}/index.html?offline=1`);
+      await waitForEngine(page);
+      const allocated = await page.evaluate(() => {
+        const chunks = Array.from({ length: 8 }, () => new Uint8Array(16 * 1024 * 1024));
+        for (const chunk of chunks) {
+          for (let index = 0; index < chunk.length; index += 4_096) chunk[index] = 1;
+        }
+        (
+          window as unknown as { __naklidataMemoryPressure?: Uint8Array[] }
+        ).__naklidataMemoryPressure = chunks;
+        return chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+      });
+      expect(allocated).toBe(128 * 1024 * 1024);
+
+      await mountExamples(page);
+      await expect(
+        page.locator('.cell[data-cell-id="demo_vendor_spend"] .result-table tbody tr').first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => {
+        (
+          window as unknown as { __naklidataMemoryPressure: Uint8Array[] | undefined }
+        ).__naklidataMemoryPressure = undefined;
+      });
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('HeapProfiler.collectGarbage');
+
+      await page.click('[data-nb-action="add-sql"]');
+      const recoveryCell = page.locator('.cell[data-cell-kind="sql"]').last();
+      await replaceEditorText(page, recoveryCell, 'SELECT 42 AS answer');
+      await recoveryCell.locator('[data-action="cell-run"]').click();
+      await expect(recoveryCell.locator('table td').filter({ hasText: /^42$/ })).toBeVisible({
+        timeout: 15_000,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   test('large schema mounts, removes, and leaves the engine reusable', async ({ page }) => {
     const server = await startStaticServer();
     try {

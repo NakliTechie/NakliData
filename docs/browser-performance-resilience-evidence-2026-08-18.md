@@ -59,12 +59,29 @@ cancellable stream API. The engine replaces only the interrupted connection,
 retaining database-owned relations. Non-result statements remain materialized
 and check cancellation before and after execution.
 
+## Storage quota and bounded memory pressure
+
+Chromium's origin quota was reduced to 4 KiB above the existing workspace
+usage. A 16 KiB typed-but-unrun SQL change then exhausted IndexedDB snapshot
+storage. The app retained the active workbook and existing query result while
+showing a persistent `Local changes not saved · Export now` warning. After the
+test restored 64 MiB of origin quota, the next autosave cleared the warning and
+the recovered workbook survived reload.
+
+A separate browser case allocated and touched 128 MiB across eight JavaScript
+arrays. The demo mounted and returned its vendor-spend result under that
+pressure. After releasing the arrays and requesting Chromium heap collection,
+a later `SELECT 42` query returned the expected value.
+
+These are bounded local-host observations. They do not establish behavior at
+device exhaustion or under operating-system memory termination.
+
 ## Evidence still required
 
 - Physical Safari on macOS with real file and save dialogs.
 - Native Chromium folder and save pickers on a user-selected fixture.
 - A capable WebGPU machine with the opt-in local-model path.
-- Deliberate browser memory-pressure and quota-failure runs.
+- Physical-device memory pressure beyond the bounded 128 MiB browser case.
 - Throttled Lighthouse or equivalent Speed Index, TBT, and interaction runs on
   the deployed origin.
 

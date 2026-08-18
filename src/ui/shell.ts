@@ -315,6 +315,7 @@ function renderFooter(state: ShellState): HTMLElement {
   el.innerHTML = `
     <span class="status-dot ${state.engineStatus === 'ready' ? 'ready' : state.engineStatus === 'error' ? 'error' : 'busy'}" aria-hidden="true"></span>
     <span data-region="engine-status">${escapeHtml(engineLabel(state))}</span>
+    <button class="btn btn-ghost storage-warning" data-region="storage-warning" data-action="save" hidden>Local changes not saved · Export now</button>
     <span class="privacy-summary" title="${escapeHtml(PRIVACY_POSTURE_COPY)}">Browser-local by default · remote and cloud actions are explicit</span>
   `;
   return el;
@@ -414,4 +415,9 @@ export function updateEngineStatus(
     else if (status === 'error') dot.classList.add('error');
     else dot.classList.add('busy');
   }
+}
+
+export function updateStorageWarning(root: HTMLElement, visible: boolean): void {
+  const warning = root.querySelector<HTMLElement>('[data-region="storage-warning"]');
+  if (warning) warning.hidden = !visible;
 }
