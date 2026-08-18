@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
+import { waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -17,30 +18,6 @@ async function dismissWelcomeIfPresent(page: Page): Promise<void> {
     .catch(() => {});
   const close = page.locator('.help-overlay .schema-graph-close');
   if (await close.isVisible()) await close.click();
-}
-
-async function waitForClassificationStable(
-  page: Page,
-  timeoutMs = 60_000,
-  stableMs = 600,
-): Promise<void> {
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
-    timeout: timeoutMs,
-  });
-  const start = Date.now();
-  let lastCount = -1;
-  let stableSince = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
-    if (count !== lastCount) {
-      lastCount = count;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= stableMs) {
-      return;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(`classification did not stabilize within ${timeoutMs}ms`);
 }
 
 test.describe('multi-session sidebar', () => {
@@ -62,7 +39,7 @@ test.describe('multi-session sidebar', () => {
 
     // Mount example data in session 1.
     await page.click('[data-action="browse-examples"]');
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
     const session1Sources = await page.evaluate(() =>
       Array.from(document.querySelectorAll('.source-card strong')).map((n) => n.textContent ?? ''),
     );
@@ -106,7 +83,7 @@ test.describe('multi-session sidebar', () => {
     await page.click(
       `.session-switcher [data-action="session-switch"][data-session-id="${untitledId}"]`,
     );
-    await waitForClassificationStable(page, 30_000);
+    await waitForExampleClassification(page);
 
     const restoredSources = await page.evaluate(() =>
       Array.from(document.querySelectorAll('.source-card strong')).map((n) => n.textContent ?? ''),

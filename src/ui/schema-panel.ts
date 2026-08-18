@@ -387,6 +387,8 @@ function renderColumnRow(
 ): HTMLElement {
   const li = document.createElement('li');
   li.className = 'schema-column';
+  li.dataset.sourceId = sourceId;
+  li.dataset.tableId = tableId;
   li.dataset.column = a.columnName;
   li.dataset.assignedType = a.assigned.typeId ?? '';
   li.dataset.origin = a.assigned.origin;

@@ -92,6 +92,7 @@ jobs:
       - name: E2e (Playwright, complete offline matrix)
         # Reuses the Chromium installed above. The specs serve dist/ via
         # their own static server with ?offline=1, so no CDN dependency.
-        # 2 workers matches the config default (ubuntu-latest has 2 cores;
-        # >2 hammering the DuckDB-wasm boot causes engine-boot timeouts).
+        # One worker matches the config default. DuckDB-WASM plus the quota,
+        # 128 MiB memory, and 120-column resilience cases exceed the stable
+        # two-worker envelope on a two-core runner.
         run: npm run test:e2e

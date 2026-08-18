@@ -133,7 +133,7 @@ import { openNlToSqlModal } from './ui/nl-to-sql-modal.ts';
 import { reportRefreshOrder, topoOrderRunnableCells } from './ui/notebook-graph.ts';
 import { getNotebook, renderNotebook } from './ui/notebook.ts';
 import { openOverrideRulesModal, refreshOverrideRulesModal } from './ui/override-rules-modal.ts';
-import { type QueryBuilderTable, openQueryBuilderModal } from './ui/query-builder-modal.ts';
+import type { QueryBuilderTable } from './ui/query-builder-modal.ts';
 import { openRefreshModal } from './ui/refresh-modal.ts';
 import { openSchemaGraph } from './ui/schema-graph.ts';
 import { type ColumnAssignment, assignmentKey, renderSchemaPanel } from './ui/schema-panel.ts';
@@ -2071,7 +2071,7 @@ async function sidecarConfigured(): Promise<boolean> {
   }
 }
 
-function handleOpenQueryBuilder(engine: Engine): void {
+async function handleOpenQueryBuilder(engine: Engine, returnFocus?: HTMLElement): Promise<void> {
   const wb = getWorkbook().get();
   // Flatten across mounted sources → one big table list. Skip
   // sources with no tables (compute-bridge-catalog placeholders, etc.).
@@ -2096,7 +2096,15 @@ function handleOpenQueryBuilder(engine: Engine): void {
     return;
   }
   const nb = getNotebook(engine);
-  openQueryBuilderModal({ tables }, (sql) => {
+  let queryBuilder: Awaited<ReturnType<typeof loadChunk<'query-builder'>>>;
+  try {
+    queryBuilder = await loadChunk('query-builder');
+  } catch {
+    toast('Query builder could not load. Check the connection and try again.', 'error');
+    return;
+  }
+  returnFocus?.focus();
+  queryBuilder.openQueryBuilderModal({ tables }, (sql) => {
     const newCell = nb.addCell('sql');
     nb.patchCell(newCell.id, { code: sql });
     toast('SQL cell inserted — review then click Run.');
@@ -2633,7 +2641,10 @@ async function handleAction(action: string, el: HTMLElement | null): Promise<voi
       return;
     }
     case 'open-query-builder': {
-      handleOpenQueryBuilder(engine);
+      const returnFocus = el
+        ?.closest<HTMLDetailsElement>('details.header-menu')
+        ?.querySelector<HTMLElement>('summary');
+      await handleOpenQueryBuilder(engine, returnFocus ?? undefined);
       return;
     }
     case 'open-measures': {

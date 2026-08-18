@@ -127,6 +127,8 @@ export interface LazyChunkRegistry {
    * ship off the inlined shell budget (spec §7.1 / A35).
    */
   'compare-tables': typeof import('../lazy/compare-tables.ts');
+  /** Visual SQL builder modal; paid only after a user opens Explore → Build query. */
+  'query-builder': typeof import('../lazy/query-builder.ts');
   /**
    * Deterministic bundled-data starter workbook. It is only needed after the
    * user chooses the example bundle, so its explanatory copy and SQL stay out

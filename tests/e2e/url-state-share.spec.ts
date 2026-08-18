@@ -1,35 +1,6 @@
 import { type Page, expect, test } from '@playwright/test';
+import { waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
-
-/**
- * Wait for the schema panel column count to stop growing — same shape
- * as the helper in auto-restore.spec.ts.
- */
-async function waitForClassificationStable(
-  page: Page,
-  timeoutMs = 60_000,
-  stableMs = 600,
-): Promise<void> {
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
-    timeout: timeoutMs,
-  });
-  const start = Date.now();
-  let lastCount = -1;
-  let stableSince = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
-    if (count !== lastCount) {
-      lastCount = count;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= stableMs) {
-      return;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(
-    `classification did not stabilize within ${timeoutMs}ms (last count: ${lastCount})`,
-  );
-}
 
 async function waitForEngineReady(page: Page): Promise<void> {
   await page.waitForSelector('.shell-header', { timeout: 5_000 });
@@ -57,7 +28,7 @@ test.describe('?lens=<base64> share link round-trips workbook state', () => {
     await waitForEngineReady(producerPage);
 
     await producerPage.click('[data-action="browse-examples"]');
-    await waitForClassificationStable(producerPage);
+    await waitForExampleClassification(producerPage);
     const producerCols = await producerPage.evaluate(() =>
       Array.from(document.querySelectorAll('.schema-column')).map((c) => ({
         col: (c as HTMLElement).dataset.column,
@@ -116,7 +87,7 @@ test.describe('?lens=<base64> share link round-trips workbook state', () => {
     await consumerPage.click('[data-action="lens-confirm-continue"]');
 
     // Restored sources + schema columns should match the producer.
-    await waitForClassificationStable(consumerPage, 30_000);
+    await waitForExampleClassification(consumerPage);
 
     // After applyLoadedFile finishes, the URL should have had the lens
     // param stripped (clearLensFromLocation uses replaceState).

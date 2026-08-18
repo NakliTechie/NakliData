@@ -43,12 +43,12 @@ test.describe('browser resilience matrix', () => {
       );
       await cdp.send('Storage.overrideQuotaForOrigin', {
         origin,
-        quotaSize: Math.ceil(usage) + 4_096,
+        quotaSize: Math.ceil(usage) + 1_024,
       });
 
       await page.click('[data-nb-action="add-sql"]');
       const pressureCell = page.locator('.cell[data-cell-kind="sql"]').last();
-      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(16 * 1024)}*/`);
+      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(4 * 1024)}*/`);
       await expect(page.locator('[data-region="storage-warning"]')).toBeVisible({
         timeout: 30_000,
       });
@@ -123,6 +123,7 @@ test.describe('browser resilience matrix', () => {
   });
 
   test('large schema mounts, removes, and leaves the engine reusable', async ({ page }) => {
+    test.slow();
     const server = await startStaticServer();
     try {
       const fsa = await installFsaMocks(page);
@@ -143,7 +144,7 @@ test.describe('browser resilience matrix', () => {
       await page.waitForFunction(
         (expected) => document.querySelectorAll('.schema-column').length === expected,
         columnCount,
-        { timeout: 90_000 },
+        { timeout: 180_000 },
       );
 
       await page

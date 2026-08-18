@@ -1,32 +1,7 @@
 import { type Page, expect, test } from '@playwright/test';
+import { waitForExampleClassification } from './fixtures/examples.ts';
 import { installFsaMocks } from './fixtures/fsa-mocks.ts';
 import { startStaticServer } from './fixtures/server.ts';
-
-async function waitForClassificationStable(
-  page: Page,
-  timeoutMs = 60_000,
-  stableMs = 600,
-): Promise<void> {
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
-    timeout: timeoutMs,
-  });
-  const start = Date.now();
-  let lastCount = -1;
-  let stableSince = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
-    if (count !== lastCount) {
-      lastCount = count;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= stableMs) {
-      return;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(
-    `classification did not stabilize within ${timeoutMs}ms (last count: ${lastCount})`,
-  );
-}
 
 async function dismissWelcomeIfPresent(page: Page): Promise<void> {
   // The splash is scheduled immediately after engine-ready, so give it a brief
@@ -57,7 +32,7 @@ test.describe('save / load round-trip', () => {
     );
     await dismissWelcomeIfPresent(page);
     await page.click('[data-action="browse-examples"]');
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
 
     // Snapshot the current state we expect to round-trip.
     const before = await page.evaluate(() => {
@@ -111,7 +86,7 @@ test.describe('save / load round-trip', () => {
 
     // Wait for sources + schema to come back, including any re-classification
     // pass on remounted tables (avoids racing the access-log columns).
-    await waitForClassificationStable(page, 30_000);
+    await waitForExampleClassification(page);
 
     const after = await page.evaluate(() => {
       const cols = Array.from(document.querySelectorAll('.schema-column')).map((c) => ({
@@ -151,7 +126,7 @@ test.describe('save / load round-trip', () => {
     );
     await dismissWelcomeIfPresent(page);
     await page.click('[data-action="browse-examples"]');
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
     // Let the normal debounced autosave commit the healthy workspace.
     await page.waitForTimeout(500);
 
@@ -196,7 +171,7 @@ test.describe('save / load round-trip', () => {
       null,
       { timeout: 90_000 },
     );
-    await waitForClassificationStable(page, 30_000);
+    await waitForExampleClassification(page);
     expect(await snapshot()).toEqual(before);
 
     await server.close();

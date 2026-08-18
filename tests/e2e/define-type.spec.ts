@@ -74,11 +74,20 @@ test.describe('define-type modal — focus a11y (W1.11 pattern)', () => {
       timeout: 2_000,
     });
 
-    // a11y: focus returns to the define-new-type trigger button.
-    const focusedAfterClose = await page.evaluate(
-      () => (document.activeElement as HTMLElement | null)?.dataset?.action ?? null,
-    );
-    expect(focusedAfterClose).toBe('define-new-type');
+    // a11y: focus returns to the define-new-type trigger when its schema row
+    // survives. If classification replaced that row, focus returns to the
+    // exact replacement row's Override summary.
+    const focusedAfterClose = await page.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      return {
+        action: active?.dataset.action ?? null,
+        label: active?.getAttribute('aria-label') ?? null,
+      };
+    });
+    expect(
+      focusedAfterClose.action === 'define-new-type' ||
+        focusedAfterClose.label === 'Override type for vendor_name',
+    ).toBe(true);
 
     await context.close();
     await server.close();

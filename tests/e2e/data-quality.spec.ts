@@ -1,12 +1,6 @@
-import { type Page, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
-
-async function waitForClassificationStable(page: Page): Promise<void> {
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length >= 10, null, {
-    timeout: 60_000,
-  });
-  await page.waitForTimeout(600);
-}
 
 test('data quality suggestions create un-run assertions and execute only on request', async ({
   page,
@@ -25,7 +19,7 @@ test('data quality suggestions create un-run assertions and execute only on requ
     if (await welcome.isVisible()) await welcome.locator('[data-close]').first().click();
 
     await page.click('[data-action="browse-examples"]');
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
     const assertionCount = await page.locator('.cell[data-cell-kind="assertion"]').count();
     await page.getByText('Model', { exact: true }).click();
     await page.click('[data-action="open-data-quality"]');

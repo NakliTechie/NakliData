@@ -2,6 +2,57 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Browser focus and release-harness determinism (GA)
+
+### Decision GA-1 — restore modal focus to the exact surviving schema origin
+
+- **Context.** Classification can replace a schema row or collapse its lazy
+  override disclosure while the define-type modal is open. The stored trigger
+  can therefore be detached, hidden, or unable to accept focus.
+- **Decision.** Tag schema rows with source, table, and column identity. Try
+  the original trigger first. If it cannot accept focus, move focus to the
+  exact replacement row's Override summary.
+- **Consequence.** Focus does not fall back to the document body or an
+  unrelated same-named column after Escape.
+
+### Decision GA-2 — make final demo state and browser resource bounds explicit
+
+- **Context.** A 600-millisecond stable-count heuristic returned between the
+  five demo tables. Snapshot tests then compared partial assignments with a
+  later complete workbook. Two concurrent DuckDB-WASM browsers also stalled
+  engine, rendering, quota, and large-schema cases under the expanded matrix.
+- **Decision.** Define the fixture's final schema count once at 42 assignments
+  and reuse that gate across snapshot-sensitive tests. Use one release-gate
+  browser worker. Preserve the 120-column scenario with a slow-test ceiling.
+  Exercise quota failure through 4 KiB of real key events against 1 KiB of
+  remaining storage.
+- **Consequence.** Snapshot comparisons begin from the same complete fixture.
+  The release gate trades parallel speed for a bounded memory envelope without
+  weakening feature assertions or the 768 KiB shell limit.
+
+## 2026-08-18 — Query-builder lazy boundary and retry path (FZ)
+
+### Decision FZ-1 — pay for the visual query builder only on first use
+
+- **Context.** The prior browser shell measured 786,017 of 786,432 bytes and
+  left 415 bytes before the hard v1 limit. The visual query builder is an
+  optional Explore action with no boot-time responsibility.
+- **Decision.** Move the query-builder modal behind the canonical lazy-loader
+  registry. Keep table and column projection in the shell so the lazy module
+  receives plain data and never imports a second workbook singleton.
+- **Consequence.** The final inlined shell measures 765,409 bytes and retains 21,023
+  bytes of headroom. The separate query-builder chunk measures 25,746 bytes.
+
+### Decision FZ-2 — surface lazy-fetch failure and permit explicit retry
+
+- **Context.** A rejected dynamic import would otherwise escape the click
+  handler and leave no user-visible recovery path.
+- **Decision.** Catch the chunk failure, present a bounded error notice, and
+  return without mutating the notebook. Preserve the lazy loader's rejection
+  eviction and cache-busted retry on the next user action.
+- **Consequence.** A transient fetch failure does not insert a cell. A later
+  click can load the modal, and Escape returns focus to the Explore summary.
+
 ## 2026-08-18 — Browser storage and memory pressure boundary (FY)
 
 ### Decision FY-1 — make local auto-save failure persistent and actionable

@@ -1,39 +1,6 @@
-import { type Page, expect, test } from '@playwright/test';
-import { mountExamples } from './fixtures/examples.ts';
+import { expect, test } from '@playwright/test';
+import { mountExamples, waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
-
-/**
- * Wait for the schema panel column count to stop growing for `stableMs`
- * consecutive milliseconds — proxy for "classification finished." Avoids
- * a hard sleep; tolerant of slow-classifier runs.
- */
-async function waitForClassificationStable(
-  page: Page,
-  timeoutMs = 60_000,
-  stableMs = 600,
-): Promise<void> {
-  // First wait until at least one column appears.
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
-    timeout: timeoutMs,
-  });
-  // Then poll the count; bail when it stops changing.
-  const start = Date.now();
-  let lastCount = -1;
-  let stableSince = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
-    if (count !== lastCount) {
-      lastCount = count;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= stableMs) {
-      return;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(
-    `classification did not stabilize within ${timeoutMs}ms (last count: ${lastCount})`,
-  );
-}
 
 test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
   test('mounting example bundle, reloading, and reopening restores the workbook automatically', async ({
@@ -60,7 +27,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
     // we'd snapshot an intermediate state and miss columns the auto-save
     // captures later.
     await mountExamples(page);
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
 
     const before = await page.evaluate(() => ({
       cols: Array.from(document.querySelectorAll('.schema-column')).map((c) => ({
@@ -88,7 +55,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
       null,
       { timeout: 90_000 },
     );
-    await waitForClassificationStable(page, 30_000);
+    await waitForExampleClassification(page);
 
     // No "What do you have?" empty state.
     expect(await page.locator('.empty-state').count()).toBe(0);
@@ -129,7 +96,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
     );
     // Mount example data so the schema-panel slider is rendered.
     await mountExamples(page);
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
 
     // Move the threshold slider via direct dispatch (CodeMirror not in play).
     await page.evaluate(() => {
@@ -149,7 +116,7 @@ test.describe('auto-restore across tabs (IDB workbook snapshot)', () => {
       null,
       { timeout: 90_000 },
     );
-    await waitForClassificationStable(page, 30_000);
+    await waitForExampleClassification(page);
 
     const sliderValue = await page.evaluate(() => {
       const input = document.querySelector<HTMLInputElement>('[data-action="threshold-slider"]');

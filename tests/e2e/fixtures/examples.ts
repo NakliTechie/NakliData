@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 
+export const EXAMPLE_SCHEMA_COLUMN_COUNT = 42;
+
 /**
  * Mount the example workbook through whichever first-run surface is active.
  * New contexts show the welcome dialog; returning contexts expose the empty
@@ -21,4 +23,13 @@ export async function mountExamples(page: Page): Promise<void> {
     }
   }
   await page.click('[data-action="browse-examples"]');
+}
+
+/** Wait until all five demo tables have published their schema assignments. */
+export async function waitForExampleClassification(page: Page, timeoutMs = 60_000): Promise<void> {
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.schema-column').length === expected,
+    EXAMPLE_SCHEMA_COLUMN_COUNT,
+    { timeout: timeoutMs },
+  );
 }

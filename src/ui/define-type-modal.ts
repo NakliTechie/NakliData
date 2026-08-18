@@ -21,6 +21,7 @@ import { assignmentKey } from './schema-panel.ts';
 
 let _modalEl: HTMLElement | null = null;
 let _previouslyFocused: HTMLElement | null = null;
+let _focusOrigin: Pick<OpenDefineTypeOpts, 'sourceId' | 'tableId' | 'columnName'> | null = null;
 let _onKey: ((ev: KeyboardEvent) => void) | null = null;
 
 export interface OpenDefineTypeOpts {
@@ -35,6 +36,11 @@ export interface OpenDefineTypeOpts {
 export async function openDefineTypeModal(opts: OpenDefineTypeOpts): Promise<void> {
   if (_modalEl && document.body.contains(_modalEl)) return;
   _previouslyFocused = (document.activeElement as HTMLElement) ?? null;
+  _focusOrigin = {
+    sourceId: opts.sourceId,
+    tableId: opts.tableId,
+    columnName: opts.columnName,
+  };
   const overlay = renderModal(opts);
   document.body.append(overlay);
   _modalEl = overlay;
@@ -53,8 +59,19 @@ export function closeDefineTypeModal(): void {
     document.removeEventListener('keydown', _onKey);
     _onKey = null;
   }
-  restoreModalFocus(_previouslyFocused);
+  const previousFocus = _previouslyFocused;
+  restoreModalFocus(previousFocus);
+  if (document.activeElement !== previousFocus && _focusOrigin) {
+    const replacementRow = [...document.querySelectorAll<HTMLElement>('.schema-column')].find(
+      (row) =>
+        row.dataset.sourceId === _focusOrigin?.sourceId &&
+        row.dataset.tableId === _focusOrigin?.tableId &&
+        row.dataset.column === _focusOrigin?.columnName,
+    );
+    replacementRow?.querySelector<HTMLElement>('details.schema-override > summary')?.focus();
+  }
   _previouslyFocused = null;
+  _focusOrigin = null;
 }
 
 function defaultIdFromColumn(column: string): string {

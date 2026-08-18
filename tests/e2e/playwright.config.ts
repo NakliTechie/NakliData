@@ -9,16 +9,17 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   timeout: 120_000,
   // Retry in CI only (forward-pass L21). A handful of specs assert
-  // focus-restoration after a modal close (compare-tables, override-rules);
-  // headless chromium under 2-worker load occasionally drops the focus
-  // event, a pure timing flake. Retries re-run only the failed spec, so a
+  // focus-restoration after a modal close (compare-tables, override-rules).
+  // Retries re-run only the failed spec, so a
   // genuine regression still fails (it fails every attempt) while a flake
   // is absorbed. Local runs keep retries:0 for fast, honest feedback.
   retries: process.env.CI ? 2 : 0,
-  // DuckDB-wasm boot is memory-heavy; >2 chromium workers hammering it
-  // in parallel produces engine-boot timeouts on machines with fewer
-  // cores. Override on a beefier box with `--workers=N`.
-  workers: 2,
+  // DuckDB-wasm boot, the 128 MiB pressure case, and the 120-column fixture
+  // share browser/OS memory. Running two Chromium workers caused engine boot,
+  // classification, and rendering timeouts after the resilience matrix grew.
+  // Keep the release gate serial; a deliberately provisioned runner can still
+  // override this with `--workers=N` for an exploratory run.
+  workers: 1,
   fullyParallel: false,
   use: {
     headless: true,

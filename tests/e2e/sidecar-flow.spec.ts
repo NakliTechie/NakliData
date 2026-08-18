@@ -1,5 +1,6 @@
 import { type Page, expect, test } from '@playwright/test';
 import { expectModalTabWrap } from './fixtures/accessibility.ts';
+import { waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -18,38 +19,6 @@ async function tryDemo(page: Page): Promise<void> {
     return;
   }
   await page.click('[data-action="browse-examples"]');
-}
-
-/**
- * Wait until the classifier stops producing new schema-column rows for
- * `stableMs`. Cloned from auto-restore.spec — avoiding a shared helper
- * file because adding one would force a cascade of import changes; the
- * function is small enough to duplicate.
- */
-async function waitForClassificationStable(
-  page: Page,
-  timeoutMs = 60_000,
-  stableMs = 600,
-): Promise<void> {
-  await page.waitForFunction(() => document.querySelectorAll('.schema-column').length > 0, null, {
-    timeout: timeoutMs,
-  });
-  const start = Date.now();
-  let lastCount = -1;
-  let stableSince = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const count = await page.evaluate(() => document.querySelectorAll('.schema-column').length);
-    if (count !== lastCount) {
-      lastCount = count;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= stableMs) {
-      return;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(
-    `classification did not stabilize within ${timeoutMs}ms (last count: ${lastCount})`,
-  );
 }
 
 async function writeIntoSqlCell(page: Page, code: string): Promise<void> {
@@ -233,7 +202,7 @@ test.describe('AI sidecar — explain query error (BYOK)', () => {
     // workbook subscriber which re-renders the notebook — replacing
     // the cell's sidecar-result mount node mid-dispatch and losing the
     // error message. Stabilising first sidesteps the race.
-    await waitForClassificationStable(page);
+    await waitForExampleClassification(page);
 
     // Enable sidecar (without saving a key) so the Explain button shows.
     await page.click('[data-action="open-settings"]');
