@@ -34,6 +34,14 @@ Hard rules:
 - Prefer \`unknown\` over a weak guess. A wrong confident assignment is worse than leaving the column unknown.
 - Never invent a typeId that isn't in the catalog.`;
 
+// The 0.5B browser model can execute compact classification prompts on
+// WebGPU, while a 232-type prompt exceeds the current runtime's reliable
+// prefill shape on physical Chrome. Evaluate the entire catalog in bounded
+// groups, then adjudicate only the surviving candidates. Cloud providers keep
+// the single-request path because their runtimes do not share this browser
+// memory constraint.
+const LOCAL_ASSIGN_CATALOG_BATCH = 16;
+
 export function buildAssignTypePrompt(job: AssignTypeJob): {
   system: string;
   user: string;
@@ -279,8 +287,28 @@ export async function dispatchOntologyJob(
 ): Promise<AssignTypeResponse | NlToSchemaResponse> {
   const safeJob = (await prepareCloudDispatch(job, opts)) as AssignTypeJob | NlToSchemaJob;
   if (safeJob.kind === 'assign-type') {
+    if (opts.provider === 'local' && safeJob.catalog.length > LOCAL_ASSIGN_CATALOG_BATCH) {
+      const candidates: AssignTypeJob['catalog'] = [];
+      for (let start = 0; start < safeJob.catalog.length; start += LOCAL_ASSIGN_CATALOG_BATCH) {
+        const catalog = safeJob.catalog.slice(start, start + LOCAL_ASSIGN_CATALOG_BATCH);
+        const chunkJob: AssignTypeJob = { ...safeJob, catalog };
+        const { system, user } = buildAssignTypePrompt(chunkJob);
+        const response = parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), catalog);
+        if (response.typeId !== null) {
+          const candidate = catalog.find((entry) => entry.typeId === response.typeId);
+          if (candidate) candidates.push(candidate);
+        }
+      }
+      if (candidates.length === 0) return { kind: 'assign-type', typeId: null };
+      if (candidates.length === 1) {
+        return { kind: 'assign-type', typeId: candidates[0]?.typeId ?? null };
+      }
+      const finalJob: AssignTypeJob = { ...safeJob, catalog: candidates };
+      const { system, user } = buildAssignTypePrompt(finalJob);
+      return parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), candidates);
+    }
     const { system, user } = buildAssignTypePrompt(safeJob);
-    return parseAssignTypeResponse(await sendPrompt(system, user, opts), safeJob.catalog);
+    return parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), safeJob.catalog);
   }
   const { system, user } = buildNlToSchemaPrompt(safeJob);
   return parseNlToSchemaResponse(

@@ -579,7 +579,9 @@ async function autoLoadLocalIfCached(): Promise<void> {
     if (settings.sidecarProvider !== 'local') return;
     const modelId = settings.sidecarModel?.trim();
     if (!modelId) return;
-    const { isOpfsAvailable, isModelCacheComplete } = await import('./core/sidecar/local-cache.ts');
+    const { hasModelFile, isOpfsAvailable, isModelCacheComplete } = await import(
+      './core/sidecar/local-cache.ts'
+    );
     if (!(await isOpfsAvailable())) return;
     // Adversarial-review HIGH (2026-06-03): `cached.files.length > 0`
     // was the prior gate. A partial cache (tokenizer.json + config.json
@@ -590,16 +592,20 @@ async function autoLoadLocalIfCached(): Promise<void> {
     // total bytes > 100 MB — well below every curated model's weight
     // file but far above sidecar files.
     if (!(await isModelCacheComplete(modelId))) return;
-    // Model is cached. Pull in the Transformers.js chunk and register
-    // the generator. This is async + can take ~5-10s as the pipeline
-    // initialises onnxruntime against the cached weights — we don't
-    // block other boot tasks on it.
+    // Model metadata and at least one weight variant are cached. Resolve the
+    // active device and require that exact dtype before loading. A prior q4f16
+    // cache must not trigger a silent q4 download after a runtime-policy change.
     const mod = await loadChunk('transformers');
+    const device = await mod.pickLocalDevice();
+    if (!(await hasModelFile(modelId, mod.localModelWeightFilename(modelId, device)))) return;
     const gen = await mod.loadModel(modelId);
     // Register from the MAIN bundle so the dispatch's local-runtime
     // singleton sees it (the chunk has its own copy — see loadModel).
     registerLocalGenerator(gen);
-    toast(`Local model ${modelId} ready (loaded from cache).`);
+    const activeDevice = mod.getActiveLocalDevice();
+    const deviceLabel =
+      activeDevice === 'webgpu' ? 'WebGPU' : activeDevice === 'wasm' ? 'WASM' : 'browser';
+    toast(`Local model ${modelId} ready on ${deviceLabel} (loaded from cache).`);
   } catch (err) {
     // Boot-path auto-load failures should never tank the rest of the
     // session. Log + carry on — the user can manually load via

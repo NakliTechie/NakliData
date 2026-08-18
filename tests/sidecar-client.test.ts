@@ -830,7 +830,11 @@ describe('parseAssignTypeResponse', () => {
 
   it('dispatches end-to-end and applies the hallucination guard', async () => {
     _idb.set('sidecar/byok/openai', 'sk-openai-stub');
-    const transport: SidecarTransport = async () => 'not_in_catalog';
+    let maxTokens: number | undefined;
+    const transport: SidecarTransport = async (request) => {
+      maxTokens = request.maxTokens;
+      return 'not_in_catalog';
+    };
     const result = await dispatchOntologyJob(
       {
         kind: 'assign-type',
@@ -844,6 +848,61 @@ describe('parseAssignTypeResponse', () => {
     expect(result.kind).toBe('assign-type');
     if (result.kind !== 'assign-type') return;
     expect(result.typeId).toBeNull();
+    expect(maxTokens).toBe(32);
+  });
+
+  it('covers a large local catalog through bounded prompt batches', async () => {
+    const catalog = Array.from({ length: 110 }, (_, index) => ({
+      typeId: `type_${index}`,
+      displayName: `Type ${index}`,
+      domain: `domain_${Math.floor(index / 10)}`,
+    }));
+    const seenCatalogSizes: number[] = [];
+    const transport: SidecarTransport = async (request) => {
+      const listed = request.user.match(/^- type_\d+/gm) ?? [];
+      seenCatalogSizes.push(listed.length);
+      return request.user.includes('- type_73 ') ? 'type_73' : 'unknown';
+    };
+    const result = await dispatchOntologyJob(
+      {
+        kind: 'assign-type',
+        columnName: 'mystery',
+        sqlType: 'VARCHAR',
+        samples: ['sample'],
+        catalog,
+      },
+      { provider: 'local', model: 'local-model', transport },
+    );
+    expect(seenCatalogSizes).toEqual([16, 16, 16, 16, 16, 16, 14]);
+    expect(result).toEqual({ kind: 'assign-type', typeId: 'type_73' });
+  });
+
+  it('adjudicates candidates returned by multiple local catalog batches', async () => {
+    const catalog = Array.from({ length: 100 }, (_, index) => ({
+      typeId: `type_${index}`,
+      displayName: `Type ${index}`,
+      domain: 'test',
+    }));
+    let call = 0;
+    const transport: SidecarTransport = async () => {
+      call += 1;
+      if (call === 1) return 'type_7';
+      if (call === 5) return 'type_70';
+      if (call <= 7) return 'unknown';
+      return 'type_70';
+    };
+    const result = await dispatchOntologyJob(
+      {
+        kind: 'assign-type',
+        columnName: 'mystery',
+        sqlType: 'VARCHAR',
+        samples: ['sample'],
+        catalog,
+      },
+      { provider: 'local', model: 'local-model', transport },
+    );
+    expect(call).toBe(8);
+    expect(result).toEqual({ kind: 'assign-type', typeId: 'type_70' });
   });
 });
 

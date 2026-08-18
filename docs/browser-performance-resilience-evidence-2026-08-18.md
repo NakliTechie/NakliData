@@ -76,11 +76,35 @@ a later `SELECT 42` query returned the expected value.
 These are bounded local-host observations. They do not establish behavior at
 device exhaustion or under operating-system memory termination.
 
+## Physical WebGPU local-model path — 2026-08-19
+
+Chrome loaded `onnx-community/Qwen2.5-0.5B-Instruct` from OPFS on WebGPU. A
+compact disambiguation request classified `invoice_no` in two seconds. The
+standalone ontology chunk initially failed to see the main-shell generator;
+the runtime registration now uses one versioned page-global slot.
+
+The 232-type assignment prompt exposed WebGPU execution faults. q4f16 returned
+`memory access out of bounds`; q4 returned memory or unaligned-access errors.
+The response-token budget and sampling mode did not cause the fault. Batching
+the complete catalog into 16-type local prompts completed the request in eight
+seconds. A 48-type batch remained outside the reliable envelope.
+
+The small model then selected GSTIN for `payment_id`. The taxonomy already
+mapped `order_id` to `ut:transaction_identifier`, so payment-reference header
+coverage now resolves that field deterministically as `Transaction / order ID`.
+This physical run proves the bounded WebGPU execution path. It does not prove
+the six-job structured-output quality matrix or larger curated models.
+
+The same manual pass found schema rows nested under a closed cleaning popover
+when a table had cleaning suggestions. The column-list selector is now
+explicit, with focused Playwright containment coverage and a physical override
+check.
+
 ## Evidence still required
 
 - Physical Safari on macOS with real file and save dialogs.
 - Native Chromium folder and save pickers on a user-selected fixture.
-- A capable WebGPU machine with the opt-in local-model path.
+- The complete six-job local-model structured-output quality matrix.
 - Physical-device memory pressure beyond the bounded 128 MiB browser case.
 - Throttled Lighthouse or equivalent Speed Index, TBT, and interaction runs on
   the deployed origin.

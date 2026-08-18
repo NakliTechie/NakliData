@@ -182,6 +182,7 @@ function configureEnv(): void {
 // in Settings disposes + re-creates cleanly.
 let _activePipeline: TextGenerationPipeline | null = null;
 let _activeModelId: string | null = null;
+let _activeDevice: 'webgpu' | 'wasm' | null = null;
 // In-flight pipeline promise — memoised so parallel `loadPipeline`
 // calls (boot auto-load racing a user click in Settings) await the
 // same construction, not two independent ones that each spin up an
@@ -265,11 +266,9 @@ export async function loadPipeline(
   // absent (smaller models can still load there).
   const device = await pickLocalDevice();
   const promise = pipeline('text-generation', modelId, {
-    // On WebGPU use q4f16 — fp16 activations roughly halve the GPU working
-    // set vs q4 (fp32 activations), which is what lets the 1-2B models fit
-    // (plain q4 OOM'd even on WebGPU — slice-B re-validation 2026-06-13).
-    // wasm keeps q4 (no fp16 path there).
-    dtype: device === 'webgpu' ? 'q4f16' : 'q4',
+    // Hugging Face's published Qwen2.5-0.5B WebGPU recipe uses q4. Larger
+    // WebGPU-only models retain q4f16 to reduce their activation working set.
+    dtype: localModelDtype(modelId, device),
     device,
     ...(onProgress ? { progress_callback: onProgress } : {}),
   });
@@ -279,6 +278,7 @@ export async function loadPipeline(
     const pipe = await promise;
     _activePipeline = pipe;
     _activeModelId = modelId;
+    _activeDevice = device;
     return pipe;
   } catch (err) {
     // Graceful OOM handling — a raw `std::bad_alloc` / "Can't create a
@@ -322,6 +322,14 @@ export async function pickLocalDevice(): Promise<'webgpu' | 'wasm'> {
   return 'wasm';
 }
 
+export function localModelDtype(modelId: string, device: 'webgpu' | 'wasm'): 'q4' | 'q4f16' {
+  return device === 'webgpu' && modelId !== DEFAULT_LOCAL_MODEL_ID ? 'q4f16' : 'q4';
+}
+
+export function localModelWeightFilename(modelId: string, device: 'webgpu' | 'wasm'): string {
+  return `onnx__model_${localModelDtype(modelId, device)}.onnx`;
+}
+
 /**
  * Dispose the currently-loaded pipeline. Lets the underlying
  * onnxruntime session free its WASM memory before a model switch /
@@ -333,7 +341,13 @@ export async function disposePipeline(): Promise<void> {
     await (_activePipeline as any).dispose?.();
     _activePipeline = null;
     _activeModelId = null;
+    _activeDevice = null;
   }
+}
+
+/** Runtime selected for the currently loaded text-generation pipeline. */
+export function getActiveLocalDevice(): 'webgpu' | 'wasm' | null {
+  return _activeDevice;
 }
 
 /**
@@ -346,6 +360,15 @@ export async function disposePipeline(): Promise<void> {
  */
 export async function generate(req: LocalGenerateRequest): Promise<string> {
   const pipe = await loadPipeline(req.model || DEFAULT_LOCAL_MODEL_ID);
+  return runGeneration(pipe, req);
+}
+
+async function runGeneration(
+  pipe: TextGenerationPipeline,
+  req: LocalGenerateRequest,
+): Promise<string> {
+  const maxNewTokens = Math.max(1, Math.min(512, Math.floor(req.maxTokens ?? 512)));
+  const compactResponse = maxNewTokens <= 32;
   const messages = [
     { role: 'system' as const, content: req.system },
     { role: 'user' as const, content: req.user },
@@ -356,16 +379,17 @@ export async function generate(req: LocalGenerateRequest): Promise<string> {
   // wrapped system+user+assistant>}]` — we extract the assistant's
   // turn at the end.
   const output = (await pipe(messages, {
-    max_new_tokens: 512,
+    max_new_tokens: maxNewTokens,
     // Pure greedy (do_sample:false) DEGENERATES on the small local models
     // into repeated-token loops (e.g. `{SQL!!!!!!`), which breaks every
     // JSON-structured sidecar parser (slice-B re-validation 2026-06-13).
     // Low-temperature sampling + a repetition penalty keeps output
     // near-deterministic for structured jobs while escaping the loops.
-    do_sample: true,
-    temperature: 0.3,
-    top_p: 0.9,
-    repetition_penalty: 1.2,
+    // One-token classifiers use greedy decoding. It avoids the WebGPU
+    // sampling kernel and cannot drift into a long repetition loop under
+    // their 32-token response budget. Longer structured jobs retain sampling.
+    do_sample: !compactResponse,
+    ...(compactResponse ? {} : { temperature: 0.3, top_p: 0.9, repetition_penalty: 1.2 }),
     ...(req.signal ? { signal: req.signal } : {}),
     // biome-ignore lint/suspicious/noExplicitAny: pipeline call args are loosely typed
   } as any)) as Array<{ generated_text: unknown }> | { generated_text: unknown };
@@ -402,9 +426,11 @@ export async function generate(req: LocalGenerateRequest): Promise<string> {
  * would write the CHUNK's copy of the `_generator` singleton — which the
  * main-bundle dispatch (`client.ts`) never reads. Every local job would
  * then report "model not loaded" despite a successful load. Returning the
- * generator and letting the main bundle register it keeps a single shared
- * singleton. (Same split-singleton class as the measures-panel bug,
- * DECISIONS AJ; surfaced in the slice-B re-validation, DECISIONS AU.)
+ * generator and letting the main bundle register it remains the public
+ * contract. `local-runtime.ts` stores that registration on `globalThis` so
+ * standalone sidecar chunks observe the same generator. (Same split-singleton
+ * class as the measures-panel bug, DECISIONS AJ; surfaced in the slice-B
+ * re-validation, DECISIONS AU.)
  */
 export async function loadModel(
   modelId: string = DEFAULT_LOCAL_MODEL_ID,

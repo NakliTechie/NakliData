@@ -19,6 +19,8 @@ export interface LocalGenerateRequest {
   user: string;
   /** Model id the user configured (e.g. an HF ONNX repo). */
   model: string;
+  /** Job-specific response budget. Defaults to 512 tokens. */
+  maxTokens?: number;
   signal?: AbortSignal;
 }
 
@@ -26,7 +28,19 @@ export interface LocalGenerateRequest {
  *  HTTP provider call functions, minus the API key. */
 export type LocalGenerator = (req: LocalGenerateRequest) => Promise<string>;
 
-let _generator: LocalGenerator | null = null;
+// Lazy entries are bundled as standalone ESM files with splitting disabled.
+// They therefore receive their own copy of this module. Keep the generator on
+// the page global so shell and lazy dispatch copies share one runtime without
+// exposing model weights or provider credentials.
+const LOCAL_GENERATOR_KEY = '__naklidataLocalGeneratorV1' as const;
+
+type LocalRuntimeGlobal = typeof globalThis & {
+  [LOCAL_GENERATOR_KEY]?: LocalGenerator | null;
+};
+
+function runtimeGlobal(): LocalRuntimeGlobal {
+  return globalThis as LocalRuntimeGlobal;
+}
 
 /**
  * Called by the local-model lazy chunk once the model is loaded and
@@ -34,20 +48,20 @@ let _generator: LocalGenerator | null = null;
  * (e.g. after a model switch).
  */
 export function registerLocalGenerator(fn: LocalGenerator): void {
-  _generator = fn;
+  runtimeGlobal()[LOCAL_GENERATOR_KEY] = fn;
 }
 
 /** Clear the registered generator (e.g. on model unload / error). */
 export function unregisterLocalGenerator(): void {
-  _generator = null;
+  delete runtimeGlobal()[LOCAL_GENERATOR_KEY];
 }
 
 /** The current local generator, or null when no model is loaded. */
 export function getLocalGenerator(): LocalGenerator | null {
-  return _generator;
+  return runtimeGlobal()[LOCAL_GENERATOR_KEY] ?? null;
 }
 
 /** Whether a local model is loaded + ready to serve sidecar jobs. */
 export function isLocalModelReady(): boolean {
-  return _generator !== null;
+  return getLocalGenerator() !== null;
 }

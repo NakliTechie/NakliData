@@ -298,7 +298,10 @@ function renderTableBlock(
     </div>
     <ul class="schema-columns" role="list"></ul>
   `;
-  const ul = el.querySelector('ul') as HTMLUListElement;
+  // A table with cleaning suggestions contains another <ul> inside the
+  // popover. Target the dedicated column list so schema rows remain visible
+  // outside the closed <details> element.
+  const ul = el.querySelector('ul.schema-columns') as HTMLUListElement;
   // We rely on the controller to populate assignments per column. If we
   // don't yet have any assignments for this table, render a "classifying…"
   // placeholder.

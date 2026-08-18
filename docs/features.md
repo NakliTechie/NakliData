@@ -217,10 +217,12 @@ a "Forget" affordance; "Forget all stored keys" lives in settings.
 custom URLs are `https://`-only with the resolved host surfaced inline.
 
 **Local provider** (no API key, no network after the one-time model download):
-Qwen2.5-1.5B-Instruct (~0.9 GB, recommended), Phi-3.5-mini-instruct (~2.3 GB, best
-NL→SQL), Llama-3.2-1B-Instruct (~0.7 GB, smallest). Weights cache in OPFS,
-inspectable + deletable from Settings; auto-load at boot when cached. Runs on the
-`wasm` device (WebGPU opt-in is a planned follow-up).
+Qwen2.5-0.5B-Instruct (~0.5 GB, recommended), Qwen2.5-1.5B-Instruct (~1.7 GB),
+Phi-3.5-mini-instruct (~2.5 GB), and Llama-3.2-1B-Instruct (~1.6 GB). Weights
+cache in OPFS, inspectable + deletable from Settings; auto-load at boot requires
+the exact device-specific weight variant. The runtime prefers a usable WebGPU
+adapter and reports the selected device; WASM is the fallback. Local generation
+remains experimental pending the complete structured-output quality matrix.
 
 ## Sessions & sharing
 

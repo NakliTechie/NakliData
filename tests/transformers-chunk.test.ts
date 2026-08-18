@@ -12,7 +12,12 @@
 // risk of regressing under future Transformers.js version bumps.
 
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LOCAL_MODEL_ID, parseHfUrl } from '../src/lazy/transformers.ts';
+import {
+  DEFAULT_LOCAL_MODEL_ID,
+  localModelDtype,
+  localModelWeightFilename,
+  parseHfUrl,
+} from '../src/lazy/transformers.ts';
 
 describe('parseHfUrl', () => {
   it('parses the canonical HF resolve URL shape', () => {
@@ -74,5 +79,23 @@ describe('DEFAULT_LOCAL_MODEL_ID', () => {
     // on wasm AND on WebGPU with plain q4; the 0.5B fits any machine, so
     // it's the safe default. Larger models stay opt-in (need WebGPU).
     expect(DEFAULT_LOCAL_MODEL_ID).toBe('onnx-community/Qwen2.5-0.5B-Instruct');
+  });
+});
+
+describe('local-model dtype selection', () => {
+  it('uses q4 for the fits-anywhere default on WebGPU and WASM', () => {
+    expect(localModelDtype(DEFAULT_LOCAL_MODEL_ID, 'webgpu')).toBe('q4');
+    expect(localModelDtype(DEFAULT_LOCAL_MODEL_ID, 'wasm')).toBe('q4');
+  });
+
+  it('retains q4f16 for larger WebGPU-only models', () => {
+    expect(localModelDtype('onnx-community/Qwen2.5-1.5B-Instruct', 'webgpu')).toBe('q4f16');
+  });
+
+  it('names the exact flattened weight file used by the OPFS cache', () => {
+    expect(localModelWeightFilename(DEFAULT_LOCAL_MODEL_ID, 'webgpu')).toBe('onnx__model_q4.onnx');
+    expect(localModelWeightFilename('onnx-community/Qwen2.5-1.5B-Instruct', 'webgpu')).toBe(
+      'onnx__model_q4f16.onnx',
+    );
   });
 });

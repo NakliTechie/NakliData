@@ -47,12 +47,24 @@ describe('local-model seam (W3.2 slice A)', () => {
     expect(isLocalModelReady()).toBe(false);
   });
 
+  it('shares registration across independently loaded module copies', async () => {
+    const generator = async () => 'shared';
+    registerLocalGenerator(generator);
+    vi.resetModules();
+    const isolatedRuntime = await import('../src/core/sidecar/local-runtime.ts');
+    expect(isolatedRuntime.getLocalGenerator()).toBe(generator);
+    isolatedRuntime.unregisterLocalGenerator();
+    expect(isLocalModelReady()).toBe(false);
+  });
+
   it("dispatchJob provider='local' routes to the registered generator (no API key needed)", async () => {
     let sawModel = '';
     let sawSystem = '';
+    let sawMaxTokens: number | undefined;
     registerLocalGenerator(async (req) => {
       sawModel = req.model;
       sawSystem = req.system;
+      sawMaxTokens = req.maxTokens;
       return 'gstin';
     });
     const result = await dispatchJob(
@@ -73,6 +85,7 @@ describe('local-model seam (W3.2 slice A)', () => {
     expect(result.typeId).toBe('gstin');
     expect(sawModel).toBe('some-onnx-repo');
     expect(sawSystem).toMatch(/disambiguation/i);
+    expect(sawMaxTokens).toBe(32);
   });
 
   it("dispatchJob provider='local' with no generator throws 'no-provider' (no silent cloud fallback)", async () => {

@@ -30,6 +30,13 @@ test.describe('demo / censor mode (Theme 4 wave 2 / B4)', () => {
     await waitForEngineReady(page);
     await waitForExamplesClassified(page);
 
+    // Cleaning suggestions have their own list. Column rows must stay in the
+    // visible schema list rather than becoming children of the closed popover.
+    expect(await page.locator('.schema-columns > .schema-column').count()).toBeGreaterThanOrEqual(
+      10,
+    );
+    await expect(page.locator('.schema-clean-popover .schema-column')).toHaveCount(0);
+
     // Baseline: schema-panel column rows show real column names like
     // "vendor_id". Source labels show "SMB Finance".
     const baseline = await page.evaluate(() => {

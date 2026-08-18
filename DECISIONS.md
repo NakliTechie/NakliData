@@ -2,6 +2,56 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Physical WebGPU local inference and schema containment (GI)
+
+### Decision GI-1 — share the local generator across standalone lazy entries
+
+- **Context.** Physical Chrome loaded the local model, but ontology jobs still
+  reported that no model was loaded. Standalone lazy entries bundle their own
+  copy of `local-runtime.ts`, so a module-local registration was invisible to
+  `sidecar-ontology`.
+- **Decision.** Store the registered generator on a versioned `globalThis`
+  property. Keep model weights, prompts, and provider credentials outside that
+  shared slot.
+- **Consequence.** Main-shell and lazy ontology dispatch now resolve the same
+  in-tab generator. An isolated-module regression test covers the bundle-copy
+  boundary.
+
+### Decision GI-2 — bound local ontology prompts without dropping catalog entries
+
+- **Context.** Qwen2.5-0.5B q4 loaded on WebGPU and completed a compact
+  disambiguation prompt. The 232-type assignment prompt failed with WebGPU
+  memory or alignment errors. A 48-type prompt also failed. A 16-type prompt
+  completed.
+- **Decision.** Cap one-token jobs at 32 generated tokens and use greedy
+  decoding. Evaluate local full-catalog assignment in 16-type batches, then
+  adjudicate only candidates returned by those batches. Keep cloud providers
+  on one full-catalog request.
+- **Consequence.** Physical Chrome completed the previously failing assignment
+  path in eight seconds. The 0.5B model still made an implausible GSTIN choice
+  for `payment_id`, so broader structured-output quality remains experimental.
+
+### Decision GI-3 — map payment references deterministically
+
+- **Context.** `payment_id` reached the experimental model despite the existing
+  `order_id` role mapping to `ut:transaction_identifier`.
+- **Decision.** Extend `order_id` header evidence to payment identifiers and
+  rename its display label to `Transaction / order ID`.
+- **Consequence.** A fresh physical-browser session assigns `payment_id` to
+  `order_id` at 76 percent without AI. The Kaggle vocabulary suite carries the
+  regression.
+
+### Decision GI-4 — keep schema rows outside cleaning popovers
+
+- **Context.** `renderTableBlock` selected the first descendant `<ul>`. Tables
+  with cleaning suggestions therefore appended their schema rows inside the
+  closed cleaning popover.
+- **Decision.** Select `ul.schema-columns` explicitly and assert that cleaning
+  popovers contain zero schema rows.
+- **Consequence.** The focused Playwright case and physical Chrome both show
+  the payment row in the visible schema list. The manual override path remains
+  reachable.
+
 ## 2026-08-19 — Compute Bridge memory diagnostics and UTF-8 allocation (GH)
 
 ### Decision GH-1 — gate retained buffers without treating Node as Cloudflare proof

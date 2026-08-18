@@ -88,6 +88,8 @@ export interface SidecarTransportRequest {
   system: string;
   user: string;
   apiKey: string;
+  /** Job-specific response budget. Providers default to 512 when absent. */
+  maxTokens?: number;
   /** Set when `provider === 'custom'`. */
   endpointUrl?: string;
   signal?: AbortSignal;
@@ -102,6 +104,7 @@ const defaultTransport: SidecarTransport = (req) => {
       model: req.model,
       system: req.system,
       user: req.user,
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
@@ -112,6 +115,7 @@ const defaultTransport: SidecarTransport = (req) => {
       model: req.model,
       system: req.system,
       user: req.user,
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
@@ -130,6 +134,7 @@ const defaultTransport: SidecarTransport = (req) => {
       model: req.model,
       system: req.system,
       user: req.user,
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
@@ -139,6 +144,7 @@ const defaultTransport: SidecarTransport = (req) => {
       model: req.model,
       system: req.system,
       user: req.user,
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
     });
   }
@@ -167,7 +173,10 @@ export async function dispatchJob(
   }
   if (safeJob.kind === 'disambiguate-type') {
     const { system, user } = buildDisambiguateTypePrompt(safeJob);
-    return parseDisambiguateTypeResponse(await sendPrompt(system, user, opts), safeJob.candidates);
+    return parseDisambiguateTypeResponse(
+      await sendPrompt(system, user, opts, 32),
+      safeJob.candidates,
+    );
   }
   if (safeJob.kind === 'define-type') {
     const { system, user } = buildDefineTypePrompt(safeJob);
@@ -313,6 +322,7 @@ export async function sendPrompt(
   system: string,
   user: string,
   opts: SidecarDispatchOpts,
+  maxTokens?: number,
 ): Promise<string> {
   let key = '';
   if (opts.provider !== 'local') {
@@ -332,6 +342,7 @@ export async function sendPrompt(
     system,
     user,
     apiKey: key,
+    ...(maxTokens ? { maxTokens } : {}),
     ...(opts.customEndpoint ? { endpointUrl: opts.customEndpoint } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
   });

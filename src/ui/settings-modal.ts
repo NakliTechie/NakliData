@@ -31,10 +31,8 @@ const PROVIDERS: SidecarProvider[] = ['anthropic', 'openai', 'custom'];
 
 /**
  * Curated list of HF ONNX models the Settings UI offers for the
- * `local` provider. Per scoping doc Decision 1: Qwen2.5-1.5B is the
- * recommended default (smallest credible chat model, Apache 2.0);
- * Phi-3.5-mini is the bigger-quality option; Llama-3.2-1B is the
- * smallest credible download.
+ * `local` provider. Qwen2.5-0.5B is the recommended default because it is the
+ * smallest curated download; larger models are opt-in WebGPU choices.
  *
  * Adding entries is intentional and load-bearing — each is a
  * recommended multi-GB download that we're telling users to commit
@@ -49,11 +47,11 @@ const LOCAL_MODEL_OPTIONS: ReadonlyArray<{
   // ~0.9/0.7 GB labels were ~2× understated). The 1-2B models OOM'd on BOTH
   // wasm and WebGPU on a 16 GB machine with plain q4 (DECISIONS AT/AU) —
   // they now load on WebGPU via q4f16, but need a capable GPU. The 0.5B is
-  // the safe default: it fits in-browser everywhere (wasm or WebGPU).
+  // the bounded default exercised on physical Chrome WebGPU.
   {
     id: 'onnx-community/Qwen2.5-0.5B-Instruct',
     label: 'Qwen2.5-0.5B-Instruct (recommended)',
-    summary: '~0.5 GB · Apache 2.0 · fits any machine (wasm or WebGPU)',
+    summary: '~0.5 GB · Apache 2.0 · smallest option · WebGPU or wasm',
   },
   {
     id: 'onnx-community/Qwen2.5-1.5B-Instruct',
@@ -808,8 +806,10 @@ async function loadLocalModel(overlay: HTMLElement): Promise<void> {
     // Settings-initiated load makes the sidecar usable without a reload
     // (the chunk registering its own copy did neither — see loadModel).
     registerLocalGenerator(gen);
-    setLocalStatus(overlay, `${modelId} loaded and ready.`);
-    flashStatus(overlay, `Local model ${modelId} ready.`);
+    const device = mod.getActiveLocalDevice();
+    const deviceLabel = device === 'webgpu' ? 'WebGPU' : device === 'wasm' ? 'WASM' : 'browser';
+    setLocalStatus(overlay, `${modelId} loaded and ready on ${deviceLabel}.`);
+    flashStatus(overlay, `Local model ${modelId} ready on ${deviceLabel}.`);
     await refreshLocalCacheList(overlay);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

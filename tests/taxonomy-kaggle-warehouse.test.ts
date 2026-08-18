@@ -132,6 +132,7 @@ describe('KAG-04 — commerce lifecycle and unit-bearing product data', () => {
       'order_promised_delivery_timestamp',
     ],
     ['payment_installments', ['1', '8'], 'INTEGER', 'payment_installment_count'],
+    ['payment_id', ['PAY-001', 'PAY-002'], 'VARCHAR', 'order_id'],
     ['product_category_name', ['perfumaria', 'artes'], 'VARCHAR', 'product_category'],
     ['product_weight_g', ['225', '1000'], 'INTEGER', 'product_weight'],
     ['product_length_cm', ['16', '30'], 'INTEGER', 'product_length'],
