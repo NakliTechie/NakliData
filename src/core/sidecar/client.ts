@@ -17,6 +17,7 @@ import { getLocalGenerator } from './local-runtime.ts';
 import { callAnthropic } from './providers/anthropic.ts';
 import { callCustomOpenAI } from './providers/custom-openai.ts';
 import { callOpenAI } from './providers/openai.ts';
+import { parseFirstJsonObject } from './response-json.ts';
 import {
   type DefineTypeJob,
   type DefineTypeResponse,
@@ -486,11 +487,6 @@ export function buildDefineTypePrompt(job: DefineTypeJob): {
 const ID_REGEX = /^[a-z][a-z0-9_]*$/;
 
 export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
   let parsed: {
     id?: unknown;
     display_name?: unknown;
@@ -498,7 +494,7 @@ export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
     regex?: unknown;
   };
   try {
-    parsed = JSON.parse(stripped) as typeof parsed;
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
   } catch (err) {
     throw new SidecarError(
       `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
@@ -531,15 +527,9 @@ export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
 // ---- explain-error parser -------------------------------------------
 
 export function parseExplainErrorResponse(raw: string): ExplainErrorResponse {
-  // Strip ```json``` fences if the model added them despite instructions.
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
   let parsed: { explanation?: unknown; suggested_fix?: unknown };
   try {
-    parsed = JSON.parse(stripped) as typeof parsed;
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
   } catch (err) {
     throw new SidecarError(
       `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
@@ -599,14 +589,9 @@ export function parseRecommendReportsResponse(
   raw: string,
   candidateIds: string[],
 ): RecommendReportsResponse {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
   let parsed: { recommendations?: unknown };
   try {
-    parsed = JSON.parse(stripped) as typeof parsed;
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
   } catch (err) {
     throw new SidecarError(
       `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
@@ -687,14 +672,9 @@ export function parseSummariseResultResponse(
   raw: string,
   columns: string[],
 ): SummariseResultResponse {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
   let parsed: { observation?: unknown };
   try {
-    parsed = JSON.parse(stripped) as typeof parsed;
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
   } catch (err) {
     throw new SidecarError(
       `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
@@ -1052,17 +1032,9 @@ export function parseProposeChartResponse(
   raw: string,
   columnNames: string[],
 ): ProposeChartResponse {
-  const trimmed = raw.trim();
-  // Strip markdown fences if the model emitted them despite instructions.
-  // Extract the contents of the FIRST fenced block when present, which
-  // tolerates a trailing prose tail after the closing fence — the old
-  // `/```$/` only matched a fence at the exact end of the string, so
-  // "```json … ``` Hope this helps!" failed to parse (forward-pass M18).
-  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const stripped = (fenceMatch?.[1] ?? trimmed).trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripped);
+    parsed = parseFirstJsonObject(raw);
   } catch {
     return { kind: 'propose-chart', proposal: null };
   }
@@ -1159,12 +1131,9 @@ export function parseProposeMergeResponse(
   raw: string,
   askedPairs: ReadonlyArray<{ a: string; b: string }>,
 ): ProposeMergeResponse {
-  const trimmed = raw.trim();
-  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const stripped = (fenceMatch?.[1] ?? trimmed).trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripped);
+    parsed = parseFirstJsonObject(raw);
   } catch {
     return { kind: 'propose-merge', pairs: [] };
   }

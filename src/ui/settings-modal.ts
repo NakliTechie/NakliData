@@ -382,7 +382,7 @@ function renderModal(): HTMLElement {
             </div>
           </label>
           <div class="settings-field" data-region="settings-local-section" hidden>
-            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Known issue (SB4): the in-browser WebGPU path frequently degenerates into repetition loops and is unreliable for the structured-output jobs — treat it as experimental. For a dependable local setup, run Ollama (or LM Studio / vLLM) and point the <strong>Custom (OpenAI-compatible)</strong> provider at it; use a cloud provider for the structured jobs.</em></span>
+            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Experimental: physical WebGPU testing validated compact type disambiguation and one report-ranking run. Other jobs emitted malformed JSON, rejected SQL, inaccurate summaries, or weak type guesses. For a dependable local setup, run Ollama (or LM Studio / vLLM) and point the <strong>Custom (OpenAI-compatible)</strong> provider at it; use a cloud provider for structured jobs.</em></span>
             <div class="settings-local-picker">
               ${LOCAL_MODEL_OPTIONS.map(
                 (m) => `

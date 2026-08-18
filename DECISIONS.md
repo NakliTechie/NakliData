@@ -2,6 +2,48 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Physical local-model quality matrix and JSON recovery (GJ)
+
+### Decision GJ-1 — evaluate the eight current structured jobs
+
+- **Context.** The deferred plan still called the local-model check a six-job
+  matrix. The current sidecar registry contains eight user-facing structured
+  jobs after type assignment and natural-language schema inference joined the
+  original six.
+- **Decision.** Exercise all eight jobs through physical Chrome with the cached
+  Qwen2.5-0.5B q4 model on WebGPU. Treat parser acceptance and semantic quality
+  as separate gates.
+- **Consequence.** Type disambiguation selected `Invoice number` for
+  `invoice_no`. One report-ranking rerun produced five allowlisted scores.
+  Assignment parsed but mapped `REF##########` values to GSTIN. The five other
+  jobs failed parsing or SQL safety checks.
+
+### Decision GJ-2 — recover one balanced object without repairing malformed JSON
+
+- **Context.** Report ranking and type definition each emitted an object plus
+  trailing text in the first matrix run. Existing parsers rejected the whole
+  response, although their downstream allowlists and safety checks remained
+  capable of validating the object.
+- **Decision.** Extract only the first complete balanced JSON object. Preserve
+  every job-specific field, template, taxonomy, regex, column, and SQL guard.
+  Do not repair truncated JSON or nested fragments from an incomplete object.
+- **Consequence.** Physical report ranking recovered and displayed five
+  allowlisted scores. A later malformed type-definition response still failed
+  closed. Unit coverage locks balanced strings, fences, truncation, and
+  downstream allowlists.
+
+### Decision GJ-3 — reject prose fallback after a false summary
+
+- **Context.** A narrow `Observation:` fallback displayed a local summary that
+  claimed two vendors each had over eight invoices. The visible table showed
+  counts of eight and six. A matching `Explanation:` fallback did not cover the
+  next error-explanation output.
+- **Decision.** Keep JSON mandatory for explanation and result-summary jobs.
+  Remove both prose fallbacks. Keep the local provider experimental and update
+  Settings with the observed job-level limitations.
+- **Consequence.** NakliData does not promote the observed false summary into a
+  supported local-model result. The full local quality gate remains open.
+
 ## 2026-08-19 — Physical WebGPU local inference and schema containment (GI)
 
 ### Decision GI-1 — share the local generator across standalone lazy entries

@@ -7,6 +7,7 @@
 // directly; runtime dispatch goes through `dispatchOntologyJob`, which
 // reuses client.ts's shared key-resolution + transport via `sendPrompt`.
 import { type SidecarDispatchOpts, prepareCloudDispatch, sendPrompt } from './client.ts';
+import { parseFirstJsonObject } from './response-json.ts';
 import {
   type AssignTypeJob,
   type AssignTypeResponse,
@@ -196,14 +197,9 @@ export function buildNlToSchemaPrompt(job: NlToSchemaJob): {
 }
 
 export function parseNlToSchemaResponse(raw: string, knownTypeIds: string[]): NlToSchemaResponse {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
   let parsed: { table_name?: unknown; columns?: unknown };
   try {
-    parsed = JSON.parse(stripped) as typeof parsed;
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
   } catch (err) {
     throw new SidecarError(
       `Could not parse sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,

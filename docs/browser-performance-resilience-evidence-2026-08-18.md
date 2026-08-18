@@ -93,7 +93,26 @@ The small model then selected GSTIN for `payment_id`. The taxonomy already
 mapped `order_id` to `ut:transaction_identifier`, so payment-reference header
 coverage now resolves that field deterministically as `Transaction / order ID`.
 This physical run proves the bounded WebGPU execution path. It does not prove
-the six-job structured-output quality matrix or larger curated models.
+general structured-output quality or larger curated models.
+
+The follow-up matrix exercised all eight current structured jobs through the
+visible product controls:
+
+| Job | Physical outcome |
+|---|---|
+| `disambiguate-type` | Accepted `Invoice number` for `invoice_no` |
+| `recommend-reports` | One rerun recovered five allowlisted scores from a valid object plus trailing text |
+| `assign-type` | Parsed, but incorrectly mapped `REF##########` values to GSTIN |
+| `define-type` | Failed closed on malformed JSON with a control character |
+| `summarise-result` | Emitted labelled prose containing a false numerical claim; prose fallback removed |
+| `explain-error` | Emitted non-contract text and failed JSON parsing |
+| `nl-to-sql` | Returned output rejected by the SQL safety parser |
+| `nl-to-schema` | Failed closed on truncated JSON at position 1,842 |
+
+The shared parser now extracts one complete balanced JSON object before the
+existing job-specific guards run. It does not repair truncated JSON. This
+recovered report ranking without accepting the malformed definition or schema.
+The local provider remains experimental.
 
 The same manual pass found schema rows nested under a closed cleaning popover
 when a table had cleaning suggestions. The column-list selector is now
@@ -104,7 +123,7 @@ check.
 
 - Physical Safari on macOS with real file and save dialogs.
 - Native Chromium folder and save pickers on a user-selected fixture.
-- The complete six-job local-model structured-output quality matrix.
+- A release-quality local-model matrix across all eight current jobs.
 - Physical-device memory pressure beyond the bounded 128 MiB browser case.
 - Throttled Lighthouse or equivalent Speed Index, TBT, and interaction runs on
   the deployed origin.
