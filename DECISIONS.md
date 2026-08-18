@@ -2,6 +2,35 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Browser storage-failure gate (GB)
+
+### Decision GB-1 — verify quota recovery at the IndexedDB write boundary
+
+- **Context.** Chromium's origin-quota override remained permissive for the
+  application's IndexedDB writes on GitHub and in a focused local rerun. The
+  existing case could therefore wait for a warning without exercising the
+  error handler.
+- **Decision.** Inject a scoped `QuotaExceededError` from
+  `IDBObjectStore.prototype.put` after the baseline snapshot exists. Restore
+  the native method before asserting that a later save clears the warning.
+- **Consequence.** The release test exercises the same persistence rejection
+  observed by the application without depending on browser quota accounting.
+
+### Decision GB-2 — read reused CodeMirror state at Run time
+
+- **Context.** Map cases edited the example notebook after 10 of its 42 schema
+  rows rendered. Their mixed editor selector could also target the temporary
+  textarea before the lazy CodeMirror swap. More importantly, a reused
+  CodeMirror instance retained its original change callback while a rerendered
+  Run button read a newer stale closure. Captured timeouts showed the original
+  query and stale result after the attempted edit.
+- **Decision.** Gate all map cases on the shared final 42-column signal. Wait
+  for CodeMirror and assert replacement text. Make the Run button read the
+  registered editor's live document at click time. Invoke the coordinate cell
+  directly and retain its exact three-row gate.
+- **Consequence.** Map assertions begin after classification and editor setup
+  settle. Mouse-triggered runs preserve edits after notebook rerenders.
+
 ## 2026-08-18 — Browser focus and release-harness determinism (GA)
 
 ### Decision GA-1 — restore modal focus to the exact surviving schema origin

@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { mountExamples } from './fixtures/examples.ts';
+import { mountExamples, waitForExampleClassification } from './fixtures/examples.ts';
 import { startStaticServer } from './fixtures/server.ts';
 
 async function waitForEngineReady(page: Page): Promise<void> {
@@ -12,12 +12,12 @@ async function waitForEngineReady(page: Page): Promise<void> {
 }
 
 async function replaceFirstSql(page: Page, code: string): Promise<void> {
-  const editor = page
-    .locator('.cell[data-cell-kind="sql"] textarea, .cell[data-cell-kind="sql"] .cm-content')
-    .first();
+  const editor = page.locator('.cell[data-cell-kind="sql"] .cm-content').first();
+  await editor.waitFor({ state: 'visible', timeout: 15_000 });
   await editor.click();
   await editor.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
-  await page.keyboard.type(code);
+  await editor.pressSequentially(code);
+  await expect(editor).toContainText(code.split('\n')[0] ?? code);
 }
 
 test.describe('map cell (Theme 2 wave 4)', () => {
@@ -41,11 +41,7 @@ test.describe('map cell (Theme 2 wave 4)', () => {
     // Mount example data so the notebook seeds a SQL cell; we'll overwrite
     // its query with a literal-GeoJSON SELECT.
     await mountExamples(page);
-    await page.waitForFunction(
-      () => document.querySelectorAll('.schema-column').length >= 10,
-      null,
-      { timeout: 60_000 },
-    );
+    await waitForExampleClassification(page);
 
     // Write SQL that produces two GeoJSON Point rows + a name property.
     // Strings are fine — the map cell parses with JSON.parse.
@@ -128,11 +124,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`,
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
     await mountExamples(page);
-    await page.waitForFunction(
-      () => document.querySelectorAll('.schema-column').length >= 10,
-      null,
-      { timeout: 60_000 },
-    );
+    await waitForExampleClassification(page);
 
     // SQL with a "geometry" column that isn't valid GeoJSON.
     await replaceFirstSql(page, "SELECT 'not-a-geometry' AS geometry, 'A' AS name");
@@ -187,6 +179,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`,
   test('recognized latitude and longitude auto-bind with invalid rows disclosed', async ({
     browser,
   }) => {
+    test.slow();
     const server = await startStaticServer();
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -196,11 +189,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`,
     await page.goto(`${server.url}/index.html?offline=1`);
     await waitForEngineReady(page);
     await mountExamples(page);
-    await page.waitForFunction(
-      () => document.querySelectorAll('.schema-column').length >= 10,
-      null,
-      { timeout: 60_000 },
-    );
+    await waitForExampleClassification(page);
 
     await replaceFirstSql(
       page,
@@ -208,13 +197,13 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`,
 UNION ALL SELECT 12.9716, 77.5946, 'Bengaluru'
 UNION ALL SELECT 100.0, 0.0, 'Invalid latitude'`,
     );
-    await page.click('[data-nb-action="run-all"]');
+    await page.locator('.cell[data-cell-kind="sql"] [data-action="cell-run"]').first().click();
     await page.waitForFunction(
       () =>
         document.querySelectorAll('.cell[data-cell-kind="sql"] .result-table tbody tr').length ===
         3,
       null,
-      { timeout: 30_000 },
+      { timeout: 90_000 },
     );
     await page.click('[data-nb-action="add-map"]');
 

@@ -179,7 +179,7 @@ export function renderSqlCell(
   });
 
   el.querySelector('[data-action="cell-run"]')?.addEventListener('click', () =>
-    handlers.onRun(cell.id, { code: currentDoc }),
+    handlers.onRun(cell.id, { code: cmInstances.get(cell.id)?.getDoc() ?? currentDoc }),
   );
   el.querySelector('[data-action="cell-delete"]')?.addEventListener('click', () => {
     disposeSqlCellEditor(cell.id);

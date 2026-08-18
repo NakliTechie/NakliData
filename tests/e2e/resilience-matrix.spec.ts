@@ -20,13 +20,8 @@ async function replaceEditorText(page: Page, cell: Locator, sql: string): Promis
 }
 
 test.describe('browser resilience matrix', () => {
-  test('quota exhaustion stays visible and recovers after storage returns', async ({
-    browserName,
-    context,
-    page,
-  }) => {
+  test('quota exhaustion stays visible and recovers after storage returns', async ({ page }) => {
     test.slow();
-    test.skip(browserName !== 'chromium', 'Chromium CDP provides deterministic quota control.');
     const server = await startStaticServer();
     try {
       await page.goto(`${server.url}/index.html?offline=1`);
@@ -37,19 +32,30 @@ test.describe('browser resilience matrix', () => {
       ).toBeVisible({ timeout: 30_000 });
       await page.waitForTimeout(1_000);
 
-      const origin = new URL(server.url).origin;
-      const cdp = await context.newCDPSession(page);
-      const usage = await page.evaluate(
-        async () => (await navigator.storage.estimate()).usage ?? 0,
-      );
-      await cdp.send('Storage.overrideQuotaForOrigin', {
-        origin,
-        quotaSize: Math.ceil(usage) + 4_096,
+      await page.evaluate(() => {
+        const originalPut = IDBObjectStore.prototype.put;
+        Object.defineProperty(window, '__naklidataRestoreIdbPut', {
+          configurable: true,
+          value: () => {
+            Object.defineProperty(IDBObjectStore.prototype, 'put', {
+              configurable: true,
+              value: originalPut,
+              writable: true,
+            });
+          },
+        });
+        Object.defineProperty(IDBObjectStore.prototype, 'put', {
+          configurable: true,
+          value: () => {
+            throw new DOMException('Injected storage quota exhaustion', 'QuotaExceededError');
+          },
+          writable: true,
+        });
       });
 
       await page.click('[data-nb-action="add-sql"]');
       const pressureCell = page.locator('.cell[data-cell-kind="sql"]').last();
-      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(16 * 1024)}*/`);
+      await replaceEditorText(page, pressureCell, 'SELECT 1 /* quota pressure */');
       await expect(page.locator('[data-region="storage-warning"]')).toBeVisible({
         timeout: 30_000,
       });
@@ -58,9 +64,12 @@ test.describe('browser resilience matrix', () => {
       );
       await expect(pressureCell).toBeVisible();
 
-      await cdp.send('Storage.overrideQuotaForOrigin', {
-        origin,
-        quotaSize: Math.ceil(usage) + 64 * 1024 * 1024,
+      await page.evaluate(() => {
+        (
+          window as unknown as {
+            __naklidataRestoreIdbPut: () => void;
+          }
+        ).__naklidataRestoreIdbPut();
       });
       await page.click('[data-nb-action="add-sql"]');
       await expect(page.locator('[data-region="storage-warning"]')).toBeHidden({
