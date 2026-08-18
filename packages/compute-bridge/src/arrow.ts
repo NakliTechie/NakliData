@@ -1,4 +1,12 @@
-import { Table, Utf8, type Vector, tableFromIPC, tableToIPC, vectorFromArray } from 'apache-arrow';
+import {
+  Table,
+  Utf8,
+  type Vector,
+  makeData,
+  makeVector,
+  tableFromIPC,
+  tableToIPC,
+} from 'apache-arrow';
 import { BridgeServerError } from './backend.ts';
 
 export interface ArrowChunk {
@@ -46,11 +54,55 @@ export class ApacheArrowJsonV2Encoder {
           502,
         );
       }
-      vectors[column.name] = vectorFromArray(
-        rows.map((row) => row[columnIndex] ?? null),
-        new Utf8(),
-      );
+      vectors[column.name] = utf8Vector(rows.map((row) => row[columnIndex] ?? null));
     }
     return tableToIPC(new Table(vectors), 'stream');
   }
+}
+
+function utf8Vector(values: readonly (string | null)[]): Vector<Utf8> {
+  const encoder = new TextEncoder();
+  const encoded = values.map((value) => (value === null ? null : encoder.encode(value)));
+  const valueOffsets = new Int32Array(values.length + 1);
+  let byteLength = 0;
+  let nullCount = 0;
+  for (let index = 0; index < encoded.length; index++) {
+    const bytes = encoded[index] ?? null;
+    if (bytes === null) nullCount++;
+    else byteLength += bytes.byteLength;
+    if (byteLength > 0x7fffffff) {
+      throw new BridgeServerError(
+        'Warehouse UTF-8 column exceeds Arrow limits.',
+        'result_limit',
+        502,
+      );
+    }
+    valueOffsets[index + 1] = byteLength;
+  }
+
+  const data = new Uint8Array(byteLength);
+  const nullBitmap = nullCount > 0 ? new Uint8Array(Math.ceil(values.length / 8)) : null;
+  let offset = 0;
+  for (let index = 0; index < encoded.length; index++) {
+    const bytes = encoded[index] ?? null;
+    if (bytes !== null) {
+      data.set(bytes, offset);
+      offset += bytes.byteLength;
+      if (nullBitmap) {
+        const bitmapIndex = index >> 3;
+        nullBitmap[bitmapIndex] = (nullBitmap[bitmapIndex] ?? 0) | (1 << (index & 7));
+      }
+    }
+  }
+
+  return makeVector(
+    makeData({
+      type: new Utf8(),
+      length: values.length,
+      nullCount,
+      valueOffsets,
+      data,
+      ...(nullBitmap ? { nullBitmap } : {}),
+    }),
+  );
 }

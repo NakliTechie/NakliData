@@ -17,7 +17,7 @@ const allowedObject = (source: string): BridgeAllowedObject => ({
 });
 
 describe('packaged vendor backends', () => {
-  it('assembles Databricks Arrow and keeps credentials off signed links', async () => {
+  it('assembles Databricks Arrow without forwarding authorization to signed links', async () => {
     const arrow = tableToIPC(tableFromArrays({ order_id: [1, 2] }), 'stream');
     const calls: { url: string; init: RequestInit }[] = [];
     const fetchImpl = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -25,7 +25,7 @@ describe('packaged vendor backends', () => {
       calls.push({ url, init: init ?? {} });
       if (url.startsWith('https://signed.example/')) {
         return new Response(arrow, {
-          headers: { 'content-type': 'application/vnd.apache.arrow.stream' },
+          headers: { 'content-type': 'binary/octet-stream' },
         });
       }
       return new Response(
@@ -85,7 +85,8 @@ describe('packaged vendor backends', () => {
     );
     const signed = calls.find((call) => call.url.startsWith('https://signed.example/'));
     expect(signed?.init.headers).not.toHaveProperty('Authorization');
-    expect((signed?.init as RequestInit & { credentials?: string }).credentials).toBe('omit');
+    expect(signed?.init).not.toHaveProperty('credentials');
+    expect(signed?.init.redirect).toBe('manual');
   });
 
   it('encodes a complete Snowflake JSONv2 result as deterministic Arrow', async () => {

@@ -150,8 +150,8 @@ describe('DatabricksStatementAdapter', () => {
     expect(signedCalls).toHaveLength(2);
     for (const call of signedCalls) {
       expect(call.init.headers).not.toHaveProperty('Authorization');
-      expect(call.init.credentials).toBe('omit');
-      expect(call.init.redirect).toBe('error');
+      expect(call.init).not.toHaveProperty('credentials');
+      expect(call.init.redirect).toBe('manual');
     }
     expect(calls.find((call) => call.url.includes('/result/chunks/1'))?.init.headers).toMatchObject(
       {

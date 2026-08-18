@@ -2,6 +2,47 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Live warehouse Worker compatibility boundary (FX)
+
+### Decision FX-1 — accept only observed bounded Arrow wire variants
+
+- **Context.** The Databricks live Statement Execution result used
+  `binary/octet-stream`. Workerd also surfaced an opaque `TypeError` for the
+  signed-link request under `redirect: "error"`. Snowflake's live JSONv2 path
+  reached Apache Arrow runtime string compilation, which Workerd forbids.
+- **Decision.** Add `binary/octet-stream` to the bounded Arrow media-type
+  allowlist. Use manual redirect mode so every 3xx remains a non-OK response.
+  Continue omitting workspace authorization from signed links. Replace
+  `vectorFromArray` with explicit UTF-8 offsets, bytes, validity bitmaps, and
+  Arrow data construction.
+- **Consequence.** Both observed vendor reads cross the Worker without eval or
+  credential forwarding. Other media types, redirects, oversize results, and
+  malformed vectors remain rejected.
+
+### Decision FX-2 — partial live evidence cannot enable a branded card
+
+- **Context.** Both vendors returned bounded live rows, but neither session
+  exercised every failure, pagination, and credential-lifecycle branch in its
+  release matrix.
+- **Decision.** Keep checked-in bridge environments `unconfigured`. Keep both
+  branded cards unavailable. Record each passed and open case independently in
+  `docs/warehouse-live-matrix-2026-08-18.md`.
+- **Consequence.** Databricks SQL Warehouse evidence does not imply Unity
+  Catalog support. Snowflake Virtual Warehouse evidence does not imply Open
+  Catalog/Polaris support. Catalog matrices remain a separate release train.
+
+### Decision FX-3 — revoke trial identities without deleting reusable shells
+
+- **Context.** Weekend follow-up needs reproducible least-privilege identities,
+  but active credentials and running compute are unnecessary between matrices.
+- **Decision.** Stop or suspend every warehouse. Deactivate the Databricks
+  service principal and delete its OAuth secret. Remove the Snowflake RSA key
+  and disable its service user. Retain the inactive identity and role shells for
+  a later short-lived credential rotation.
+- **Consequence.** A follow-up can reactivate the same scoped grants without
+  preserving a reusable secret. Already issued Databricks access tokens retain
+  their platform-defined lifetime, so local token copies must also be removed.
+
 ## 2026-08-18 — Standards interoperability release gate (FW)
 
 ### Decision FW-1 — use a pinned external cross-tool matrix without runtime dependencies

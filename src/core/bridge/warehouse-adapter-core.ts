@@ -232,6 +232,7 @@ export async function boundedArrowBytes(response: Response, maxBytes: number): P
     requireContentType(response, [
       'application/vnd.apache.arrow.stream',
       'application/octet-stream',
+      'binary/octet-stream',
     ]);
     return await readBoundedBytes(response, maxBytes);
   } catch (error) {

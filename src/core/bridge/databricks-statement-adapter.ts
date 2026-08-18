@@ -314,16 +314,14 @@ export class DatabricksStatementAdapter {
         const externalUrl = httpsExternalUrl(
           stringValue(link.external_link, 'Databricks external link.external_link'),
         );
-        // Browsers understand `credentials`; Workers have no ambient cookie
-        // jar and omit the field from their RequestInit type. Keeping the
-        // explicit browser directive on a typed variable preserves the
-        // cross-runtime no-credential contract without an excess-property
-        // failure under generated Worker types.
-        const externalRequest: RequestInit & { credentials: 'omit' } = {
+        // Signed result URLs carry their own capability. Do not forward the
+        // Databricks bearer header. Workers have no ambient cookie jar.
+        // Manual redirects keep 3xx responses observable and rejectable via
+        // the non-OK response branch instead of workerd's opaque TypeError.
+        const externalRequest: RequestInit = {
           method: 'GET',
           headers: { Accept: 'application/vnd.apache.arrow.stream' },
-          credentials: 'omit',
-          redirect: 'error',
+          redirect: 'manual',
         };
         const response = await fetchWithDeadline(
           this.fetchImpl,
