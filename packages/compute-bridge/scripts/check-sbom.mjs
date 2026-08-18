@@ -13,6 +13,7 @@ if (sbom.bomFormat !== 'CycloneDX' || !Array.isArray(sbom.components)) {
 }
 const names = new Set(sbom.components.map((component) => component?.name).filter(Boolean));
 for (const dependency of ['apache-arrow', 'node-sql-parser']) {
-  if (!names.has(dependency)) throw new Error(`SBOM is missing production dependency ${dependency}.`);
+  if (!names.has(dependency))
+    throw new Error(`SBOM is missing production dependency ${dependency}.`);
 }
 console.log(`[compute-bridge-sbom] CycloneDX inventory contains ${names.size} named components`);

@@ -2,6 +2,44 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Databricks live-matrix follow-up and unified budgets (GE)
+
+### Decision GE-1 — track a privacy-redacted live runner and retain provider evidence separately
+
+- **Context.** The first warehouse matrix relied on ad hoc commands. Client
+  abort alone cannot establish a vendor terminal state.
+- **Decision.** Keep `scripts/live-matrix.mjs` as the repeatable bridge probe.
+  Emit only counts, byte totals, classifications, and privacy flags. Record
+  provider chunk counts and terminal states through query history without SQL,
+  signed links, credentials, or row values.
+- **Consequence.** Fixture tests cover baseline, expected-error, disconnect,
+  recovery, and output redaction. A live release claim still requires the
+  matching provider-side evidence record.
+
+### Decision GE-2 — one runtime budget governs the response layer and vendor adapters
+
+- **Context.** A 1 MiB live bridge ceiling returned `result_limit` only after
+  the Databricks adapter used its larger default fetch allowance.
+- **Decision.** Parse runtime configuration once. Pass `MAX_RESULT_BYTES` and
+  `MAX_QUERY_MILLISECONDS` into both vendor factories as their result and
+  request ceilings.
+- **Consequence.** A deployment cannot advertise a smaller response budget
+  while allowing the vendor adapter to fetch against a larger default. The
+  Databricks request-body fixture asserts the propagated `byte_limit`.
+
+### Decision GE-3 — multi-chunk evidence does not unlock the branded card
+
+- **Context.** Databricks returned 600,000 requested rows across three chunks,
+  and a real client abort reached terminal `FINISHED` with bounded recovery.
+  Expired-token and induced-throttle classifications remain absent.
+- **Decision.** Close multi-chunk, cumulative-limit, and terminal-disconnect
+  evidence. Keep the Databricks card unavailable until expiry, throttling, and
+  the post-wiring live limit rerun are recorded. Treat provider `CANCELED` on a
+  real disconnect as a stronger optional gate unless the release claim names
+  that outcome.
+- **Consequence.** The workplan narrows without overstating cancellation or
+  credential-lifecycle coverage.
+
 ## 2026-08-18 — WebR package and generated-runtime migration (GD)
 
 ### Decision GD-1 — pin `webr@0.6.0` and vendor its browser distribution

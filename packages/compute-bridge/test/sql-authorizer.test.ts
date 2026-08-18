@@ -28,6 +28,19 @@ describe('parsed warehouse SQL authorizer', () => {
     expect(authorizer.authorize('SELECT order_id FROM main.analytics.orders').allowed).toBe(false);
   });
 
+  it('accepts a Databricks self cross join when every reference is allowlisted', () => {
+    const authorizer = createParsedReadAuthorizer({
+      dialect: 'databricks',
+      allowedTables: ['bakehouse.sales_transactions'],
+    });
+
+    expect(
+      authorizer.authorize(
+        'SELECT left_side.* FROM bakehouse.sales_transactions left_side CROSS JOIN bakehouse.sales_transactions middle_side CROSS JOIN bakehouse.sales_transactions right_side ORDER BY 1',
+      ),
+    ).toEqual({ allowed: true });
+  });
+
   it('rejects writes, multiple statements, SELECT INTO, external reads, stages, and unknown tables', () => {
     const authorizer = createParsedReadAuthorizer({
       dialect: 'snowflake',

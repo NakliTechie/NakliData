@@ -69,6 +69,23 @@ command argument.
 configuration, Worker secret creation, and any billable resource require
 separate authorization.
 
+## Live matrix runner
+
+`npm run live:matrix` exercises a configured local or deployed bridge without
+printing SQL, secrets, signed links, object contents, or row values. It checks
+health, readiness, inventory, table and direct Arrow reads, row/header
+consistency, byte bounds, optional expected-error classification, and optional
+client-disconnect recovery.
+
+Supply the runner's `BRIDGE_LIVE_*` variables through a mode-600 environment
+file or a secret manager. Never place them in source control or command
+arguments. `BRIDGE_LIVE_URL` requires HTTPS except for loopback HTTP. The
+fixture suite runs under `npm test`; it does not contact either vendor.
+
+The runner proves the bridge-visible client abort. Record the vendor statement
+identifier and terminal state separately through the provider's query history.
+Do not infer vendor cancellation from the client abort alone.
+
 ## Routes
 
 - `GET /v1/health` — protocol negotiation and capability disclosure.

@@ -77,6 +77,27 @@ only. It does not create a Worker or contact a warehouse.
 Probe responses never include origin secrets, warehouse credentials, SQL,
 object identifiers, signed links, rows, or vendor error bodies.
 
+## Vendor live matrix
+
+Run `npm run live:matrix` only after documenting the exact provider profile,
+read-only identity, allowlisted objects, trial or cost ceiling, and teardown
+owner. Provide `BRIDGE_LIVE_*` settings through a mode-600 environment file.
+The command emits counts, byte totals, classifications, and privacy flags only.
+
+Capture these independent evidence units before enabling a branded adapter:
+
+1. health, readiness, inventory, table read, and direct read;
+2. Arrow row/header agreement and a provider-confirmed multi-chunk result;
+3. local and provider-side write denial;
+4. client abort, bounded recovery, and provider terminal state;
+5. result, request, row, and deadline boundaries;
+6. expired credential and provider throttling classifications;
+7. credential removal, identity deactivation, and stopped compute.
+
+The runtime `MAX_RESULT_BYTES` and `MAX_QUERY_MILLISECONDS` values also bound
+vendor adapter fetches. A smaller server ceiling must not wait for a larger
+adapter default before rejecting a response.
+
 ## Deployment and rollback
 
 No deployment is authorized by this package. After separate authorization,

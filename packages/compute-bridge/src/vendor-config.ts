@@ -6,7 +6,12 @@ import {
   createSnowflakeBackend,
 } from './vendor-backends.ts';
 
-export function backendFromEnvironment(env: Env) {
+export interface VendorRuntimeBounds {
+  maxResultBytes: number;
+  requestTimeoutMs: number;
+}
+
+export function backendFromEnvironment(env: Env, bounds: VendorRuntimeBounds) {
   const adapterId: string = env.BRIDGE_ADAPTER;
   if (adapterId === 'unconfigured') return null;
   if (adapterId !== 'databricks-sql-warehouse' && adapterId !== 'snowflake-virtual-warehouse') {
@@ -22,6 +27,8 @@ export function backendFromEnvironment(env: Env) {
       bearerToken: secretValue(env.DATABRICKS_TOKEN, 'DATABRICKS_TOKEN'),
       allowedObjects,
       readOnlyIdentityVerified,
+      maxResultBytes: bounds.maxResultBytes,
+      requestTimeoutMs: bounds.requestTimeoutMs,
       ...optionalStringProperty(config, 'catalog'),
       ...optionalStringProperty(config, 'schema'),
     });
@@ -37,6 +44,8 @@ export function backendFromEnvironment(env: Env) {
       tokenType: tokenType as 'KEYPAIR_JWT' | 'OAUTH' | 'PROGRAMMATIC_ACCESS_TOKEN',
       allowedObjects,
       readOnlyIdentityVerified,
+      maxResultBytes: bounds.maxResultBytes,
+      requestTimeoutMs: bounds.requestTimeoutMs,
       ...optionalStringProperty(config, 'warehouse'),
       ...optionalStringProperty(config, 'database'),
       ...optionalStringProperty(config, 'schema'),

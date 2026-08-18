@@ -68,6 +68,7 @@ describe('packaged vendor backends', () => {
       bearerToken: 'fixture.databricks.token',
       allowedObjects: [allowedObject('databricks')],
       readOnlyIdentityVerified: true,
+      maxResultBytes: 1024,
       fetchImpl,
     });
 
@@ -83,6 +84,7 @@ describe('packaged vendor backends', () => {
     expect(JSON.parse(String(calls[0]?.init.body)).statement).toBe(
       'SELECT * FROM main.analytics.orders',
     );
+    expect(JSON.parse(String(calls[0]?.init.body)).byte_limit).toBe(1024);
     const signed = calls.find((call) => call.url.startsWith('https://signed.example/'));
     expect(signed?.init.headers).not.toHaveProperty('Authorization');
     expect(signed?.init).not.toHaveProperty('credentials');

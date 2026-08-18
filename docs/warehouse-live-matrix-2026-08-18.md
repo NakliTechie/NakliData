@@ -50,14 +50,44 @@ Live defects found and repaired:
    now accepts that observed media type alongside the two existing Arrow media
    types.
 
+Follow-up evidence — 2026-08-19:
+
+- A fresh one-day OAuth secret produced a session-only token. The secret was
+  deleted after the follow-up, and the service principal was deactivated.
+- The tracked live-matrix runner passed health, readiness, one-object
+  inventory, table query, direct query, Arrow decoding, header/row agreement,
+  and privacy-redacted output through local Workerd.
+- The base fixture returned 3,333 rows and 312,552 assembled Arrow bytes.
+- A bounded allowlisted self-join returned 600,000 rows and 56,139,568
+  assembled Arrow bytes through the bridge. Databricks statement
+  `01f19b36-f2f0-1685-b040-ff31a394c3ff` reported 56,904,424 result bytes,
+  three advertised chunks, and terminal `SUCCEEDED`. The manifest was
+  truncated at the requested 600,000-row boundary.
+- A local bridge configured with a 1 MiB result ceiling returned HTTP 502 with
+  `result_limit` for a bounded 100,000-row request.
+- A real client abort at 500 ms was followed by a successful 3,333-row recovery
+  query. The interrupted Databricks statement reached terminal `FINISHED`
+  after 2,157 ms; this run proves terminal cleanup but not a vendor `CANCELED`
+  outcome for the disconnect path.
+- The follow-up exposed that the response layer enforced `MAX_RESULT_BYTES`
+  after the vendor adapter used its larger default fetch cap. The runtime byte
+  and deadline ceilings now feed both vendor factories. Focused regression
+  coverage asserts the Databricks `byte_limit` value. This wiring change has
+  not received a second live run.
+- The warehouse displayed `Stopped` with zero active clusters after the run.
+  The service principal displayed no OAuth secrets and an inactive status.
+- The temporary credential directory was deleted. No token remains in the
+  live-runner process bindings.
+- Databricks still displayed `$38 remaining out of $40`; its balance timestamp
+  predated the follow-up by about three hours. No payment method was added.
+
 Remaining live gates:
 
-- multi-chunk external-link pagination;
-- a true client-disconnect path through the Worker to terminal vendor state;
 - expired-token classification after expiry;
 - an induced 429 throttle path;
-- a result large enough to exercise cumulative row and byte ceilings without
-  exceeding the approved trial budget.
+- a client-disconnect run whose provider terminal state is `CANCELED`, if that
+  stronger outcome remains a release requirement;
+- a second live result-limit probe after the runtime-to-adapter budget wiring.
 
 ## Snowflake Virtual Warehouse
 

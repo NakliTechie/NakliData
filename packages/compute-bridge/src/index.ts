@@ -4,9 +4,10 @@ import { createBridgeHandler } from './handler.ts';
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
+    const config = runtimeConfig(env);
     const handler = createBridgeHandler({
-      config: runtimeConfig(env),
-      backend: configuredBackend(env),
+      config,
+      backend: configuredBackend(env, config),
     });
     void ctx;
     return await handler.fetch(request);

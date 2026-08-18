@@ -1,4 +1,5 @@
 import type { BridgeBackend } from './backend.ts';
+import type { BridgeRuntimeConfig } from './config.ts';
 import { backendFromEnvironment } from './vendor-config.ts';
 
 /**
@@ -7,6 +8,12 @@ import { backendFromEnvironment } from './vendor-config.ts';
  * their live profiles pass. Until then every deployed environment is
  * deliberately unready and exposes no query capability.
  */
-export function configuredBackend(_env: Env): BridgeBackend | null {
-  return backendFromEnvironment(_env);
+export function configuredBackend(
+  env: Env,
+  config: Pick<BridgeRuntimeConfig, 'maxResultBytes' | 'maxQueryMilliseconds'>,
+): BridgeBackend | null {
+  return backendFromEnvironment(env, {
+    maxResultBytes: config.maxResultBytes,
+    requestTimeoutMs: config.maxQueryMilliseconds,
+  });
 }

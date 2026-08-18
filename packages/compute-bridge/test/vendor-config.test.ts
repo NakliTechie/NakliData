@@ -29,10 +29,11 @@ const allowedObject = {
   schema: [{ name: 'order_id', type: 'BIGINT' }],
 };
 const allowedObjects = [allowedObject];
+const runtimeBounds = { maxResultBytes: 33_554_432, requestTimeoutMs: 30_000 };
 
 describe('vendor environment factory', () => {
   it('returns no backend for the checked-in unconfigured profile', () => {
-    expect(backendFromEnvironment(environment())).toBeNull();
+    expect(backendFromEnvironment(environment(), runtimeBounds)).toBeNull();
   });
 
   it('parses Databricks configuration but keeps an unproven identity unready', async () => {
@@ -47,6 +48,7 @@ describe('vendor environment factory', () => {
           allowed_objects: allowedObjects,
         }),
       }),
+      runtimeBounds,
     );
     expect(backend?.id).toBe('databricks-sql-warehouse');
     expect(backend?.security.readOnlyIdentity).toBe(false);
@@ -68,6 +70,7 @@ describe('vendor environment factory', () => {
           BRIDGE_ADAPTER: 'snowflake-virtual-warehouse',
           BRIDGE_VENDOR_CONFIG_JSON: config,
         }),
+        runtimeBounds,
       ),
     ).toThrow('SNOWFLAKE_TOKEN secret is not configured');
     expect(
@@ -77,13 +80,14 @@ describe('vendor environment factory', () => {
           SNOWFLAKE_TOKEN: 'fixture.snowflake.token',
           BRIDGE_VENDOR_CONFIG_JSON: config,
         }),
+        runtimeBounds,
       )?.id,
     ).toBe('snowflake-virtual-warehouse');
   });
 
   it('rejects unknown adapters and malformed inventories', () => {
     expect(() =>
-      backendFromEnvironment(environment({ BRIDGE_ADAPTER: 'unknown-adapter' })),
+      backendFromEnvironment(environment({ BRIDGE_ADAPTER: 'unknown-adapter' }), runtimeBounds),
     ).toThrow('BRIDGE_ADAPTER is unsupported');
     expect(() =>
       backendFromEnvironment(
@@ -96,6 +100,7 @@ describe('vendor environment factory', () => {
             allowed_objects: [{ ...allowedObject, sql_name: 'orders; DROP TABLE users' }],
           }),
         }),
+        runtimeBounds,
       ),
     ).toThrow('two- or three-part unquoted identifiers');
   });
