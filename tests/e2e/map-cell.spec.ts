@@ -231,6 +231,7 @@ UNION ALL SELECT 100.0, 0.0, 'Invalid latitude'`,
     }, sqlId);
 
     const map = page.locator('.cell[data-cell-kind="map"]');
+    await expect(map).toBeVisible({ timeout: 15_000 });
     await expect(map.locator('[data-action="map-mode"]')).toHaveValue('coordinates');
     await expect(map.locator('[data-action="map-latitude"]')).toHaveValue('latitude');
     await expect(map.locator('[data-action="map-longitude"]')).toHaveValue('longitude');

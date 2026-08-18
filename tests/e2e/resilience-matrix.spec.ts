@@ -25,6 +25,7 @@ test.describe('browser resilience matrix', () => {
     context,
     page,
   }) => {
+    test.slow();
     test.skip(browserName !== 'chromium', 'Chromium CDP provides deterministic quota control.');
     const server = await startStaticServer();
     try {
@@ -43,12 +44,12 @@ test.describe('browser resilience matrix', () => {
       );
       await cdp.send('Storage.overrideQuotaForOrigin', {
         origin,
-        quotaSize: Math.ceil(usage) + 1_024,
+        quotaSize: Math.ceil(usage) + 4_096,
       });
 
       await page.click('[data-nb-action="add-sql"]');
       const pressureCell = page.locator('.cell[data-cell-kind="sql"]').last();
-      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(4 * 1024)}*/`);
+      await replaceEditorText(page, pressureCell, `SELECT 1 /*${'x'.repeat(16 * 1024)}*/`);
       await expect(page.locator('[data-region="storage-warning"]')).toBeVisible({
         timeout: 30_000,
       });

@@ -23,8 +23,8 @@ Append-only. Format per AGENTHANDOFF §5.
   engine, rendering, quota, and large-schema cases under the expanded matrix.
 - **Decision.** Define the fixture's final schema count once at 42 assignments
   and reuse that gate across snapshot-sensitive tests. Use one release-gate
-  browser worker. Preserve the 120-column scenario with a slow-test ceiling.
-  Exercise quota failure through 4 KiB of real key events against 1 KiB of
+  browser worker. Give the deliberate quota and 120-column scenarios slow-test ceilings.
+  Exercise quota failure through 16 KiB of real key events against 4 KiB of
   remaining storage.
 - **Consequence.** Snapshot comparisons begin from the same complete fixture.
   The release gate trades parallel speed for a bounded memory envelope without

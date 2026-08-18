@@ -89,8 +89,9 @@ test.describe('multi-session sidebar', () => {
       Array.from(document.querySelectorAll('.source-card strong')).map((n) => n.textContent ?? ''),
     );
     expect(restoredSources).toEqual(session1Sources);
-    const backName = await page.textContent('.session-switcher .session-trigger .session-name');
-    expect(backName?.trim()).toBe('Untitled');
+    await expect(page.locator('.session-switcher .session-trigger .session-name')).toHaveText(
+      'Untitled',
+    );
 
     await context.close();
     await server.close();
