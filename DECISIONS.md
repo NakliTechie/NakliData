@@ -45,10 +45,11 @@ Append-only. Format per AGENTHANDOFF §5.
 - **Context.** Databricks HTTP 401, 403, and 429 responses all became generic
   bridge errors. That prevented the expiry and throttle matrix from asserting
   distinct outcomes.
-- **Decision.** Map Databricks 401 to `credential_rejected`, 403 to
-  `authorization_denied`, and 429 to `rate_limited`. Preserve those codes as
-  bridge HTTP 401, 403, and 429 responses. Redact vendor messages and URLs.
-- **Consequence.** Live expiry and throttle probes can assert stable,
+- **Decision.** Map vendor 401 to `credential_rejected` and 403 to
+  `authorization_denied`. Preserve Databricks and Snowflake 429 handling as
+  `rate_limited`. Return bridge HTTP 401, 403, and 429 responses. Redact vendor
+  messages and URLs.
+- **Consequence.** Both live expiry and throttle probes can assert stable,
   secret-free classifications. Unit and live-runner fixtures cover both paths;
   provider evidence remains open.
 

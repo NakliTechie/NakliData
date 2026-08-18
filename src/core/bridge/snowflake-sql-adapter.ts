@@ -228,11 +228,17 @@ export class SnowflakeSqlAdapter {
           );
         }
         if (!PENDING_HTTP_STATUSES.has(response.status)) {
+          const code =
+            response.status === 401
+              ? 'credential_rejected'
+              : response.status === 403
+                ? 'authorization_denied'
+                : 'vendor_error';
           throw vendorFailure(
             body,
             response.status,
             `Snowflake SQL API returned HTTP ${response.status}.`,
-            'vendor_error',
+            code,
             [this.token],
           );
         }

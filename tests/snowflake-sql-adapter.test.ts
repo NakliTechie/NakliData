@@ -356,6 +356,21 @@ describe('SnowflakeSqlAdapter', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    [401, 'credential_rejected'],
+    [403, 'authorization_denied'],
+  ])('classifies Snowflake HTTP %i without reflecting vendor details', async (status, code) => {
+    const fetchImpl = vi.fn(async () =>
+      json({ message: 'secret.token failed at https://private.example/query' }, status),
+    ) as typeof fetch;
+    const error = await adapter(fetchImpl)
+      .execute({ sql: 'SELECT 1' })
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({ code, status });
+    expect(String(error)).not.toContain('secret.token');
+    expect(String(error)).not.toContain('private.example');
+  });
+
   it('redacts Snowflake errors and omits credentials from serialization', async () => {
     const fetchImpl = vi.fn(async () =>
       json(

@@ -130,6 +130,14 @@ Live defect found and repaired:
    explicit offsets, bytes, validity bitmaps, and Arrow data objects without
    runtime code generation.
 
+Local follow-up — 2026-08-19:
+
+- Snowflake HTTP 401 and 403 responses now retain redacted
+  `credential_rejected` and `authorization_denied` classifications through the
+  bridge. Existing HTTP 408 `timeout` and handle-free HTTP 429 `rate_limited`
+  paths remain distinct. Provider-side expiry and throttle evidence remains
+  absent.
+
 Remaining live gates:
 
 - an asynchronous statement that requires status polling;
