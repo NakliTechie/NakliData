@@ -118,9 +118,10 @@ describe('local-model seam (W3.2 slice A)', () => {
   });
 
   it('routes recommend-reports through the local generator too', async () => {
-    registerLocalGenerator(async () =>
-      JSON.stringify({ recommendations: [{ template_id: 'ar_aging', score: 0.8 }] }),
-    );
+    registerLocalGenerator(async (request) => {
+      expect(request.maxTokens).toBe(16);
+      return '7';
+    });
     const result = await dispatchJob(
       {
         kind: 'recommend-reports',
@@ -132,5 +133,31 @@ describe('local-model seam (W3.2 slice A)', () => {
     expect(result.kind).toBe('recommend-reports');
     if (result.kind !== 'recommend-reports') return;
     expect(result.recommendations[0]?.templateId).toBe('ar_aging');
+    expect(result.recommendations[0]?.score).toBeCloseTo(7 / 9);
+  });
+
+  it('drops invalid local scores and returns the top three candidates', async () => {
+    let calls = 0;
+    registerLocalGenerator(async (request) => {
+      calls += 1;
+      if (request.user.includes('Template id: a')) return '4';
+      if (request.user.includes('Template id: b')) return '9/9';
+      if (request.user.includes('Template id: c')) return 'not a digit';
+      if (request.user.includes('Template id: d')) return '7.';
+      return '1';
+    });
+    const candidates = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((templateId) => ({
+      templateId,
+      name: templateId,
+      description: `${templateId} report`,
+    }));
+    const result = await dispatchJob(
+      { kind: 'recommend-reports', candidates, typeSummary: 'orders: amount' },
+      { provider: 'local', model: 'm' },
+    );
+    expect(result.kind).toBe('recommend-reports');
+    if (result.kind !== 'recommend-reports') return;
+    expect(result.recommendations.map((item) => item.templateId)).toEqual(['b', 'd', 'a']);
+    expect(calls).toBe(8);
   });
 });

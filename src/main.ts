@@ -2353,6 +2353,7 @@ function wireActions(root: HTMLElement): void {
         'compare-tables',
         'export-data-dictionary',
         'classify-all-unknowns',
+        'rank-reports',
         'instantiate',
         'cell-run',
         'cell-delete',

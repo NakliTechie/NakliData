@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Bounded local report scoring (GL)
+
+### Decision GL-1 — score report candidates independently on small local models
+
+- **Context.** The cached Qwen2.5-0.5B model returned valid five-item report
+  rankings in two of three physical runs. The third response contained
+  malformed JSON. A shorter three-item JSON prompt then failed twice, once
+  without an object and once with a trailing comma.
+- **Decision.** Keep cloud providers on one compact JSON response with at most
+  three recommendations and a 192-token cap. For the local provider, score
+  up to eight allowlisted candidates sequentially with a 16-token, digit-only
+  prompt, discard invalid digits, sort successful scores, and return at most three.
+  Continue to send only template metadata and column-type summaries.
+- **Consequence.** Three consecutive physical Chrome runs returned the same
+  three report rankings and scores. The main action dispatcher also recognizes
+  `rank-reports` as component-owned, removing its spurious unknown-action
+  warning. Other structured jobs and larger-model evidence remain experimental.
+
 ## 2026-08-19 — Local pipeline ownership serialization (GK)
 
 ### Decision GK-1 — serialize model construction, switching, and disposal

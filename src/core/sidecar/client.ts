@@ -184,9 +184,10 @@ export async function dispatchJob(
     return parseDefineTypeResponse(await sendPrompt(system, user, opts));
   }
   if (safeJob.kind === 'recommend-reports') {
+    if (opts.provider === 'local') return rankReportsLocally(safeJob, opts);
     const { system, user } = buildRecommendReportsPrompt(safeJob);
     return parseRecommendReportsResponse(
-      await sendPrompt(system, user, opts),
+      await sendPrompt(system, user, opts, 192),
       safeJob.candidates.map((c) => c.templateId),
     );
   }
@@ -566,7 +567,8 @@ Hard rules:
 - Output ONLY the JSON object. No markdown code fences. No commentary, no prose justification.
 - Use ONLY template_ids that appear in the candidate list. Never invent an id.
 - "score" is your confidence the template is a good fit (1.0 = perfect, 0.0 = poor), a number between 0 and 1.
-- Rank highest-fit first. You may omit candidates you think are poor fits, or include them with a low score.`;
+- Return at most 3 recommendations, ranked highest-fit first.
+- Keep the JSON on one line. Omit poor-fit candidates instead of scoring every candidate.`;
 
 export function buildRecommendReportsPrompt(job: RecommendReportsJob): {
   system: string;
@@ -583,6 +585,37 @@ export function buildRecommendReportsPrompt(job: RecommendReportsJob): {
     candidatesBlock,
   ].join('\n');
   return { system: RECOMMEND_REPORTS_SYSTEM, user };
+}
+
+async function rankReportsLocally(
+  job: RecommendReportsJob,
+  opts: SidecarDispatchOpts,
+): Promise<RecommendReportsResponse> {
+  const recommendations: Array<{ templateId: string; score: number }> = [];
+  // Small local models trade one large, fragile JSON generation for bounded
+  // independent classifiers. Eight candidates keeps the sequential path
+  // finite; remaining applicable templates stay visible as unranked cards.
+  for (const candidate of job.candidates.slice(0, 8)) {
+    const raw = await sendPrompt(
+      'Score one report template against the available column types. Return one digit from 0 to 9, where 9 is the strongest fit. Output only the digit.',
+      [
+        `Available column types: ${job.typeSummary}`,
+        `Template id: ${candidate.templateId}`,
+        `Template name: ${candidate.name}`,
+        `Template description: ${candidate.description}`,
+      ].join('\n'),
+      opts,
+      16,
+    );
+    const match = raw.trim().match(/^([0-9])(?:\s*\/\s*9)?[.]?$/);
+    if (!match?.[1]) continue;
+    recommendations.push({ templateId: candidate.templateId, score: Number(match[1]) / 9 });
+  }
+  if (recommendations.length === 0) {
+    throw new SidecarError('Local model returned no usable report scores.', 'parse');
+  }
+  recommendations.sort((a, b) => b.score - a.score);
+  return { kind: 'recommend-reports', recommendations: recommendations.slice(0, 3) };
 }
 
 export function parseRecommendReportsResponse(
@@ -616,7 +649,7 @@ export function parseRecommendReportsResponse(
     seen.add(templateId);
   }
   recommendations.sort((a, b) => b.score - a.score);
-  return { kind: 'recommend-reports', recommendations };
+  return { kind: 'recommend-reports', recommendations: recommendations.slice(0, 3) };
 }
 
 // ---- summarise-result (Job 6 / Wave 5 W5.2) prompt + parser ---------

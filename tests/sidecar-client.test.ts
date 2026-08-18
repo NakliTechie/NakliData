@@ -447,6 +447,8 @@ describe('buildRecommendReportsPrompt', () => {
       typeSummary: 'invoices: gstin, amount',
     });
     expect(system).toMatch(/ONLY template_ids/i);
+    expect(system).toContain('at most 3 recommendations');
+    expect(system).toContain('one line');
     expect(user).toContain('vendor_concentration');
     expect(user).toContain('invoices: gstin, amount');
   });
@@ -504,6 +506,15 @@ describe('parseRecommendReportsResponse', () => {
     expect(r.recommendations[0]?.score).toBe(0.8);
   });
 
+  it('caps accepted recommendations at three', () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    const raw = JSON.stringify({
+      recommendations: ids.map((template_id, index) => ({ template_id, score: 1 - index / 10 })),
+    });
+    const r = parseRecommendReportsResponse(raw, ids);
+    expect(r.recommendations.map((item) => item.templateId)).toEqual(['a', 'b', 'c']);
+  });
+
   it('strips code fences', () => {
     const raw = '```json\n{"recommendations":[{"template_id":"gst_recon","score":0.7}]}\n```';
     const r = parseRecommendReportsResponse(raw, CANDIDATE_IDS);
@@ -526,10 +537,14 @@ describe('parseRecommendReportsResponse', () => {
 });
 
 describe('dispatchJob — recommend-reports', () => {
-  it('routes to the recommend-reports parser', async () => {
+  it('routes to the parser with the compact response budget', async () => {
     _idb.set('sidecar/byok/openai', 'sk-openai-stub');
-    const transport: SidecarTransport = async () =>
-      JSON.stringify({ recommendations: [{ template_id: 'vendor_concentration', score: 0.9 }] });
+    const transport: SidecarTransport = async (request) => {
+      expect(request.maxTokens).toBe(192);
+      return JSON.stringify({
+        recommendations: [{ template_id: 'vendor_concentration', score: 0.9 }],
+      });
+    };
     const result = await dispatchJob(
       { kind: 'recommend-reports', candidates: REPORT_CANDIDATES, typeSummary: 'invoices: amount' },
       { provider: 'openai', model: 'gpt-4o-mini', transport },
