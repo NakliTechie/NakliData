@@ -183,13 +183,49 @@ function configureEnv(): void {
 let _activePipeline: TextGenerationPipeline | null = null;
 let _activeModelId: string | null = null;
 let _activeDevice: 'webgpu' | 'wasm' | null = null;
-// In-flight pipeline promise — memoised so parallel `loadPipeline`
-// calls (boot auto-load racing a user click in Settings) await the
-// same construction, not two independent ones that each spin up an
-// onnxruntime session and leak the loser's WASM heap.
-// (Adversarial-review MEDIUM finding, 2026-06-03.)
-let _pendingPipelinePromise: Promise<TextGenerationPipeline> | null = null;
-let _pendingPipelineModelId: string | null = null;
+// Pipeline construction and disposal share one ownership queue. A plain
+// "pending promise" is not sufficient: two different-model callers can both
+// await the same load, resume together, and dispose/build concurrently. The
+// queue makes every ownership transition exclusive, while the per-model map
+// still deduplicates identical concurrent requests.
+let _pipelineQueue: Promise<void> = Promise.resolve();
+let _queuedPipelineOperations = 0;
+let _pipelineEpoch = 0;
+const _pendingPipelines = new Map<
+  string,
+  { epoch: number; promise: Promise<TextGenerationPipeline> }
+>();
+
+function enqueuePipelineOperation<T>(operation: () => Promise<T>): Promise<T> {
+  _queuedPipelineOperations += 1;
+  const result = _pipelineQueue.then(operation);
+  _pipelineQueue = result.then(
+    () => {
+      _queuedPipelineOperations -= 1;
+    },
+    () => {
+      _queuedPipelineOperations -= 1;
+    },
+  );
+  return result;
+}
+
+function cancelledLoadError(): Error {
+  return new Error('Local model load was cancelled before it became active.');
+}
+
+async function disposeOnePipeline(pipe: TextGenerationPipeline): Promise<void> {
+  // biome-ignore lint/suspicious/noExplicitAny: dispose() exists on pipelines but isn't on the public Pipeline type
+  await (pipe as any).dispose?.();
+}
+
+async function disposeActivePipeline(): Promise<void> {
+  const pipe = _activePipeline;
+  _activePipeline = null;
+  _activeModelId = null;
+  _activeDevice = null;
+  if (pipe) await disposeOnePipeline(pipe);
+}
 
 /**
  * Progress callback shape Transformers.js emits during model file
@@ -227,80 +263,68 @@ export async function loadPipeline(
       'OPFS is not available in this browser — local model caching requires Origin Private File System support.',
     );
   }
-  if (_activePipeline && _activeModelId === modelId) {
+  const requestEpoch = _pipelineEpoch;
+  const pending = _pendingPipelines.get(modelId);
+  if (pending?.epoch === requestEpoch) return pending.promise;
+  if (_activePipeline && _activeModelId === modelId && _queuedPipelineOperations === 0) {
     return _activePipeline;
   }
-  // Adversarial-review codex P2 (2026-06-03): if another caller is
-  // mid-construction (same OR different model), serialise — don't
-  // race. Same-model concurrent callers share the in-flight promise.
-  // Different-model callers wait for the current one to finish before
-  // starting (which then disposes the previous and builds anew).
-  // Without serialisation the second model's pipeline can race the
-  // first's resolution and leave `_activePipeline` pointing at the
-  // wrong model, leaking the loser's onnxruntime session.
-  if (_pendingPipelinePromise) {
-    if (_pendingPipelineModelId === modelId) {
-      return _pendingPipelinePromise;
-    }
-    // Different model in flight — chain after it. We don't care
-    // whether the prior call resolved or rejected; either way we
-    // proceed to build OUR model on a clean slate.
+  const promise = enqueuePipelineOperation(async () => {
+    if (requestEpoch !== _pipelineEpoch) throw cancelledLoadError();
+    if (_activePipeline && _activeModelId === modelId) return _activePipeline;
+    if (_activePipeline) await disposeActivePipeline();
+
+    configureEnv();
+    // Prefer WebGPU when the browser exposes a usable adapter. The wasm32
+    // runtime can't allocate the ~1.5-2 GB q4 weights of the 1-2B models and
+    // throws `std::bad_alloc` on session creation (slice-B validation
+    // 2026-06-13, DECISIONS AT); WebGPU offloads the weights to GPU memory
+    // and sidesteps the wasm-heap ceiling. Falls back to wasm where WebGPU is
+    // absent (smaller models can still load there).
+    const device = await pickLocalDevice();
+    if (requestEpoch !== _pipelineEpoch) throw cancelledLoadError();
     try {
-      await _pendingPipelinePromise;
-    } catch {
-      /* ignore — prior caller surfaces its own error */
+      const pipe = await pipeline('text-generation', modelId, {
+        // Hugging Face's published Qwen2.5-0.5B WebGPU recipe uses q4. Larger
+        // WebGPU-only models retain q4f16 to reduce their activation working set.
+        dtype: localModelDtype(modelId, device),
+        device,
+        ...(onProgress ? { progress_callback: onProgress } : {}),
+      });
+      if (requestEpoch !== _pipelineEpoch) {
+        await disposeOnePipeline(pipe);
+        throw cancelledLoadError();
+      }
+      _activePipeline = pipe;
+      _activeModelId = modelId;
+      _activeDevice = device;
+      return pipe;
+    } catch (err) {
+      if (requestEpoch !== _pipelineEpoch) throw cancelledLoadError();
+      // Graceful OOM handling — a raw `std::bad_alloc` / "Can't create a
+      // session" is opaque. Surface what actually went wrong + the fix.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/bad_alloc|create a session|out of memory|allocation failed/i.test(msg)) {
+        throw new Error(
+          device === 'wasm'
+            ? `Couldn't load "${modelId}" — out of memory on the CPU (wasm) runtime. This model is too large for wasm; open in a browser with WebGPU, or pick a smaller model.`
+            : `Couldn't load "${modelId}" — GPU out of memory. Try a smaller model or free up GPU memory.`,
+        );
+      }
+      throw err;
     }
-  }
-  if (_activePipeline) {
-    // Different model than what's loaded — dispose first so memory
-    // doesn't compound. Transformers.js's dispose() releases the
-    // backing onnxruntime session.
-    await disposePipeline();
-  }
-  configureEnv();
-  // Prefer WebGPU when the browser exposes a usable adapter. The wasm32
-  // runtime can't allocate the ~1.5-2 GB q4 weights of the 1-2B models and
-  // throws `std::bad_alloc` on session creation (slice-B validation
-  // 2026-06-13, DECISIONS AT); WebGPU offloads the weights to GPU memory
-  // and sidesteps the wasm-heap ceiling. Falls back to wasm where WebGPU is
-  // absent (smaller models can still load there).
-  const device = await pickLocalDevice();
-  const promise = pipeline('text-generation', modelId, {
-    // Hugging Face's published Qwen2.5-0.5B WebGPU recipe uses q4. Larger
-    // WebGPU-only models retain q4f16 to reduce their activation working set.
-    dtype: localModelDtype(modelId, device),
-    device,
-    ...(onProgress ? { progress_callback: onProgress } : {}),
   });
-  _pendingPipelinePromise = promise;
-  _pendingPipelineModelId = modelId;
-  try {
-    const pipe = await promise;
-    _activePipeline = pipe;
-    _activeModelId = modelId;
-    _activeDevice = device;
-    return pipe;
-  } catch (err) {
-    // Graceful OOM handling — a raw `std::bad_alloc` / "Can't create a
-    // session" is opaque. Surface what actually went wrong + the fix.
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/bad_alloc|create a session|out of memory|allocation failed/i.test(msg)) {
-      throw new Error(
-        device === 'wasm'
-          ? `Couldn't load "${modelId}" — out of memory on the CPU (wasm) runtime. This model is too large for wasm; open in a browser with WebGPU, or pick a smaller model.`
-          : `Couldn't load "${modelId}" — GPU out of memory. Try a smaller model or free up GPU memory.`,
-      );
-    }
-    throw err;
-  } finally {
-    // Only clear the pending slot if WE own it — a concurrent switch
-    // may have overwritten it; clearing in that case would orphan
-    // the new construction's race-guard.
-    if (_pendingPipelinePromise === promise) {
-      _pendingPipelinePromise = null;
-      _pendingPipelineModelId = null;
-    }
-  }
+  const record = { epoch: requestEpoch, promise };
+  _pendingPipelines.set(modelId, record);
+  void promise.then(
+    () => {
+      if (_pendingPipelines.get(modelId) === record) _pendingPipelines.delete(modelId);
+    },
+    () => {
+      if (_pendingPipelines.get(modelId) === record) _pendingPipelines.delete(modelId);
+    },
+  );
+  return promise;
 }
 
 /**
@@ -336,18 +360,21 @@ export function localModelWeightFilename(modelId: string, device: 'webgpu' | 'wa
  * cache delete / explicit unload.
  */
 export async function disposePipeline(): Promise<void> {
-  if (_activePipeline) {
-    // biome-ignore lint/suspicious/noExplicitAny: dispose() exists on pipelines but isn't on the public Pipeline type
-    await (_activePipeline as any).dispose?.();
-    _activePipeline = null;
-    _activeModelId = null;
-    _activeDevice = null;
-  }
+  // Invalidate queued and in-flight loads immediately. A construction that
+  // resolves after this call disposes its own result instead of publishing a
+  // stale active pipeline.
+  _pipelineEpoch += 1;
+  await enqueuePipelineOperation(disposeActivePipeline);
 }
 
 /** Runtime selected for the currently loaded text-generation pipeline. */
 export function getActiveLocalDevice(): 'webgpu' | 'wasm' | null {
   return _activeDevice;
+}
+
+/** Model id owned by the active text-generation pipeline. */
+export function getActiveLocalModelId(): string | null {
+  return _activeModelId;
 }
 
 /**

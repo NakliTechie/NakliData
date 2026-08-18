@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Local pipeline ownership serialization (GK)
+
+### Decision GK-1 — serialize model construction, switching, and disposal
+
+- **Context.** Different-model callers waited on the same pending pipeline
+  outside an exclusive ownership boundary. Two waiters could resume together,
+  dispose the same active pipeline twice, construct two replacements, and let
+  the last resolver overwrite runtime ownership. `disposePipeline()` also
+  ignored a construction that had not resolved yet.
+- **Decision.** Put every text-generation ownership transition on one promise
+  queue. Deduplicate same-model callers by model and lifecycle epoch. Increment
+  the epoch before explicit disposal so older queued or in-flight loads cannot
+  publish a late pipeline.
+- **Consequence.** Deterministic tests now cover shared same-model construction,
+  three overlapping model switches with exactly-once displacement disposal,
+  and a late construction that disposes itself after cancellation. The public
+  active model and device both return to `null` after disposal.
+
 ## 2026-08-19 — Physical local-model quality matrix and JSON recovery (GJ)
 
 ### Decision GJ-1 — evaluate the eight current structured jobs
