@@ -467,7 +467,15 @@ export class DatabricksStatementAdapter {
     );
     const body = await boundedJson(response, WAREHOUSE_CONTROL_BYTES_MAX);
     if (!response.ok) {
-      throw vendorFailure(body, response.status, 'Databricks API request failed.', 'vendor_error', [
+      const code =
+        response.status === 401
+          ? 'credential_rejected'
+          : response.status === 403
+            ? 'authorization_denied'
+            : response.status === 429
+              ? 'rate_limited'
+              : 'vendor_error';
+      throw vendorFailure(body, response.status, 'Databricks API request failed.', code, [
         this.token,
       ]);
     }

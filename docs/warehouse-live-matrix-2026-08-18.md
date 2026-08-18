@@ -74,6 +74,10 @@ Follow-up evidence — 2026-08-19:
   and deadline ceilings now feed both vendor factories. Focused regression
   coverage asserts the Databricks `byte_limit` value. This wiring change has
   not received a second live run.
+- Databricks HTTP 401, 403, and 429 responses now retain the stable
+  `credential_rejected`, `authorization_denied`, and `rate_limited`
+  classifications through the bridge. Redaction tests cover vendor messages
+  and URLs. Live 401 and 429 evidence remains absent.
 - The warehouse displayed `Stopped` with zero active clusters after the run.
   The service principal displayed no OAuth secrets and an inactive status.
 - The temporary credential directory was deleted. No token remains in the

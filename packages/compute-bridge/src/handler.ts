@@ -423,6 +423,8 @@ function normalizeError(error: unknown, requestSignal: AbortSignal): BridgeServe
       timeout: 504,
       result_limit: 502,
       rate_limited: 429,
+      credential_rejected: 401,
+      authorization_denied: 403,
     };
     return new BridgeServerError(
       error.message,

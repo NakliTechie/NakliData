@@ -308,6 +308,22 @@ describe('DatabricksStatementAdapter', () => {
     ).rejects.toMatchObject({ code: 'cancellation_unconfirmed' });
   });
 
+  it.each([
+    [401, 'credential_rejected'],
+    [403, 'authorization_denied'],
+    [429, 'rate_limited'],
+  ])('classifies Databricks HTTP %i without reflecting vendor details', async (status, code) => {
+    const fetchImpl = vi.fn(async () =>
+      json({ message: 'secret.token failed at https://private.example/query' }, status),
+    ) as typeof fetch;
+    const error = await adapter(fetchImpl)
+      .execute({ sql: 'SELECT 1' })
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({ code, status });
+    expect(String(error)).not.toContain('secret.token');
+    expect(String(error)).not.toContain('private.example');
+  });
+
   it('redacts vendor secrets and does not serialize credentials', async () => {
     const fetchImpl = vi.fn(async () =>
       json({

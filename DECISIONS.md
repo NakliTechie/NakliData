@@ -40,6 +40,18 @@ Append-only. Format per AGENTHANDOFF §5.
 - **Consequence.** The workplan narrows without overstating cancellation or
   credential-lifecycle coverage.
 
+### Decision GE-4 — preserve provider authentication and throttling classes
+
+- **Context.** Databricks HTTP 401, 403, and 429 responses all became generic
+  bridge errors. That prevented the expiry and throttle matrix from asserting
+  distinct outcomes.
+- **Decision.** Map Databricks 401 to `credential_rejected`, 403 to
+  `authorization_denied`, and 429 to `rate_limited`. Preserve those codes as
+  bridge HTTP 401, 403, and 429 responses. Redact vendor messages and URLs.
+- **Consequence.** Live expiry and throttle probes can assert stable,
+  secret-free classifications. Unit and live-runner fixtures cover both paths;
+  provider evidence remains open.
+
 ## 2026-08-18 — WebR package and generated-runtime migration (GD)
 
 ### Decision GD-1 — pin `webr@0.6.0` and vendor its browser distribution

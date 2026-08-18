@@ -6,6 +6,7 @@ import {
   BRIDGE_PROTOCOL_VERSION,
   type BridgeTable,
 } from '../../../src/core/bridge/protocol.ts';
+import { WarehouseAdapterError } from '../../../src/core/bridge/warehouse-adapter-core.ts';
 import type {
   BridgeBackend,
   BridgeDirectQueryRequest,
@@ -235,6 +236,26 @@ describe('Compute Bridge Worker handler', () => {
         )
       ).status,
     ).toBe(413);
+  });
+
+  it.each([
+    ['credential_rejected', 401],
+    ['authorization_denied', 403],
+    ['rate_limited', 429],
+  ])('preserves the %s warehouse classification', async (code, status) => {
+    const handler = createBridgeHandler({
+      config: config(),
+      backend: backend({
+        query: async () => {
+          throw new WarehouseAdapterError('Warehouse request rejected.', code, status);
+        },
+      }),
+    });
+    const response = await handler.fetch(
+      request('/v1/query', { method: 'POST', body: JSON.stringify({ sql: SQL }) }),
+    );
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ error: { code } });
   });
 
   it('propagates client disconnect cancellation to the backend', async () => {

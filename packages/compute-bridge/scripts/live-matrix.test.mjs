@@ -136,27 +136,32 @@ test('proves client abort and a bounded recovery while retaining the vendor-stat
   assert.equal(fixture.requests.filter((request) => request.path === '/v1/query').length, 3);
 });
 
-test('records only the expected classification for an expired or throttled credential probe', async () => {
-  const expectedErrorSql = 'SELECT order_id FROM main.analytics.orders';
-  const fixture = fixtureFetch({
-    errorSql: expectedErrorSql,
-    errorCode: 'rate_limited',
-    errorStatus: 429,
+for (const expectation of [
+  { code: 'credential_rejected', status: 401 },
+  { code: 'rate_limited', status: 429 },
+]) {
+  test(`records only the ${expectation.code} classification`, async () => {
+    const expectedErrorSql = 'SELECT order_id FROM main.analytics.orders';
+    const fixture = fixtureFetch({
+      errorSql: expectedErrorSql,
+      errorCode: expectation.code,
+      errorStatus: expectation.status,
+    });
+    const result = await runLiveMatrix(
+      {
+        ...baselineConfig(),
+        mode: 'expect-error',
+        expectedErrorSql,
+        expectedErrorCode: expectation.code,
+        expectedErrorStatus: expectation.status,
+      },
+      { fetchImpl: fixture.fetchImpl },
+    );
+    assert.deepEqual(result.checks.expectedError, expectation);
+    assert.equal(JSON.stringify(result).includes(TOKEN), false);
+    assert.equal(JSON.stringify(result).includes('row=101'), false);
   });
-  const result = await runLiveMatrix(
-    {
-      ...baselineConfig(),
-      mode: 'expect-error',
-      expectedErrorSql,
-      expectedErrorCode: 'rate_limited',
-      expectedErrorStatus: 429,
-    },
-    { fetchImpl: fixture.fetchImpl },
-  );
-  assert.deepEqual(result.checks.expectedError, { status: 429, code: 'rate_limited' });
-  assert.equal(JSON.stringify(result).includes(TOKEN), false);
-  assert.equal(JSON.stringify(result).includes('row=101'), false);
-});
+}
 
 test('rejects non-loopback HTTP and incomplete configuration before a request', () => {
   assert.throws(
