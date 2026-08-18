@@ -29,7 +29,14 @@ export function runtimeConfig(env: Env): BridgeRuntimeConfig {
   );
   for (const origin of allowedOrigins) {
     const parsed = new URL(origin);
-    if (parsed.origin !== origin || !['https:', 'http:'].includes(parsed.protocol)) {
+    const loopback =
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '[::1]';
+    if (
+      parsed.origin !== origin ||
+      (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback))
+    ) {
       throw new BridgeServerError(
         'ALLOWED_ORIGINS contains an invalid origin.',
         'invalid_config',

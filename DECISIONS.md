@@ -55,6 +55,19 @@ Append-only. Format per AGENTHANDOFF §5.
   shares one version-pinned smoke command. Running that command against staging
   or production still requires separate deployment and credential authority.
 
+### Decision GG-5 — restrict HTTP origins and add a deployed-memory gate
+
+- **Context.** Runtime validation accepted any exact `http://` origin although
+  operating guidance required HTTPS. Cloudflare's current guidance also names a
+  128 MiB Worker memory limit, while both vendor conversion paths assemble
+  complete results in memory.
+- **Decision.** Accept HTTP origins only for localhost, IPv4 loopback, or IPv6
+  loopback. Require deployed staging evidence at the intended result ceiling.
+  Keep the checked-in 32 MiB result default until peak heap is measured.
+- **Consequence.** A remote plaintext page cannot enter the CORS allowlist.
+  Local live matrices do not establish production memory safety. Both branded
+  cards remain unavailable while the deployed-memory gate is open.
+
 ## 2026-08-19 — Snowflake live-matrix completion boundary (GF)
 
 ### Decision GF-1 — close the bounded Snowflake protocol matrix except throttling
