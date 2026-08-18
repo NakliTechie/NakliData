@@ -1,0 +1,6 @@
+@prefix ex: <https://example.test/owl/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:A a owl:Class ; owl:unionOf ( ex:B ex:C ) .
+ex:B a owl:Class .
+ex:C a owl:Class .

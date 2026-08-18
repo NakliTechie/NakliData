@@ -2,6 +2,44 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Bounded OWL 2 RL ontology adapter (FU)
+
+### Decision FU-1 — select a strict named-axiom subset of OWL 2 RL
+
+- **Context.** The semantic model exposes tables, concepts, fields,
+  relationships, domains, ranges, and bounded assertions. OWL 2 RL has a
+  normative rule-based semantics suitable for the planned bounded reasoner.
+- **Decision.** Select `naklidata-owl-2-rl-v1`. Support named classes, data and
+  object properties, direct domain/range, approved subclass/equivalence/
+  disjoint axioms, and superclass maximum cardinality zero or one. Isolate the
+  adapter behind the existing N3 lazy boundary.
+- **Consequence.** The profile names exact semantics and bounds. OWL QL, EL,
+  full DL, arbitrary class expressions, property chains, unrestricted
+  cardinality, individuals as product records, and automatic entailment remain
+  excluded.
+
+### Decision FU-2 — forbid automatic SKOS-to-OWL semantic upgrades
+
+- **Context.** SKOS broader and exact-match relations do not assert logical
+  subclass or class equivalence. Promoting them would invent semantics.
+- **Decision.** Export those relations only in SKOS. Loss-report their omission
+  from OWL. Require explicit approved inputs for every subclass, equivalent,
+  and disjoint axiom. Keep every imported axiom review-only.
+- **Consequence.** OWL artifacts cannot silently strengthen vocabulary links.
+  Acceptance returns detached proposals and performs no model mutation.
+
+### Decision FU-3 — use an optional independent Python conformance gate
+
+- **Context.** The browser bundle has 1,226 bytes of measured shell headroom.
+  A second runtime OWL stack would exceed the dependency and bundle envelope.
+- **Decision.** Keep RDFLib 7.6.0 and OWL-RL 7.6.1 outside runtime and package
+  dependencies. Run `scripts/verify-owl-fixtures.py` against a pinned temporary
+  environment for satisfiable, inconsistent, cyclic, and unsupported graphs.
+- **Consequence.** The external engine proves OWL-RL parsing, expansion,
+  transitive subclass entailment, and disjoint-class inconsistency without
+  entering the product bundle. NakliData rejects subclass cycles as its own
+  stricter review-model invariant, while the external engine accepts them.
+
 ## 2026-08-18 — Bounded PROV-O provenance adapter (FT)
 
 ### Decision FT-1 — pair direct PROV relations with metadata statements

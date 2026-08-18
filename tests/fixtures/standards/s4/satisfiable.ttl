@@ -1,0 +1,8 @@
+@prefix ex: <https://example.test/owl/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:A a owl:Class ; rdfs:subClassOf ex:B .
+ex:B a owl:Class ; rdfs:subClassOf ex:C .
+ex:C a owl:Class .
+ex:p a owl:DatatypeProperty ; rdfs:domain ex:A ; rdfs:range <http://www.w3.org/2001/XMLSchema#string> .
