@@ -2,6 +2,36 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Bounded deterministic standards reasoning (FV)
+
+### Decision FV-1 — infer only seven profile-backed fact forms
+
+- **Context.** SKOS and OWL use different semantics. A general rule engine
+  would exceed the named profiles and introduce termination and code-execution
+  risks.
+- **Decision.** Support SKOS broader-transitive and exact-match closure plus
+  OWL named subclass, equivalence, and downward disjointness rules. Preserve a
+  separate fact kind for SKOS broader-transitive output. Never convert SKOS
+  hierarchy or mappings into OWL axioms.
+- **Consequence.** Every inference names a W3C-profile-backed rule. Property
+  chains, unrestricted rules, arbitrary code, individuals, existential
+  generation, and full OWL entailment remain excluded.
+
+### Decision FV-2 — make every inference a bounded worker proposal
+
+- **Context.** Closure can be expensive on adversarial graphs. Inferred facts
+  must not become observed facts or mutate a workbook automatically.
+- **Decision.** Execute through a dedicated yielding worker with ceilings of
+  5,000 nodes, 20,000 input facts, 100,000 rule applications, 50,000 proposals,
+  a one-second default deadline, a five-second absolute deadline, and a
+  2,000,000-byte message. Require exact workspace identity and revision.
+  Return review-only, non-executable proposals with rule, flattened premises,
+  source-graph fingerprint, confidence, and workspace provenance.
+- **Consequence.** Cancellation reaches the worker between bounded rule
+  batches. Conflicting equivalence/disjointness or subclass/disjointness
+  conclusions remain explicit conflict records. The engine performs no SQL,
+  persistence, source mutation, network access, or proposal acceptance.
+
 ## 2026-08-18 — Bounded OWL 2 RL ontology adapter (FU)
 
 ### Decision FU-1 — select a strict named-axiom subset of OWL 2 RL

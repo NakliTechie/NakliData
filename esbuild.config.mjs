@@ -126,6 +126,15 @@ async function buildShell() {
     outfile: `${OUT_DIR}/graph-metrics.worker.js`,
   });
 
+  // Standards reasoning is intentionally isolated from the UI thread. The
+  // worker yields between bounded rule batches so cancellation messages can
+  // interrupt large graphs without weakening deterministic ordering.
+  const standardsReasoningWorker = await build({
+    ...COMMON,
+    entryPoints: ['src/workers/standards-reasoning.worker.ts'],
+    outfile: `${OUT_DIR}/standards-reasoning.worker.js`,
+  });
+
   // Lazy chunks: standalone ESM modules dynamically imported at runtime.
   await buildLazyChunks();
 
@@ -249,6 +258,7 @@ async function buildShell() {
 
   void taxonomyWorker;
   void graphMetricsWorker;
+  void standardsReasoningWorker;
 }
 
 async function serve() {

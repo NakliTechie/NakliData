@@ -159,6 +159,8 @@ export interface LazyChunkRegistry {
   'standards-prov': typeof import('../lazy/standards-prov.ts');
   /** Bounded OWL 2 RL ontology export, review-only import, and integrity checks. */
   'standards-owl': typeof import('../lazy/standards-owl.ts');
+  /** Bounded deterministic SKOS/OWL reasoning contracts; execution stays in its worker. */
+  'standards-reasoning': typeof import('../lazy/standards-reasoning.ts');
   /** Complete static notebook renderer and export manifest; loaded on export/embed. */
   'static-export': typeof import('../lazy/static-export.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
