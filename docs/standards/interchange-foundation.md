@@ -15,7 +15,8 @@ The runtime boundary is deliberately separate from the eager shell:
 
 - `src/core/standards/interchange.ts` owns types, identifiers, validation,
   migration, canonical JSON, and the loss ledger.
-- `src/lazy/standards/interchange.ts` is the only planned browser import path.
+- `src/lazy/standards-interchange.ts` is the browser chunk entry and is loaded
+  only through `loadChunk('standards-interchange')`.
 - `src/workers/standards-interchange-worker.ts` defines a 2,000,000-byte
   artifact-only worker protocol for validate, migrate, and serialize jobs.
 - No standards module may fetch a network resource, inspect credentials,

@@ -1,5 +1,6 @@
 // Lazy boundary for standards interchange work. Product code must import this
-// module dynamically; the eager shell must not depend on RDF tooling.
+// module through `loadChunk('standards-interchange')`; the eager shell must not
+// depend on standards or RDF tooling.
 export {
   appendLoss,
   assertCanonicalInterchange,
@@ -13,7 +14,7 @@ export {
   resourceKindOf,
   serializeCanonicalInterchange,
   validateCanonicalInterchange,
-} from '../../core/standards/interchange.ts';
+} from '../core/standards/interchange.ts';
 
 export type {
   CanonicalId,
@@ -31,4 +32,4 @@ export type {
   SourceContract,
   TableContract,
   ValidationIssue,
-} from '../../core/standards/interchange.ts';
+} from '../core/standards/interchange.ts';

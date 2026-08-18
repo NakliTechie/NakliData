@@ -2,6 +2,35 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Bounded SKOS vocabulary adapter (FR)
+
+### Decision FR-1 — ship a named SKOS 2009 subset as proposals
+
+- **Context.** The canonical interchange now preserves concept schemes,
+  multilingual labels, hierarchy, related concepts, and external mappings.
+  SKOS represents those constructs without requiring data or SQL execution.
+- **Decision.** Implement profile `naklidata-skos-2009-v1` over strict Turtle.
+  Support concept schemes, concepts, preferred/alternate labels,
+  scheme/top-concept links, broader/narrower/related links, and five mapping
+  relations. Keep imports review-only until an explicit acceptance callback
+  returns canonical records.
+- **Consequence.** Taxonomy and user types have a deterministic vocabulary
+  projection. Collections, SKOS-XL, notation, notes, transitive assertions,
+  blank-node constructs, and automatic inference remain excluded and
+  loss-reported.
+
+### Decision FR-2 — pin N3.js inside an isolated lazy chunk
+
+- **Context.** A strict browser-capable Turtle parser and writer is a genuine
+  runtime requirement for bounded RDF syntax. An rdflib 2.4.0 development
+  trial introduced 11 audit findings.
+- **Decision.** Pin N3.js 2.1.1 and `@types/n3` 1.26.0. Remove rdflib from the
+  graph. Keep N3 reachable only from `standards-skos.js` and retain zero-audit
+  as a gate.
+- **Consequence.** The SKOS chunk is isolated from the eager shell. N3 strict
+  parsing supplies independent RDF syntax evidence without retaining the
+  vulnerable comparison package.
+
 ## 2026-08-18 — Canonical standards interchange foundation (FQ)
 
 ### Decision FQ-1 — freeze typed IDs and a loss-aware versioned contract

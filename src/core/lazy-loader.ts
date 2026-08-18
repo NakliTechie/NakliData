@@ -149,6 +149,10 @@ export interface LazyChunkRegistry {
   'semantic-model': typeof import('../lazy/semantic-model.ts');
   /** Deterministic data-quality suggestions, contracts, and explicit-run UI. */
   'data-quality': typeof import('../lazy/data-quality.ts');
+  /** Artifact-only standards interchange validation, migration, and serialization. */
+  'standards-interchange': typeof import('../lazy/standards-interchange.ts');
+  /** Bounded SKOS 2009 vocabulary import, export, browse, and proposal acceptance. */
+  'standards-skos': typeof import('../lazy/standards-skos.ts');
   /** Complete static notebook renderer and export manifest; loaded on export/embed. */
   'static-export': typeof import('../lazy/static-export.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel
