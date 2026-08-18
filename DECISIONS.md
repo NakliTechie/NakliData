@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Iceberg REST release claim boundary (GC)
+
+### Decision GC-1 — treat each exact live profile as an independent claim unit
+
+- **Context.** Generic Iceberg REST implementation and shaped fixtures cannot
+  establish Databricks Unity Catalog or Snowflake Open Catalog interoperability.
+- **Decision.** Track Databricks Unity Catalog on AWS, Snowflake Open Catalog
+  on S3, and Snowflake Open Catalog on GCS as three exact support profiles.
+  Keep each profile verification-pending until its own dated live matrix passes.
+- **Consequence.** Product truth can name a provider/storage combination only
+  when evidence exists for that exact combination. Azure/ADLS remains excluded.
+
+### Decision GC-2 — require a verified profile and an independent release flag
+
+- **Context.** A profile-state edit or a release-flag edit alone must not expose
+  the REST entry point. Public Iceberg table reads need an independent rollback
+  path from catalog access.
+- **Decision.** Make REST availability require both a verified exact profile
+  and `SOURCE_RELEASE_FLAGS.icebergRest`. Gate public table reads separately
+  with `SOURCE_RELEASE_FLAGS.icebergTable`.
+- **Consequence.** Turning off the REST flag immediately restores the unavailable
+  action guard without disabling the public table-by-URL path. Tests enforce the
+  two-key boundary and registry drift.
+
+### Decision GC-3 — keep rollback local and fail-closed
+
+- **Context.** A runtime kill-switch request would introduce remote configuration,
+  background network behavior, and a new trust dependency into the local-first shell.
+- **Decision.** Use build-time release flags and profile state. Do not add a
+  remote kill-switch service or background polling.
+- **Consequence.** Rollback requires rebuilding and deploying the disabled
+  artifact. The source action rejects before modal loading or network access.
+
 ## 2026-08-18 — Browser storage-failure gate (GB)
 
 ### Decision GB-1 — verify quota recovery at the IndexedDB write boundary

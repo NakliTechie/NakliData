@@ -39,6 +39,12 @@ The public table-by-URL card is enabled. The generic REST card remains gated on
 live catalog evidence. Azure/ADLS remains unavailable pending a browser-capable
 data plane. The closed migration record remains in [`BLOCKER.md`](../BLOCKER.md).
 
+The exact pending catalog profiles and independent table/REST release switches
+now live in `src/core/product-capabilities.ts`. REST enablement requires both a
+verified profile and its release flag; either gate fails closed. Operational
+enablement, persistence, limitations, troubleshooting, and rollback steps are
+recorded in [`iceberg-rest-release-gate.md`](iceberg-rest-release-gate.md).
+
 The local engine gate has passed. Safe live catalog matrices are next. Real
 authentication, authorization, vendor errors, rate limits, token refresh
 behavior, and storage reads still need user-supplied test endpoints and

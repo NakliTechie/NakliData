@@ -8,12 +8,18 @@ import {
   AGENT_V3_TOOL_SCOPES,
   DEFAULT_AGENT_SCOPES,
 } from '../src/core/agent/contract.ts';
+import { ICEBERG_REST_SUPPORT_PROFILES } from '../src/core/iceberg-rest-release.ts';
 import {
+  HAS_VERIFIED_ICEBERG_REST_PROFILE,
+  ICEBERG_REST_ROLLBACK_REASON,
   ICEBERG_UNAVAILABLE_REASON,
   PRIVACY_POSTURE_COPY,
   SOURCE_GROUPS,
   SOURCE_OPTIONS,
+  SOURCE_RELEASE_FLAGS,
   SUPPORTED_FILE_FORMATS,
+  resolveSourceGroups,
+  resolveSourceOptions,
   sourceOptionForAction,
 } from '../src/core/product-capabilities.ts';
 
@@ -28,6 +34,7 @@ describe('product capability registry', () => {
   });
 
   it('enables only the public Iceberg table path', () => {
+    expect(SOURCE_RELEASE_FLAGS).toEqual({ icebergTable: true, icebergRest: false });
     expect(sourceOptionForAction('mount-iceberg')).toMatchObject({
       readiness: 'available',
       unavailableReason: null,
@@ -36,6 +43,49 @@ describe('product capability registry', () => {
       readiness: 'unavailable',
       unavailableReason: ICEBERG_UNAVAILABLE_REASON,
     });
+  });
+
+  it('names exact REST profiles and requires live verification plus the release flag', () => {
+    expect(ICEBERG_REST_SUPPORT_PROFILES.map((profile) => profile.id)).toEqual([
+      'databricks-unity-catalog-aws',
+      'snowflake-open-catalog-s3',
+      'snowflake-open-catalog-gcs',
+    ]);
+    expect(
+      ICEBERG_REST_SUPPORT_PROFILES.every(
+        (profile) => profile.readiness === 'verification-pending',
+      ),
+    ).toBe(true);
+    expect(HAS_VERIFIED_ICEBERG_REST_PROFILE).toBe(
+      ICEBERG_REST_SUPPORT_PROFILES.some((profile) => profile.readiness === 'verified'),
+    );
+
+    const flagOnly = resolveSourceOptions({ icebergTable: true, icebergRest: true });
+    expect(flagOnly.find((option) => option.id === 'iceberg-rest')).toMatchObject({
+      readiness: 'unavailable',
+      unavailableReason: ICEBERG_UNAVAILABLE_REASON,
+    });
+
+    const released = resolveSourceOptions({ icebergTable: true, icebergRest: true }, true);
+    expect(released.find((option) => option.id === 'iceberg-rest')).toMatchObject({
+      readiness: 'available',
+      unavailableReason: null,
+    });
+    expect(
+      resolveSourceGroups(released).find((group) => group.id === 'catalogs')?.description,
+    ).toBe('Iceberg tables and live-verified REST Catalog profiles are available.');
+
+    const rolledBack = resolveSourceOptions({ icebergTable: true, icebergRest: false }, true);
+    expect(rolledBack.find((option) => option.id === 'iceberg-rest')).toMatchObject({
+      readiness: 'unavailable',
+      unavailableReason: ICEBERG_REST_ROLLBACK_REASON,
+    });
+  });
+
+  it('keeps table and REST release switches independent', () => {
+    const options = resolveSourceOptions({ icebergTable: false, icebergRest: true }, true);
+    expect(options.find((option) => option.id === 'iceberg-table')?.readiness).toBe('unavailable');
+    expect(options.find((option) => option.id === 'iceberg-rest')?.readiness).toBe('available');
   });
 
   it('labels bridge entry points as advanced bring-your-own paths', () => {

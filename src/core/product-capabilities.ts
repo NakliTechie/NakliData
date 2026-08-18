@@ -29,7 +29,7 @@ export const SUPPORTED_FILE_FORMATS = [
 
 export type FileFormat = (typeof SUPPORTED_FILE_FORMATS)[number];
 
-export const SOURCE_GROUPS = [
+const SOURCE_GROUP_DEFINITIONS = [
   {
     id: 'local',
     label: 'Local data',
@@ -43,7 +43,7 @@ export const SOURCE_GROUPS = [
   {
     id: 'catalogs',
     label: 'Catalogs',
-    description: 'Public Iceberg tables are available; REST catalogs remain verification-gated.',
+    description: 'Apache Iceberg table and REST access are independently release-gated.',
   },
   {
     id: 'warehouse-compute',
@@ -52,8 +52,32 @@ export const SOURCE_GROUPS = [
   },
 ] as const;
 
-export type SourceGroupId = (typeof SOURCE_GROUPS)[number]['id'];
+export type SourceGroupId = (typeof SOURCE_GROUP_DEFINITIONS)[number]['id'];
 export type SourceReadiness = 'available' | 'advanced' | 'unavailable';
+
+export interface SourceGroup {
+  id: SourceGroupId;
+  label: string;
+  description: string;
+}
+
+export interface SourceReleaseFlags {
+  icebergTable: boolean;
+  icebergRest: boolean;
+}
+
+/**
+ * Independent, fail-closed product release switches. A later release may turn
+ * on Iceberg REST only after at least one exact support profile is marked
+ * verified. Turning either flag off is the source-card rollback path.
+ */
+export const SOURCE_RELEASE_FLAGS: Readonly<SourceReleaseFlags> = Object.freeze({
+  icebergTable: true,
+  icebergRest: false,
+});
+
+/** Must equal whether iceberg-rest-release.ts contains a verified profile. */
+export const HAS_VERIFIED_ICEBERG_REST_PROFILE = false;
 
 export interface SourceOption {
   id: string;
@@ -69,7 +93,13 @@ export interface SourceOption {
 export const ICEBERG_UNAVAILABLE_REASON =
   'Unavailable in this build: Iceberg REST Catalog remains disabled until real catalog endpoints pass the release matrix.';
 
-export const SOURCE_OPTIONS: readonly SourceOption[] = [
+export const ICEBERG_REST_ROLLBACK_REASON =
+  'Unavailable in this build: the Iceberg REST release switch is off.';
+
+export const ICEBERG_TABLE_ROLLBACK_REASON =
+  'Unavailable in this build: the public Iceberg table release switch is off.';
+
+const SOURCE_OPTION_DEFINITIONS: readonly SourceOption[] = [
   {
     id: 'folder',
     group: 'local',
@@ -153,6 +183,64 @@ export const SOURCE_OPTIONS: readonly SourceOption[] = [
     unavailableReason: null,
   },
 ] as const;
+
+export function resolveSourceOptions(
+  flags: Readonly<SourceReleaseFlags> = SOURCE_RELEASE_FLAGS,
+  hasVerifiedRestProfile: boolean = HAS_VERIFIED_ICEBERG_REST_PROFILE,
+): readonly SourceOption[] {
+  return SOURCE_OPTION_DEFINITIONS.map((option) => {
+    if (option.id === 'iceberg-table' && !flags.icebergTable) {
+      return {
+        ...option,
+        hint: 'Unavailable—release switch off.',
+        title: ICEBERG_TABLE_ROLLBACK_REASON,
+        readiness: 'unavailable',
+        unavailableReason: ICEBERG_TABLE_ROLLBACK_REASON,
+      };
+    }
+    if (option.id !== 'iceberg-rest') return option;
+    if (!hasVerifiedRestProfile) return option;
+    if (!flags.icebergRest) {
+      return {
+        ...option,
+        hint: 'Unavailable—release switch off.',
+        title: ICEBERG_REST_ROLLBACK_REASON,
+        readiness: 'unavailable',
+        unavailableReason: ICEBERG_REST_ROLLBACK_REASON,
+      };
+    }
+    return {
+      ...option,
+      hint: 'Verified profiles only; see support matrix.',
+      title: 'Mount a live-verified Apache Iceberg REST Catalog profile',
+      readiness: 'available',
+      unavailableReason: null,
+    };
+  });
+}
+
+export const SOURCE_OPTIONS: readonly SourceOption[] = resolveSourceOptions();
+
+export function resolveSourceGroups(
+  options: readonly SourceOption[] = SOURCE_OPTIONS,
+): readonly SourceGroup[] {
+  const tableReady = options.find((option) => option.id === 'iceberg-table')?.readiness;
+  const restReady = options.find((option) => option.id === 'iceberg-rest')?.readiness;
+  return SOURCE_GROUP_DEFINITIONS.map((group) => {
+    if (group.id !== 'catalogs') return group;
+    const description =
+      tableReady === 'available'
+        ? restReady === 'available'
+          ? 'Iceberg tables and live-verified REST Catalog profiles are available.'
+          : 'Public Iceberg tables are available; REST catalogs remain verification-gated.'
+        : restReady === 'available'
+          ? 'Live-verified Iceberg REST profiles are available; public table access is disabled.'
+          : 'Iceberg table and REST entry points are unavailable in this build.';
+    return { ...group, description };
+  });
+}
+
+export const SOURCE_GROUPS: readonly SourceGroup[] = resolveSourceGroups();
 
 export function sourceOptionForAction(action: string): SourceOption | null {
   return SOURCE_OPTIONS.find((option) => option.action === action) ?? null;

@@ -116,7 +116,7 @@ export function openHelpModal(): void {
     [
       'folder',
       'Sources',
-      'Mount local files and folders, or explicitly connect an HTTPS or S3-compatible source. Unverified catalog paths stay disabled.',
+      'Mount local files and folders, or explicitly connect HTTPS, S3-compatible storage, or a public Iceberg table. Iceberg REST stays disabled until an exact live profile and release flag pass.',
     ],
     [
       'table',
