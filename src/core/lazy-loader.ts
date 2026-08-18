@@ -153,6 +153,8 @@ export interface LazyChunkRegistry {
   'standards-interchange': typeof import('../lazy/standards-interchange.ts');
   /** Bounded SKOS 2009 vocabulary import, export, browse, and proposal acceptance. */
   'standards-skos': typeof import('../lazy/standards-skos.ts');
+  /** Bounded SHACL 2017 Core shape export, proposal import, and local evaluation. */
+  'standards-shacl': typeof import('../lazy/standards-shacl.ts');
   /** Complete static notebook renderer and export manifest; loaded on export/embed. */
   'static-export': typeof import('../lazy/static-export.ts');
   // (v1.3 M2's lazy 'measures-panel' entry removed in v1.4 F1 — the panel

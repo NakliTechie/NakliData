@@ -2,6 +2,44 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Bounded SHACL constraint adapter (FS)
+
+### Decision FS-1 — map only direct-path SHACL Core constraints
+
+- **Context.** The canonical interchange owns explicit field assertions for
+  cardinality, datatype, numeric range, bounded pattern, and enumeration.
+  Broader SHACL constructs have no faithful product-owned representation.
+- **Decision.** Implement profile `naklidata-shacl-2017-core-v1` over named
+  node and property shapes with one known table target and one direct known
+  field path. Support `minCount`, `maxCount`, `datatype`, `minInclusive`,
+  `maxInclusive`, `pattern`, and `in`. Loss-report every excluded construct.
+- **Consequence.** Shape export and evaluation preserve canonical assertion
+  meaning. SHACL-SPARQL, logical combinators, recursive shapes, qualified
+  shapes, complex paths, entailment, remote imports, and custom components
+  remain outside the profile.
+
+### Decision FS-2 — keep shape import separate from assertion execution
+
+- **Context.** Imported constraints are untrusted instructions. NakliData's
+  hard boundary prohibits automatic execution of generated SQL.
+- **Decision.** Import each supported constraint as an editable proposal with
+  `status: 'un-run'` and `execution: 'explicit'`. Acceptance copies only
+  caller-selected proposals without changing a workbook or running SQL.
+- **Consequence.** The adapter cannot enforce or monitor imported shapes.
+  Product integration still requires an explicit insert action and a separate
+  explicit run action.
+
+### Decision FS-3 — retain a development-only independent SHACL engine
+
+- **Context.** Strict RDF parsing alone cannot establish SHACL validation
+  equivalence. The S2 exit gate requires an independent validator.
+- **Decision.** Pin `rdf-validate-shacl` 0.6.5 as a development dependency.
+  Compare conforming and four-violation fixtures against the local evaluator.
+  Keep the validator outside every runtime import path.
+- **Consequence.** Cross-engine results gate S2 without increasing the browser
+  shell. Its deprecated `rdf-dataset-ext` transitive dependency remains
+  development-only and currently contributes no audit advisory.
+
 ## 2026-08-18 — Bounded SKOS vocabulary adapter (FR)
 
 ### Decision FR-1 — ship a named SKOS 2009 subset as proposals
