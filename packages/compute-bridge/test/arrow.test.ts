@@ -23,14 +23,16 @@ describe('concrete Arrow boundaries', () => {
       ['1', 'one'],
       ['2', null],
       ['3', '雪'],
+      ['4', '😀'],
+      ['5', '\ud800'],
     ];
     const left = await encoder.encode(columns, rows);
     const right = await encoder.encode(columns, rows);
     expect(left).toEqual(right);
     const table = tableFromIPC(left);
-    expect(table.numRows).toBe(3);
+    expect(table.numRows).toBe(5);
     expect(table.schema.fields.map((field) => field.name)).toEqual(['ID', 'LABEL']);
-    expect(table.getChild('ID')?.toArray()).toEqual(['1', '2', '3']);
-    expect(table.getChild('LABEL')?.toArray()).toEqual(['one', null, '雪']);
+    expect(table.getChild('ID')?.toArray()).toEqual(['1', '2', '3', '4', '5']);
+    expect(table.getChild('LABEL')?.toArray()).toEqual(['one', null, '雪', '😀', '�']);
   });
 });

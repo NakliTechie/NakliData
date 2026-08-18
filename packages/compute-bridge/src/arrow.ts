@@ -54,22 +54,24 @@ export class ApacheArrowJsonV2Encoder {
           502,
         );
       }
-      vectors[column.name] = utf8Vector(rows.map((row) => row[columnIndex] ?? null));
+      vectors[column.name] = utf8Vector(rows, columnIndex);
     }
     return tableToIPC(new Table(vectors), 'stream');
   }
 }
 
-function utf8Vector(values: readonly (string | null)[]): Vector<Utf8> {
+function utf8Vector(
+  rows: readonly (readonly (string | null)[])[],
+  columnIndex: number,
+): Vector<Utf8> {
   const encoder = new TextEncoder();
-  const encoded = values.map((value) => (value === null ? null : encoder.encode(value)));
-  const valueOffsets = new Int32Array(values.length + 1);
+  const valueOffsets = new Int32Array(rows.length + 1);
   let byteLength = 0;
   let nullCount = 0;
-  for (let index = 0; index < encoded.length; index++) {
-    const bytes = encoded[index] ?? null;
-    if (bytes === null) nullCount++;
-    else byteLength += bytes.byteLength;
+  for (let index = 0; index < rows.length; index++) {
+    const value = rows[index]?.[columnIndex] ?? null;
+    if (value === null) nullCount++;
+    else byteLength += utf8ByteLength(value);
     if (byteLength > 0x7fffffff) {
       throw new BridgeServerError(
         'Warehouse UTF-8 column exceeds Arrow limits.',
@@ -81,13 +83,21 @@ function utf8Vector(values: readonly (string | null)[]): Vector<Utf8> {
   }
 
   const data = new Uint8Array(byteLength);
-  const nullBitmap = nullCount > 0 ? new Uint8Array(Math.ceil(values.length / 8)) : null;
+  const nullBitmap = nullCount > 0 ? new Uint8Array(Math.ceil(rows.length / 8)) : null;
   let offset = 0;
-  for (let index = 0; index < encoded.length; index++) {
-    const bytes = encoded[index] ?? null;
-    if (bytes !== null) {
-      data.set(bytes, offset);
-      offset += bytes.byteLength;
+  for (let index = 0; index < rows.length; index++) {
+    const value = rows[index]?.[columnIndex] ?? null;
+    if (value !== null) {
+      const end = valueOffsets[index + 1] ?? offset;
+      const encoded = encoder.encodeInto(value, data.subarray(offset, end));
+      if (encoded.read !== value.length || encoded.written !== end - offset) {
+        throw new BridgeServerError(
+          'Warehouse UTF-8 encoding was incomplete.',
+          'invalid_result',
+          502,
+        );
+      }
+      offset = end;
       if (nullBitmap) {
         const bitmapIndex = index >> 3;
         nullBitmap[bitmapIndex] = (nullBitmap[bitmapIndex] ?? 0) | (1 << (index & 7));
@@ -98,11 +108,35 @@ function utf8Vector(values: readonly (string | null)[]): Vector<Utf8> {
   return makeVector(
     makeData({
       type: new Utf8(),
-      length: values.length,
+      length: rows.length,
       nullCount,
       valueOffsets,
       data,
       ...(nullBitmap ? { nullBitmap } : {}),
     }),
   );
+}
+
+function utf8ByteLength(value: string): number {
+  let length = 0;
+  for (let index = 0; index < value.length; index++) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x7f) {
+      length++;
+    } else if (codeUnit <= 0x7ff) {
+      length += 2;
+    } else if (
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      index + 1 < value.length &&
+      value.charCodeAt(index + 1) >= 0xdc00 &&
+      value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      length += 4;
+      index++;
+    } else {
+      length += 3;
+    }
+  }
+  return length;
 }

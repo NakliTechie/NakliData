@@ -90,6 +90,12 @@ npm run startup
 `npm run build` invokes `wrangler deploy --dry-run`. It creates a local bundle
 only. It does not create a Worker or contact a warehouse.
 
+Run `npm run memory:probe` after Arrow, adapter, or Node upgrades. It exercises
+the production Databricks chunk assembler and Snowflake JSONv2 encoder with
+bounded synthetic inputs. Its retained-memory snapshots help detect local
+allocation regressions. They do not replace the deployed staging memory gate;
+Node and Workers have different allocators and runtime limits.
+
 ## Probes
 
 - `GET /v1/health` authenticates the caller and reports protocol identity.

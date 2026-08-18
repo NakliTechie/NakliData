@@ -56,19 +56,28 @@ publication.
 - The npm high-severity advisory gate reports zero vulnerabilities.
 - The CycloneDX check identifies 26 production components.
 - Generated Worker types match the current configuration.
-- The fail-closed dry-run bundle is 1,343.59 KiB and 224.88 KiB gzip.
+- The fail-closed dry-run bundle is 1,344.35 KiB and 225.09 KiB gzip.
 - The local startup profile sampled 12.1 ms active time.
 - The version-pinned release-smoke fixture covers matching and stale Worker
   versions without emitting SQL, secrets, or row values.
+- The package check now runs the production Arrow implementations against an
+  8 MiB synthetic memory envelope. It validates retained ArrayBuffer headroom
+  while reporting Node RSS, heap, external, and ArrayBuffer deltas.
+- Snowflake UTF-8 construction writes directly into final column buffers. The
+  same 8,986,872-byte Arrow fixture reduced retained RSS delta from 128,729,088
+  bytes to 41,959,424 bytes. Repeated runs remained below 42 MiB.
 
 ## Open release conditions
 
 1. **Deployed memory envelope.** Cloudflare documents a 128 MiB Worker memory
-   limit. Databricks chunk assembly parses all Arrow chunks before concatenation
-   and serialization. Snowflake encoding retains JSON rows while constructing
-   Arrow vectors. A result-byte limit does not prove peak heap usage. Measure a
-   deployed staging Worker at the intended `MAX_RESULT_BYTES` before enabling a
-   branded card. Keep the checked-in 32 MiB default until that evidence exists.
+   limit. Databricks chunk assembly still parses all Arrow chunks before
+   concatenation and serialization. Snowflake still retains JSON rows while
+   constructing final Arrow buffers, although per-cell UTF-8 buffers are gone.
+   A 32 MiB local diagnostic recorded retained RSS deltas of 101,875,712 bytes
+   for Databricks and 114,343,936 bytes for Snowflake. A result-byte limit does
+   not prove peak heap usage. Measure a deployed staging Worker at the intended
+   `MAX_RESULT_BYTES` before enabling a branded card. Keep the checked-in 32 MiB
+   default until that evidence exists.
 2. **Databricks live gaps.** Record live expiry, live HTTP 429, and the
    post-budget-wiring result-limit rerun. Databricks remains setup-only and may
    consume existing trial credits only. Principal activation and credential
@@ -87,6 +96,9 @@ publication.
 - `npm run audit` — exit 0, zero vulnerabilities.
 - `npm run sbom:check` — exit 0, 26 named components.
 - `npm test` — exit 0, 30 Workers-runtime tests and 6 runner fixtures.
-- `npm run check` — generated types, TypeScript, Biome, and configuration gate.
+- `npm run check` — generated types, TypeScript, Biome, configuration, and
+  8 MiB retained-ArrayBuffer memory gate.
+- `BRIDGE_MEMORY_PROBE_BYTES=33554432 npm run memory:probe` — exit 0; local
+  diagnostic only.
 - `npm run build` — dry run only; no deployment.
 - `npm run startup` — local profile only.

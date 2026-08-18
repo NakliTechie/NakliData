@@ -2,6 +2,23 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Compute Bridge memory diagnostics and UTF-8 allocation (GH)
+
+### Decision GH-1 — gate retained buffers without treating Node as Cloudflare proof
+
+- **Context.** The first 8 MiB diagnostic produced an 8,986,872-byte Snowflake
+  Arrow stream and retained a 128,729,088-byte RSS increase. The encoder created
+  one temporary `Uint8Array` for every non-null cell before copying into the
+  final column buffer.
+- **Decision.** Compute UTF-8 lengths without allocation. Use
+  `TextEncoder.encodeInto` to write each value directly into its final buffer.
+  Add the production Databricks and Snowflake conversions to the package check,
+  with deterministic retained-ArrayBuffer ceilings and diagnostic RSS output.
+- **Consequence.** The same Snowflake fixture retained a 41,959,424-byte RSS
+  increase after the change, a reduction above 67 percent. Unicode, surrogate,
+  null, and deterministic-output tests pass. Node measurements remain
+  diagnostic; the deployed Cloudflare memory gate stays open.
+
 ## 2026-08-19 — Trial-only Databricks and bridge credential boundary (GG)
 
 ### Decision GG-1 — keep Databricks setup-only and trial-funded
