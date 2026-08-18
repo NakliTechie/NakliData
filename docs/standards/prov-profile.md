@@ -1,7 +1,7 @@
 # NakliData PROV-O provenance profile
 
-Status: internal Batch S3 adapter. No release or product capability is enabled
-by this file.
+Status: S6-conformance-evidenced adapter. Its independent product release flag
+defaults off.
 
 Normative baseline: [PROV-O: The PROV Ontology, W3C Recommendation 30 April
 2013](https://www.w3.org/TR/prov-o/). RDF syntax processing uses pinned N3.js

@@ -1,0 +1,18 @@
+# Source: https://www.w3.org/TR/prov-o/#starting-points
+# Compact public example using the PROV-O starting-point vocabulary.
+@prefix ex: <https://example.test/prov/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:article a prov:Entity ;
+  prov:wasGeneratedBy ex:writing .
+
+ex:draft a prov:Entity .
+
+ex:writing a prov:Activity ;
+  prov:used ex:draft ;
+  prov:wasAssociatedWith ex:alice ;
+  prov:startedAtTime "2026-08-18T00:00:00Z"^^xsd:dateTime ;
+  prov:endedAtTime "2026-08-18T00:00:01Z"^^xsd:dateTime .
+
+ex:alice a prov:Agent .

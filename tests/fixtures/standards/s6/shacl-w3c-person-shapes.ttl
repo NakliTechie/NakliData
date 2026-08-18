@@ -1,0 +1,21 @@
+# Source: https://www.w3.org/TR/shacl/#example-1
+# W3C SHACL person example, reduced to the NakliData-supported Core terms.
+@prefix ex: <http://example.com/ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:PersonShape a sh:NodeShape ;
+  sh:targetClass ex:Person ;
+  sh:property ex:PersonShape-givenName ;
+  sh:property ex:PersonShape-ssn .
+
+ex:PersonShape-givenName a sh:PropertyShape ;
+  sh:path ex:givenName ;
+  sh:minCount 1 ;
+  sh:datatype xsd:string .
+
+ex:PersonShape-ssn a sh:PropertyShape ;
+  sh:path ex:ssn ;
+  sh:maxCount 1 ;
+  sh:datatype xsd:string ;
+  sh:pattern "^\\d{3}-\\d{2}-\\d{4}$" .

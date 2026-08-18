@@ -1,7 +1,7 @@
 # NakliData SHACL constraint profile
 
-Status: internal Batch S2 adapter. No release or product capability is enabled
-by this file.
+Status: S6-conformance-evidenced adapter. Its independent product release flag
+defaults off.
 
 Normative baseline: [Shapes Constraint Language, W3C Recommendation 20 July
 2017](https://www.w3.org/TR/shacl/). Cross-tool tests use

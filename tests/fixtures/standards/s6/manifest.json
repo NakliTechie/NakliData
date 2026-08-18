@@ -1,0 +1,37 @@
+{
+  "format": "naklidata-standards-public-fixtures",
+  "version": 1,
+  "captured": "2026-08-18",
+  "fixtures": [
+    {
+      "file": "skos-w3c-example.ttl",
+      "source": "https://www.w3.org/TR/skos-reference/#L280",
+      "sha256": "263bd8e71f610f0e4107e56a3521324528dd080fe0ccfde3a1d79b9e72cfee5f"
+    },
+    {
+      "file": "shacl-w3c-person-shapes.ttl",
+      "source": "https://www.w3.org/TR/shacl/#example-1",
+      "sha256": "cb0750b8203f111e16468e265e6f23e01b8ceab36013d359d7a0489873b14d0b"
+    },
+    {
+      "file": "shacl-w3c-person-valid.ttl",
+      "source": "https://www.w3.org/TR/shacl/#example-1",
+      "sha256": "721006151c6837704b7c9cafab409868815a02c0d9af8ea14fe679866fe6a58f"
+    },
+    {
+      "file": "shacl-w3c-person-invalid.ttl",
+      "source": "https://www.w3.org/TR/shacl/#example-1",
+      "sha256": "b4b47c3f3da02717b43f17c7285524e8efe3ac5abc82bb1b76a10ee9801c257b"
+    },
+    {
+      "file": "prov-w3c-example.ttl",
+      "source": "https://www.w3.org/TR/prov-o/#starting-points",
+      "sha256": "b994a2272753a8609dbd69539384a66864cf16f5d901701af17226c8af2e4aaa"
+    },
+    {
+      "file": "owl2-rl-public-example.ttl",
+      "source": "https://www.w3.org/2009/owl-test-cases",
+      "sha256": "740e41e6b156748edb133cad8361655ffc4dd1cf02a9d58097aff548a86cfe9b"
+    }
+  ]
+}

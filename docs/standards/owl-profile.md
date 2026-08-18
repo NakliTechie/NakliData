@@ -1,7 +1,7 @@
 # NakliData OWL ontology profile
 
-Status: internal Batch S4 adapter. No release or product capability is enabled
-by this file.
+Status: S6-conformance-evidenced adapter. Its independent product release flag
+defaults off.
 
 Normative baseline: [OWL 2 Web Ontology Language Profiles, W3C Recommendation
 11 December 2012](https://www.w3.org/TR/owl2-profiles/). The selected profile

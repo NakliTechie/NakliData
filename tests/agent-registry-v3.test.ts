@@ -133,6 +133,7 @@ describe('agent v3 registry', () => {
       executionScope: null;
       tools: Array<{ name: string; scope: string }>;
       deferredTools: Record<string, string>;
+      standards: Array<{ id: string; profile: string; readiness: string; enabled: boolean }>;
     };
     expect(data.contractVersion).toBe('3');
     expect(data.executionScope).toBeNull();
@@ -152,6 +153,22 @@ describe('agent v3 registry', () => {
     ]);
     expect(data.tools.some((tool) => /execute|runCell/i.test(tool.name))).toBe(false);
     expect(data.deferredTools).toEqual({});
+    expect(data.standards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'skos',
+          profile: 'naklidata-skos-2009-v1',
+          readiness: 'release-gated',
+          enabled: false,
+        }),
+        expect.objectContaining({
+          id: 'reasoning',
+          profile: 'naklidata-bounded-standards-reasoning-v1',
+          readiness: 'release-gated',
+          enabled: false,
+        }),
+      ]),
+    );
     expect(data.tools.some((tool) => tool.name === 'proposeCleaningStep')).toBe(true);
   });
 

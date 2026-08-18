@@ -117,6 +117,11 @@ Metadata tools:
 - `exportDataDictionary`
 - `validateArtifact`
 
+`getCapabilities.data.standards` reports the five exact standards profile
+identifiers, their evidence date, dependencies, and independent release gates.
+All five default to `release-gated`; the current twelve-tool catalogue does not
+offer a standards import, export, or reasoning verb.
+
 Value tool:
 
 - `query`, limited to a single mounted table and direct traceable projections;

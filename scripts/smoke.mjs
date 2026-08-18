@@ -1874,7 +1874,11 @@ async function main() {
     !agent.v3Capabilities.ok ||
     agent.v3Capabilities.version !== '3' ||
     agent.v3Capabilities.data.executionScope !== null ||
-    Object.keys(agent.v3Capabilities.data.deferredTools).length !== 0
+    Object.keys(agent.v3Capabilities.data.deferredTools).length !== 0 ||
+    agent.v3Capabilities.data.standards.length !== 5 ||
+    agent.v3Capabilities.data.standards.some(
+      (capability) => capability.readiness !== 'release-gated' || capability.enabled !== false,
+    )
   ) {
     fail(`agent surface: v3 capabilities are incomplete (${JSON.stringify(agent.v3Capabilities)})`);
   }

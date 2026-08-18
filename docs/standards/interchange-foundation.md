@@ -1,7 +1,7 @@
 # Standards interchange foundation
 
-Status: internal Batch S0 contract. This document does not claim SKOS, SHACL,
-PROV-O, OWL, RDF, or reasoning interoperability.
+Status: internal Batch S0 contract with S1–S6 conformance evidence. Product
+surfaces remain release-gated.
 
 ## Purpose and boundary
 
@@ -72,30 +72,30 @@ but it may not omit a construct without a loss record.
 referential validation. Object keys serialize lexically. Array order remains
 contract-significant.
 
-## Planned standards profiles
+## Implemented, release-gated standards profiles
 
-These are implementation envelopes, not product capabilities. Each remains
-disabled until its batch passes import, export, negative, independent-processor,
-and round-trip gates.
+These are bounded implementation envelopes with S6 conformance evidence, not
+enabled product capabilities. See `interoperability-matrix.md` for the dated
+cross-tool matrix and exact rollback gates.
 
 ### S1 — SKOS 2009 Recommendation profile
 
-Planned: `skos:ConceptScheme`, `skos:Concept`, `skos:prefLabel`,
+Implemented: `skos:ConceptScheme`, `skos:Concept`, `skos:prefLabel`,
 `skos:altLabel`, `skos:broader`, `skos:narrower`, `skos:related`, scheme/top
 concept links, and exact/close/broad/narrow/related mapping relations.
 
-Initially excluded: collections, ordered collections, SKOS-XL, notation,
+Excluded: collections, ordered collections, SKOS-XL, notation,
 documentation-note properties, asserted transitive relations, and automatic
 hierarchy inference. The normative reference is the
 [SKOS Recommendation](https://www.w3.org/TR/skos-reference/).
 
 ### S2 — SHACL 2017 Recommendation, Core subset
 
-Planned: table/field targets, direct field paths, minimum and maximum counts,
+Implemented: table/field targets, direct field paths, minimum and maximum counts,
 datatypes, inclusive numeric bounds, patterns, and enumerations. Imports create
 editable, un-run proposals. Validation never mutates either input graph.
 
-Initially excluded: SHACL-SPARQL, JavaScript extensions, custom constraint
+Excluded: SHACL-SPARQL, JavaScript extensions, custom constraint
 components, logical combinators, recursive shapes, qualified value shapes,
 closed shapes, property-path expressions, entailment regimes, and automatic
 enforcement. SHACL 1.2 remains a draft and is outside this train. The normative
@@ -103,28 +103,27 @@ baseline is the [SHACL 2017 Recommendation](https://www.w3.org/TR/shacl/).
 
 ### S3 — PROV-O 2013 Recommendation profile
 
-Planned: `prov:Entity`, `prov:Activity`, `prov:Agent`, `prov:used`,
+Implemented: `prov:Entity`, `prov:Activity`, `prov:Agent`, `prov:used`,
 `prov:wasGeneratedBy`, `prov:wasDerivedFrom`, `prov:wasAssociatedWith`, and
 activity start/end instants. Observed relations and user annotations remain
 separate. Protected source bytes do not enter provenance artifacts.
 
-Initially excluded: qualified influence patterns, bundles, plans, delegation,
+Excluded: qualified influence patterns, bundles, plans, delegation,
 collections, dictionaries, alternate/specialization relations, and inference.
 The normative reference is the
 [PROV-O Recommendation](https://www.w3.org/TR/prov-o/).
 
 ### S4–S5 — OWL and reasoning
 
-No OWL profile or reasoning rules are selected in S0. OWL 2 RL is the candidate
-for measurement because the W3C defines it as a rule-oriented profile. S4 must
-measure mapping needs and browser cost before selecting or rejecting it. Until
-then every OWL axiom is unsupported and no entailment is performed. The
-normative profile reference is
-[OWL 2 Profiles, Second Edition](https://www.w3.org/TR/owl2-profiles/).
+Implemented: strict named-class/property `naklidata-owl-2-rl-v1` plus
+`naklidata-bounded-standards-reasoning-v1`. The reasoner covers only the seven
+SKOS/OWL rules recorded in `reasoning-profile.md`. SKOS links never become OWL
+axioms. Inferences remain detached review proposals. The normative profile
+reference is [OWL 2 Profiles, Second Edition](https://www.w3.org/TR/owl2-profiles/).
 
 ## Release claim gate
 
-Engineering documentation may name the planned profiles. Product copy,
-capability discovery, examples, and release notes must not name a standard as
-supported until the owning adapter and Batch S6 pass their independent
-conformance matrices.
+Engineering documentation and capability discovery name exact profiles with a
+`release-gated` state. Every release flag defaults to false. Product navigation
+must not label a standards surface available until a separately authorized
+release supplies that surface and changes only its owning flag.

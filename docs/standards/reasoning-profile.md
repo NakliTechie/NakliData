@@ -1,7 +1,7 @@
 # NakliData bounded standards reasoning
 
-Status: internal Batch S5 engine. No release or product capability is enabled
-by this file.
+Status: S6-conformance-evidenced engine. Its independent product release flag
+defaults off and requires the SKOS and OWL flags.
 
 Profile: `naklidata-bounded-standards-reasoning-v1`.
 

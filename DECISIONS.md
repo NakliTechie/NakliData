@@ -2,6 +2,35 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-18 — Standards interoperability release gate (FW)
+
+### Decision FW-1 — use a pinned external cross-tool matrix without runtime dependencies
+
+- **Context.** Each individual adapter had focused conformance evidence. The
+  release gate also requires maintained independent processors and public
+  fixtures across the four named standards.
+- **Decision.** Pin RDFLib 7.6.0, OWL-RL 7.6.2, and PySHACL 0.40.0 in a
+  development-only requirements file. Hash six W3C-derived Turtle fixtures.
+  Check SKOS and PROV-O structure, positive/negative SHACL outcomes, and OWL-RL
+  named-class closure through one reproducible Python gate. Retain N3.js 2.1.1
+  and rdf-validate-shacl 0.6.5 as the JavaScript comparison paths.
+- **Consequence.** The matrix can detect parser, validator, reasoner, or fixture
+  drift without entering the browser dependency graph. Passing the matrix
+  proves only the exact bounded profiles and named fixture assertions.
+
+### Decision FW-2 — separate conformance readiness from product availability
+
+- **Context.** The current app has internal adapters but no user-facing
+  standards import, export, or reasoning tool. Enabling product copy from
+  internal evidence alone would overstate the accessible surface.
+- **Decision.** Add independent SKOS, SHACL, PROV-O, OWL, and reasoning release
+  flags. Default every flag to false. Require SKOS and OWL before the reasoning
+  flag can become available. Expose exact profile identifiers, dependencies,
+  evidence date, and `release-gated` state through agent capability discovery.
+- **Consequence.** A future authorized product surface can activate or roll
+  back one standard without changing stored artifacts. This build does not
+  claim user-facing standards availability.
+
 ## 2026-08-18 — Bounded deterministic standards reasoning (FV)
 
 ### Decision FV-1 — infer only seven profile-backed fact forms

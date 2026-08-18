@@ -11,6 +11,15 @@ async function waitForEngineReady(page: Page): Promise<void> {
   );
 }
 
+async function replaceFirstSql(page: Page, code: string): Promise<void> {
+  const editor = page
+    .locator('.cell[data-cell-kind="sql"] textarea, .cell[data-cell-kind="sql"] .cm-content')
+    .first();
+  await editor.click();
+  await editor.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+  await page.keyboard.type(code);
+}
+
 test.describe('map cell (Theme 2 wave 4)', () => {
   test('+ Map button adds a map cell that renders GeoJSON points on a MapLibre canvas', async ({
     browser,
@@ -40,26 +49,12 @@ test.describe('map cell (Theme 2 wave 4)', () => {
 
     // Write SQL that produces two GeoJSON Point rows + a name property.
     // Strings are fine — the map cell parses with JSON.parse.
-    await page.evaluate(() => {
-      const sqlCell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
-      if (!sqlCell) throw new Error('SQL cell not found');
-      const code = `SELECT '{"type":"Point","coordinates":[77.59,12.97]}' AS geometry, 'Bengaluru' AS name
+    await replaceFirstSql(
+      page,
+      `SELECT '{"type":"Point","coordinates":[77.59,12.97]}' AS geometry, 'Bengaluru' AS name
 UNION ALL SELECT '{"type":"Point","coordinates":[72.83,18.94]}', 'Mumbai'
-UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
-      const ta = sqlCell.querySelector<HTMLTextAreaElement>('textarea');
-      if (ta) {
-        ta.value = code;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
-      }
-      const cm = sqlCell.querySelector<HTMLElement>('.cm-content');
-      if (cm) {
-        cm.textContent = code;
-        cm.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
-      }
-      throw new Error('No editor surface found');
-    });
+UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`,
+    );
     await page.click('[data-nb-action="run-all"]');
     await page.waitForFunction(
       () =>
@@ -140,20 +135,7 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
     );
 
     // SQL with a "geometry" column that isn't valid GeoJSON.
-    await page.evaluate(() => {
-      const sqlCell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
-      if (!sqlCell) throw new Error('SQL cell not found');
-      const code = "SELECT 'not-a-geometry' AS geometry, 'A' AS name";
-      const ta = sqlCell.querySelector<HTMLTextAreaElement>('textarea');
-      const cm = sqlCell.querySelector<HTMLElement>('.cm-content');
-      if (ta) {
-        ta.value = code;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-      } else if (cm) {
-        cm.textContent = code;
-        cm.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    });
+    await replaceFirstSql(page, "SELECT 'not-a-geometry' AS geometry, 'A' AS name");
     await page.click('[data-nb-action="run-all"]');
     await page.waitForFunction(
       () =>
@@ -220,22 +202,12 @@ UNION ALL SELECT '{"type":"Point","coordinates":[88.36,22.57]}', 'Kolkata'`;
       { timeout: 60_000 },
     );
 
-    await page.evaluate(() => {
-      const sqlCell = document.querySelector<HTMLElement>('.cell[data-cell-kind="sql"]');
-      if (!sqlCell) throw new Error('SQL cell not found');
-      const code = `SELECT 40.7128::DOUBLE AS latitude, -74.0060::DOUBLE AS longitude, 'New York' AS city
+    await replaceFirstSql(
+      page,
+      `SELECT 40.7128::DOUBLE AS latitude, -74.0060::DOUBLE AS longitude, 'New York' AS city
 UNION ALL SELECT 12.9716, 77.5946, 'Bengaluru'
-UNION ALL SELECT 100.0, 0.0, 'Invalid latitude'`;
-      const ta = sqlCell.querySelector<HTMLTextAreaElement>('textarea');
-      const cm = sqlCell.querySelector<HTMLElement>('.cm-content');
-      if (ta) {
-        ta.value = code;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-      } else if (cm) {
-        cm.textContent = code;
-        cm.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    });
+UNION ALL SELECT 100.0, 0.0, 'Invalid latitude'`,
+    );
     await page.click('[data-nb-action="run-all"]');
     await page.waitForFunction(
       () =>

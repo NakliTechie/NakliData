@@ -1,4 +1,5 @@
 import type { ChartConfig } from '../chart-config.ts';
+import { resolveStandardsCapabilities } from '../standards/capabilities.ts';
 import {
   AGENT_ADAPTERS,
   AGENT_BOUNDS,
@@ -152,6 +153,7 @@ export function buildAgentV3Tools(host: AgentV3Host): AgentV3Tool[] {
               annotations,
             })),
             deferredTools: DEFERRED_AGENT_TOOLS,
+            standards: resolveStandardsCapabilities(),
             executionScope: null,
           },
           {},

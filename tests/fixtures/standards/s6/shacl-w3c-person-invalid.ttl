@@ -1,0 +1,4 @@
+@prefix ex: <http://example.com/ns#> .
+
+ex:Bob a ex:Person ;
+  ex:ssn "not-a-social-security-number" .

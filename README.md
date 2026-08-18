@@ -39,6 +39,7 @@ It also **resolves** data locally — the sovereign, file-owned take on a CDP's
 - **Optional sidecar jobs (10):** `explain-error` · `disambiguate-type` · `define-type` · `recommend-reports` · `summarise-result` · `nl-to-sql` · `propose-chart` · `propose-merge` · `assign-type` · `nl-to-schema`.
 - **Agent contract:** versions 2 + 3; scopes `metadata:read` · `values:read` · `workspace:propose`; no execution scope; value reads capped at 1,000 rows.
 - **Agent adapters:** Browser API v2: available · Browser API v3: available · WebMCP adapter: experimental · External MCP server: planned. Experimental/planned adapters are not release claims.
+- **Standards profiles:** naklidata-skos-2009-v1: release-gated · naklidata-shacl-2017-core-v1: release-gated · naklidata-prov-o-2013-v1: release-gated · naklidata-owl-2-rl-v1: release-gated · naklidata-bounded-standards-reasoning-v1: release-gated. Release-gated profiles are not product availability claims.
 - **Build identity:** the app header is injected from the current git release tag and build revision.
 
 | Group | Choice | Readiness | Boundary |

@@ -1,7 +1,7 @@
 # NakliData SKOS vocabulary profile
 
-Status: internal Batch S1 adapter. No release or product capability is enabled
-by this file.
+Status: S6-conformance-evidenced adapter. Its independent product release flag
+defaults off.
 
 Normative baseline: [SKOS Simple Knowledge Organization System Reference,
 W3C Recommendation 18 August 2009](https://www.w3.org/TR/skos-reference/).

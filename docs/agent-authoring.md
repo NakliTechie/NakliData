@@ -38,6 +38,11 @@ redaction summary, and an `untrustedContent` marker. Stable failures include
 `cancelled`, and `workspace_changed`. See
 [`agent-surface-v3.md`](agent-surface-v3.md) for the complete contract.
 
+`getCapabilities` also returns a `standards` array. Each entry names the exact
+profile, evidence date, dependencies, boundary, and current release state.
+SKOS, SHACL, PROV-O, OWL, and reasoning currently report `release-gated` with
+`enabled: false`; discovery is not an import, export, or reasoning tool.
+
 | V3 tools | Scope | Behavior |
 |---|---|---|
 | `describe`, `listTables`, `listCells`, `getCapabilities`, `getLineage`, `exportDataDictionary`, `validateArtifact` | `metadata:read` | Grounding and validation without result-row values |

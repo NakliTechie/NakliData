@@ -1,0 +1,13 @@
+# Sources:
+# https://www.w3.org/TR/owl2-profiles/#OWL_2_RL
+# https://www.w3.org/2009/owl-test-cases
+# Public OWL 2 RL named-class entailment fixture for the selected subset.
+@prefix ex: <https://example.test/owl/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Buyer a owl:Class ; rdfs:subClassOf ex:Party .
+ex:Party a owl:Class ; rdfs:subClassOf ex:Agent .
+ex:Agent a owl:Class .
+ex:Supplier a owl:Class ; owl:equivalentClass ex:Vendor .
+ex:Vendor a owl:Class .

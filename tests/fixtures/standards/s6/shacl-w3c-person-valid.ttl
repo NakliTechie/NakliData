@@ -1,0 +1,5 @@
+@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Person ;
+  ex:givenName "Alice" ;
+  ex:ssn "987-65-4321" .
