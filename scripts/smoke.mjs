@@ -979,6 +979,11 @@ async function main() {
     { timeout: 10000 },
   );
   const errText = await page.textContent('.cell.errored .cell-output-error');
+  const errRole = await page.getAttribute('.cell.errored .cell-output-error', 'role');
+  const errAtomic = await page.getAttribute('.cell.errored .cell-output-error', 'aria-atomic');
+  if (errRole !== 'alert' || errAtomic !== 'true') {
+    fail(`SQL error lacks alert semantics: role=${errRole} aria-atomic=${errAtomic}`);
+  }
   log(`✓ syntax error surfaced inline: "${errText?.slice(0, 60)}…"`);
   await page.click('.cell.errored [data-action="explain-error"]');
   await page.waitForFunction(() => document.body.innerText.includes('SMOKE_SIDECAR_OK'), null, {

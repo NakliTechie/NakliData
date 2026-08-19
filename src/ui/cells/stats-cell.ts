@@ -67,7 +67,7 @@ export function renderStatsCell(
 
 function renderBody(cell: StatsCellState): string {
   if (cell.status === 'error') {
-    return `<div class="cell-output-error">Stats: ${escapeHtml(cell.lastError ?? 'unknown error')}</div>`;
+    return `<div class="cell-output-error" role="alert" aria-atomic="true">Stats: ${escapeHtml(cell.lastError ?? 'unknown error')}</div>`;
   }
   if (cell.status === 'running') {
     return `<div class="cell-output-loading">Computing statistics…</div>`;

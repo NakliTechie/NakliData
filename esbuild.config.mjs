@@ -5,6 +5,7 @@ import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promi
 import { createServer } from 'node:http';
 import { resolve as absResolve, extname, join } from 'node:path';
 import { build, context } from 'esbuild';
+import { devServerContentType } from './scripts/dev-server-mime.mjs';
 import { stageGuide } from './scripts/stage-guide.mjs';
 
 const DEV = process.argv.includes('--dev');
@@ -329,22 +330,7 @@ async function serve() {
         if (st.isFile()) {
           const body = await readFile(filePath);
           const ext = extname(filePath);
-          const type =
-            ext === '.html'
-              ? 'text/html'
-              : ext === '.js'
-                ? 'application/javascript'
-                : ext === '.css'
-                  ? 'text/css'
-                  : ext === '.json'
-                    ? 'application/json'
-                    : ext === '.jsonl'
-                      ? 'application/x-ndjson'
-                      : ext === '.csv'
-                        ? 'text/csv'
-                        : ext === '.parquet'
-                          ? 'application/octet-stream'
-                          : 'application/octet-stream';
+          const type = devServerContentType(ext);
           res.writeHead(200, {
             'content-type': type,
             // Cross-origin isolation (mirrors the deploy's public/_headers) so

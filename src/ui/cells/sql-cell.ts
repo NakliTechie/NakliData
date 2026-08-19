@@ -234,6 +234,8 @@ function renderSqlOutput(container: HTMLElement, cell: SqlCellState, extra?: Sql
   if (cell.lastError) {
     const div = document.createElement('div');
     div.className = 'cell-output-error';
+    div.setAttribute('role', 'alert');
+    div.setAttribute('aria-atomic', 'true');
     div.textContent = cell.lastError;
     container.append(div);
 

@@ -111,7 +111,7 @@ function renderBody(cell: LangCell, lang: (typeof LANG)[keyof typeof LANG]): str
     return `<div class="cell-output-loading">Running ${lang.label}…</div>`;
   }
   if (cell.status === 'error') {
-    return `<div class="cell-output-error">${lang.label} error: ${esc(cell.lastError ?? 'unknown error')}</div>`;
+    return `<div class="cell-output-error" role="alert" aria-atomic="true">${lang.label} error: ${esc(cell.lastError ?? 'unknown error')}</div>`;
   }
   if (!cell.preview) {
     return `<div class="cell-output-empty">Pick an input cell and Run. First run downloads ${lang.label} (~${lang.size}, cached).</div>`;

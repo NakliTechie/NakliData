@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — physical Safari WASM MIME boundary (HA)
+
+### Decision HA-1 — serve local WebAssembly with its streaming MIME type
+
+- **Context.** Physical Safari 26.5.2 fetched the vendored DuckDB EH assets but
+  remained at `Engine: booting…`. The same session reached `Engine: ready`
+  through jsDelivr. The local dev server returned the WASM as
+  `application/octet-stream`; jsDelivr returned `application/wasm`.
+- **Decision.** Route development-server response types through a tested MIME
+  resolver. Serve `.wasm` as `application/wasm`. Keep unknown binary formats on
+  `application/octet-stream`. Do not add a Safari-specific worker path.
+- **Consequence.** Safari reached `Engine: ready` on both the explicit offline
+  path and the default integrity-enabled path. The physical replay then covered
+  demo mount, schema override, query error/recovery, report creation, local
+  exports, and classic file-input cancellation. VoiceOver, visibly observed
+  native dialogs, NVDA, physical memory pressure, and deployed-origin timing
+  remain separate gates.
+
 ## 2026-08-19 — configured-ceiling bridge memory gate (GZ)
 
 ### Decision GZ-1 — gate the full 32 MiB encoded-result ceiling locally

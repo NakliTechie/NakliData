@@ -1,75 +1,97 @@
-# Physical macOS evidence readiness — 2026-08-19
+# Physical macOS evidence — 2026-08-19
 
-Status: preflight reached the host-permission boundary. Physical Safari,
-VoiceOver, and native dialog workflows remain unverified.
+Status: the physical Safari functional replay passed after one development-
+server defect was repaired. VoiceOver speech evidence, visible native-picker
+evidence, native Chromium dialogs, and NVDA remain open.
 
 ## Host evidence
 
 - macOS: 26.5.2 (`25F84`)
 - Safari: 26.5.2 (`21624.2.5.11.8`)
-- Safari WebDriver: present at `/System/Cryptexes/App/usr/bin/safaridriver`
-- local application: served at `http://localhost:5173`
-- checked build: `v1.7.0-233-g36f3196`
+- Safari WebDriver: `/System/Cryptexes/App/usr/bin/safaridriver`
+- local application: `http://localhost:5173`
+- base commit: `4027a00`
+- rendered build during repair: `v1.7.0-242-g4027a00-dirty`
+- Safari viewport: `docs/evidence/safari-26-demo-2026-08-19.png`
 
-The physical Chrome session rendered NakliData's first-run surface from that
-local build. This establishes neither native-picker behavior nor Safari or
-screen-reader support.
+The user enabled macOS Accessibility and screen capture permissions. The user
+also authenticated Safari's **Developer Settings → Automation → Allow remote
+automation** control. SafariDriver then created W3C session
+`7CBF3B0E-F66D-46C8-B561-7DA56C8E2E19`.
 
-## Attempt trail
+## Defect found and repaired
 
-1. `safaridriver -p 4444` started its local WebDriver service.
-2. A W3C session request failed with `session not created` because Safari's
-   **Allow remote automation** setting is disabled.
-3. `safaridriver --enable` requested an administrator password and exited after
-   the unattended authentication response was rejected.
-4. `System Events` reported `UI elements enabled = false`, so Codex cannot
-   operate Safari Settings, VoiceOver, or native open/save dialogs through the
-   macOS accessibility layer.
-5. `screencapture` returned a black frame, so the current host does not expose
-   trustworthy system-window screenshots to this session.
+The first same-origin boot remained at `Engine: booting…` for more than 20
+seconds. Safari fetched the vendored EH worker and WASM. macOS unified logs then
+recorded a WebContent crash. The official jsDelivr path reached `Engine: ready`
+in the same Safari session.
 
-No source, file, folder, or export destination was selected. No VoiceOver
-session was started. No Safari support, native-picker support, or screen-reader
-support claim follows from this preflight.
+Header comparison isolated the difference:
 
-## Smallest unblock
+- local dev server: `content-type: application/octet-stream`
+- jsDelivr: `content-type: application/wasm`
 
-The user must perform these host-level changes while present:
+The development server now resolves MIME types through
+`scripts/dev-server-mime.mjs`. Its `.wasm` mapping is
+`application/wasm`. `tests/dev-server-mime.test.ts` protects that mapping and
+the binary fallback.
 
-1. In Safari Settings, enable **Developer → Allow remote automation**.
-2. In macOS System Settings, permit Codex under **Privacy & Security →
-   Accessibility**.
-3. Permit Codex under **Privacy & Security → Screen & System Audio Recording**
-   if screenshot evidence is desired.
-4. Confirm that VoiceOver audio and focus takeover may run during the test
-   window.
+After restart, `/?offline=1&verify=0` reached `Engine: ready`. The default `/`
+path also reached `Engine: ready` with the integrity manifest loaded. No
+Safari-specific worker fork was retained.
 
-Do not provide an administrator password to the repository or store it in a
-script, shell history, environment variable, screenshot, or evidence file.
+## Safari replay results
 
-## Replay matrix after unblock
+| Workflow | Result | Evidence |
+|---|---|---|
+| First load | passed | Title `NakliData`; default engine state `ready` |
+| Integrity-enabled local boot | passed | `integrity.json` loaded; engine state `ready` |
+| Demo mount | passed | Five tables across three synthetic sources; four starter cells |
+| Notebook execution | passed | Ten-row vendor result; quality assertion `PASS` |
+| Schema override | passed | `vendor_id → Record / surrogate ID`; overridden at 100% |
+| Report creation | passed | KPI tiles, chart, result, provenance, and print action rendered |
+| Error display | passed after repair | Invalid table produced an inline DuckDB catalog error with `role="alert"` and `aria-atomic="true"` |
+| Error recovery | passed | Restored SQL returned ten rows and removed the errored cell state |
+| Workbook save | passed through fallback | Toast: `Saved untitled.naklidata.` |
+| Static HTML export | passed through fallback | Toast named the generated `.html` file |
+| CSV result export | passed through fallback | Toast reported 466 bytes and the generated `.csv` file |
+| Classic file-input cancellation | passed in automated fallback | Source count remained three; focus returned to `data-action="add-source"` |
 
-### Safari
+Safari uses browser downloads because `showSaveFilePicker` is absent. The
+replay did not claim a native save panel. The file-input picker did not remain
+visible as a Safari sheet under WebDriver, so visible native-picker behavior
+still requires the user-present Chromium/Safari dialog pass.
 
-Run first load, demo mount, schema override, notebook execution, report
-creation, error recovery, and HTML/data export. Exercise the classic file-input
-fallback and real open/save dialogs. Record the Safari and macOS versions,
-visible result, dialog cancellation behavior, focus return, console errors,
-and cleanup.
+No external dataset was selected. No path entered the DOM evidence. The
+mounted sources were NakliData's synthetic demo. Export messages recorded only
+generated filenames and byte counts.
+
+The same replay initially found that SQL errors had no alert semantic. SQL,
+Python/R, and stats-cell errors now expose atomic alerts. The smoke test asserts
+the SQL error contract. Safari reran the invalid query and returned
+`role="alert"` plus `aria-atomic="true"`; restoring the original query then
+returned ten rows.
+
+## Remaining replay matrix
 
 ### VoiceOver
 
-Run the same critical workflows using VoiceOver navigation. Record each
-control's spoken name, role, state, value, error association, live-region
-announcement, modal boundary, focus return, and export feedback. Do not infer
-speech output from the DOM accessibility tree.
+Run first load, schema override, notebook execution, report creation, the SQL
+error, report export, and Add source cancellation with VoiceOver active. Record
+actual spoken names, roles, states, values, error association, live-region
+announcements, modal boundaries, focus return, and export feedback. Do not
+infer speech from the DOM accessibility tree.
 
-### Native Chromium dialogs
+### Native dialogs
 
-Exercise **Add folder**, **Add file**, workbook open/save, HTML export, and one
-data export in the physical Chrome session. Cancel each dialog once, then use a
-user-selected public fixture and destination. Confirm that cancellation is
-silent, accepted paths remain browser-local, and no selected path or file bytes
-enter logs or evidence.
+In physical Chrome, exercise **Add folder**, **Add file**, workbook open/save,
+HTML export, and one data export. Cancel each once. Then use a user-selected
+public fixture and destination. Confirm that cancellation is silent and no
+selected path or file bytes enter logs or evidence.
 
-NVDA remains a separate Windows-host requirement.
+Repeat the visible Add file cancellation once in Safari if the physical UI
+exposes a native picker outside WebDriver.
+
+### Separate host requirement
+
+NVDA remains a Windows-host requirement.
