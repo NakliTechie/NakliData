@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — bounded local structured-output recovery (GT)
+
+### Decision GT-1 — narrow each small-model job and keep deterministic authority
+
+- **Context.** Physical Qwen2.5-0.5B runs rejected four jobs. The first compact
+  pass then exposed a placeholder SQL fix, malformed regex JSON, an ungrounded
+  result summary, and invalid aggregate SQL.
+- **Decision.** Give local explain-error separate explanation and SQL-repair
+  calls. Validate the repair through the existing read-only SQL parser. Derive
+  define-type regexes deterministically from at most 12 local samples. Require
+  compact summary JSON with a real backticked column, sample-backed numbers,
+  and no invented unit marker. Give local NL-to-SQL a compact schema, bounded
+  response, and grouped-aggregate example. Keep cloud contracts unchanged.
+- **Consequence.** The final physical Chrome WebGPU fixture matrix accepted
+  explain-error, define-type, summarise-result, and NL-to-SQL. The local path
+  still needs repeatability across varied fixtures, assignment-quality repair,
+  and larger-model evidence before its experimental claim can broaden.
+
 ## 2026-08-19 — compact local schema contract (GS)
 
 ### Decision GS-1 — give the 0.5B model a tuple contract and keep canonical guards

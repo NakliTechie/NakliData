@@ -169,6 +169,13 @@ export async function dispatchJob(
   // `sendPrompt` (below) — each branch just builds its prompt and parses
   // the raw string into its structured shape.
   if (safeJob.kind === 'explain-error') {
+    if (opts.provider === 'local') {
+      const { system, user } = buildLocalExplainErrorPrompt(safeJob);
+      const explanationRaw = await sendPrompt(system, user, opts, 128);
+      const fixPrompt = buildLocalExplainFixPrompt(safeJob);
+      const fixRaw = await sendPrompt(fixPrompt.system, fixPrompt.user, opts, 192);
+      return parseLocalExplainErrorResponse(explanationRaw, safeJob, fixRaw);
+    }
     const { system, user } = buildExplainErrorPrompt(safeJob);
     return parseExplainErrorResponse(await sendPrompt(system, user, opts));
   }
@@ -180,6 +187,10 @@ export async function dispatchJob(
     );
   }
   if (safeJob.kind === 'define-type') {
+    if (opts.provider === 'local') {
+      const { system, user } = buildLocalDefineTypePrompt(safeJob);
+      return parseLocalDefineTypeResponse(await sendPrompt(system, user, opts, 128), safeJob);
+    }
     const { system, user } = buildDefineTypePrompt(safeJob);
     return parseDefineTypeResponse(await sendPrompt(system, user, opts));
   }
@@ -192,10 +203,25 @@ export async function dispatchJob(
     );
   }
   if (safeJob.kind === 'summarise-result') {
+    if (opts.provider === 'local') {
+      const { system, user } = buildLocalSummariseResultPrompt(safeJob);
+      return parseLocalSummariseResultResponse(
+        await sendPrompt(system, user, opts, 128),
+        safeJob.columns,
+        safeJob.sampleRows,
+      );
+    }
     const { system, user } = buildSummariseResultPrompt(safeJob);
     return parseSummariseResultResponse(await sendPrompt(system, user, opts), safeJob.columns);
   }
   if (safeJob.kind === 'nl-to-sql') {
+    if (opts.provider === 'local') {
+      const { system, user } = buildLocalNlToSqlPrompt(safeJob);
+      return parseNlToSqlResponse(
+        await sendPrompt(system, user, opts, 256),
+        safeJob.tables.map((t) => t.name),
+      );
+    }
     const { system, user } = buildNlToSqlPrompt(safeJob);
     return parseNlToSqlResponse(
       await sendPrompt(system, user, opts),
@@ -365,6 +391,26 @@ Hard rules:
 - "suggested_fix" is plain SQL text, or null. Never include placeholder syntax like <table>; if you don't know the table name, return null.
 - Never invent table or column names that don't appear in the schema hint.`;
 
+const LOCAL_EXPLAIN_ERROR_SYSTEM = `Explain one DuckDB error.
+
+Output ONLY one compact JSON object: {"e":"one short plain-English explanation"}
+
+Rules:
+- e is one sentence and names the concrete error.
+- Do not repeat the shape's placeholder text.
+- No SQL, markdown, prose outside JSON, or extra keys.
+
+Example input: SQL: SELECT region, SUM(amount) FROM sales; Error: region must appear in GROUP BY; Schema: sales(region, amount)
+Example output: {"e":"The region column needs a GROUP BY because amount is aggregated."}`;
+
+const LOCAL_EXPLAIN_FIX_SYSTEM = `Correct one DuckDB query.
+
+Output ONLY one read-only SELECT or WITH query. Output null when no reliable correction is available.
+Use only input table and column names. No prose, markdown, comments, writes, DDL, PRAGMA, INSTALL, LOAD, SET, ATTACH, COPY, or external URLs.
+
+Example input: SQL: SELECT region, SUM(amount) FROM sales; Error: region must appear in GROUP BY; Schema: sales(region, amount)
+Example output: SELECT region, SUM(amount) FROM sales GROUP BY region`;
+
 export function buildExplainErrorPrompt(job: ExplainErrorJob): {
   system: string;
   user: string;
@@ -389,6 +435,25 @@ export function buildExplainErrorPrompt(job: ExplainErrorJob): {
   return {
     system: EXPLAIN_ERROR_SYSTEM,
     user: sections.join('\n'),
+  };
+}
+
+export function buildLocalExplainErrorPrompt(job: ExplainErrorJob): {
+  system: string;
+  user: string;
+} {
+  const sections = [`SQL: ${job.sql}`, `Error: ${job.errorMessage || '(missing error message)'}`];
+  if (job.schemaHint) sections.push(`Schema: ${job.schemaHint}`);
+  return { system: LOCAL_EXPLAIN_ERROR_SYSTEM, user: sections.join('\n') };
+}
+
+export function buildLocalExplainFixPrompt(job: ExplainErrorJob): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: LOCAL_EXPLAIN_FIX_SYSTEM,
+    user: buildLocalExplainErrorPrompt(job).user,
   };
 }
 
@@ -470,6 +535,21 @@ Hard rules:
 - "category" is one short label, capitalised. Pick "Identifier" when the column looks like a key, "Code" for short codes, "Email" / "Phone" / "Date" / "URL" / "Currency" for those, otherwise "Domain-specific".
 - "regex" must include anchors (^ and $) and match every sample value provided. Never emit \`.*\` or \`.+\` as the entire pattern — that's useless. If the samples don't share a clear pattern, return a regex that matches their character class + length range.`;
 
+const LOCAL_DEFINE_TYPE_SYSTEM = `Define one semantic type from a column and its samples.
+
+Output ONLY one compact JSON object:
+{"i":"snake_case_id","n":"Display Name","c":"Category"}
+
+Rules:
+- Use exactly the three keys i, n, c. No markdown or prose outside JSON.
+- i starts with a letter and contains lowercase letters, digits, or underscores.
+- n has at most three words.
+- c is Identifier, Code, Email, Phone, Date, URL, Currency, or Domain-specific.
+- Do not add a regex. NakliData derives it from the samples.
+
+Example input: Column: emp_id; Samples: ["E0001","E0042"]
+Example output: {"i":"employee_id","n":"Employee ID","c":"Identifier"}`;
+
 export function buildDefineTypePrompt(job: DefineTypeJob): {
   system: string;
   user: string;
@@ -483,6 +563,20 @@ export function buildDefineTypePrompt(job: DefineTypeJob): {
     samplesBlock,
   ].join('\n');
   return { system: DEFINE_TYPE_SYSTEM, user };
+}
+
+export function buildLocalDefineTypePrompt(job: DefineTypeJob): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: LOCAL_DEFINE_TYPE_SYSTEM,
+    user: [
+      `Column: ${job.columnName}`,
+      `SQL type: ${job.sqlType}`,
+      `Samples: ${JSON.stringify(job.samples.slice(0, 12))}`,
+    ].join('\n'),
+  };
 }
 
 const ID_REGEX = /^[a-z][a-z0-9_]*$/;
@@ -525,6 +619,109 @@ export function parseDefineTypeResponse(raw: string): DefineTypeResponse {
   };
 }
 
+const LOCAL_DEFINE_CATEGORIES = new Set([
+  'Identifier',
+  'Code',
+  'Email',
+  'Phone',
+  'Date',
+  'URL',
+  'Currency',
+  'Domain-specific',
+]);
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Derive a bounded JavaScript regex from local-only samples. */
+export function deriveLocalSampleRegex(samples: string[]): string {
+  const values = Array.from(new Set(samples.slice(0, 12).map((value) => value.trim()))).filter(
+    Boolean,
+  );
+  if (values.length === 0) {
+    throw new SidecarError('Local type definition needs at least one non-empty sample.', 'parse');
+  }
+  const length = values[0]?.length ?? 0;
+  if (length > 0 && values.every((value) => value.length === length)) {
+    const tokens: string[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const chars = values.map((value) => value[index] ?? '');
+      const first = chars[0] ?? '';
+      if (chars.every((char) => /[0-9]/.test(char))) tokens.push('[0-9]');
+      else if (chars.every((char) => char === first)) tokens.push(escapeRegexLiteral(first));
+      else if (chars.every((char) => /[A-Z]/.test(char))) tokens.push('[A-Z]');
+      else if (chars.every((char) => /[a-z]/.test(char))) tokens.push('[a-z]');
+      else if (chars.every((char) => /[A-Za-z]/.test(char))) tokens.push('[A-Za-z]');
+      else if (chars.every((char) => /[A-Za-z0-9]/.test(char))) tokens.push('[A-Za-z0-9]');
+      else return `^(?:${values.map(escapeRegexLiteral).join('|')})$`;
+    }
+    const compact: string[] = [];
+    for (let index = 0; index < tokens.length; ) {
+      const token = tokens[index] ?? '';
+      let count = 1;
+      while (tokens[index + count] === token) count += 1;
+      compact.push(count > 1 && token.startsWith('[') ? `${token}{${count}}` : token.repeat(count));
+      index += count;
+    }
+    return `^${compact.join('')}$`;
+  }
+  return `^(?:${values.map(escapeRegexLiteral).join('|')})$`;
+}
+
+function localTypeIdFallback(columnName: string): string {
+  const compact = columnName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return /^[a-z]/.test(compact) ? compact : `field_${compact || 'value'}`;
+}
+
+function localDisplayFallback(typeId: string): string {
+  return typeId
+    .split('_')
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function localCategoryFallback(job: DefineTypeJob): string {
+  if (/(?:^|_)(?:id|key|no|number)$/.test(job.columnName.toLowerCase())) return 'Identifier';
+  if (job.samples.every((value) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value))) return 'Email';
+  return 'Domain-specific';
+}
+
+export function parseLocalDefineTypeResponse(raw: string, job: DefineTypeJob): DefineTypeResponse {
+  let parsed: { i?: unknown; n?: unknown; c?: unknown };
+  try {
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse local sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  const proposedId = typeof parsed.i === 'string' ? parsed.i.trim() : '';
+  const id = ID_REGEX.test(proposedId) ? proposedId : localTypeIdFallback(job.columnName);
+  const proposedName = typeof parsed.n === 'string' ? parsed.n.trim() : '';
+  const displayName =
+    proposedName && proposedName.split(/\s+/).length <= 3 ? proposedName : localDisplayFallback(id);
+  const proposedCategory = typeof parsed.c === 'string' ? parsed.c.trim() : '';
+  const category = LOCAL_DEFINE_CATEGORIES.has(proposedCategory)
+    ? proposedCategory
+    : localCategoryFallback(job);
+  return parseDefineTypeResponse(
+    JSON.stringify({
+      id,
+      display_name: displayName,
+      category,
+      regex: deriveLocalSampleRegex(job.samples),
+    }),
+  );
+}
+
 // ---- explain-error parser -------------------------------------------
 
 export function parseExplainErrorResponse(raw: string): ExplainErrorResponse {
@@ -549,6 +746,34 @@ export function parseExplainErrorResponse(raw: string): ExplainErrorResponse {
       ? parsed.suggested_fix.trim()
       : null;
   return { kind: 'explain-error', explanation, suggestedFix };
+}
+
+export function parseLocalExplainErrorResponse(
+  raw: string,
+  job: ExplainErrorJob,
+  fixRaw?: string,
+): ExplainErrorResponse {
+  let parsed: { e?: unknown; s?: unknown };
+  try {
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse local sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  const proposedFix = fixRaw ?? (typeof parsed.s === 'string' ? parsed.s : null);
+  const response = parseExplainErrorResponse(
+    JSON.stringify({ explanation: parsed.e, suggested_fix: proposedFix }),
+  );
+  if (!response.suggestedFix) return response;
+  const schemaTables = Array.from(
+    job.schemaHint?.matchAll(/(?:^|[,\n]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\(/g) ?? [],
+    (match) => match[1] ?? '',
+  ).filter(Boolean);
+  const allowedTables = Array.from(new Set([...schemaTables, ...extractFromTables(job.sql)]));
+  const parsedFix = parseNlToSqlResponse(response.suggestedFix, allowedTables).sql;
+  return { ...response, suggestedFix: parsedFix || null };
 }
 
 // ---- recommend-reports (Job 4 / Wave 3) prompt + parser -------------
@@ -679,6 +904,23 @@ Hard rules:
 - If the result is empty or you cannot say anything useful, return an empty string for "observation".
 - Stay under 200 characters. Be specific, not generic ("Top vendor is Acme at 12.3k" beats "There are several vendors").`;
 
+const LOCAL_SUMMARISE_RESULT_SYSTEM = `Summarise one query result.
+
+Output ONLY one compact JSON object: {"o":"one short observation"}
+
+Rules:
+- o is one plain-English sentence under 200 characters.
+- Mention a concrete value from the supplied rows.
+- Wrap each mentioned column name in backticks.
+- Never invent a value or column.
+- Do not add currency symbols, percent signs, thousands, millions, billions, or other units absent from the rows.
+- A non-empty observation must include at least one backticked column.
+- Return {"o":""} when rows are empty or no useful observation is supported.
+- No markdown outside column backticks, prose outside JSON, or extra keys.
+
+Example input: Columns: vendor_name, total; Rows: [{"vendor_name":"Acme","total":"1000"}]
+Example output: {"o":"Acme has the highest \`total\` at 1000."}`;
+
 export function buildSummariseResultPrompt(job: SummariseResultJob): {
   system: string;
   user: string;
@@ -699,6 +941,20 @@ export function buildSummariseResultPrompt(job: SummariseResultJob): {
     sampleBlock || '(no rows)',
   ].join('\n');
   return { system: SUMMARISE_RESULT_SYSTEM, user };
+}
+
+export function buildLocalSummariseResultPrompt(job: SummariseResultJob): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: LOCAL_SUMMARISE_RESULT_SYSTEM,
+    user: [
+      `Columns: ${job.columns.join(', ')}`,
+      `Total rows: ${job.rowCount}`,
+      `Rows: ${JSON.stringify(job.sampleRows)}`,
+    ].join('\n'),
+  };
 }
 
 export function parseSummariseResultResponse(
@@ -750,6 +1006,46 @@ export function parseSummariseResultResponse(
   return { kind: 'summarise-result', observation: truncated };
 }
 
+export function parseLocalSummariseResultResponse(
+  raw: string,
+  columns: string[],
+  sampleRows: Array<Record<string, string | number | boolean | null>> = [],
+): SummariseResultResponse {
+  let parsed: { o?: unknown };
+  try {
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse local sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  if (typeof parsed.o !== 'string') {
+    throw new SidecarError('Local sidecar response missing compact "o" string.', 'parse');
+  }
+  const response = parseSummariseResultResponse(JSON.stringify({ observation: parsed.o }), columns);
+  if (!response.observation) return response;
+  if (!/`[^`]+`/.test(response.observation)) {
+    return { kind: 'summarise-result', observation: '' };
+  }
+  const sampleText = JSON.stringify(sampleRows).toLowerCase();
+  if (/[$€£¥%]|\b(?:thousand|million|billion|trillion|percent)\b/i.test(response.observation)) {
+    const markers =
+      response.observation
+        .toLowerCase()
+        .match(/[$€£¥%]|\b(?:thousand|million|billion|trillion|percent)\b/g) ?? [];
+    if (markers.some((marker) => !sampleText.includes(marker))) {
+      return { kind: 'summarise-result', observation: '' };
+    }
+  }
+  const allowedNumbers = new Set(sampleText.match(/-?\d+(?:[.,]\d+)?/g) ?? []);
+  const observedNumbers = response.observation.toLowerCase().match(/-?\d+(?:[.,]\d+)?/g) ?? [];
+  if (observedNumbers.some((number) => !allowedNumbers.has(number))) {
+    return { kind: 'summarise-result', observation: '' };
+  }
+  return response;
+}
+
 // ---- nl-to-sql (Job 5 / Wave 5 W5.1) prompt + parser ----------------
 //
 // Genie / Cortex / Magic pattern. The user types a question; we ship
@@ -783,6 +1079,19 @@ Hard rules:
 
 Output ONLY the SQL — nothing else, no explanation, no greeting.`;
 
+const LOCAL_NL_TO_SQL_SYSTEM = `Write one read-only DuckDB query.
+
+Rules:
+- Output SQL only. No prose, markdown fences, or comments.
+- Start with SELECT or WITH.
+- Use only the tables and columns in the input.
+- Never use write, DDL, PRAGMA, INSTALL, LOAD, SET, ATTACH, COPY, or external URLs.
+- Add LIMIT 100 unless the question gives a smaller limit or returns one aggregate row.
+- If impossible, output: SELECT 'unanswerable' AS note WHERE 1=0
+
+Example input: Schema: sales(product,amount); Question: Top five products by total amount
+Example output: SELECT product, SUM(amount) AS total FROM sales GROUP BY product ORDER BY total DESC LIMIT 5`;
+
 export function buildNlToSqlPrompt(job: NlToSqlJob): { system: string; user: string } {
   const dialect = job.dialect ?? 'duckdb';
   const schemaBlock = job.tables.map((t) => `- ${t.name}(${t.columns.join(', ')})`).join('\n');
@@ -795,6 +1104,14 @@ export function buildNlToSqlPrompt(job: NlToSqlJob): { system: string; user: str
     `Question: ${job.question.trim()}`,
   ].join('\n');
   return { system: NL_TO_SQL_SYSTEM, user };
+}
+
+export function buildLocalNlToSqlPrompt(job: NlToSqlJob): { system: string; user: string } {
+  const schema = job.tables.map((table) => `${table.name}(${table.columns.join(',')})`).join('\n');
+  return {
+    system: LOCAL_NL_TO_SQL_SYSTEM,
+    user: ['Schema:', schema || '(none)', `Question: ${job.question.trim()}`].join('\n'),
+  };
 }
 
 // Write/DDL/session-mutating keyword set. The model is INSTRUCTED to

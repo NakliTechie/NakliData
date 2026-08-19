@@ -107,9 +107,7 @@ describe('local-model seam (W3.2 slice A)', () => {
       ),
     ).rejects.toMatchObject({ kind: 'no-key' });
     // …but local with a generator registered succeeds with no key present.
-    registerLocalGenerator(async () =>
-      JSON.stringify({ explanation: 'It is fine.', suggested_fix: null }),
-    );
+    registerLocalGenerator(async () => JSON.stringify({ e: 'It is fine.', s: null }));
     const result = await dispatchJob(
       { kind: 'explain-error', sql: 'SELECT 1', errorMessage: 'x' },
       { provider: 'local', model: 'm' },

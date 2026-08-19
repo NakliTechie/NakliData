@@ -4,13 +4,21 @@ import {
   buildDefineTypePrompt,
   buildDisambiguateTypePrompt,
   buildExplainErrorPrompt,
+  buildLocalDefineTypePrompt,
+  buildLocalExplainErrorPrompt,
+  buildLocalNlToSqlPrompt,
+  buildLocalSummariseResultPrompt,
   buildNlToSqlPrompt,
   buildRecommendReportsPrompt,
   buildSummariseResultPrompt,
+  deriveLocalSampleRegex,
   dispatchJob,
   parseDefineTypeResponse,
   parseDisambiguateTypeResponse,
   parseExplainErrorResponse,
+  parseLocalDefineTypeResponse,
+  parseLocalExplainErrorResponse,
+  parseLocalSummariseResultResponse,
   parseNlToSqlResponse,
   parseRecommendReportsResponse,
   parseSummariseResultResponse,
@@ -804,6 +812,147 @@ describe('dispatchJob — nl-to-sql', () => {
     expect(result.kind).toBe('nl-to-sql');
     if (result.kind !== 'nl-to-sql') return;
     expect(result.sql).toBe('');
+  });
+});
+
+describe('compact local job contracts', () => {
+  it('maps compact explain-error JSON through the canonical parser', () => {
+    const prompt = buildLocalExplainErrorPrompt({
+      kind: 'explain-error',
+      sql: 'SELECT missing FROM invoices',
+      errorMessage: 'Binder Error: missing column',
+      schemaHint: 'invoices(amount)',
+    });
+    expect(prompt.system).toContain('{"e":');
+    expect(prompt.user).toContain('Schema: invoices(amount)');
+    expect(
+      parseLocalExplainErrorResponse(
+        '{"e":"The missing column is not in invoices.","s":"SELECT amount FROM invoices"}',
+        {
+          kind: 'explain-error',
+          sql: 'SELECT missing FROM invoices',
+          errorMessage: 'Binder Error: missing column',
+          schemaHint: 'invoices(amount)',
+        },
+      ),
+    ).toEqual({
+      kind: 'explain-error',
+      explanation: 'The missing column is not in invoices.',
+      suggestedFix: 'SELECT amount FROM invoices',
+    });
+  });
+
+  it('maps compact define-type JSON through regex and identifier guards', () => {
+    const prompt = buildLocalDefineTypePrompt({
+      kind: 'define-type',
+      columnName: 'emp_id',
+      sqlType: 'VARCHAR',
+      samples: ['E0001', 'E0042'],
+    });
+    expect(prompt.system).toContain('{"i":');
+    expect(prompt.system).toContain('Do not add a regex');
+    expect(prompt.user).toContain('["E0001","E0042"]');
+    expect(
+      parseLocalDefineTypeResponse('{"i":"employee_id","n":"Employee ID","c":"Identifier"}', {
+        kind: 'define-type',
+        columnName: 'emp_id',
+        sqlType: 'VARCHAR',
+        samples: ['E0001', 'E0042'],
+      }),
+    ).toMatchObject({ suggestion: { id: 'employee_id', regex: '^E[0-9]{4}$' } });
+    expect(deriveLocalSampleRegex(['ORD-001', 'ORD-042'])).toBe('^ORD-[0-9]{3}$');
+    expect(() =>
+      parseLocalDefineTypeResponse('not json', {
+        kind: 'define-type',
+        columnName: 'emp_id',
+        sqlType: 'VARCHAR',
+        samples: ['E0001'],
+      }),
+    ).toThrow(SidecarError);
+  });
+
+  it('maps compact summary JSON through the canonical column guard', () => {
+    const prompt = buildLocalSummariseResultPrompt({
+      kind: 'summarise-result',
+      sql: 'SELECT vendor_name, SUM(amount) AS total FROM invoices GROUP BY 1',
+      columns: SUMMARY_COLUMNS,
+      rowCount: 1,
+      sampleRows: [{ vendor_name: 'Acme', total: '1000' }],
+    });
+    expect(prompt.system).toContain('{"o":');
+    expect(prompt.user).toContain('Acme');
+    expect(
+      parseLocalSummariseResultResponse('{"o":"Acme leads on `total` at 1000."}', SUMMARY_COLUMNS, [
+        { vendor_name: 'Acme', total: '1000' },
+      ]).observation,
+    ).toContain('Acme');
+    expect(
+      parseLocalSummariseResultResponse(
+        '{"o":"Acme leads on `invented` at 1000."}',
+        SUMMARY_COLUMNS,
+      ).observation,
+    ).toBe('');
+    expect(
+      parseLocalSummariseResultResponse(
+        '{"o":"Acme leads on `total` at $1000 million."}',
+        SUMMARY_COLUMNS,
+        [{ vendor_name: 'Acme', total: '1000' }],
+      ).observation,
+    ).toBe('');
+  });
+
+  it('uses local response ceilings and preserves the SQL safety parser', async () => {
+    const requests: Array<{ system: string; maxTokens?: number }> = [];
+    const responses = [
+      '{"e":"The column is missing."}',
+      'null',
+      '{"i":"employee_id","n":"Employee ID","c":"Identifier"}',
+      '{"o":"Acme leads on `total` at 1000."}',
+      'DELETE FROM invoices',
+    ];
+    const transport: SidecarTransport = async (request) => {
+      requests.push({
+        system: request.system,
+        ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }),
+      });
+      return responses.shift() ?? '';
+    };
+    const opts = { provider: 'local' as const, model: 'local-model', transport };
+    await dispatchJob({ kind: 'explain-error', sql: 'SELECT x', errorMessage: 'missing' }, opts);
+    await dispatchJob(
+      { kind: 'define-type', columnName: 'emp_id', sqlType: 'VARCHAR', samples: ['E0001'] },
+      opts,
+    );
+    await dispatchJob(
+      {
+        kind: 'summarise-result',
+        sql: 'SELECT 1',
+        columns: SUMMARY_COLUMNS,
+        rowCount: 1,
+        sampleRows: [{ vendor_name: 'Acme', total: '1000' }],
+      },
+      opts,
+    );
+    const sql = await dispatchJob(
+      { kind: 'nl-to-sql', question: 'delete invoices', tables: NL_TABLES },
+      opts,
+    );
+    expect(requests.map((request) => request.maxTokens)).toEqual([128, 192, 128, 128, 256]);
+    expect(requests[4]?.system).toContain('Never use write');
+    expect(sql).toEqual({ kind: 'nl-to-sql', sql: '' });
+  });
+
+  it('builds the compact local SQL schema without changing cloud prompts', () => {
+    const local = buildLocalNlToSqlPrompt({
+      kind: 'nl-to-sql',
+      question: 'Top vendors',
+      tables: NL_TABLES,
+    });
+    expect(local.system).toContain('SQL only');
+    expect(local.user).toContain('invoices(invoice_no,vendor_name,amount,iso_date)');
+    expect(
+      buildNlToSqlPrompt({ kind: 'nl-to-sql', question: 'Top vendors', tables: NL_TABLES }).user,
+    ).toContain('Dialect: duckdb');
   });
 });
 
