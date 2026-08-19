@@ -13,11 +13,17 @@ an availability claim only after its own dated live matrix passes.
 | Profile ID | Provider boundary | Storage boundary | Current state |
 | --- | --- | --- | --- |
 | `databricks-unity-catalog-aws` | Databricks Unity Catalog Iceberg REST | AWS S3 | verification pending |
+| `snowflake-horizon-catalog-s3` | Snowflake Horizon Iceberg REST Catalog API | AWS S3 | verification pending |
+| `snowflake-horizon-catalog-gcs` | Snowflake Horizon Iceberg REST Catalog API | Google Cloud Storage | verification pending |
 | `snowflake-open-catalog-s3` | Snowflake Open Catalog/Polaris | AWS S3 | verification pending |
 | `snowflake-open-catalog-gcs` | Snowflake Open Catalog/Polaris | Google Cloud Storage | verification pending |
 
 Azure/ADLS is excluded. Catalog support does not establish Databricks SQL
 Warehouse or Snowflake Virtual Warehouse query support.
+
+Horizon Catalog is the primary Snowflake profile for new customers. Open
+Catalog/Polaris remains a legacy profile for organizations that already own an
+Open Catalog account. Each profile retains an independent live gate.
 
 ## Two-key enablement
 

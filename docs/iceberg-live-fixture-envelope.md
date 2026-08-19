@@ -49,7 +49,34 @@ The identity must lack table creation, mutation, deletion, ownership transfer,
 credential creation, and unrestricted object-storage permissions. The matrix
 tests the catalog path only. It does not establish SQL Warehouse support.
 
-## Snowflake Open Catalog/Polaris profile
+## Snowflake Horizon Catalog profile
+
+This is the primary Snowflake boundary for new customers. Use the existing
+regular Snowflake account and its Horizon Iceberg REST Catalog API.
+
+| Field | Required value |
+| --- | --- |
+| Storage | S3 or GCS only |
+| REST endpoint | account-owned Horizon Iceberg REST Catalog API base URI |
+| Object | database `NAKLIDATA_VERIFY`, schema `ICEBERG`, table `LINEITEM_ICEBERG` |
+| Table ownership | independently owned Snowflake-managed Iceberg table |
+| Data | an independently owned copy of the pinned public fixture |
+| Principal | dedicated read-only Snowflake user and role |
+| Catalog privileges | endpoint access plus database/schema usage and table select only |
+| Storage privileges | vended reads limited to that table prefix |
+| Credential vending | requested explicitly through the Iceberg REST protocol |
+| Credential owner | named Snowflake account administrator in the run record |
+| Revocation | immediately after the matrix; absolute timestamp required before use; maximum 24 hours after issuance |
+
+The matrix may not create or mutate the database, schema, table, external
+volume, storage integration, user, role, or storage prefix. It does not
+establish Snowflake Virtual Warehouse support.
+
+## Snowflake Open Catalog/Polaris legacy profile
+
+This boundary applies only to organizations that already own a Snowflake Open
+Catalog account. Snowflake no longer permits new customers to create their
+first Open Catalog account.
 
 | Field | Required value |
 | --- | --- |
@@ -98,6 +125,18 @@ The matrix does not establish Snowflake Virtual Warehouse support.
 
 - The existing AWS trial workspace negotiated the Iceberg REST configuration
   for catalog `samples` and selected prefix `catalogs/samples`.
+
+## Snowflake access follow-up on 2026-08-19
+
+- The trial organization exposed one regular Enterprise AWS account and no
+  Open Catalog account.
+- Horizon Catalog exposed four databases but no `NAKLIDATA_VERIFY` database or
+  Snowflake-managed Iceberg verification table.
+- The trial indicator displayed `$400 of $400 left` and 29 days remaining.
+- No query, REST request, credential, database, schema, table, external volume,
+  storage integration, account, or warehouse action ran.
+- `docs/snowflake-horizon-catalog-readiness-2026-08-19.md` records the exact
+  successor profile and smallest unblock.
 - The production client listed live namespaces and tables.
 - A bounded scan of 100 existing sample tables found zero Iceberg-compatible
   load-table targets.

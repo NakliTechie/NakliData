@@ -171,7 +171,33 @@ References:
 - [Databricks Unity Catalog Iceberg REST access](https://docs.databricks.com/aws/en/external-access/iceberg)
 - [Databricks credential vending](https://docs.databricks.com/aws/en/external-access/credential-vending)
 
-## Snowflake Open Catalog/Polaris matrix
+## Snowflake Horizon Catalog matrix
+
+This is the primary Snowflake path for new customers. A live endpoint must
+prove:
+
+1. the account-owned Horizon Iceberg REST Catalog API URI and TLS;
+2. short-lived Snowflake token acquisition and expiry;
+3. `warehouse=<database name>` configuration negotiation;
+4. the database prefix override and nested namespace encoding;
+5. namespace and table browsing;
+6. load-table with explicitly requested vended credentials;
+7. live in-memory S3 or GCS credential application and provider-specific
+   expiry/refresh plus engine cleanup; ADLS remains unavailable on the reviewed
+   WASM candidate;
+8. bounded storage read, cancellation, redacted errors, and payload disclosure;
+9. read-only behavior under a role that cannot mutate the table or account.
+
+Passing this matrix does not verify direct Snowflake Virtual Warehouse queries.
+
+References:
+
+- [Snowflake Horizon Catalog external-engine access](https://docs.snowflake.com/en/user-guide/tables-iceberg-access-using-external-query-engine-snowflake-horizon)
+- [Snowflake Horizon Catalog overview](https://docs.snowflake.com/en/user-guide/snowflake-horizon)
+
+## Snowflake Open Catalog/Polaris legacy matrix
+
+This applies only to organizations that already own an Open Catalog account.
 
 A safe live endpoint must prove:
 

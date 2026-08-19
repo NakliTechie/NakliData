@@ -1,7 +1,12 @@
 export type CatalogProfileReadiness = 'verification-pending' | 'verified';
 
 export interface IcebergRestSupportProfile {
-  id: 'databricks-unity-catalog-aws' | 'snowflake-open-catalog-s3' | 'snowflake-open-catalog-gcs';
+  id:
+    | 'databricks-unity-catalog-aws'
+    | 'snowflake-horizon-catalog-s3'
+    | 'snowflake-horizon-catalog-gcs'
+    | 'snowflake-open-catalog-s3'
+    | 'snowflake-open-catalog-gcs';
   label: string;
   provider: 'databricks' | 'snowflake';
   storage: 's3' | 'gcs';
@@ -19,6 +24,20 @@ export const ICEBERG_REST_SUPPORT_PROFILES: readonly IcebergRestSupportProfile[]
     label: 'Databricks Unity Catalog on AWS',
     provider: 'databricks',
     storage: 's3',
+    readiness: 'verification-pending',
+  },
+  {
+    id: 'snowflake-horizon-catalog-s3',
+    label: 'Snowflake Horizon Catalog on S3',
+    provider: 'snowflake',
+    storage: 's3',
+    readiness: 'verification-pending',
+  },
+  {
+    id: 'snowflake-horizon-catalog-gcs',
+    label: 'Snowflake Horizon Catalog on GCS',
+    provider: 'snowflake',
+    storage: 'gcs',
     readiness: 'verification-pending',
   },
   {

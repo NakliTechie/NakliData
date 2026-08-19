@@ -48,6 +48,8 @@ describe('product capability registry', () => {
   it('names exact REST profiles and requires live verification plus the release flag', () => {
     expect(ICEBERG_REST_SUPPORT_PROFILES.map((profile) => profile.id)).toEqual([
       'databricks-unity-catalog-aws',
+      'snowflake-horizon-catalog-s3',
+      'snowflake-horizon-catalog-gcs',
       'snowflake-open-catalog-s3',
       'snowflake-open-catalog-gcs',
     ]);

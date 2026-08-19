@@ -49,8 +49,9 @@ that its live product path has been verified.
 - Secure Data Sharing, reader account, Marketplace, zero-copy clone, Time
   Travel, Fail-safe.
 - Semantic View, logical table, fact, dimension, metric, verified query.
-- Open Catalog / Apache Polaris, catalog integration, external volume,
-  credential vending.
+- Horizon Iceberg REST Catalog API, Snowflake-managed Iceberg table, external
+  query engine, Open Catalog / Apache Polaris, catalog integration, external
+  volume, credential vending.
 
 ## Business vocabulary exercised by the real-data corpus
 

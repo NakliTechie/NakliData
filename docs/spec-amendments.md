@@ -1850,7 +1850,8 @@ identifier for structured bridge table requests, and render as a hierarchy. A
 multi-object mount may
 commit successful objects, but it must return structured failures and name them
 in user-visible feedback. Both clients ship as lazy chunks. Databricks Unity
-Catalog, Snowflake Open Catalog/Polaris, and direct warehouse adapters remain
+Catalog, Snowflake Horizon Catalog, legacy Snowflake Open Catalog/Polaris, and
+direct warehouse adapters remain
 disabled/unclaimed until user-supplied real endpoints pass authentication,
 browse, bounded-read, cancellation, and disclosure verification.
 
@@ -2007,8 +2008,9 @@ provider families, earliest expiry, configuration key names, and credential
 count. Credential values and scoped storage prefixes are neither returned nor
 placed in workbook/source persistence.
 
-**Reasoning:** both Unity Catalog and Snowflake Open Catalog/Polaris build on
-the open Iceberg REST contract, but their configured catalog/warehouse prefix
+**Reasoning:** Unity Catalog, Snowflake Horizon Catalog, and legacy Snowflake
+Open Catalog/Polaris build on the open Iceberg REST contract, but their
+configured catalog/warehouse prefix
 and short-lived storage access are part of that contract rather than
 vendor-specific exceptions. Negotiating the portable protocol first lets a
 future live adapter fail closed on missing capabilities without treating a

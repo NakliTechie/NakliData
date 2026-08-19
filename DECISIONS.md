@@ -2,6 +2,37 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Snowflake Horizon catalog successor profiles (GP)
+
+### Decision GP-1 — route new Snowflake customers to Horizon Catalog
+
+- **Context.** The authenticated trial organization contained one regular AWS
+  account and no Open Catalog account. Snowflake now prevents new customers
+  from creating a first Open Catalog account and directs them to Horizon
+  Catalog, which exposes an Iceberg REST API from existing Snowflake accounts.
+- **Decision.** Add exact pending S3 and GCS Horizon Catalog profiles. Keep the
+  existing Open Catalog/Polaris profiles as legacy boundaries for customers
+  who already own such an account. Do not treat their protocol ancestry as
+  interchangeable live evidence.
+- **Consequence.** New Snowflake users have a current catalog path in product
+  truth without enabling a claim. All five exact REST profiles remain
+  `verification-pending`, and the REST release flag stays off.
+
+### Decision GP-2 — require an independently owned Snowflake-managed Iceberg fixture
+
+- **Context.** Horizon Catalog listed four databases. The account had no
+  `NAKLIDATA_VERIFY` database or Snowflake-managed Iceberg verification table.
+  Creating one requires remote Snowflake and S3 state. Horizon REST requests
+  also have a documented Cloud Services credit rate whose activation timing can
+  change.
+- **Decision.** Do not create the fixture during the read-only matrix. Require
+  a named owner to supply `NAKLIDATA_VERIFY.ICEBERG.LINEITEM_ICEBERG`, a
+  prefix-scoped S3 location, a dedicated read-only role/user, a short-lived
+  access token, and an explicit trial-credit ceiling.
+- **Consequence.** No Snowflake REST request or credential creation ran. The
+  account retained its displayed `$400 of $400` trial balance. The smallest
+  unblock is recorded in the dated readiness document.
+
 ## 2026-08-19 — Status-first vendor error classification (GO)
 
 ### Decision GO-1 — preserve authoritative HTTP failures when error bodies are absent

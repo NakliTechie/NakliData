@@ -18,7 +18,7 @@ no NakliData relay. CORS or signed-URL access still applies.
 - **Agent contract:** versions 2 + 3; scopes `metadata:read` · `values:read` · `workspace:propose`; no execution scope; value reads capped at 1,000 rows.
 - **Agent adapters:** Browser API v2: available · Browser API v3: available · WebMCP adapter: experimental · External MCP server: planned. Experimental/planned adapters are not release claims.
 - **Standards profiles:** naklidata-skos-2009-v1: release-gated · naklidata-shacl-2017-core-v1: release-gated · naklidata-prov-o-2013-v1: release-gated · naklidata-owl-2-rl-v1: release-gated · naklidata-bounded-standards-reasoning-v1: release-gated. Release-gated profiles are not product availability claims.
-- **Iceberg REST profiles:** databricks-unity-catalog-aws: verification-pending · snowflake-open-catalog-s3: verification-pending · snowflake-open-catalog-gcs: verification-pending. Release flags: table=true; REST=false. A flag cannot enable an unverified profile.
+- **Iceberg REST profiles:** databricks-unity-catalog-aws: verification-pending · snowflake-horizon-catalog-s3: verification-pending · snowflake-horizon-catalog-gcs: verification-pending · snowflake-open-catalog-s3: verification-pending · snowflake-open-catalog-gcs: verification-pending. Release flags: table=true; REST=false. A flag cannot enable an unverified profile.
 - **Build identity:** the app header is injected from the current git release tag and build revision.
 
 | Group | Choice | Readiness | Boundary |
@@ -48,8 +48,9 @@ no NakliData relay. CORS or signed-URL access still applies.
   warehouse adapter. A bounded Arrow result is registered locally. Protocol:
   [`compute-bridge-protocol.md`](compute-bridge-protocol.md).
 
-**Unavailable in this build:** Iceberg REST Catalog remains disabled until the
-real Databricks and Open Catalog/Polaris matrices pass.
+**Unavailable in this build:** Iceberg REST Catalog remains disabled until an
+exact Databricks Unity, Snowflake Horizon, or eligible legacy Open
+Catalog/Polaris matrix passes.
 
 ## The notebook
 
