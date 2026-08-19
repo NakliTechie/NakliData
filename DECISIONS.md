@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — larger local model quality veto (GX)
+
+### Decision GX-1 — remove unproved larger-model quality claims
+
+- **Context.** Qwen2.5-1.5B q4f16 loaded on physical Chrome WebGPU from a
+  1.14 GB cache. The same ten-fixture matrix accepted 0/10. Eight jobs emitted
+  malformed structured output. Both SQL jobs missed the requested semantics.
+  Generation took 14.7–58.4 seconds per fixture.
+- **Decision.** Remove “better quality” and “best NL→SQL quality” language from
+  the curated local-model picker. State the measured 0.5B and 1.5B results in
+  Settings. Keep 0.5B as the smallest recommended experimental runtime. Do not
+  download more larger models until a minimal golden prompt produces coherent
+  output on their current runtime path.
+- **Consequence.** The larger-model evidence gate has a negative result rather
+  than an absence of evidence. Local structured jobs remain experimental.
+  Cloud BYOK and custom OpenAI-compatible endpoints remain the dependable
+  paths. The cached 1.5B artifact remains available for runtime diagnosis.
+
 ## 2026-08-19 — Databricks default-storage trial boundary (GW)
 
 ### Decision GW-1 — do not spend trial credits on an unusable catalog fixture

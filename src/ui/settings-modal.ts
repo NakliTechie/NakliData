@@ -43,11 +43,11 @@ const LOCAL_MODEL_OPTIONS: ReadonlyArray<{
   label: string;
   summary: string;
 }> = [
-  // Sizes are the actual q4 ONNX download (measured 2026-06-13 — the prior
-  // ~0.9/0.7 GB labels were ~2× understated). The 1-2B models OOM'd on BOTH
-  // wasm and WebGPU on a 16 GB machine with plain q4 (DECISIONS AT/AU) —
-  // they now load on WebGPU via q4f16, but need a capable GPU. The 0.5B is
-  // the bounded default exercised on physical Chrome WebGPU.
+  // Sizes reflect the current runtime artifact where physically measured.
+  // The 1-2B models OOM'd on BOTH wasm and WebGPU on a 16 GB machine with
+  // plain q4 (DECISIONS AT/AU). Qwen 1.5B now loads through q4f16, but its
+  // physical structured-output matrix accepted 0/10 (DECISION GX). The 0.5B
+  // remains the bounded default exercised on physical Chrome WebGPU.
   {
     id: 'onnx-community/Qwen2.5-0.5B-Instruct',
     label: 'Qwen2.5-0.5B-Instruct (recommended)',
@@ -56,12 +56,12 @@ const LOCAL_MODEL_OPTIONS: ReadonlyArray<{
   {
     id: 'onnx-community/Qwen2.5-1.5B-Instruct',
     label: 'Qwen2.5-1.5B-Instruct',
-    summary: '~1.7 GB · Apache 2.0 · better quality · needs WebGPU + ~4 GB GPU',
+    summary: '~1.2 GB · Apache 2.0 · structured-output validation failed · needs WebGPU',
   },
   {
     id: 'onnx-community/Phi-3.5-mini-instruct',
     label: 'Phi-3.5-mini-instruct',
-    summary: '~2.5 GB · MIT · best NL→SQL quality · needs WebGPU + ~6 GB GPU',
+    summary: '~2.5 GB · MIT · unvalidated · needs WebGPU + ~6 GB GPU',
   },
   {
     id: 'onnx-community/Llama-3.2-1B-Instruct',
@@ -382,7 +382,7 @@ function renderModal(): HTMLElement {
             </div>
           </label>
           <div class="settings-field" data-region="settings-local-section" hidden>
-            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Experimental: physical WebGPU testing validated compact type disambiguation and one report-ranking run. Other jobs emitted malformed JSON, rejected SQL, inaccurate summaries, or weak type guesses. For a dependable local setup, run Ollama (or LM Studio / vLLM) and point the <strong>Custom (OpenAI-compatible)</strong> provider at it; use a cloud provider for structured jobs.</em></span>
+            <span>Local model <em>(runs in this tab — no API key, no network calls after download)</em><br /><em style="color:var(--warning)">Experimental: two varied physical WebGPU runs accepted 2/10 and 3/10 structured fixtures on the 0.5B model. The 1.5B model accepted 0/10 and emitted incoherent output on the current runtime. For a dependable local setup, run Ollama (or LM Studio / vLLM) and point the <strong>Custom (OpenAI-compatible)</strong> provider at it; use a cloud provider for structured jobs.</em></span>
             <div class="settings-local-picker">
               ${LOCAL_MODEL_OPTIONS.map(
                 (m) => `

@@ -51,3 +51,25 @@ Run 1 accepted 2 of 10 fixtures. Run 2 accepted 3 of 10 fixtures.
 - Repeat assignment fixtures for types without deterministic value patterns.
 - If a larger model still produces semantically wrong SQL, define an
   engine-backed preview validator before broadening NL-to-SQL claims.
+
+## Larger-model follow-up
+
+The same ten fixtures ran once against the cached
+`onnx-community/Qwen2.5-1.5B-Instruct` q4f16 artifact on physical Chrome
+WebGPU. The current artifact occupied 1.14 GB in OPFS and loaded without a GPU
+memory error.
+
+The run accepted 0 of 10 fixtures:
+
+- both explain-error fixtures emitted malformed explanation JSON;
+- both define-type fixtures emitted malformed JSON;
+- both summary fixtures emitted malformed JSON;
+- both NL-to-SQL fixtures returned read-only text that missed the requested
+  semantics;
+- both NL-to-schema fixtures emitted malformed JSON.
+
+Per-fixture generation ranged from 14.7 to 58.4 seconds. The run reproduces
+the incoherent q4f16 output recorded in the earlier slice-B validation. Model
+size is not a quality remedy on the current Transformers.js/ONNX WebGPU path.
+Do not spend more bandwidth on the remaining curated larger models until the
+runtime's numerical output is coherent on a minimal golden prompt.
