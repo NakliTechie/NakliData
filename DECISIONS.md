@@ -2,6 +2,26 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — varied local-model quality boundary (GV)
+
+### Decision GV-1 — retain the experimental label after varied repeat runs
+
+- **Context.** Two consecutive physical Chrome WebGPU runs exercised ten
+  varied synthetic fixtures through the production local dispatcher and
+  parsers. The 0.5B model accepted 2/10 and 3/10. Email definition and
+  inventory-schema generation passed twice. Explain-error, result summaries,
+  and both NL-to-SQL fixtures missed their quality criteria twice. Event-schema
+  generation changed from malformed JSON to an accepted schema.
+- **Decision.** Keep the 0.5B browser-local provider experimental. Preserve
+  strict parser rejection and empty-result containment instead of converting
+  invalid output into plausible prose or SQL. Do not broaden structured-job
+  claims until a larger curated model passes a varied repeat matrix.
+- **Consequence.** The earlier single-fixture successes remain bounded
+  implementation evidence. They are not a general quality claim. Cloud BYOK
+  and custom OpenAI-compatible endpoints remain the dependable paths for
+  structured jobs. The exact matrix is recorded in
+  `docs/local-model-varied-matrix-2026-08-19.md`.
+
 ## 2026-08-19 — deterministic assignment format veto (GU)
 
 ### Decision GU-1 — a model cannot override an existing strict value pattern
