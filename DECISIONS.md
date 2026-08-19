@@ -2,6 +2,23 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — deterministic assignment format veto (GU)
+
+### Decision GU-1 — a model cannot override an existing strict value pattern
+
+- **Context.** The physical 0.5B model assigned GSTIN to `REF##########`
+  samples. The GSTIN taxonomy entry already has a safe deterministic regex
+  that rejects those values.
+- **Decision.** Include each type's existing regex in the internal assignment
+  catalog without adding it to the model prompt. After an allowlisted model
+  choice, reject the assignment when any supplied sample fails that safe
+  regex. Reject unsafe or invalid catalog regexes before evaluation. Apply the
+  same guard to bundled and workbook-defined types.
+- **Consequence.** The exact prior GSTIN response now becomes unknown for REF
+  samples, while a valid GSTIN sample retains the assignment. Types without a
+  value regex keep the existing allowlist behavior, so varied-fixture
+  assignment quality remains an experimental evidence item.
+
 ## 2026-08-19 — bounded local structured-output recovery (GT)
 
 ### Decision GT-1 — narrow each small-model job and keep deterministic authority

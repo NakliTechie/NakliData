@@ -4683,16 +4683,39 @@ async function runDisambiguateType(
  * per-column `assign-type` job, the bulk classifier, and (mapped to
  * id+display only) the NL→schema job's `knownTypes`.
  */
-function buildTypeCatalog(): Array<{ typeId: string; displayName: string; domain: string }> {
-  const catalog: Array<{ typeId: string; displayName: string; domain: string }> = [];
+function buildTypeCatalog(): Array<{
+  typeId: string;
+  displayName: string;
+  domain: string;
+  valuePattern?: string;
+}> {
+  const catalog: Array<{
+    typeId: string;
+    displayName: string;
+    domain: string;
+    valuePattern?: string;
+  }> = [];
   const bundle = getTaxonomyClient().getBundle();
   if (bundle) {
     for (const t of bundle.types) {
-      catalog.push({ typeId: t.id, displayName: t.display_name, domain: t.domain });
+      const valuePattern = t.detectors.find(
+        (detector) => detector.kind === 'regex' && detector.pattern,
+      )?.pattern;
+      catalog.push({
+        typeId: t.id,
+        displayName: t.display_name,
+        domain: t.domain,
+        ...(valuePattern ? { valuePattern } : {}),
+      });
     }
   }
   for (const t of getWorkbook().get().userTypes) {
-    catalog.push({ typeId: t.id, displayName: t.display_name, domain: t.category || 'user' });
+    catalog.push({
+      typeId: t.id,
+      displayName: t.display_name,
+      domain: t.category || 'user',
+      valuePattern: t.regex,
+    });
   }
   return catalog;
 }

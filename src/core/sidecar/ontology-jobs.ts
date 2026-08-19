@@ -1,3 +1,4 @@
+import { validateSafeRegexPattern } from '../regex-safety.ts';
 // Ontology sidecar jobs (Wave 7) — assign-type (Job 9) + nl-to-schema
 // (Job 10). Split out of client.ts so their prompts/parsers ship in the
 // lazy `sidecar-ontology` chunk, not the inlined shell (spec §7.1 / A35):
@@ -69,6 +70,7 @@ export function buildAssignTypePrompt(job: AssignTypeJob): {
 export function parseAssignTypeResponse(
   raw: string,
   catalog: AssignTypeJob['catalog'],
+  samples: string[] = [],
 ): AssignTypeResponse {
   // Identical cleaning to disambiguate-type — strip fences / quotes /
   // trailing punctuation a model might wrap the single token in.
@@ -83,6 +85,19 @@ export function parseAssignTypeResponse(
   }
   const match = catalog.find((c) => c.typeId.toLowerCase() === cleaned.toLowerCase());
   if (match) {
+    if (match.valuePattern && samples.length > 0) {
+      try {
+        if (!validateSafeRegexPattern(match.valuePattern).safe) {
+          return { kind: 'assign-type', typeId: null };
+        }
+        const regex = new RegExp(match.valuePattern);
+        if (!samples.every((sample) => regex.test(sample))) {
+          return { kind: 'assign-type', typeId: null };
+        }
+      } catch {
+        return { kind: 'assign-type', typeId: null };
+      }
+    }
     return { kind: 'assign-type', typeId: match.typeId };
   }
   // Id not in the catalog — coerce to unknown (hallucination guard).
@@ -356,7 +371,11 @@ export async function dispatchOntologyJob(
         const catalog = safeJob.catalog.slice(start, start + LOCAL_ASSIGN_CATALOG_BATCH);
         const chunkJob: AssignTypeJob = { ...safeJob, catalog };
         const { system, user } = buildAssignTypePrompt(chunkJob);
-        const response = parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), catalog);
+        const response = parseAssignTypeResponse(
+          await sendPrompt(system, user, opts, 32),
+          catalog,
+          safeJob.samples,
+        );
         if (response.typeId !== null) {
           const candidate = catalog.find((entry) => entry.typeId === response.typeId);
           if (candidate) candidates.push(candidate);
@@ -368,10 +387,18 @@ export async function dispatchOntologyJob(
       }
       const finalJob: AssignTypeJob = { ...safeJob, catalog: candidates };
       const { system, user } = buildAssignTypePrompt(finalJob);
-      return parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), candidates);
+      return parseAssignTypeResponse(
+        await sendPrompt(system, user, opts, 32),
+        candidates,
+        safeJob.samples,
+      );
     }
     const { system, user } = buildAssignTypePrompt(safeJob);
-    return parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), safeJob.catalog);
+    return parseAssignTypeResponse(
+      await sendPrompt(system, user, opts, 32),
+      safeJob.catalog,
+      safeJob.samples,
+    );
   }
   const knownTypeIds = safeJob.knownTypes.map((type) => type.typeId);
   if (opts.provider === 'local') {

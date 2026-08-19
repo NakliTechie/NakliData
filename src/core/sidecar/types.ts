@@ -200,7 +200,13 @@ export interface AssignTypeJob {
    * The vocabulary the model may choose from — bundle types plus the
    * workbook's user-defined types. The parser rejects any id not here.
    */
-  catalog: Array<{ typeId: string; displayName: string; domain: string }>;
+  catalog: Array<{
+    typeId: string;
+    displayName: string;
+    domain: string;
+    /** Existing deterministic value regex, when the type defines one. */
+    valuePattern?: string;
+  }>;
 }
 
 /**

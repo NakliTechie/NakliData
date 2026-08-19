@@ -994,6 +994,33 @@ describe('parseAssignTypeResponse', () => {
     expect(parseAssignTypeResponse('', ASSIGN_CATALOG).typeId).toBeNull();
   });
 
+  it('vetoes a strict-format choice when samples fail its existing safe regex', () => {
+    const catalog = [
+      {
+        typeId: 'gstin',
+        displayName: 'GSTIN',
+        domain: 'finance-in',
+        valuePattern: '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$',
+      },
+    ];
+    expect(
+      parseAssignTypeResponse('gstin', catalog, ['REF00000001', 'REF00000002']).typeId,
+    ).toBeNull();
+    expect(parseAssignTypeResponse('gstin', catalog, ['27AAPFU0939F1ZV']).typeId).toBe('gstin');
+  });
+
+  it('vetoes an unsafe catalog regex before evaluation', () => {
+    const catalog = [
+      {
+        typeId: 'hostile',
+        displayName: 'Hostile',
+        domain: 'test',
+        valuePattern: '^(a+)+$',
+      },
+    ];
+    expect(parseAssignTypeResponse('hostile', catalog, ['aaaaaaaa']).typeId).toBeNull();
+  });
+
   it('dispatches end-to-end and applies the hallucination guard', async () => {
     _idb.set('sidecar/byok/openai', 'sk-openai-stub');
     let maxTokens: number | undefined;
