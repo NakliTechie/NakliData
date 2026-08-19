@@ -2,6 +2,22 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — q4f16 coherence prerequisite (GY)
+
+### Decision GY-1 — require a minimal golden prompt before job evaluation
+
+- **Context.** After the 1.5B matrix accepted 0/10, the cached model received a
+  minimal instruction to return exactly `OK`. Greedy decoding at 16 tokens
+  returned 16 exclamation marks. Sampled decoding at 64 tokens returned
+  punctuation noise. Both ran on physical Chrome WebGPU.
+- **Decision.** Treat larger q4f16 output as a runtime-level coherence failure,
+  not a prompt or parser problem. Require this two-letter golden prompt to pass
+  before running any structured-job matrix on another larger model or runtime
+  revision. Keep the 0.5B model selected as the browser default.
+- **Consequence.** Prompt tuning and additional multi-gigabyte downloads are
+  paused. The 1.5B cache remains available for a future Transformers.js or ONNX
+  Runtime regression diagnosis. Local structured jobs remain experimental.
+
 ## 2026-08-19 — larger local model quality veto (GX)
 
 ### Decision GX-1 — remove unproved larger-model quality claims

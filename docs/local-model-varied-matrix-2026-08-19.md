@@ -73,3 +73,16 @@ the incoherent q4f16 output recorded in the earlier slice-B validation. Model
 size is not a quality remedy on the current Transformers.js/ONNX WebGPU path.
 Do not spend more bandwidth on the remaining curated larger models until the
 runtime's numerical output is coherent on a minimal golden prompt.
+
+### Minimal golden prompt
+
+The same cached 1.5B model received this bounded instruction outside every
+sidecar prompt and parser: return exactly the uppercase text `OK`.
+
+- Greedy decoding (`maxTokens: 16`) returned `!!!!!!!!!!!!!!!!`.
+- Sampled decoding (`maxTokens: 64`) returned punctuation noise.
+- Both paths reported WebGPU.
+
+This isolates the failure below the structured-job contract. The next runtime
+probe must pass this golden prompt before any broader matrix or larger-model
+download.
