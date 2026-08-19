@@ -3,9 +3,10 @@
 Date: 2026-08-18
 Decision: FJ
 Status: public fixture and live-profile contract named. The Databricks AWS
-control plane received a partial live matrix on 2026-08-19; its compatible
-table/storage fixture remains unavailable. Snowflake Open Catalog/Polaris
-access still awaits its exact live catalog profile.
+control plane received a partial live matrix on 2026-08-19. Its compatible
+table/storage fixture remains unavailable. The Snowflake account received a
+read-only Horizon discovery pass; its managed-Iceberg fixture remains
+unavailable. The organization owns no Open Catalog account.
 
 This document defines the only fixtures and identities that may support the
 first Iceberg availability claims. It authorizes no provider provisioning,
@@ -125,23 +126,16 @@ The matrix does not establish Snowflake Virtual Warehouse support.
 
 - The existing AWS trial workspace negotiated the Iceberg REST configuration
   for catalog `samples` and selected prefix `catalogs/samples`.
-
-## Snowflake access follow-up on 2026-08-19
-
-- The trial organization exposed one regular Enterprise AWS account and no
-  Open Catalog account.
-- Horizon Catalog exposed four databases but no `NAKLIDATA_VERIFY` database or
-  Snowflake-managed Iceberg verification table.
-- The trial indicator displayed `$400 of $400 left` and 29 days remaining.
-- No query, REST request, credential, database, schema, table, external volume,
-  storage integration, account, or warehouse action ran.
-- `docs/snowflake-horizon-catalog-readiness-2026-08-19.md` records the exact
-  successor profile and smallest unblock.
-- The production client listed live namespaces and tables.
-- A bounded scan of 100 existing sample tables found zero Iceberg-compatible
+- The production client listed 11 live namespaces and six `bakehouse` tables.
+- A bounded scan of 100 visible sample tables found zero Iceberg-compatible
   load-table targets.
-- The one-day OAuth secret was deleted before 2026-08-19 05:12 IST.
-- The principal was deactivated. The SQL warehouse remained stopped.
+- Human administrator `chirag@prashnam.ai` owned the temporary verification
+  principal.
+- The one-day OAuth secret was issued at 2026-08-19 05:06 IST. Its absolute
+  deadline was 2026-08-20 05:06 IST.
+- The secret was deleted before 2026-08-19 05:12 IST. The principal was then
+  deactivated.
+- The SQL warehouse remained stopped.
 - No remote object, privilege, storage configuration, or metastore setting was
   created or changed.
 - The named `naklidata_verify.iceberg.lineitem_iceberg` fixture still requires
@@ -151,3 +145,20 @@ The matrix does not establish Snowflake Virtual Warehouse support.
   does not support credential vending from default-storage workspaces. Do not
   spend trial credits creating a managed Iceberg substitute that cannot satisfy
   the frozen vended-S3 profile.
+
+## Snowflake access follow-up on 2026-08-19
+
+- The trial organization exposed one regular Enterprise AWS account and no
+  Open Catalog account.
+- The regular account is `EM85690` in AWS Asia Pacific (Mumbai).
+- Horizon Catalog exposed four databases but no `NAKLIDATA_VERIFY` database or
+  Snowflake-managed Iceberg verification table.
+- The trial indicator displayed `$400 of $400 left` and 29 days remaining.
+- No query, REST request, credential, database, schema, table, external volume,
+  storage integration, account, or warehouse action ran.
+- `docs/snowflake-horizon-catalog-readiness-2026-08-19.md` records the exact
+  successor profile and smallest unblock.
+- No Snowflake verification principal or credential was issued because the
+  independently owned table does not exist. The named human credential owner,
+  issuance time, and absolute revocation deadline remain pre-run fields rather
+  than missing cleanup evidence.
