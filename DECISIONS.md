@@ -2,6 +2,25 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — physical Chrome memory and dialog boundary (HB)
+
+### Decision HB-1 — use a bounded synthetic result for physical memory evidence
+
+- **Context.** The physical-browser workplan required memory-pressure, cleanup,
+  and recovery evidence. A proposed localhost helper would have exposed the
+  entire ignored real-data directory. The user's Codex window was also active,
+  so foreground native-dialog automation would have interrupted unrelated work.
+- **Decision.** Do not expose the local real-data directory. Exercise memory
+  through a 50,000-row notebook result with distinct 510-character payloads in
+  the separate Chrome process. Measure the renderer with macOS `footprint`,
+  remove every synthetic source, remount, and run an independent recovery
+  query. Keep visible native dialogs user-present and unclaimed.
+- **Consequence.** The physical renderer reached a 168 MB peak, recovered to
+  120 MB, and returned `SELECT 42 AS answer` after full source teardown and
+  remount. Batch 13 now has bounded physical-device memory evidence without
+  exposing a local dataset. VoiceOver, visible native dialogs, NVDA, and
+  deployed-origin timing remain separate gates.
+
 ## 2026-08-19 — physical Safari WASM MIME boundary (HA)
 
 ### Decision HA-1 — serve local WebAssembly with its streaming MIME type

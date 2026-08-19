@@ -1,8 +1,10 @@
 # Physical macOS evidence — 2026-08-19
 
 Status: the physical Safari functional replay passed after one development-
-server defect was repaired. VoiceOver speech evidence, visible native-picker
-evidence, native Chromium dialogs, and NVDA remain open.
+server defect was repaired. A background physical-Chrome pass now covers a
+bounded 50,000-row memory-pressure result, source teardown, remount, and query
+recovery. VoiceOver speech evidence, visible native-picker evidence, native
+Chromium dialogs, and NVDA remain open.
 
 ## Host evidence
 
@@ -72,6 +74,37 @@ the SQL error contract. Safari reran the invalid query and returned
 `role="alert"` plus `aria-atomic="true"`; restoring the original query then
 returned ten rows.
 
+## Physical Chrome memory and recovery replay
+
+Chrome 151.0.7922.138 ran in a separate browser-control process on the same
+macOS host. The app reached `Engine: ready`, loaded the three-source synthetic
+demo, and returned the ten-row vendor-spend result. The browser had also loaded
+the cached Qwen2.5-0.5B local model on WebGPU.
+
+A notebook cell materialized 50,000 uncapped rows with a distinct 510-character
+payload per row:
+
+```sql
+SELECT i, repeat(lpad(CAST(i AS VARCHAR), 6, '0'), 85) AS payload
+FROM range(50000) t(i)
+```
+
+The result completed in 291 ms and rendered its first 50 rows. macOS
+`footprint` recorded the NakliData renderer at a 168 MB physical-footprint peak
+and 120 MB current footprint after recovery.
+
+Removing the three synthetic sources left zero sources, zero cells, and
+`Engine: ready`. Remounting the demo restored three sources. A fresh
+`SELECT 42 AS answer` then returned one row in 94 ms. This closes the physical-
+device memory-pressure and recovery evidence item for the bounded workload; it
+does not establish an unbounded file-size promise.
+
+The Add-file cancellation probe remained background-only. The File System
+Access path did not expose a classic Playwright file chooser. Foregrounding the
+browser would have interrupted the user's active Codex window, so the pass
+cancelled without selecting a file and retained the visible native-dialog gate.
+No local dataset path or bytes entered browser evidence.
+
 ## Remaining replay matrix
 
 ### VoiceOver
@@ -84,7 +117,7 @@ infer speech from the DOM accessibility tree.
 
 ### Native dialogs
 
-In physical Chrome, exercise **Add folder**, **Add file**, workbook open/save,
+In user-present physical Chrome, exercise **Add folder**, **Add file**, workbook open/save,
 HTML export, and one data export. Cancel each once. Then use a user-selected
 public fixture and destination. Confirm that cancellation is silent and no
 selected path or file bytes enter logs or evidence.
