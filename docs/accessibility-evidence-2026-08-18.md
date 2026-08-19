@@ -34,3 +34,9 @@ npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/mount-url.
 - NVDA on Windows across the same workflows.
 - Record browser, OS, screen-reader versions, speech/braille output findings,
   and any repaired defects before making a screen-reader support claim.
+
+The 2026-08-19 physical preflight found that macOS Accessibility control is
+disabled for this session. VoiceOver was not activated because its focus and
+audio could not be observed or restored programmatically. The exact unblock
+and replay matrix live in
+[`physical-macos-readiness-2026-08-19.md`](physical-macos-readiness-2026-08-19.md).

@@ -2,6 +2,23 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — physical macOS evidence permission boundary (GQ)
+
+### Decision GQ-1 — do not substitute synthetic events for native evidence
+
+- **Context.** Safari 26.5.2 rejected WebDriver because remote automation is
+  disabled. Command-line enablement required an administrator password. macOS
+  UI scripting was unavailable, and system screenshot capture returned a black
+  frame. The physical Chrome surface rendered, but native dialogs and
+  VoiceOver could not be observed or cancelled through the current session.
+- **Decision.** Record this as a host-permission preflight. Do not store or
+  solicit administrator credentials. Do not activate VoiceOver unattended.
+  Keep Playwright engine/fallback results distinct from physical Safari,
+  native-dialog, and screen-reader evidence.
+- **Consequence.** Batches 12 and 13 retain their physical evidence gates. A
+  dated replay matrix names the four user-present permissions and the exact
+  workflows required after unblock.
+
 ## 2026-08-19 — Snowflake Horizon catalog successor profiles (GP)
 
 ### Decision GP-1 — route new Snowflake customers to Horizon Catalog

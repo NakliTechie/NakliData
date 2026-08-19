@@ -15,6 +15,13 @@ The WebKit result covers engine behavior. Physical Safari remains untested.
 Native file, folder, and save dialogs remain untested. The deterministic tests
 cover classic file-input fallback, mocked FSA open/save, and download paths.
 
+The 2026-08-19 physical preflight identified the exact host permission gap:
+Safari remote automation is disabled, command-line enablement requires an
+administrator password, macOS UI scripting is unavailable, and system capture
+returned a black frame. The physical Chrome session rendered the local first
+run surface, but no native dialog was selected or cancelled. See
+[`physical-macos-readiness-2026-08-19.md`](physical-macos-readiness-2026-08-19.md).
+
 ## Performance trace
 
 Chrome DevTools recorded an unthrottled cold local navigation to
