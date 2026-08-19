@@ -2,6 +2,39 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — compact local schema contract (GS)
+
+### Decision GS-1 — give the 0.5B model a tuple contract and keep canonical guards
+
+- **Context.** The verbose NL-to-schema contract exhausted the small local
+  model's response budget. The first compact physical run emitted Python
+  `None`, omitted tuple fields, and mixed semantic labels into SQL-type slots.
+- **Decision.** Route only the local provider through a three-position tuple
+  contract with a 384-token ceiling. State the JSON-null rule, SQL-type
+  allowlist, semantic-id slot, and two tuple examples explicitly. Expand the
+  tuple response into the existing canonical parser instead of repairing
+  malformed JSON or accepting new identifiers.
+- **Consequence.** A physical Chrome WebGPU rerun generated six columns in
+  19,938 ms. The strict parser accepted the object, downgraded unsupported SQL
+  labels to `VARCHAR`, and dropped semantic identifiers outside the supplied
+  allowlist. Cloud providers retain the richer schema-description contract.
+
+## 2026-08-19 — Databricks trial-credit ceiling (GR)
+
+### Decision GR-1 — use Databricks only for bounded setup and verification
+
+- **Context.** Databricks remains an unreleased integration target. The user
+  authorized the existing account only for setup and verification with its
+  remaining trial credits.
+- **Decision.** Use only existing trial credits for the smallest bounded
+  Databricks endpoint probes. Do not add payment details, upgrade the account,
+  purchase capacity, or continue after the trial balance is exhausted. Keep
+  the warehouse stopped and the service principal inactive outside an
+  explicitly approved probe.
+- **Consequence.** Local implementation and fixture testing remain the default.
+  Databricks actions must name their trial-credit ceiling before execution and
+  stop when that ceiling or the required evidence is reached.
+
 ## 2026-08-19 — physical macOS evidence permission boundary (GQ)
 
 ### Decision GQ-1 — do not substitute synthetic events for native evidence

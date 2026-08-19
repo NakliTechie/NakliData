@@ -18,9 +18,11 @@ import {
 import {
   buildAssignTypePrompt,
   buildCreateTableDdl,
+  buildLocalNlToSchemaPrompt,
   buildNlToSchemaPrompt,
   dispatchOntologyJob,
   parseAssignTypeResponse,
+  parseLocalNlToSchemaResponse,
   parseNlToSchemaResponse,
 } from '../src/core/sidecar/ontology-jobs.ts';
 import { SidecarError } from '../src/core/sidecar/types.ts';
@@ -942,6 +944,22 @@ describe('buildNlToSchemaPrompt', () => {
     expect(user).toContain('Suggested table name: orders');
     expect(user).toContain('- email (Email)');
   });
+
+  it('uses a compact tuple contract for the local provider', () => {
+    const { system, user } = buildLocalNlToSchemaPrompt({
+      kind: 'nl-to-schema',
+      description: 'customer support tickets',
+      tableName: 'support_tickets',
+      knownTypes: KNOWN_TYPES,
+    });
+    expect(system).toContain('{"t":"table_name","c":');
+    expect(system).toContain('exactly three values');
+    expect(system).toContain('Never use None');
+    expect(system).toContain('["ticket_number","VARCHAR",null]');
+    expect(system).not.toContain('"description"');
+    expect(user).toContain('Table hint: support_tickets');
+    expect(user).toContain('email=Email');
+  });
 });
 
 describe('parseNlToSchemaResponse', () => {
@@ -1004,6 +1022,59 @@ describe('parseNlToSchemaResponse', () => {
 
   it('throws a parse error on non-JSON', () => {
     expect(() => parseNlToSchemaResponse('not json', KNOWN_IDS)).toThrow();
+  });
+
+  it('parses compact local tuples through canonical guards', () => {
+    const result = parseLocalNlToSchemaResponse(
+      '{"t":"Support Tickets","c":[["Ticket ID","BIGINT","made_up"],["Customer Email","VARCHAR","email"],["Created At","TIMESTAMP","iso_date"]]}',
+      KNOWN_IDS,
+    );
+    expect(result).toEqual({
+      kind: 'nl-to-schema',
+      tableName: 'support_tickets',
+      columns: [
+        { name: 'ticket_id', sqlType: 'BIGINT', semanticTypeId: null, description: '' },
+        { name: 'customer_email', sqlType: 'VARCHAR', semanticTypeId: 'email', description: '' },
+        { name: 'created_at', sqlType: 'TIMESTAMP', semanticTypeId: 'iso_date', description: '' },
+      ],
+    });
+  });
+
+  it('rejects malformed compact local output without repairing it', () => {
+    expect(() => parseLocalNlToSchemaResponse('{"t":"x","c":[["id"', KNOWN_IDS)).toThrow(
+      SidecarError,
+    );
+    expect(() => parseLocalNlToSchemaResponse('{"t":"x","columns":[]}', KNOWN_IDS)).toThrow(
+      SidecarError,
+    );
+  });
+
+  it('dispatches local schema inference with the compact bounded contract', async () => {
+    let requestSystem = '';
+    let maxTokens: number | undefined;
+    const transport: SidecarTransport = async (request) => {
+      requestSystem = request.system;
+      maxTokens = request.maxTokens;
+      return '{"t":"orders","c":[["order_no","VARCHAR",null],["total","DECIMAL(12,2)","amount"]]}';
+    };
+    const result = await dispatchOntologyJob(
+      {
+        kind: 'nl-to-schema',
+        description: 'orders with an id and total',
+        knownTypes: KNOWN_TYPES,
+      },
+      { provider: 'local', model: 'local-model', transport },
+    );
+    expect(requestSystem).toContain('compact JSON');
+    expect(maxTokens).toBe(384);
+    expect(result).toEqual({
+      kind: 'nl-to-schema',
+      tableName: 'orders',
+      columns: [
+        { name: 'order_no', sqlType: 'VARCHAR', semanticTypeId: null, description: '' },
+        { name: 'total', sqlType: 'DECIMAL(12,2)', semanticTypeId: 'amount', description: '' },
+      ],
+    });
   });
 });
 

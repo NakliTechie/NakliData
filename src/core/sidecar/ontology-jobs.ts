@@ -181,6 +181,25 @@ Hard rules:
 - "description" is a short plain-text note (no markdown), or "".
 - Propose a focused, realistic set of columns (typically 4–15). Do not pad.`;
 
+const LOCAL_NL_TO_SCHEMA_SYSTEM = `Infer a compact tabular schema from the user's dataset description.
+
+Output ONLY this compact JSON shape on one line:
+{"t":"table_name","c":[["column_name","DUCKDB_TYPE","known_semantic_type_id_or_null"]]}
+
+Hard rules:
+- Output one JSON object only. No prose, markdown, comments, or extra keys.
+- t and every column name use snake_case and start with a letter.
+- Every c item has exactly three values in this order: column name, DuckDB SQL type, semantic type id.
+- The second value must be one of VARCHAR, BIGINT, DOUBLE, BOOLEAN, DATE, TIMESTAMP, or DECIMAL(18,2).
+- The third value must be one listed semantic type id or the JSON literal null.
+- Use JSON null. Never use None, "NULL", or an omitted third value.
+- Use VARCHAR when the SQL type is uncertain.
+- Use null when no listed semantic type clearly fits.
+- Propose 4–12 useful columns. Do not emit descriptions.
+
+Tuple example: ["customer_email","VARCHAR","email"]
+Null example: ["ticket_number","VARCHAR",null]`;
+
 export function buildNlToSchemaPrompt(job: NlToSchemaJob): {
   system: string;
   user: string;
@@ -194,6 +213,25 @@ export function buildNlToSchemaPrompt(job: NlToSchemaJob): {
   }
   sections.push('', 'Known semantic types (map columns to these ids, or null):', knownBlock);
   return { system: NL_TO_SCHEMA_SYSTEM, user: sections.join('\n') };
+}
+
+/**
+ * Compact product contract for small in-browser generators. It removes the
+ * repeated verbose object keys and free-text descriptions that caused the
+ * physical 0.5B model to exhaust its response budget. Cloud providers retain
+ * `buildNlToSchemaPrompt` and its richer description field.
+ */
+export function buildLocalNlToSchemaPrompt(job: NlToSchemaJob): {
+  system: string;
+  user: string;
+} {
+  const knownBlock = job.knownTypes.length
+    ? job.knownTypes.map((type) => `${type.typeId}=${type.displayName}`).join('\n')
+    : '(none; use null for every semantic type)';
+  const sections = [`Description: ${job.description.trim()}`];
+  if (job.tableName?.trim()) sections.push(`Table hint: ${job.tableName.trim()}`);
+  sections.push('', 'Allowed semantic types:', knownBlock);
+  return { system: LOCAL_NL_TO_SCHEMA_SYSTEM, user: sections.join('\n') };
 }
 
 export function parseNlToSchemaResponse(raw: string, knownTypeIds: string[]): NlToSchemaResponse {
@@ -246,6 +284,35 @@ export function parseNlToSchemaResponse(raw: string, knownTypeIds: string[]): Nl
     sanitiseIdentifier(typeof parsed.table_name === 'string' ? parsed.table_name : '') ||
     'new_dataset';
   return { kind: 'nl-to-schema', tableName, columns };
+}
+
+/** Parse the compact local tuple contract through the canonical guards. */
+export function parseLocalNlToSchemaResponse(
+  raw: string,
+  knownTypeIds: string[],
+): NlToSchemaResponse {
+  let parsed: { t?: unknown; c?: unknown };
+  try {
+    parsed = parseFirstJsonObject(raw) as typeof parsed;
+  } catch (err) {
+    throw new SidecarError(
+      `Could not parse local sidecar response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      'parse',
+    );
+  }
+  if (!Array.isArray(parsed.c)) {
+    throw new SidecarError('Local sidecar response missing compact "c" array.', 'parse');
+  }
+  const columns = parsed.c.map((item) => {
+    if (!Array.isArray(item)) return {};
+    return {
+      name: item[0],
+      sql_type: item[1],
+      semantic_type_id: item[2] ?? null,
+      description: '',
+    };
+  });
+  return parseNlToSchemaResponse(JSON.stringify({ table_name: parsed.t, columns }), knownTypeIds);
 }
 
 /**
@@ -306,9 +373,11 @@ export async function dispatchOntologyJob(
     const { system, user } = buildAssignTypePrompt(safeJob);
     return parseAssignTypeResponse(await sendPrompt(system, user, opts, 32), safeJob.catalog);
   }
+  const knownTypeIds = safeJob.knownTypes.map((type) => type.typeId);
+  if (opts.provider === 'local') {
+    const { system, user } = buildLocalNlToSchemaPrompt(safeJob);
+    return parseLocalNlToSchemaResponse(await sendPrompt(system, user, opts, 384), knownTypeIds);
+  }
   const { system, user } = buildNlToSchemaPrompt(safeJob);
-  return parseNlToSchemaResponse(
-    await sendPrompt(system, user, opts),
-    safeJob.knownTypes.map((t) => t.typeId),
-  );
+  return parseNlToSchemaResponse(await sendPrompt(system, user, opts), knownTypeIds);
 }

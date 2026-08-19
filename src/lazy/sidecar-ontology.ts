@@ -5,6 +5,10 @@
 // shell budget (spec §7.1 / A35). Safe to split: the code holds no store
 // singletons — the modal returns its DDL via an `onInsert` callback the
 // shell handles, and dispatchOntologyJob is a pure request→response call.
-export { dispatchOntologyJob } from '../core/sidecar/ontology-jobs.ts';
+export {
+  buildLocalNlToSchemaPrompt,
+  dispatchOntologyJob,
+  parseLocalNlToSchemaResponse,
+} from '../core/sidecar/ontology-jobs.ts';
 export { closeNlToSchemaModal, openNlToSchemaModal } from '../ui/nl-to-schema-modal.ts';
 export type { OpenNlToSchemaOpts } from '../ui/nl-to-schema-modal.ts';
