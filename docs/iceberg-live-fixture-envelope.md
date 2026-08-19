@@ -146,3 +146,8 @@ The matrix does not establish Snowflake Virtual Warehouse support.
   created or changed.
 - The named `naklidata_verify.iceberg.lineitem_iceberg` fixture still requires
   an independent owner. See `iceberg-live-catalog-matrix-2026-08-19.md`.
+- A later read-only account inspection showed that the serverless-only trial
+  uses Databricks default storage and retained $35 of $40 credits. Databricks
+  does not support credential vending from default-storage workspaces. Do not
+  spend trial credits creating a managed Iceberg substitute that cannot satisfy
+  the frozen vended-S3 profile.

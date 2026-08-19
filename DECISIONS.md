@@ -2,6 +2,27 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Databricks default-storage trial boundary (GW)
+
+### Decision GW-1 — do not spend trial credits on an unusable catalog fixture
+
+- **Context.** The authenticated AWS trial workspace is serverless-only and
+  uses Databricks default storage. The trial displayed $35 of $40 remaining.
+  Databricks documents managed Iceberg support on default storage, but its
+  Iceberg limitations state that credential vending is unavailable for
+  default-storage workspaces. NakliData's exact release profile requires
+  vended, table-scoped S3 credentials.
+- **Decision.** Do not start compute or create a managed Iceberg table in the
+  current trial for the release matrix. Such a table cannot prove the required
+  storage lifecycle. Retain the AWS external-storage fixture as the exact
+  profile. Use Databricks only for bounded setup and verification within the
+  remaining trial credits.
+- **Consequence.** The Unity Catalog control-plane evidence remains valid. The
+  table load, vended-S3 lifecycle, refresh, cancellation, and engine cleanup
+  gates remain blocked on a separately owned S3-backed fixture. No payment,
+  upgrade, paid capacity, compute start, credential, or remote object was
+  created during this inspection.
+
 ## 2026-08-19 — varied local-model quality boundary (GV)
 
 ### Decision GV-1 — retain the experimental label after varied repeat runs

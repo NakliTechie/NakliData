@@ -68,8 +68,26 @@ data access, `EXTERNAL USE SCHEMA`, table read privileges, and table-scoped S3
 credential vending. NakliData must not create or mutate that fixture during
 the release matrix.
 
+## Trial-only storage follow-up
+
+Read-only account inspection later on 2026-08-19 showed:
+
+- the existing workspace is serverless-only and uses Databricks default
+  storage;
+- the trial displayed $35 of $40 remaining;
+- no compute started and no workspace object changed.
+
+Databricks supports managed Iceberg tables on default storage. Its Iceberg
+limitations also state that credential vending is unavailable for workspaces
+using default storage. A managed table created in this trial therefore cannot
+prove NakliData's required vended-S3 lifecycle. The matrix retains the
+independently owned S3-backed fixture as its smallest valid unblock. No trial
+credit was spent creating an unusable substitute.
+
 References:
 
 - <https://docs.databricks.com/aws/en/external-access/iceberg>
 - <https://docs.databricks.com/aws/en/external-access/admin>
 - <https://docs.databricks.com/aws/en/external-access/credential-vending>
+- <https://docs.databricks.com/aws/en/iceberg/>
+- <https://docs.databricks.com/aws/en/storage/default-storage>
