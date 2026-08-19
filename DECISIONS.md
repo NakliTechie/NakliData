@@ -2,6 +2,27 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — Status-first vendor error classification (GO)
+
+### Decision GO-1 — preserve authoritative HTTP failures when error bodies are absent
+
+- **Context.** The naturally expired Databricks bearer returned HTTP 403 with
+  no JSON body. Both warehouse adapters parsed JSON before applying their HTTP
+  status mappings, so the bridge converted that response to
+  `protocol_mismatch` instead of the stable authentication classification.
+- **Decision.** On a non-success HTTP response, attempt the existing bounded
+  JSON read for redacted diagnostics but fall back to an empty body when it is
+  absent, malformed, or has the wrong media type. Continue requiring bounded
+  valid JSON for successful and pending responses. Preserve Databricks' live
+  HTTP 403 as `authorization_denied`; do not invent a 401 that the provider did
+  not return.
+- **Consequence.** The patched live matrix accepted the expired bearer only as
+  HTTP 403 `authorization_denied` and emitted no SQL, secrets, or row values.
+  Bodyless 401/403/429 Databricks and 401/403 Snowflake responses have
+  regression coverage. The service principal returned to inactive, the
+  warehouse remained stopped at zero active clusters, and all local credential
+  material was deleted.
+
 ## 2026-08-19 — Databricks Unity Catalog partial live matrix (GN)
 
 ### Decision GN-1 — retain the exact profile gate after live control-plane proof

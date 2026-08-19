@@ -72,8 +72,8 @@ Follow-up evidence — 2026-08-19:
 - The follow-up exposed that the response layer enforced `MAX_RESULT_BYTES`
   after the vendor adapter used its larger default fetch cap. The runtime byte
   and deadline ceilings now feed both vendor factories. Focused regression
-  coverage asserts the Databricks `byte_limit` value. This wiring change has
-  not received a second live run.
+  coverage asserts the Databricks `byte_limit` value. The post-budget-wiring
+  follow-up below exercised that exact path.
 - Databricks HTTP 401, 403, and 429 responses now retain the stable
   `credential_rejected`, `authorization_denied`, and `rate_limited`
   classifications through the bridge. Redaction tests cover vendor messages
@@ -111,11 +111,30 @@ Post-budget-wiring follow-up — 2026-08-19:
   work was attempted.
 - The warehouse returned to `Stopped` with zero active clusters. The OAuth
   secret was deleted. The service principal returned to inactive. A protected
-  local copy of the issued bearer remains only for its one-hour expiry probe.
+  local copy of the issued bearer remained only for its one-hour expiry probe.
+
+Expired-bearer follow-up — 2026-08-19:
+
+- The retained bearer crossed its declared one-hour lifetime without renewal.
+  The existing OAuth client secret had already been deleted.
+- Databricks returned HTTP 403 with no JSON body for the expired bearer, both
+  while the principal was inactive and after one bounded activation intended
+  to separate identity state from token expiry.
+- The bodyless response exposed a shared adapter defect: Databricks and
+  Snowflake parsed error JSON before applying authoritative HTTP mappings.
+  Both adapters now fall back to an empty diagnostic body only for non-success
+  responses. Successful and pending responses still require bounded valid
+  JSON.
+- The patched live matrix returned HTTP 403 `authorization_denied` and emitted
+  no SQL, secret, row value, or signed URL. Bodyless authentication and
+  throttling variants now have regression coverage.
+- The service principal returned to inactive immediately after the probe. The
+  warehouse displayed `Stopped` and `0 / 1`; the expired request did not start
+  compute. The temporary credential directory and ignored local probe file
+  were permanently deleted.
 
 Remaining live gates:
 
-- expired-token classification after expiry;
 - an induced 429 throttle path;
 - a client-disconnect run whose provider terminal state is `CANCELED`, if that
   stronger outcome remains a release requirement;

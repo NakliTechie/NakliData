@@ -198,7 +198,15 @@ export class SnowflakeSqlAdapter {
       );
 
       for (let poll = 0; ; poll++) {
-        const payload = await boundedJsonWithSize(response, this.maxResultBytes);
+        let payload: { value: unknown; byteLength: number };
+        try {
+          payload = await boundedJsonWithSize(response, this.maxResultBytes);
+        } catch (error) {
+          if (response.ok) throw error;
+          // Status-only authentication and throttling failures remain
+          // classifiable when the vendor omits a JSON response body.
+          payload = { value: {}, byteLength: 0 };
+        }
         const body = payload.value;
         if (response.status === 200) {
           terminal = true;

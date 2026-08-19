@@ -371,6 +371,17 @@ describe('SnowflakeSqlAdapter', () => {
     expect(String(error)).not.toContain('private.example');
   });
 
+  it.each([
+    [401, 'credential_rejected'],
+    [403, 'authorization_denied'],
+  ])('classifies bodyless Snowflake HTTP %i by status', async (status, code) => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status })) as typeof fetch;
+    await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code,
+      status,
+    });
+  });
+
   it('redacts Snowflake errors and omits credentials from serialization', async () => {
     const fetchImpl = vi.fn(async () =>
       json(

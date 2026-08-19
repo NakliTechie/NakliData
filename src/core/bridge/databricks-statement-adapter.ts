@@ -475,7 +475,16 @@ export class DatabricksStatementAdapter {
       this.requestTimeoutMs,
       signal,
     );
-    const body = await boundedJson(response, WAREHOUSE_CONTROL_BYTES_MAX);
+    let body: unknown;
+    try {
+      body = await boundedJson(response, WAREHOUSE_CONTROL_BYTES_MAX);
+    } catch (error) {
+      if (response.ok) throw error;
+      // Authentication and throttling responses can be empty or non-JSON.
+      // Their HTTP status remains authoritative and the body is never needed
+      // to classify the failure.
+      body = {};
+    }
     if (!response.ok) {
       const code =
         response.status === 401

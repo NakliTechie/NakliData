@@ -335,6 +335,18 @@ describe('DatabricksStatementAdapter', () => {
     expect(String(error)).not.toContain('private.example');
   });
 
+  it.each([
+    [401, 'credential_rejected'],
+    [403, 'authorization_denied'],
+    [429, 'rate_limited'],
+  ])('classifies bodyless Databricks HTTP %i by status', async (status, code) => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status })) as typeof fetch;
+    await expect(adapter(fetchImpl).execute({ sql: 'SELECT 1' })).rejects.toMatchObject({
+      code,
+      status,
+    });
+  });
+
   it('redacts vendor secrets and does not serialize credentials', async () => {
     const fetchImpl = vi.fn(async () =>
       json({
