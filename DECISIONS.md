@@ -2,6 +2,24 @@
 
 Append-only. Format per AGENTHANDOFF §5.
 
+## 2026-08-19 — configured-ceiling bridge memory gate (GZ)
+
+### Decision GZ-1 — gate the full 32 MiB encoded-result ceiling locally
+
+- **Context.** The package check exercised an 8 MiB synthetic input while the
+  checked-in `MAX_RESULT_BYTES` default remained 32 MiB. The prior optional
+  32 MiB Snowflake probe generated 36,279,368 encoded bytes, above that result
+  ceiling, because its target described estimated input rather than output.
+- **Decision.** Define the probe target as the encoded-result ceiling. Make
+  32 MiB the default package gate. Require each production Arrow path to emit
+  between 85 and 100 percent of the target. Retain the existing allocation
+  ceilings and a 1 MiB minimum diagnostic size.
+- **Consequence.** Three consecutive default runs emitted 33,489,616 bytes for
+  Databricks and 32,185,432 bytes for Snowflake. Their maximum retained RSS
+  deltas were 101,646,336 and 107,331,584 bytes. This closes the local
+  configured-ceiling mismatch but does not replace deployed Cloudflare peak
+  memory evidence.
+
 ## 2026-08-19 — q4f16 coherence prerequisite (GY)
 
 ### Decision GY-1 — require a minimal golden prompt before job evaluation

@@ -60,9 +60,10 @@ publication.
 - The local startup profile sampled 12.1 ms active time.
 - The version-pinned release-smoke fixture covers matching and stale Worker
   versions without emitting SQL, secrets, or row values.
-- The package check now runs the production Arrow implementations against an
-  8 MiB synthetic memory envelope. It validates retained ArrayBuffer headroom
-  while reporting Node RSS, heap, external, and ArrayBuffer deltas.
+- The package check now runs the production Arrow implementations against the
+  full 32 MiB configured encoded-result ceiling. Each path must produce 85–100
+  percent of that ceiling. It validates retained ArrayBuffer headroom while
+  reporting Node RSS, heap, external, and ArrayBuffer deltas.
 - Snowflake UTF-8 construction writes directly into final column buffers. The
   same 8,986,872-byte Arrow fixture reduced retained RSS delta from 128,729,088
   bytes to 41,959,424 bytes. Repeated runs remained below 42 MiB.
@@ -73,9 +74,10 @@ publication.
    limit. Databricks chunk assembly still parses all Arrow chunks before
    concatenation and serialization. Snowflake still retains JSON rows while
    constructing final Arrow buffers, although per-cell UTF-8 buffers are gone.
-   A 32 MiB local diagnostic recorded retained RSS deltas of 101,875,712 bytes
-   for Databricks and 114,343,936 bytes for Snowflake. A result-byte limit does
-   not prove peak heap usage. Measure a deployed staging Worker at the intended
+   Three consecutive 32 MiB local gate runs emitted 33,489,616 bytes for
+   Databricks and 32,185,432 bytes for Snowflake. Their maximum retained RSS
+   deltas were 101,646,336 and 107,331,584 bytes. A result-byte limit does not
+   prove peak heap usage. Measure a deployed staging Worker at the intended
    `MAX_RESULT_BYTES` before enabling a branded card. Keep the checked-in 32 MiB
    default until that evidence exists.
 2. **Databricks live gap.** Record live HTTP 429 without unsafe pressure. The
@@ -99,8 +101,8 @@ publication.
 - `npm run sbom:check` — exit 0, 26 named components.
 - `npm test` — exit 0, 30 Workers-runtime tests and 6 runner fixtures.
 - `npm run check` — generated types, TypeScript, Biome, configuration, and
-  8 MiB retained-ArrayBuffer memory gate.
-- `BRIDGE_MEMORY_PROBE_BYTES=33554432 npm run memory:probe` — exit 0; local
-  diagnostic only.
+  32 MiB encoded-result/retained-ArrayBuffer memory gate.
+- `for probe_run in 1 2 3; do npm run memory:probe --silent; done` — exit 0;
+  three local configured-ceiling diagnostics.
 - `npm run build` — dry run only; no deployment.
 - `npm run startup` — local profile only.

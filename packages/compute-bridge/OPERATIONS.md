@@ -92,7 +92,9 @@ only. It does not create a Worker or contact a warehouse.
 
 Run `npm run memory:probe` after Arrow, adapter, or Node upgrades. It exercises
 the production Databricks chunk assembler and Snowflake JSONv2 encoder with
-bounded synthetic inputs. Its retained-memory snapshots help detect local
+bounded synthetic inputs. The default probe targets encoded output at the full
+32 MiB configured result ceiling; `BRIDGE_MEMORY_PROBE_BYTES` accepts 1–32 MiB
+for focused diagnostics. Its retained-memory snapshots help detect local
 allocation regressions. They do not replace the deployed staging memory gate;
 Node and Workers have different allocators and runtime limits.
 

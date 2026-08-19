@@ -1,8 +1,9 @@
 import { tableFromArrays, tableFromIPC, tableToIPC } from 'apache-arrow';
 import { ApacheArrowChunkAssembler, ApacheArrowJsonV2Encoder } from '../src/arrow.ts';
 
-const DEFAULT_TARGET_BYTES = 8 * 1024 * 1024;
+const MIN_TARGET_BYTES = 1024 * 1024;
 const MAX_TARGET_BYTES = 32 * 1024 * 1024;
+const DEFAULT_TARGET_BYTES = MAX_TARGET_BYTES;
 
 const targetBytes = positiveInteger(
   process.env.BRIDGE_MEMORY_PROBE_BYTES,
@@ -12,15 +13,17 @@ const targetBytes = positiveInteger(
 
 const result = {
   probe: 'naklidata-compute-bridge-memory',
-  version: 1,
+  version: 2,
   runtime: process.version,
   targetBytes,
+  targetKind: 'encoded-result-ceiling',
   databricks: await probeDatabricks(targetBytes),
   snowflake: await probeSnowflake(targetBytes),
   caveat:
     'Node retained-memory snapshots are diagnostic only; deployed Cloudflare peak heap remains required.',
 };
 
+assertResultCeiling(result.databricks, result.snowflake, targetBytes);
 assertRetainedBuffers(result.databricks, result.snowflake);
 process.stdout.write(`${JSON.stringify(result)}\n`);
 
@@ -28,7 +31,11 @@ async function probeDatabricks(target) {
   collect();
   const baseline = memory();
   const chunkCount = 4;
-  const rowsPerChunk = Math.ceil(target / (chunkCount * Int32Array.BYTES_PER_ELEMENT));
+  const framingBudget = Math.min(64 * 1024, Math.floor(target / 10));
+  const rowsPerChunk = Math.max(
+    1,
+    Math.floor((target - framingBudget) / (chunkCount * Int32Array.BYTES_PER_ELEMENT)),
+  );
   const chunks = [];
   let rowOffset = 0;
   for (let index = 0; index < chunkCount; index++) {
@@ -57,7 +64,10 @@ async function probeSnowflake(target) {
   collect();
   const baseline = memory();
   const payload = 'x'.repeat(63);
-  const rowCount = Math.ceil(target / (payload.length + 8));
+  // Arrow retains two UTF-8 offset entries plus validity and stream framing.
+  // Eighty bytes per row keeps the encoded result close to, but below, the
+  // configured ceiling for both the default probe and the 1 MiB lower bound.
+  const rowCount = Math.max(1, Math.floor(target / 80));
   const rows = Array.from({ length: rowCount }, (_, index) => [String(index), payload]);
   collect();
   const input = memory();
@@ -73,11 +83,25 @@ async function probeSnowflake(target) {
   const assembled = memory();
   if (parsedRows !== rowCount) throw new Error('Snowflake memory probe row count mismatch.');
   return summary(baseline, input, assembled, {
-    inputBytesEstimate: rowCount * (payload.length + 8),
+    inputTextBytes: rows.reduce(
+      (sum, row) => sum + (row[0]?.length ?? 0) + (row[1]?.length ?? 0),
+      0,
+    ),
     outputBytes: output.byteLength,
     rowCount: parsedRows,
     columnCount: 2,
   });
+}
+
+function assertResultCeiling(databricks, snowflake, target) {
+  for (const [adapter, result] of Object.entries({ databricks, snowflake })) {
+    if (result.outputBytes > target) {
+      throw new Error(`${adapter} output exceeds the configured result ceiling.`);
+    }
+    if (target >= 1024 * 1024 && result.outputBytes < Math.floor(target * 0.85)) {
+      throw new Error(`${adapter} output does not exercise enough of the result ceiling.`);
+    }
+  }
 }
 
 function summary(baseline, input, assembled, resultShape) {
@@ -128,8 +152,8 @@ function positiveInteger(value, fallback, maximum) {
   if (value === undefined) return fallback;
   if (!/^\d+$/.test(value)) throw new Error('BRIDGE_MEMORY_PROBE_BYTES must be an integer.');
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1024 || parsed > maximum) {
-    throw new Error(`BRIDGE_MEMORY_PROBE_BYTES must be from 1024 to ${maximum}.`);
+  if (!Number.isSafeInteger(parsed) || parsed < MIN_TARGET_BYTES || parsed > maximum) {
+    throw new Error(`BRIDGE_MEMORY_PROBE_BYTES must be from ${MIN_TARGET_BYTES} to ${maximum}.`);
   }
   return parsed;
 }
